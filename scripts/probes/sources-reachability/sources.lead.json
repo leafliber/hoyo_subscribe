@@ -1,0 +1,38 @@
+{
+  "schema_version": 1,
+  "note": "P0-01 只探测以下线索 URL 的可达性。这不是来源注册表：来源注册项（source_id / approved_hosts / verified_publishers / cursor / poll_policy 等）由 P0-02 用真实样本登记。verification_state=lead-unverified 表示 URL/主机来自主方案 §3.1 的原稿线索，本轮未经核验，不得据此当作官方结论。",
+  "sources": [
+    {
+      "id": "miyoushe-news",
+      "label": "米游社官方资讯",
+      "url": "https://bbs-api.mihoyo.com/post/wapi/getNewsList?gids=2&page_size=5&page=1",
+      "host": "bbs-api.mihoyo.com",
+      "contract_ref": "主方案 §3.1：post/wapi/getNewsList；生产主机与官方发布者身份另行核验",
+      "verification_state": "lead-unverified"
+    },
+    {
+      "id": "genshin-ann",
+      "label": "原神公告",
+      "url": "https://hk4e-ann-api.mihoyo.com/common/hk4e_cn/announcement/api/getAnnList?page=1&page_size=5&game=hk4e_cn&lang=zh-cn",
+      "host": "hk4e-ann-api.mihoyo.com",
+      "contract_ref": "主方案 §3.1：hk4e-ann-api.mihoyo.com/common/hk4e_cn/announcement/api/",
+      "verification_state": "lead-unverified"
+    },
+    {
+      "id": "hsr-ann",
+      "label": "星铁公告",
+      "url": "https://hkrpg-ann-api.mihoyo.com/common/hkrpg_cn/announcement/api/getAnnList?page=1&page_size=5&game=hkrpg_cn&lang=zh-cn",
+      "host": "hkrpg-ann-api.mihoyo.com",
+      "contract_ref": "主方案 §3.1：hkrpg-ann-api.mihoyo.com/common/hkrpg_cn/announcement/api/",
+      "verification_state": "lead-unverified"
+    },
+    {
+      "id": "zzz-ann",
+      "label": "绝区零公告",
+      "url": "https://announcement-api.mihoyo.com/common/nap_cn/announcement/api/getAnnList?page=1&page_size=5&game=nap_cn&lang=zh-cn",
+      "host": "announcement-api.mihoyo.com",
+      "contract_ref": "主方案 §3.1：announcement-api.mihoyo.com/common/nap_cn/announcement/api/",
+      "verification_state": "lead-unverified"
+    }
+  ]
+}

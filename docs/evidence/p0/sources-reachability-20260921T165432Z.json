@@ -1,0 +1,215 @@
+{
+  "probe": "sources-reachability",
+  "schema_version": 1,
+  "generated_at_utc": "2026-09-21T16:54:32.487Z",
+  "run_environment": {
+    "type": "local-node",
+    "label": "local",
+    "node": "v26.8.1",
+    "platform": "darwin/arm64",
+    "user_agent_sent": "见 lib/guard-core.mjs PROBE_USER_AGENT（诚实探针 UA，无浏览器伪装）",
+    "evidence_grading": "本机网络观测（E2 类），不是目标 Cloudflare 环境证据；G-P0 放行需 worker 模式在目标环境的运行结果"
+  },
+  "results": {
+    "sources": [
+      {
+        "id": "miyoushe-news",
+        "label": "米游社官方资讯",
+        "url": "https://bbs-api.mihoyo.com/post/wapi/getNewsList?gids=2&page_size=5&page=1",
+        "host": "bbs-api.mihoyo.com",
+        "lead": {
+          "verification_state": "lead-unverified",
+          "contract_ref": "主方案 §3.1：post/wapi/getNewsList；生产主机与官方发布者身份另行核验"
+        },
+        "elapsed_ms": 422,
+        "error": null,
+        "http": {
+          "status": 404,
+          "status_text": "Not Found",
+          "redirect_status": null,
+          "followed_redirect": false,
+          "headers": {
+            "content_type": "text/plain; charset=utf-8",
+            "content_length": "19",
+            "location": null,
+            "www_authenticate": null,
+            "cf_mitigated": null,
+            "cf_ray": null,
+            "server": null,
+            "retry_after": null
+          }
+        },
+        "body": {
+          "bytes_read": 19,
+          "truncated": false,
+          "sha256": "b16e15764b8bc06c5c3f9f19bc8b99fa48e7894aa5a6ccdad65da49bbf564793",
+          "json_parse_ok": false,
+          "json_top_level_keys": null,
+          "json_envelope_scalars": {}
+        },
+        "restriction": {
+          "restricted": false,
+          "signals": []
+        },
+        "outcome": "http_error_status"
+      },
+      {
+        "id": "genshin-ann",
+        "label": "原神公告",
+        "url": "https://hk4e-ann-api.mihoyo.com/common/hk4e_cn/announcement/api/getAnnList?page=1&page_size=5&game=hk4e_cn&lang=zh-cn",
+        "host": "hk4e-ann-api.mihoyo.com",
+        "lead": {
+          "verification_state": "lead-unverified",
+          "contract_ref": "主方案 §3.1：hk4e-ann-api.mihoyo.com/common/hk4e_cn/announcement/api/"
+        },
+        "elapsed_ms": 118,
+        "error": null,
+        "http": {
+          "status": 200,
+          "status_text": "",
+          "redirect_status": null,
+          "followed_redirect": false,
+          "headers": {
+            "content_type": "application/json",
+            "content_length": "60",
+            "location": null,
+            "www_authenticate": null,
+            "cf_mitigated": null,
+            "cf_ray": null,
+            "server": "Tengine",
+            "retry_after": null
+          }
+        },
+        "body": {
+          "bytes_read": 60,
+          "truncated": false,
+          "sha256": "fa8356c060c3d2dc6e4cad8b76a3b4894c29e0676ce6f4a1be555ae703e9bfb7",
+          "json_parse_ok": true,
+          "json_top_level_keys": [
+            "data",
+            "message",
+            "retcode"
+          ],
+          "json_envelope_scalars": {
+            "message": "提交参数有误",
+            "retcode": -1003
+          }
+        },
+        "restriction": {
+          "restricted": false,
+          "signals": []
+        },
+        "outcome": "reached"
+      },
+      {
+        "id": "hsr-ann",
+        "label": "星铁公告",
+        "url": "https://hkrpg-ann-api.mihoyo.com/common/hkrpg_cn/announcement/api/getAnnList?page=1&page_size=5&game=hkrpg_cn&lang=zh-cn",
+        "host": "hkrpg-ann-api.mihoyo.com",
+        "lead": {
+          "verification_state": "lead-unverified",
+          "contract_ref": "主方案 §3.1：hkrpg-ann-api.mihoyo.com/common/hkrpg_cn/announcement/api/"
+        },
+        "elapsed_ms": 273,
+        "error": null,
+        "http": {
+          "status": 200,
+          "status_text": "",
+          "redirect_status": null,
+          "followed_redirect": false,
+          "headers": {
+            "content_type": "application/json",
+            "content_length": "60",
+            "location": null,
+            "www_authenticate": null,
+            "cf_mitigated": null,
+            "cf_ray": null,
+            "server": "Tengine",
+            "retry_after": null
+          }
+        },
+        "body": {
+          "bytes_read": 60,
+          "truncated": false,
+          "sha256": "fa8356c060c3d2dc6e4cad8b76a3b4894c29e0676ce6f4a1be555ae703e9bfb7",
+          "json_parse_ok": true,
+          "json_top_level_keys": [
+            "data",
+            "message",
+            "retcode"
+          ],
+          "json_envelope_scalars": {
+            "message": "提交参数有误",
+            "retcode": -1003
+          }
+        },
+        "restriction": {
+          "restricted": false,
+          "signals": []
+        },
+        "outcome": "reached"
+      },
+      {
+        "id": "zzz-ann",
+        "label": "绝区零公告",
+        "url": "https://announcement-api.mihoyo.com/common/nap_cn/announcement/api/getAnnList?page=1&page_size=5&game=nap_cn&lang=zh-cn",
+        "host": "announcement-api.mihoyo.com",
+        "lead": {
+          "verification_state": "lead-unverified",
+          "contract_ref": "主方案 §3.1：announcement-api.mihoyo.com/common/nap_cn/announcement/api/"
+        },
+        "elapsed_ms": 98,
+        "error": null,
+        "http": {
+          "status": 200,
+          "status_text": "OK",
+          "redirect_status": null,
+          "followed_redirect": false,
+          "headers": {
+            "content_type": "application/json",
+            "content_length": "60",
+            "location": null,
+            "www_authenticate": null,
+            "cf_mitigated": null,
+            "cf_ray": null,
+            "server": "Tengine",
+            "retry_after": null
+          }
+        },
+        "body": {
+          "bytes_read": 60,
+          "truncated": false,
+          "sha256": "fa8356c060c3d2dc6e4cad8b76a3b4894c29e0676ce6f4a1be555ae703e9bfb7",
+          "json_parse_ok": true,
+          "json_top_level_keys": [
+            "data",
+            "message",
+            "retcode"
+          ],
+          "json_envelope_scalars": {
+            "message": "提交参数有误",
+            "retcode": -1003
+          }
+        },
+        "restriction": {
+          "restricted": false,
+          "signals": []
+        },
+        "outcome": "reached"
+      }
+    ],
+    "summary": {
+      "total": 4,
+      "reached": 3,
+      "restriction_signal": 0,
+      "http_error_status": 1,
+      "network_error": 0,
+      "guard_error": 0
+    }
+  },
+  "notes": [
+    "每来源仅一次 GET，不重试；出现受限信号即放弃该来源并记录（主方案 §3.1）。",
+    "URL 为 §3.1 线索（verification_state=lead-unverified），正式来源注册在 P0-02。",
+    "证据不含完整响应正文，仅大小、hash、顶层信封与结构键名。"
+  ]
+}

@@ -1,0 +1,9 @@
+{
+  "synthetic": true,
+  "sample_id": "p0-model-echo-fixed-sample-001",
+  "description": "P0-01 模型探针的固定合成样本：仅用于确认目标部署返回哪些 usage/计费字段；文本为虚构，不含任何官方公告内容，不含任何用户数据。",
+  "task": "extract_events_from_text",
+  "prompt": "以下是一段合成的游戏公告文本（虚构内容）。请以 JSON 数组列出其中的活动名称、开始时间与结束时间，数组可为空。\n\n合成公告：『「星海演习」限时活动将于 2026-10-01 10:00 开启，并于 2026-10-08 04:00 结束；10-05 05:00 将开启第二阶段。』",
+  "expected_output_shape": "JSON array of {name, start, end}",
+  "max_tokens_hint": 512
+}
