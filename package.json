@@ -1,0 +1,20 @@
+{
+  "name": "hoyo-subscribe",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@11.11.0",
+  "scripts": {
+    "lint": "biome check .",
+    "typecheck": "pnpm -r --if-present run typecheck",
+    "test": "pnpm -r --if-present run test",
+    "test:contracts": "node scripts/unimplemented.js \"test:contracts：packages/contracts 纯函数测试，由 P1-02 交付\"",
+    "test:worker": "pnpm --filter @hoyo/worker run test",
+    "test:e2e": "node scripts/unimplemented.js \"test:e2e：Playwright 端到端测试，由 F 轮交付\"",
+    "migrate:check": "node scripts/unimplemented.js \"migrate:check：迁移重放与索引检查，由 P1-04 交付\"",
+    "params:verify": "node scripts/unimplemented.js \"params:verify：附录 A.5 等式校验，由 P1-03 交付\"",
+    "build": "pnpm -r --if-present run build"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "2.5.14"
+  }
+}

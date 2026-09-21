@@ -1,0 +1,43 @@
+// P1-01 占位部署配置（任务卡 P1-01）。
+// 所有绑定均为占位值，不指向任何生产资源；真实资源名与 ID 由所有者在部署时创建并替换。
+// 开发/预览环境不连接生产用户发送链（主方案 §10.5）。
+// 注意：修改绑定后运行 pnpm --filter @hoyo/worker run types 重新生成 worker-configuration.d.ts。
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "hoyo-subscribe-worker",
+  "main": "src/index.ts",
+  // compatibility_date 与 Wrangler 版本一起固定，不随手升级（ENGINEERING.md §2）。
+  // 上限受 @cloudflare/vitest-pool-workers 内置 workerd（1.20260815，支持至 2026-08-22）约束，
+  // 升级测试运行时时一并评估此日期。
+  "compatibility_date": "2026-08-01",
+
+  // D1：正式状态源（主方案 §2.1）。database_id 为占位 UUID，非真实资源。
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "hoyo-subscribe-db",
+      "database_id": "00000000-0000-0000-0000-000000000000",
+      "migrations_dir": "../../migrations"
+    }
+  ],
+
+  // 两个固定 SQLite-backed DO：PipelineDO/main 与 DeliveryDO/main（主方案 §2.1）。
+  // 不按账号或文章创建 DO；类实现见 src/executors/。
+  "durable_objects": {
+    "bindings": [
+      { "name": "PIPELINE_DO", "class_name": "PipelineDO" },
+      { "name": "DELIVERY_DO", "class_name": "DeliveryDO" }
+    ]
+  },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["PipelineDO", "DeliveryDO"] }],
+
+  // Queue：仅承接邮件反馈，不保存数月后的提醒（主方案 §2.1）。队列为占位名，非生产资源。
+  "queues": {
+    "producers": [{ "binding": "MAIL_FEEDBACK_QUEUE", "queue": "mail-feedback" }],
+    "consumers": [{ "queue": "mail-feedback" }]
+  },
+
+  // 原生 send_email 是唯一首版发送路径；认证与业务使用不同发件子域（主方案 §2.2）。
+  // 绑定为占位，不指向生产发送链。
+  "send_email": [{ "name": "AUTH_MAILER" }, { "name": "BIZ_MAILER" }]
+}

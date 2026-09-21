@@ -1,0 +1,20 @@
+# 依赖与构建产物
+node_modules/
+dist/
+coverage/
+
+# Wrangler 本地状态与本地秘密（秘密一律经 Wrangler secret 注入，不入仓库）
+.wrangler/
+.dev.vars
+.dev.vars.*
+
+# 环境变量文件
+.env
+.env.*
+
+# 系统杂项
+.DS_Store
+Thumbs.db
+
+# 日志
+*.log

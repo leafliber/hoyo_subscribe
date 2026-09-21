@@ -1,0 +1,5 @@
+{
+  "name": "@hoyo/web",
+  "private": true,
+  "type": "module"
+}
