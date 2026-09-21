@@ -1,0 +1,509 @@
+{
+  "schema_version": 1,
+  "generated_at_utc": "2026-09-21T17:41:54.846Z",
+  "source_id": "genshin-ann",
+  "list_observation": {
+    "page_size": 20,
+    "per_page_counts": [
+      {
+        "page": 1,
+        "count": 41
+      }
+    ],
+    "api_total_first_page": 41,
+    "timezone": 8,
+    "t": "1790033720_c08c6efddfe3899a6e29332494f931ed_d41d8cd98f00b204e9800998ecf8427e",
+    "alert": false,
+    "alert_id": 0,
+    "type_labels": [
+      "游戏公告",
+      "活动公告",
+      "千星奇域"
+    ],
+    "boundary": {
+      "page": 2,
+      "observation": "page=2 返回与 page=1 同构全集（count=41）；服务端忽略分页参数，无空页边界",
+      "artifact": "list-page-2-duplicate.json"
+    }
+  },
+  "contents": [
+    {
+      "ann_id": 21928,
+      "kind": "maintenance",
+      "title": "7.1版本更新维护预告",
+      "list_start_time": "2026-09-21 11:10:00",
+      "list_end_time": "2026-09-23 06:00:00",
+      "list_tag_start_time": "2000-01-02 15:04:05",
+      "content_start_time": null,
+      "content_time_timezone": 8,
+      "extracted_event_time_ranges": [],
+      "image_date_analysis": {
+        "image_count": 1,
+        "text_length": 476,
+        "has_full_date_range": false,
+        "has_any_date": true,
+        "date_likely_in_image": false
+      },
+      "content_text_bytes": 1190,
+      "absolute_datetimes": [
+        "2026/09/23 06:00",
+        "2026/09/23 06:00",
+        "2026/09/23 06:00",
+        "2026/09/23 07:00"
+      ],
+      "date_only": [],
+      "relative_start_ranges": []
+    },
+    {
+      "ann_id": 21904,
+      "kind": "event",
+      "title": "米游社原神区「每日签到」有奖活动开启 ",
+      "list_start_time": "2026-09-01 12:00:01",
+      "list_end_time": "2026-10-01 12:00:00",
+      "list_tag_start_time": "2000-01-02 15:04:05",
+      "content_start_time": null,
+      "content_time_timezone": 8,
+      "extracted_event_time_ranges": [],
+      "image_date_analysis": {
+        "image_count": 0,
+        "text_length": 127,
+        "has_full_date_range": false,
+        "has_any_date": false,
+        "date_likely_in_image": false
+      },
+      "content_text_bytes": 345,
+      "absolute_datetimes": [],
+      "date_only": [],
+      "relative_start_ranges": []
+    },
+    {
+      "ann_id": 21876,
+      "kind": "gacha",
+      "title": "「煦风欢舞时」祈愿：「雪宴之锋·薇斯纳(风)」概率UP！",
+      "list_start_time": "2026-09-21 12:00:00",
+      "list_end_time": "2026-10-13 17:59:00",
+      "list_tag_start_time": "2000-01-02 15:04:05",
+      "content_start_time": null,
+      "content_time_timezone": 8,
+      "extracted_event_time_ranges": [],
+      "image_date_analysis": {
+        "image_count": 0,
+        "text_length": 495,
+        "has_full_date_range": false,
+        "has_any_date": true,
+        "date_likely_in_image": false
+      },
+      "content_text_bytes": 1327,
+      "absolute_datetimes": [
+        "2026/10/13 17:59"
+      ],
+      "date_only": [],
+      "relative_start_ranges": [
+        {
+          "relative_start": "（5星） 概率提升角色（4星） 7.1版本更新后",
+          "end": "2026/10/13 17:59"
+        }
+      ]
+    },
+    {
+      "ann_id": 21922,
+      "kind": "misc",
+      "title": "7.1版本《原神》六周年福利速览",
+      "list_start_time": "2026-09-12 21:15:00",
+      "list_end_time": "2026-11-03 00:00:00",
+      "list_tag_start_time": "2000-01-02 15:04:05",
+      "content_start_time": null,
+      "content_time_timezone": 8,
+      "extracted_event_time_ranges": [],
+      "image_date_analysis": {
+        "image_count": 1,
+        "text_length": 0,
+        "has_full_date_range": false,
+        "has_any_date": false,
+        "date_likely_in_image": true
+      },
+      "content_text_bytes": 0,
+      "absolute_datetimes": [],
+      "date_only": [],
+      "relative_start_ranges": []
+    },
+    {
+      "ann_id": 21862,
+      "kind": "misc",
+      "title": "「至冬」现已开放！",
+      "list_start_time": "2026-08-12 07:00:00",
+      "list_end_time": "2026-09-23 06:00:00",
+      "list_tag_start_time": "2000-01-02 15:04:05",
+      "content_start_time": null,
+      "content_time_timezone": 8,
+      "extracted_event_time_ranges": [],
+      "image_date_analysis": {
+        "image_count": 6,
+        "text_length": 0,
+        "has_full_date_range": false,
+        "has_any_date": false,
+        "date_likely_in_image": true
+      },
+      "content_text_bytes": 0,
+      "absolute_datetimes": [],
+      "date_only": [],
+      "relative_start_ranges": []
+    },
+    {
+      "ann_id": 21819,
+      "kind": "misc",
+      "title": "「无神怜爱的雪国」7.0版本更新说明",
+      "list_start_time": "2026-08-12 07:00:00",
+      "list_end_time": "2026-09-23 06:00:00",
+      "list_tag_start_time": "2000-01-02 15:04:05",
+      "content_start_time": null,
+      "content_time_timezone": 8,
+      "extracted_event_time_ranges": [],
+      "image_date_analysis": {
+        "image_count": 0,
+        "text_length": 11764,
+        "has_full_date_range": false,
+        "has_any_date": true,
+        "date_likely_in_image": false
+      },
+      "content_text_bytes": 33179,
+      "absolute_datetimes": [
+        "2026/08/12 06:00",
+        "2026/08/12 06:00",
+        "2026/08/15 06:00",
+        "2026/08/12 06:00"
+      ],
+      "date_only": [
+        "8月17日",
+        "9月1日",
+        "2026年9月1日",
+        "8月16日",
+        "8月16日",
+        "9月16日",
+        "9月16日",
+        "2026/08/10"
+      ],
+      "relative_start_ranges": []
+    }
+  ],
+  "boundary": null,
+  "pinned_like_observations": [
+    {
+      "ann_id": 21928,
+      "title": "7.1版本更新维护预告",
+      "flags": {
+        "login_alert": 1
+      }
+    },
+    {
+      "ann_id": 21922,
+      "title": "7.1版本《原神》六周年福利速览",
+      "flags": {
+        "login_alert": 1
+      }
+    },
+    {
+      "ann_id": 21862,
+      "title": "「至冬」现已开放！",
+      "flags": {
+        "login_alert": 1
+      }
+    },
+    {
+      "ann_id": 21819,
+      "title": "「无神怜爱的雪国」7.0版本更新说明",
+      "flags": {
+        "login_alert": 1
+      }
+    },
+    {
+      "ann_id": 21867,
+      "title": "游戏更新修复与优化说明",
+      "flags": {
+        "login_alert": 1
+      }
+    },
+    {
+      "ann_id": 21934,
+      "title": "六周年多款周边开售 诸神盛宴玩偶登场",
+      "flags": {
+        "login_alert": 1
+      }
+    },
+    {
+      "ann_id": 21904,
+      "title": "米游社原神区「每日签到」有奖活动开启 ",
+      "flags": {
+        "login_alert": 1
+      }
+    },
+    {
+      "ann_id": 21849,
+      "title": "游戏调研",
+      "flags": {
+        "login_alert": 1
+      }
+    },
+    {
+      "ann_id": 20249,
+      "title": "《原神》官方社区内容展示页更新！分享即可获得摩拉奖励~",
+      "flags": {
+        "login_alert": 1
+      }
+    },
+    {
+      "ann_id": 3648,
+      "title": "《原神》游戏常用FAQ合集",
+      "flags": {
+        "login_alert": 1
+      }
+    },
+    {
+      "ann_id": 423,
+      "title": "《原神》玩家社区一览",
+      "flags": {
+        "login_alert": 1
+      }
+    },
+    {
+      "ann_id": 2522,
+      "title": "《原神》防沉迷系统说明",
+      "flags": {
+        "login_alert": 1
+      }
+    },
+    {
+      "ann_id": 21456,
+      "title": "千星奇域声明",
+      "flags": {
+        "login_alert": 1
+      }
+    },
+    {
+      "ann_id": 762,
+      "title": "《原神》公平运营声明",
+      "flags": {
+        "login_alert": 1
+      }
+    },
+    {
+      "ann_id": 21876,
+      "title": "「煦风欢舞时」祈愿：「雪宴之锋·薇斯纳(风)」概率UP！",
+      "flags": {
+        "login_alert": 1
+      }
+    },
+    {
+      "ann_id": 21877,
+      "title": "「涌浪叙歌」祈愿：「幽歌萦渊·沃雅妮莎(水)」概率UP！",
+      "flags": {
+        "login_alert": 1
+      }
+    },
+    {
+      "ann_id": 21878,
+      "title": "「神铸赋形」祈愿：「单手剑·蝶变」「法器·漩流颂歌」概率UP！",
+      "flags": {
+        "login_alert": 1
+      }
+    },
+    {
+      "ann_id": 21879,
+      "title": "「虹旅藏金·耀星烁熠」活动：登录领取1600原石、纠缠之缘*10等奖励",
+      "flags": {
+        "login_alert": 1
+      }
+    },
+    {
+      "ann_id": 21924,
+      "title": "「桌上剧团·冒险的前夜会」活动：自选邀请限定5星角色",
+      "flags": {
+        "login_alert": 1
+      }
+    },
+    {
+      "ann_id": 21885,
+      "title": "「巡历雪境，凝铸锋锐」活动：自选邀请「奔行世间」常驻祈愿5星角色",
+      "flags": {
+        "login_alert": 1
+      }
+    },
+    {
+      "ann_id": 21880,
+      "title": "「往冥府的安魂歌」时限内完成魔神任务，可额外获得原石、角色突破素材等奖励",
+      "flags": {
+        "login_alert": 1
+      }
+    },
+    {
+      "ann_id": 21881,
+      "title": "「风仙亦是仙，古剑通幽玄！」世界任务说明",
+      "flags": {
+        "login_alert": 1
+      }
+    },
+    {
+      "ann_id": 21882,
+      "title": "「溯流的变奏曲」世界任务说明",
+      "flags": {
+        "login_alert": 1
+      }
+    },
+    {
+      "ann_id": 21883,
+      "title": "「冒险助力礼包」第52期限时上架",
+      "flags": {
+        "login_alert": 1
+      }
+    },
+    {
+      "ann_id": 21884,
+      "title": "「溯月纪行」活动说明",
+      "flags": {
+        "login_alert": 1
+      }
+    },
+    {
+      "ann_id": 20508,
+      "title": "「七圣召唤」铸境研炼：巧策进斗",
+      "flags": {
+        "login_alert": 1
+      }
+    },
+    {
+      "ann_id": 3802,
+      "title": "《原神》首充双倍返利重置说明",
+      "flags": {
+        "login_alert": 1
+      }
+    },
+    {
+      "ann_id": 21805,
+      "title": "「孤灯夜访」祈愿：「诡灯陌影·菲林斯(雷)」概率UP！",
+      "flags": {
+        "login_alert": 1
+      }
+    },
+    {
+      "ann_id": 21806,
+      "title": "「聚星源动」祈愿：「轰隆雷鸣波·伊涅芙(雷)」概率UP！",
+      "flags": {
+        "login_alert": 1
+      }
+    },
+    {
+      "ann_id": 21808,
+      "title": "「神铸赋形」祈愿：「长柄武器·血染荒城」「长柄武器·支离轮光」概率UP！",
+      "flags": {
+        "login_alert": 1
+      }
+    },
+    {
+      "ann_id": 21847,
+      "title": "「幽境危战」活动：紊乱地脉挑战",
+      "flags": {
+        "login_alert": 1
+      }
+    },
+    {
+      "ann_id": 21809,
+      "title": "「无神怜爱的雪国」时限内完成魔神任务，可额外获得原石、角色突破素材等奖励",
+      "flags": {
+        "login_alert": 1
+      }
+    },
+    {
+      "ann_id": 21811,
+      "title": "「无神怜爱的冻土」时限内完成探索任务，可额外获得原石*400奖励",
+      "flags": {
+        "login_alert": 1
+      }
+    },
+    {
+      "ann_id": 21812,
+      "title": "「狩猎开始！」活动：推进魔神任务「无神怜爱的雪国」，邀请「疾掠弋缇·阿罗夏(雷)」",
+      "flags": {
+        "login_alert": 1
+      }
+    },
+    {
+      "ann_id": 20661,
+      "title": "「七圣召唤」铸境研炼：奕思巧战",
+      "flags": {
+        "login_alert": 1
+      }
+    },
+    {
+      "ann_id": 21761,
+      "title": "「砺行修远」：勤修馈赠",
+      "flags": {
+        "login_alert": 1
+      }
+    },
+    {
+      "ann_id": 21750,
+      "title": "「当我们抬头望月亮」时限内完成探索任务，可额外获得原石*400奖励",
+      "flags": {
+        "login_alert": 1
+      }
+    },
+    {
+      "ann_id": 21707,
+      "title": "「解探月域，琢炼宵晖」活动：新手自选邀约「奔行世间」常驻祈愿5星角色",
+      "flags": {
+        "login_alert": 1
+      }
+    },
+    {
+      "ann_id": 21897,
+      "title": "「绮星盛会」",
+      "flags": {
+        "remind": 1,
+        "login_alert": 1
+      }
+    },
+    {
+      "ann_id": 21832,
+      "title": "「幻演赛季」赛季开启公告说明",
+      "flags": {
+        "login_alert": 1
+      }
+    },
+    {
+      "ann_id": 21830,
+      "title": "「绮衣珍赏·温煦」参与获得自选奇偶装扮套装「琥色蜜酿」一套",
+      "flags": {
+        "login_alert": 1
+      }
+    }
+  ],
+  "limit_probe": {
+    "page_size": [
+      {
+        "requested_page_size": 100,
+        "returned_items": 41,
+        "api_total": 41,
+        "http_status": 200,
+        "elapsed_ms": 86
+      },
+      {
+        "requested_page_size": 1000,
+        "returned_items": 41,
+        "api_total": 41,
+        "http_status": 200,
+        "elapsed_ms": 74
+      }
+    ],
+    "max_content_bytes": 254672
+  },
+  "files": [
+    "list-page-1.json",
+    "content-21928.json",
+    "content-21904.json",
+    "content-21876.json",
+    "content-21922.json",
+    "content-21862.json",
+    "content-21819.json",
+    "list-page-2-duplicate.json"
+  ]
+}

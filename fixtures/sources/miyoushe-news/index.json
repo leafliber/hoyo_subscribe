@@ -1,0 +1,67 @@
+{
+  "schema_version": 1,
+  "generated_at_utc": "2026-09-21T17:43:50.431Z",
+  "source_id": "miyoushe-news",
+  "list_observation": {
+    "type1": {
+      "returned_items": 20,
+      "last_id": "20",
+      "is_last": false,
+      "pinned_items": [],
+      "uid_values": [
+        "0"
+      ]
+    },
+    "type2": {
+      "returned_items": 20,
+      "last_id": "20",
+      "is_last": false,
+      "pinned_items": [],
+      "uid_values": [
+        "0"
+      ]
+    },
+    "type3": {
+      "returned_items": 20,
+      "last_id": "20",
+      "is_last": false,
+      "pinned_items": [],
+      "uid_values": [
+        "0"
+      ]
+    }
+  },
+  "contents": [
+    {
+      "outcome": "access-restricted-403",
+      "detail": "正文接口 getPostFull 被访问控制拦截（403），正文样本未取得；列表通道正常"
+    }
+  ],
+  "boundary": null,
+  "boundary_note": "未在 3 页内到达 is_last（边界未取得，只观察到游标可前进）",
+  "limit_probe": {
+    "page_size": [
+      {
+        "requested_page_size": 100,
+        "returned_items": 20,
+        "http_status": 200,
+        "elapsed_ms": 17
+      },
+      {
+        "requested_page_size": 1000,
+        "returned_items": 20,
+        "http_status": 200,
+        "elapsed_ms": 19
+      }
+    ]
+  },
+  "files": [
+    "news-list-type1-page1.json",
+    "news-list-type2-page1.json",
+    "news-list-type3-page1.json",
+    "news-list-type1-page2.json",
+    "news-list-type1-page3.json",
+    "news-list-type1-page4.json",
+    "content-blocked-78299710.json"
+  ]
+}

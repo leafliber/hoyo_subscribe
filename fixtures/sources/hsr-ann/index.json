@@ -1,0 +1,321 @@
+{
+  "schema_version": 1,
+  "generated_at_utc": "2026-09-21T17:41:54.847Z",
+  "source_id": "hsr-ann",
+  "list_observation": {
+    "page_size": 20,
+    "per_page_counts": [
+      {
+        "page": 1,
+        "count": 14
+      }
+    ],
+    "api_total_first_page": 14,
+    "timezone": 8,
+    "t": "1790019567_98a4a10f0b0612ee0362920052312624_ca0ec371c85602ed24cd8f0b8df4a03a",
+    "alert": false,
+    "alert_id": 0,
+    "type_labels": [
+      "公告"
+    ],
+    "boundary": {
+      "page": 2,
+      "observation": "page=2 返回与 page=1 同构全集（count=14）；服务端忽略分页参数，无空页边界",
+      "artifact": "list-page-2-duplicate.json"
+    }
+  },
+  "contents": [
+    {
+      "ann_id": 1430,
+      "kind": "maintenance",
+      "title": "4.5版本「挥掷千星的筹码」满意度调研问卷",
+      "list_start_time": "2026-09-19 12:00:00",
+      "list_end_time": "2026-09-22 23:59:00",
+      "list_tag_start_time": "2000-01-02 15:04:05",
+      "content_start_time": null,
+      "content_time_timezone": 8,
+      "extracted_event_time_ranges": [],
+      "image_date_analysis": {
+        "image_count": 0,
+        "text_length": 163,
+        "has_full_date_range": false,
+        "has_any_date": false,
+        "date_likely_in_image": false
+      },
+      "content_text_bytes": 455,
+      "absolute_datetimes": [],
+      "date_only": [],
+      "relative_start_ranges": []
+    },
+    {
+      "ann_id": 1392,
+      "kind": "event",
+      "title": "「异器盈界」活动：隧洞遗器限时双倍掉落",
+      "list_start_time": "2026-09-17 12:00:00",
+      "list_end_time": "2026-09-28 03:59:00",
+      "list_tag_start_time": "2000-01-02 15:04:05",
+      "content_start_time": null,
+      "content_time_timezone": 8,
+      "extracted_event_time_ranges": [
+        {
+          "start": "2026/09/19 04:00:00",
+          "end": "2026/09/28 03:59:00",
+          "end_has_time": true
+        }
+      ],
+      "image_date_analysis": {
+        "image_count": 0,
+        "text_length": 217,
+        "has_full_date_range": true,
+        "has_any_date": true,
+        "date_likely_in_image": false
+      },
+      "content_text_bytes": 545,
+      "absolute_datetimes": [
+        "2026/09/19 04:00:00",
+        "2026/09/28 03:59:00"
+      ],
+      "date_only": [],
+      "relative_start_ranges": []
+    },
+    {
+      "ann_id": 1411,
+      "kind": "gacha",
+      "title": "跃迁记录统计上线！前往小程序，查看专属跃迁档案",
+      "list_start_time": "2026-08-26 14:00:00",
+      "list_end_time": "2036-08-26 14:00:00",
+      "list_tag_start_time": "2000-01-02 15:04:05",
+      "content_start_time": null,
+      "content_time_timezone": 8,
+      "extracted_event_time_ranges": [],
+      "image_date_analysis": {
+        "image_count": 1,
+        "text_length": 762,
+        "has_full_date_range": false,
+        "has_any_date": false,
+        "date_likely_in_image": false
+      },
+      "content_text_bytes": 2138,
+      "absolute_datetimes": [],
+      "date_only": [],
+      "relative_start_ranges": []
+    },
+    {
+      "ann_id": 1195,
+      "kind": "notice",
+      "title": "「有奖问卷」完成问卷可获得50星琼~",
+      "list_start_time": "2026-02-14 15:00:00",
+      "list_end_time": "2038-01-01 07:00:00",
+      "list_tag_start_time": "2000-01-02 15:04:05",
+      "content_start_time": null,
+      "content_time_timezone": 8,
+      "extracted_event_time_ranges": [],
+      "image_date_analysis": {
+        "image_count": 0,
+        "text_length": 133,
+        "has_full_date_range": false,
+        "has_any_date": false,
+        "date_likely_in_image": false
+      },
+      "content_text_bytes": 377,
+      "absolute_datetimes": [],
+      "date_only": [],
+      "relative_start_ranges": []
+    },
+    {
+      "ann_id": 1429,
+      "kind": "misc",
+      "title": "周边上新 手办服饰多款新品登场",
+      "list_start_time": "2026-09-16 18:00:00",
+      "list_end_time": "2026-09-22 18:00:00",
+      "list_tag_start_time": "2000-01-02 15:04:05",
+      "content_start_time": null,
+      "content_time_timezone": 8,
+      "extracted_event_time_ranges": [
+        {
+          "start": "2026/09/16 20:00",
+          "end": "2026/09/30 23:59",
+          "end_has_time": true
+        }
+      ],
+      "image_date_analysis": {
+        "image_count": 3,
+        "text_length": 1245,
+        "has_full_date_range": true,
+        "has_any_date": true,
+        "date_likely_in_image": false
+      },
+      "content_text_bytes": 3201,
+      "absolute_datetimes": [
+        "2026/09/16 20:00",
+        "2026/09/30 23:59",
+        "2026/09/16 19:00",
+        "2026/09/16 19:30"
+      ],
+      "date_only": [],
+      "relative_start_ranges": []
+    },
+    {
+      "ann_id": 1420,
+      "kind": "misc",
+      "title": "4.5版本游戏优化及已知问题说明",
+      "list_start_time": "2026-08-26 00:00:00",
+      "list_end_time": "2026-09-28 06:00:00",
+      "list_tag_start_time": "2000-01-02 15:04:05",
+      "content_start_time": null,
+      "content_time_timezone": 8,
+      "extracted_event_time_ranges": [],
+      "image_date_analysis": {
+        "image_count": 0,
+        "text_length": 785,
+        "has_full_date_range": false,
+        "has_any_date": true,
+        "date_likely_in_image": false
+      },
+      "content_text_bytes": 2107,
+      "absolute_datetimes": [],
+      "date_only": [
+        "2026/09/15",
+        "2026/09/16",
+        "2026/09/13",
+        "2026/09/09",
+        "2026/09/02",
+        "2026/08/28",
+        "2026/08/27",
+        "2026/08/26"
+      ],
+      "relative_start_ranges": []
+    }
+  ],
+  "boundary": null,
+  "pinned_like_observations": [
+    {
+      "ann_id": 1430,
+      "title": "4.5版本「挥掷千星的筹码」满意度调研问卷",
+      "flags": {
+        "remind": 1,
+        "login_alert": 1
+      }
+    },
+    {
+      "ann_id": 1429,
+      "title": "周边上新 手办服饰多款新品登场",
+      "flags": {
+        "login_alert": 1
+      }
+    },
+    {
+      "ann_id": 1392,
+      "title": "「异器盈界」活动：隧洞遗器限时双倍掉落",
+      "flags": {
+        "login_alert": 1
+      }
+    },
+    {
+      "ann_id": 1420,
+      "title": "4.5版本游戏优化及已知问题说明",
+      "flags": {
+        "login_alert": 1
+      }
+    },
+    {
+      "ann_id": 1414,
+      "title": "4.5版本「挥掷千星的筹码」版本更新说明",
+      "flags": {
+        "login_alert": 1
+      }
+    },
+    {
+      "ann_id": 1411,
+      "title": "跃迁记录统计上线！前往小程序，查看专属跃迁档案",
+      "flags": {
+        "login_alert": 1
+      }
+    },
+    {
+      "ann_id": 1383,
+      "title": "「亏成首富，从不要钱开始」开拓续闻说明",
+      "flags": {
+        "login_alert": 1
+      }
+    },
+    {
+      "ann_id": 1384,
+      "title": "「挥掷千星的筹码」开拓任务说明",
+      "flags": {
+        "login_alert": 1
+      }
+    },
+    {
+      "ann_id": 1399,
+      "title": "4.5版本「无名勋礼」更新",
+      "flags": {
+        "login_alert": 1
+      }
+    },
+    {
+      "ann_id": 1360,
+      "title": "4.5版本商店上新",
+      "flags": {
+        "login_alert": 1
+      }
+    },
+    {
+      "ann_id": 1195,
+      "title": "「有奖问卷」完成问卷可获得50星琼~",
+      "flags": {
+        "login_alert": 1
+      }
+    },
+    {
+      "ann_id": 203,
+      "title": "《崩坏：星穹铁道》社媒聚合页上线",
+      "flags": {
+        "login_alert": 1
+      }
+    },
+    {
+      "ann_id": 187,
+      "title": "《崩坏：星穹铁道》防沉迷系统公告",
+      "flags": {
+        "login_alert": 1
+      }
+    },
+    {
+      "ann_id": 185,
+      "title": "《崩坏：星穹铁道》公平运营声明",
+      "flags": {
+        "login_alert": 1
+      }
+    }
+  ],
+  "limit_probe": {
+    "page_size": [
+      {
+        "requested_page_size": 100,
+        "returned_items": 14,
+        "api_total": 14,
+        "http_status": 200,
+        "elapsed_ms": 64
+      },
+      {
+        "requested_page_size": 1000,
+        "returned_items": 14,
+        "api_total": 14,
+        "http_status": 200,
+        "elapsed_ms": 81
+      }
+    ],
+    "max_content_bytes": 195598
+  },
+  "files": [
+    "list-page-1.json",
+    "content-1430.json",
+    "content-1392.json",
+    "content-1411.json",
+    "content-1195.json",
+    "content-1429.json",
+    "content-1420.json",
+    "list-page-2-duplicate.json"
+  ]
+}
