@@ -5,6 +5,8 @@
 // （消息逐条指明是哪一条），Worker 实例化失败即**拒绝启动**——与 `pnpm params:verify`
 // 共用同一个函数，不存在第二套校验。
 import { verifyParams } from "@hoyo/contracts";
+import { statusRoute } from "./accounts/admission/status";
+import { makePreauthInitRoute } from "./auth/preauth/routes";
 import { applySecurityHeaders } from "./shell/headers";
 import { createApiShell } from "./shell/router";
 import { fromHex } from "./storage/crypto/bytes";
@@ -61,7 +63,7 @@ function requireHexSecret(env: Env & ShellSecrets, name: keyof ShellSecrets): Ui
   return bytes;
 }
 
-/** 外壳骨架：无业务路由（P2 挂载）、无 Feed handler（P2/P3 挂载）。 */
+/** 外壳：P2-01 挂载预认证初始化与全局状态（申请端点 /api/v2/auth/challenges 属 P2-02）。 */
 type Shell = ReturnType<typeof createApiShell>;
 
 const shellByEnv = new WeakMap<Env, Shell>();
@@ -70,7 +72,7 @@ function getShell(env: Env): Shell {
   let shell = shellByEnv.get(env);
   if (shell === undefined) {
     shell = createApiShell({
-      // 鉴权器属 P2；骨架恒"无身份"——user/admin 域路由一律 no_session（失败关闭）。
+      // 鉴权器属 P2-04 会话卡；user/admin 域路由暂一律 no_session（失败关闭）。
       authenticator: {
         async authenticate() {
           return { kind: "none" } as const;
@@ -79,6 +81,12 @@ function getShell(env: Env): Shell {
       // 秘密未注入时 getKeyring 抛错 → 写路由折叠为 temporarily_unavailable
       // （失败关闭）；读路径与 Feed 协议校验不受影响。
       csrfKey: () => getKeyring(env as Env & ShellSecrets).then((ring) => ring.csrf()),
+      routes: [
+        // P2-01 挂载点：预认证初始化（CSRF 签发方，csrf:false 由路由自带）+ /status
+        // 全局注册开关。七步准入管线（P2-01 pipeline.ts）由 P2-02 的申请端点挂载。
+        makePreauthInitRoute({ keys: () => getKeyring(env as Env & ShellSecrets) }),
+        statusRoute,
+      ],
     });
     shellByEnv.set(env, shell);
   }

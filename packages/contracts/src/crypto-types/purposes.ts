@@ -1,14 +1,17 @@
 // 密钥用途清单与品牌类型（任务卡 P1-06；主方案 §8.3 第一句）。
 //
 // 合同原文："OTP MAC、邮箱 lookup、字段加密、退订 MAC、CSRF、VAPID、管理员与恢复 epoch
-// 用途隔离"。本文件是这八个用途的**唯一清单**：运行时枚举、TS 类型与品牌标记都从这里导出，
+// 用途隔离"。§8.3 的清单是**必须隔离**的下限，不是上限：P2-01 验收（PR #13 复核意见）
+// 增补第九个用途 preauth-cookie——预认证 Cookie 的签发/截止 MAC 与 CSRF 是不同威胁面
+// （前者认证服务端签发的状态，后者是双提交反 CSRF），隔离由域标签升级为独立派生密钥 +
+// 品牌类型。本文件是用途的**唯一清单**：运行时枚举、TS 类型与品牌标记都从这里导出，
 // 消费方（apps/worker/src/storage/crypto）不得另写第二份。
 //
 // 用途混用必须在**类型层面不可能**（任务卡 P1-06 交付物一）：PurposeTag 把用途编进
 // phantom 类型参数，运行时不存在任何对应属性——拿 OTP 的密钥句柄去调退订 MAC 是编译错误，
-// 而不是靠注释约定。八个用途的运行时操作见 worker 侧 crypto 模块；本文件只提供类型词表。
+// 而不是靠注释约定。各用途的运行时操作见 worker 侧 crypto 模块；这里只有类型词表。
 
-/** 八个密钥用途（§8.3，顺序即合同原文顺序）。 */
+/** 密钥用途（§8.3 八个 + P2-01 验收增补的 preauth-cookie；顺序即合同原文顺序，增补项居末）。 */
 export const KEY_PURPOSES = [
   "otp-mac",
   "email-lookup",
@@ -18,6 +21,7 @@ export const KEY_PURPOSES = [
   "vapid",
   "admin",
   "recovery-epoch",
+  "preauth-cookie",
 ] as const satisfies readonly string[];
 
 /** 密钥用途类型（§8.3）。 */
@@ -32,10 +36,10 @@ declare const purposeTag: unique symbol;
 /** 带用途品牌的不透明密钥句柄形状：用途混用在此处被编译器拒绝。 */
 export type PurposeTag<P extends KeyPurpose> = { readonly [purposeTag]: P };
 
-// 八个用途各自的句柄类型。实现（HKDF 派生、CryptoKey 载体）在
+// 各用途的句柄类型。实现（HKDF 派生、CryptoKey 载体）在
 // apps/worker/src/storage/crypto/keyring.ts；这里只有类型，前端也可安全 import。
 
-/** OTP MAC 密钥句柄——**独立 pepper** 派生，不与其余七用途共根（§4.3）。 */
+/** OTP MAC 密钥句柄——**独立 pepper** 派生，不与其余用途共根（§4.3）。 */
 export type OtpMacKey = PurposeTag<"otp-mac">;
 
 /** 邮箱 lookup HMAC 密钥句柄：email_key = HMAC(lookup_key, canonical_email)（§4.1）。 */
@@ -65,6 +69,13 @@ export type AdminKey = PurposeTag<"admin">;
 /** 恢复 epoch 密钥句柄：会话使用时核对 auth_epoch 与恢复 epoch（§4.5、§8.3）。 */
 export type RecoveryEpochKey = PurposeTag<"recovery-epoch">;
 
+/**
+ * 预认证 Cookie MAC 密钥句柄：`__Host-preauth` 值内签发/截止信息的键控认证（§4.3）。
+ * 与 CsrfKey 是不同威胁面（服务端签发状态认证 ≠ 双提交反 CSRF），独立派生、
+ * 类型互斥（P2-01 验收增补，PR #13）。
+ */
+export type PreauthCookieKey = PurposeTag<"preauth-cookie">;
+
 /** 全部句柄类型的映射：按 KeyPurpose 索引（供 worker 侧泛型实现与测试遍历用）。 */
 export type PurposeKeyOf = {
   readonly "otp-mac": OtpMacKey;
@@ -75,6 +86,7 @@ export type PurposeKeyOf = {
   readonly vapid: VapidKey;
   readonly admin: AdminKey;
   readonly "recovery-epoch": RecoveryEpochKey;
+  readonly "preauth-cookie": PreauthCookieKey;
 };
 
 // ---------------------------------------------------------------------------
