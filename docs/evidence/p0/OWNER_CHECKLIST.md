@@ -111,12 +111,25 @@ node scripts/probes/save-from-url.mjs model-echo "http://127.0.0.1:8793/probe?ru
 - 账户日发信权限与其他应用额度占用：dashboard → Email 用量页（不能从月包含量推导，§2.2）；
 - Workers AI 用量与 Neurons 限额：dashboard → Workers AI。
 
-## §D 真实收件人测试（P0-05 范围，此处登记入口）
+## §D 真实收件人测试（P0-05）· 材料已就绪
 
-⚠ 涉及真实发信与 DNS 配置，Agent 不执行。授权的普通收件箱（QQ/163/Gmail/Outlook 等，**非** routing
-verified destination）的发送与反馈 Queue 关联实测，按任务卡 **P0-05** 的步骤文档执行。
+⚠ 涉及真实发信与 DNS 配置，Agent 不执行。
 
-## §E 日历客户端安装与实测（P0-04 范围，此处登记入口）
+**操作手册：[EMAIL_SETUP_RUNBOOK.md](EMAIL_SETUP_RUNBOOK.md)**（平台资格 → 发件域 → 真实收件人 → 退订头/DKIM → 抑制）
+**登记表：[platform-facts.md](platform-facts.md)**（每格要么实测值，要么"未取得"，不留空）
 
-目标客户端（Apple Calendar / Google Calendar / Outlook 等）的安装、版本记录、ICS 序列实测，
-按任务卡 **P0-04** 的静态托管脚本与登记表执行；每个客户端单独一行结论，不共用"支持"表述（§10.3）。
+判定：第 1 节表格填满 + 至少两种不同邮箱服务商拿到 messageId 与 Queue 事件关联 → G-P0-MAIL 开。
+
+## §E 日历客户端实测（P0-04）· 材料已就绪，**建议最先做**
+
+```bash
+node scripts/probes/calendar-clients/serve.mjs      # 零依赖，仅监听 127.0.0.1:8800
+```
+
+**实测记录表与判定标准：[calendar-clients.md](calendar-clients.md)**（含 7 个步骤的观察点）
+请求日志自动写入 `calendar-poll-log.jsonl`——**刷新延迟从这里读真实值**。
+
+Google Calendar 由 Google 服务器拉取，需公网地址：`cloudflared tunnel --url http://127.0.0.1:8800`。
+
+每个客户端单独一行结论，不共用"支持"表述（§10.3）。
+**全部客户端失败 → 按 §6.2 停下来写 ADR 重评主通道，不得恢复个人撤销池。**
