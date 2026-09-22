@@ -88,9 +88,9 @@ MAIL_URGENT_DAY >= MAIL_SEATS_MAX + MAIL_URGENT_FLOOR
 池之间不互借。当日用尽即当日停发，次日自动恢复。
 
 降级（口径从"月剩余"改为"当日剩余"，行为不变）：
-  当日紧急池剩余 < MAIL_URGENT_FLOOR(20)
+  当日紧急池剩余 <= MAIL_URGENT_FLOOR(20)
     → 收紧为只发取消/撤回这一最高档
-  当日认证池剩余 < MAIL_AUTH_FLOOR(20)
+  当日认证池剩余 <= MAIL_AUTH_FLOOR(20)
     → 只接受既有账号的首次登录意图；暂停新注册发信与全部重发；页面标示认证降级
 ```
 

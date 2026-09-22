@@ -192,10 +192,10 @@ SEQUENCE = public_ical_revision(milestone) + view_revision(feed)
 ### 7.2 降级（口径为**当日剩余**）
 
 ```text
-当日紧急池剩余 < MAIL_URGENT_FLOOR (20)
+当日紧急池剩余 <= MAIL_URGENT_FLOOR (20)
   → 收紧为只发取消/撤回这一最高档
 
-当日认证池剩余 < MAIL_AUTH_FLOOR (20)
+当日认证池剩余 <= MAIL_AUTH_FLOOR (20)
   → 只接受既有账号的首次登录意图
   → 暂停新注册发信与全部重发
   → 页面明确标示处于认证降级
@@ -214,6 +214,11 @@ MAIL_URGENT_DAY >= MAIL_SEATS_MAX + MAIL_URGENT_FLOOR
 ```
 
 一次全量取消后当天余 20，恰好落到 floor 上自动收紧。
+
+**判定用 `<=` 而不是 `<`**：floor 是**储备**，降到储备线就该保护它，
+而不是先烧穿一封再说。取 `<` 的话上面那条等式就失去意义——
+`MAIL_URGENT_DAY = MAIL_SEATS_MAX + MAIL_URGENT_FLOOR` 的全部目的
+就是让一次全量取消之后**恰好**触发降级。两个 floor 同口径。
 
 ### 7.4 已废止（不得恢复，见 AGENTS.md 禁止清单）
 
