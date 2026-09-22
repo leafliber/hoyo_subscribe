@@ -8,27 +8,21 @@
       "last_id": "20",
       "is_last": false,
       "pinned_items": [],
-      "uid_values": [
-        "0"
-      ]
+      "uid_values": ["0"]
     },
     "type2": {
       "returned_items": 20,
       "last_id": "20",
       "is_last": false,
       "pinned_items": [],
-      "uid_values": [
-        "0"
-      ]
+      "uid_values": ["0"]
     },
     "type3": {
       "returned_items": 20,
       "last_id": "20",
       "is_last": false,
       "pinned_items": [],
-      "uid_values": [
-        "0"
-      ]
+      "uid_values": ["0"]
     }
   },
   "contents": [

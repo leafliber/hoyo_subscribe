@@ -8,7 +8,9 @@
 /** 把 params 对象编码为 query string（键序稳定，便于复现与断言）。 */
 export function encodeParams(params) {
   const entries = Object.entries(params).filter(([, v]) => v !== undefined && v !== null);
-  return entries.map(([k, v]) => `${encodeURIComponent(k)}=${encodeURIComponent(String(v))}`).join("&");
+  return entries
+    .map(([k, v]) => `${encodeURIComponent(k)}=${encodeURIComponent(String(v))}`)
+    .join("&");
 }
 
 const UTF8_ENCODER = new TextEncoder();
@@ -65,10 +67,17 @@ export function parseAnnList(bodyText) {
   }
   const data = parsed.data ?? {};
   const rawList = Array.isArray(data.list) ? data.list : [];
-  const isGrouped = rawList.length > 0 && rawList.every((g) => g !== null && typeof g === "object" && Array.isArray(g.list));
+  const isGrouped =
+    rawList.length > 0 &&
+    rawList.every((g) => g !== null && typeof g === "object" && Array.isArray(g.list));
   const groups = isGrouped
     ? rawList.map((g) => ({ type_label: g?.type_label, items: g.list }))
-    : [{ type_label: undefined, items: rawList.filter((i) => i !== null && typeof i === "object") }];
+    : [
+        {
+          type_label: undefined,
+          items: rawList.filter((i) => i !== null && typeof i === "object"),
+        },
+      ];
   return {
     ok: true,
     retcode: parsed.retcode,
@@ -196,7 +205,7 @@ export function makeSampleRecord(input) {
     body_bytes: utf8ByteLength(input.bodyText),
     body_sha256: input.bodySha256,
     redactions,
-    ...((input.extra && Object.keys(input.extra).length > 0) ? { extra: input.extra } : {}),
+    ...(input.extra && Object.keys(input.extra).length > 0 ? { extra: input.extra } : {}),
     body,
   };
 }
@@ -227,13 +236,16 @@ const DATE_RANGE_RES = [
 
 /** 相对起点区间：起点不是绝对时间（如「7.1版本更新后」），终点是绝对时间。
  *  启发式证据提取：分隔符前抓一小段文本作为相对起点，非规范化语义。 */
-const RELATIVE_START_RANGE_RE = /([^\s~～至—–-][^~～]{1,24}?)[~～]\s*(\d{4}[/年.\-]\s?\d{1,2}[/月.\-]\s?\d{1,2}日?\s*\d{1,2}:\d{2}(?::\d{2})?)(?!\s*[~～])/g;
+const RELATIVE_START_RANGE_RE =
+  /([^\s~～至—–-][^~～]{1,24}?)[~～]\s*(\d{4}[/年.-]\s?\d{1,2}[/月.-]\s?\d{1,2}日?\s*\d{1,2}:\d{2}(?::\d{2})?)(?!\s*[~～])/g;
 
 /** 绝对时间点（日期+时刻）提取，用于"列表展示时间 ≠ 活动时间"对照。 */
-const ABSOLUTE_DATETIME_RE = /\d{4}[/年.\-]\s?\d{1,2}[/月.\-]\s?\d{1,2}日?\s*\d{1,2}:\d{2}(?::\d{2})?/g;
+const ABSOLUTE_DATETIME_RE =
+  /\d{4}[/年.-]\s?\d{1,2}[/月.-]\s?\d{1,2}日?\s*\d{1,2}:\d{2}(?::\d{2})?/g;
 
 /** 纯日期（有日期无时刻）。日号后不得紧跟数字（防吞半截）或时刻；含无年份形式。 */
-const DATE_ONLY_RE = /\d{4}[/年.\-]\s?\d{1,2}[/月.\-]\s?\d{1,2}日?(?!\d)(?!\s*\d{1,2}:)|\d{1,2}月\d{1,2}日(?!\d)(?!\s*\d{1,2}:)/g;
+const DATE_ONLY_RE =
+  /\d{4}[/年.-]\s?\d{1,2}[/月.-]\s?\d{1,2}日?(?!\d)(?!\s*\d{1,2}:)|\d{1,2}月\d{1,2}日(?!\d)(?!\s*\d{1,2}:)/g;
 
 /**
  * 在文本中找日期/时间区间（证据工具：用于"列表展示时间 ≠ 活动时间"对照）。
@@ -243,12 +255,21 @@ export function findDateRanges(text) {
   const found = [];
   for (const re of DATE_RANGE_RES) {
     re.lastIndex = 0;
-    let m;
-    while ((m = re.exec(text)) !== null) {
+    let m = re.exec(text);
+    while (m !== null) {
       const [start, end] = [m[1], m[2]];
-      const crossYear = extractYear(start) !== null && extractYear(end) !== null && extractYear(start) !== extractYear(end);
+      const crossYear =
+        extractYear(start) !== null &&
+        extractYear(end) !== null &&
+        extractYear(start) !== extractYear(end);
       const endHasTime = /\d{1,2}:\d{2}/.test(end);
-      found.push({ start, end, ...(crossYear ? { cross_year: true } : {}), end_has_time: endHasTime });
+      found.push({
+        start,
+        end,
+        ...(crossYear ? { cross_year: true } : {}),
+        end_has_time: endHasTime,
+      });
+      m = re.exec(text);
     }
   }
   return found;
@@ -271,11 +292,13 @@ export function findDateOnly(text) {
 export function findRelativeStartRanges(text) {
   const found = [];
   RELATIVE_START_RANGE_RE.lastIndex = 0;
-  let m;
-  while ((m = RELATIVE_START_RANGE_RE.exec(text)) !== null) {
+  let m = RELATIVE_START_RANGE_RE.exec(text);
+  while (m !== null) {
     const start = m[1].trim();
-    if (/\d{4}[/年.\-]/.test(start)) continue;
-    found.push({ relative_start: start, end: m[2] });
+    if (!/\d{4}[/年.-]/.test(start)) {
+      found.push({ relative_start: start, end: m[2] });
+    }
+    m = RELATIVE_START_RANGE_RE.exec(text);
   }
   return found;
 }
@@ -296,7 +319,13 @@ export function isDateCarriedByImage(contentText, imageCount) {
     return re.test(text);
   });
   const hasAnyDate = /\d{1,2}月\d{1,2}日|\d{4}[/年]\d{1,2}[/月]\d{1,2}/.test(text);
-  return { image_count: imageCount, text_length: text.length, has_full_date_range: hasFullDateRange, has_any_date: hasAnyDate, date_likely_in_image: imageCount > 0 && !hasFullDateRange && text.length < 400 };
+  return {
+    image_count: imageCount,
+    text_length: text.length,
+    has_full_date_range: hasFullDateRange,
+    has_any_date: hasAnyDate,
+    date_likely_in_image: imageCount > 0 && !hasFullDateRange && text.length < 400,
+  };
 }
 
 /** 去除 HTML 标签（只做证据分析用，不做正文规范化）。

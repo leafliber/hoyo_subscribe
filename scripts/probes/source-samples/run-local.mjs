@@ -11,13 +11,8 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-
-import {
-  analyzeRestrictionSignals,
-  guardedFetch,
-  sha256Hex,
-} from "../lib/guard-core.mjs";
 import { buildEnvelope, writeEvidenceFile } from "../lib/evidence.mjs";
+import { analyzeRestrictionSignals, guardedFetch, sha256Hex } from "../lib/guard-core.mjs";
 import {
   buildAnnContentUrl,
   buildAnnListUrl,
@@ -165,11 +160,18 @@ async function captureAnnSource(source, requestLog, runStats) {
   const perPageCounts = [];
   let parsedFirst = null;
   for (; page <= MAX_WALK_PAGES; page += 1) {
-    const { obs } = await fetchOrFail(listUrl(page), source.approved_hosts, requestLog, `list-page-${page}`, LIST_TIMEOUT_MS);
+    const { obs } = await fetchOrFail(
+      listUrl(page),
+      source.approved_hosts,
+      requestLog,
+      `list-page-${page}`,
+      LIST_TIMEOUT_MS,
+    );
     latencies.push(obs.elapsed_ms);
     if (obs.error) throw new StopSource(`列表请求失败：${obs.error.kind}/${obs.error.code}`);
     const parsed = parseAnnList(obs.body.text);
-    if (!parsed.ok || parsed.retcode !== 0) throw new StopSource(`列表信封异常：retcode=${parsed.retcode}`);
+    if (!parsed.ok || parsed.retcode !== 0)
+      throw new StopSource(`列表信封异常：retcode=${parsed.retcode}`);
     const count = parsed.flatItems.length;
     perPageCounts.push({ page, count });
     if (page === 1) {
@@ -178,45 +180,79 @@ async function captureAnnSource(source, requestLog, runStats) {
     }
     if (count === 0) {
       boundary = { page, observation: "空页（该页起无更多公告）" };
-      await saveSample(dir, `list-page-${page}-boundary`, makeSampleRecord({
-        sourceId: source.source_id, kind: "pagination-boundary",
-        purpose: `第 ${page} 页返回空列表（分页边界实测）`,
-        url: listUrl(page), http: { status: obs.http.status, headers: obs.http.headers },
-        bodyText: obs.body.text, bodySha256: await sha256Hex(obs.body.text),
-        capturedAtUtc: new Date().toISOString(),
-        extra: { per_page_counts_so_far: perPageCounts, api_total: parsed.total },
-      }));
+      await saveSample(
+        dir,
+        `list-page-${page}-boundary`,
+        makeSampleRecord({
+          sourceId: source.source_id,
+          kind: "pagination-boundary",
+          purpose: `第 ${page} 页返回空列表（分页边界实测）`,
+          url: listUrl(page),
+          http: { status: obs.http.status, headers: obs.http.headers },
+          bodyText: obs.body.text,
+          bodySha256: await sha256Hex(obs.body.text),
+          capturedAtUtc: new Date().toISOString(),
+          extra: { per_page_counts_so_far: perPageCounts, api_total: parsed.total },
+        }),
+      );
       files.push(`list-page-${page}-boundary.json`);
       break;
     }
     // 每个走过的非空页都登记 item id；页样本全部落盘
     for (const item of parsed.flatItems) itemByAnnId.set(String(item.ann_id), item);
-    await saveSample(dir, `list-page-${page}`, makeSampleRecord({
-      sourceId: source.source_id, kind: page === 1 ? "list-response" : "pagination-walk",
-      purpose: page === 1 ? "首页列表响应样本（page=1, page_size=20）" : `翻页样本（page=${page}）`,
-      url: listUrl(page), http: { status: obs.http.status, headers: obs.http.headers },
-      bodyText: obs.body.text, bodySha256: await sha256Hex(obs.body.text),
-      capturedAtUtc: new Date().toISOString(),
-      extra: { page, returned_items: count, api_total: parsed.total },
-    }));
+    await saveSample(
+      dir,
+      `list-page-${page}`,
+      makeSampleRecord({
+        sourceId: source.source_id,
+        kind: page === 1 ? "list-response" : "pagination-walk",
+        purpose:
+          page === 1 ? "首页列表响应样本（page=1, page_size=20）" : `翻页样本（page=${page}）`,
+        url: listUrl(page),
+        http: { status: obs.http.status, headers: obs.http.headers },
+        bodyText: obs.body.text,
+        bodySha256: await sha256Hex(obs.body.text),
+        capturedAtUtc: new Date().toISOString(),
+        extra: { page, returned_items: count, api_total: parsed.total },
+      }),
+    );
     files.push(`list-page-${page}.json`);
-    if (parsed.total !== undefined && perPageCounts.reduce((s, c) => s + c.count, 0) >= parsed.total) {
+    if (
+      parsed.total !== undefined &&
+      perPageCounts.reduce((s, c) => s + c.count, 0) >= parsed.total
+    ) {
       // 已拿满 total：再请求一页验证空页边界
       const nextPage = page + 1;
       if (nextPage <= MAX_WALK_PAGES) {
-        const { obs: nobs } = await fetchOrFail(listUrl(nextPage), source.approved_hosts, requestLog, `list-page-${nextPage}-boundary-check`, LIST_TIMEOUT_MS);
+        const { obs: nobs } = await fetchOrFail(
+          listUrl(nextPage),
+          source.approved_hosts,
+          requestLog,
+          `list-page-${nextPage}-boundary-check`,
+          LIST_TIMEOUT_MS,
+        );
         latencies.push(nobs.elapsed_ms);
         const nparsed = parseAnnList(nobs.body.text);
-        boundary = { page: nextPage, observation: `拿满 total=${parsed.total} 后下一页 count=${nparsed.flatItems.length}` };
+        boundary = {
+          page: nextPage,
+          observation: `拿满 total=${parsed.total} 后下一页 count=${nparsed.flatItems.length}`,
+        };
         if (nparsed.flatItems.length === 0) {
-          await saveSample(dir, `list-page-${nextPage}-boundary`, makeSampleRecord({
-            sourceId: source.source_id, kind: "pagination-boundary",
-            purpose: `拿满 total 后第 ${nextPage} 页为空（分页边界实测）`,
-            url: listUrl(nextPage), http: { status: nobs.http.status, headers: nobs.http.headers },
-            bodyText: nobs.body.text, bodySha256: await sha256Hex(nobs.body.text),
-            capturedAtUtc: new Date().toISOString(),
-            extra: { per_page_counts_so_far: perPageCounts, api_total: parsed.total },
-          }));
+          await saveSample(
+            dir,
+            `list-page-${nextPage}-boundary`,
+            makeSampleRecord({
+              sourceId: source.source_id,
+              kind: "pagination-boundary",
+              purpose: `拿满 total 后第 ${nextPage} 页为空（分页边界实测）`,
+              url: listUrl(nextPage),
+              http: { status: nobs.http.status, headers: nobs.http.headers },
+              bodyText: nobs.body.text,
+              bodySha256: await sha256Hex(nobs.body.text),
+              capturedAtUtc: new Date().toISOString(),
+              extra: { per_page_counts_so_far: perPageCounts, api_total: parsed.total },
+            }),
+          );
           files.push(`list-page-${nextPage}-boundary.json`);
         }
         break;
@@ -272,15 +308,28 @@ async function captureAnnSource(source, requestLog, runStats) {
   for (const p of picked) {
     await sleep(REQUEST_GAP_MS);
     const url = buildAnnContentUrl(source, p.annId);
-    const { obs } = await fetchOrFail(url, source.approved_hosts, requestLog, `content-${p.annId}`, CONTENT_TIMEOUT_MS);
+    const { obs } = await fetchOrFail(
+      url,
+      source.approved_hosts,
+      requestLog,
+      `content-${p.annId}`,
+      CONTENT_TIMEOUT_MS,
+    );
     latencies.push(obs.elapsed_ms);
     if (obs.error) {
-      index.contents.push({ ann_id: p.annId, kind: p.kind, title: p.title, outcome: "fetch-error", error: obs.error.kind });
+      index.contents.push({
+        ann_id: p.annId,
+        kind: p.kind,
+        title: p.title,
+        outcome: "fetch-error",
+        error: obs.error.kind,
+      });
       continue;
     }
     const cParsed = parseAnnList(obs.body.text); // getAnnContent 信封同构：data.list 为数组
     const contentItems = cParsed.ok ? cParsed.flatItems : [];
-    const contentItem = contentItems.find((c) => String(c.ann_id) === String(p.annId)) ?? contentItems[0];
+    const contentItem =
+      contentItems.find((c) => String(c.ann_id) === String(p.annId)) ?? contentItems[0];
     const listItem = itemByAnnId.get(String(p.annId));
     const text = stripHtml(contentItem?.content ?? "");
     const imageCount = countImages(contentItem?.content ?? "");
@@ -288,13 +337,20 @@ async function captureAnnSource(source, requestLog, runStats) {
     const imgAnalysis = isDateCarriedByImage(contentItem?.content ?? "", imageCount);
     const bytes = Buffer.byteLength(obs.body.text, "utf8");
     maxContentBytes = Math.max(maxContentBytes, bytes);
-    await saveSample(dir, `content-${p.annId}`, makeSampleRecord({
-      sourceId: source.source_id, kind: "content-response",
-      purpose: `正文样本（${p.kind}：${p.title}）`,
-      url, http: { status: obs.http.status, headers: obs.http.headers },
-      bodyText: obs.body.text, bodySha256: await sha256Hex(obs.body.text),
-      capturedAtUtc: new Date().toISOString(),
-    }));
+    await saveSample(
+      dir,
+      `content-${p.annId}`,
+      makeSampleRecord({
+        sourceId: source.source_id,
+        kind: "content-response",
+        purpose: `正文样本（${p.kind}：${p.title}）`,
+        url,
+        http: { status: obs.http.status, headers: obs.http.headers },
+        bodyText: obs.body.text,
+        bodySha256: await sha256Hex(obs.body.text),
+        capturedAtUtc: new Date().toISOString(),
+      }),
+    );
     files.push(`content-${p.annId}.json`);
     index.contents.push({
       ann_id: p.annId,
@@ -315,10 +371,22 @@ async function captureAnnSource(source, requestLog, runStats) {
   const pageSizeProbe = [];
   for (const size of [100, 1000]) {
     await sleep(REQUEST_GAP_MS);
-    const { obs } = await fetchOrFail(buildAnnListUrl(source, { page: 1, pageSize: size }), source.approved_hosts, requestLog, `limit-pagesize-${size}`, LIST_TIMEOUT_MS);
+    const { obs } = await fetchOrFail(
+      buildAnnListUrl(source, { page: 1, pageSize: size }),
+      source.approved_hosts,
+      requestLog,
+      `limit-pagesize-${size}`,
+      LIST_TIMEOUT_MS,
+    );
     latencies.push(obs.elapsed_ms);
     const parsed = parseAnnList(obs.body?.text ?? "");
-    pageSizeProbe.push({ requested_page_size: size, returned_items: parsed.flatItems.length, api_total: parsed.total, http_status: obs.http?.status ?? null, elapsed_ms: obs.elapsed_ms });
+    pageSizeProbe.push({
+      requested_page_size: size,
+      returned_items: parsed.flatItems.length,
+      api_total: parsed.total,
+      http_status: obs.http?.status ?? null,
+      elapsed_ms: obs.elapsed_ms,
+    });
   }
   index.limit_probe = { page_size: pageSizeProbe, max_content_bytes: maxContentBytes };
 
@@ -345,21 +413,41 @@ async function captureMiyousheSource(source, requestLog, runStats) {
   const lastIds = {};
   for (const type of [1, 2, 3]) {
     const url = buildNewsListUrl(source, { type, lastId: "", pageSize: PAGE_SIZE });
-    const { obs } = await fetchOrFail(url, source.approved_hosts, requestLog, `news-list-type${type}-page1`, LIST_TIMEOUT_MS);
+    const { obs } = await fetchOrFail(
+      url,
+      source.approved_hosts,
+      requestLog,
+      `news-list-type${type}-page1`,
+      LIST_TIMEOUT_MS,
+    );
     latencies.push(obs.elapsed_ms);
     const parsed = parseNewsList(obs.body?.text ?? "");
-    if (!parsed.ok || parsed.retcode !== 0) throw new StopSource(`米游社列表信封异常：retcode=${parsed.retcode}`);
+    if (!parsed.ok || parsed.retcode !== 0)
+      throw new StopSource(`米游社列表信封异常：retcode=${parsed.retcode}`);
     lastIds[type] = parsed.lastId;
-    await saveSample(dir, `news-list-type${type}-page1`, makeSampleRecord({
-      sourceId: source.source_id, kind: "list-response",
-      purpose: `米游社资讯列表样本（type=${type}：${type === 1 ? "公告" : type === 2 ? "活动" : "资讯"}）`,
-      url, http: { status: obs.http.status, headers: obs.http.headers },
-      bodyText: obs.body.text, bodySha256: await sha256Hex(obs.body.text),
-      capturedAtUtc: new Date().toISOString(),
-      extra: { returned_items: parsed.items.length, last_id: parsed.lastId, is_last: parsed.isLast },
-    }));
+    await saveSample(
+      dir,
+      `news-list-type${type}-page1`,
+      makeSampleRecord({
+        sourceId: source.source_id,
+        kind: "list-response",
+        purpose: `米游社资讯列表样本（type=${type}：${type === 1 ? "公告" : type === 2 ? "活动" : "资讯"}）`,
+        url,
+        http: { status: obs.http.status, headers: obs.http.headers },
+        bodyText: obs.body.text,
+        bodySha256: await sha256Hex(obs.body.text),
+        capturedAtUtc: new Date().toISOString(),
+        extra: {
+          returned_items: parsed.items.length,
+          last_id: parsed.lastId,
+          is_last: parsed.isLast,
+        },
+      }),
+    );
     files.push(`news-list-type${type}-page1.json`);
-    const tops = parsed.items.filter((i) => i?.post?.post_status?.is_top).map((i) => ({ post_id: i.post.post_id, subject: i.post.subject }));
+    const tops = parsed.items
+      .filter((i) => i?.post?.post_status?.is_top)
+      .map((i) => ({ post_id: i.post.post_id, subject: i.post.subject }));
     index.list_observation[`type${type}`] = {
       returned_items: parsed.items.length,
       last_id: parsed.lastId,
@@ -374,18 +462,35 @@ async function captureMiyousheSource(source, requestLog, runStats) {
   let cursor = lastIds[1];
   for (let page = 2; page <= MAX_NEWS_WALK_PAGES + 1 && cursor; page += 1) {
     const url = buildNewsListUrl(source, { type: 1, lastId: cursor, pageSize: PAGE_SIZE });
-    const { obs } = await fetchOrFail(url, source.approved_hosts, requestLog, `news-list-type1-page${page}`, LIST_TIMEOUT_MS);
+    const { obs } = await fetchOrFail(
+      url,
+      source.approved_hosts,
+      requestLog,
+      `news-list-type1-page${page}`,
+      LIST_TIMEOUT_MS,
+    );
     latencies.push(obs.elapsed_ms);
     const parsed = parseNewsList(obs.body?.text ?? "");
     if (!parsed.ok || parsed.retcode !== 0) break;
-    await saveSample(dir, `news-list-type1-page${page}`, makeSampleRecord({
-      sourceId: source.source_id, kind: "pagination-walk",
-      purpose: `游标翻页样本（type=1 第 ${page} 页，last_id=${cursor}）`,
-      url, http: { status: obs.http.status, headers: obs.http.headers },
-      bodyText: obs.body.text, bodySha256: await sha256Hex(obs.body.text),
-      capturedAtUtc: new Date().toISOString(),
-      extra: { returned_items: parsed.items.length, last_id: parsed.lastId, is_last: parsed.isLast },
-    }));
+    await saveSample(
+      dir,
+      `news-list-type1-page${page}`,
+      makeSampleRecord({
+        sourceId: source.source_id,
+        kind: "pagination-walk",
+        purpose: `游标翻页样本（type=1 第 ${page} 页，last_id=${cursor}）`,
+        url,
+        http: { status: obs.http.status, headers: obs.http.headers },
+        bodyText: obs.body.text,
+        bodySha256: await sha256Hex(obs.body.text),
+        capturedAtUtc: new Date().toISOString(),
+        extra: {
+          returned_items: parsed.items.length,
+          last_id: parsed.lastId,
+          is_last: parsed.isLast,
+        },
+      }),
+    );
     files.push(`news-list-type1-page${page}.json`);
     if (parsed.isLast) {
       index.boundary = { page, observation: "is_last=true（游标耗尽）" };
@@ -394,17 +499,29 @@ async function captureMiyousheSource(source, requestLog, runStats) {
     cursor = parsed.lastId;
     await sleep(REQUEST_GAP_MS);
   }
-  if (!index.boundary) index.boundary_note = `未在 ${MAX_NEWS_WALK_PAGES} 页内到达 is_last（边界未取得，只观察到游标可前进）`;
+  if (!index.boundary)
+    index.boundary_note = `未在 ${MAX_NEWS_WALK_PAGES} 页内到达 is_last（边界未取得，只观察到游标可前进）`;
 
   // 3) LIMIT 探测：page_size 超范围
   const pageSizeProbe = [];
   for (const size of [100, 1000]) {
     await sleep(REQUEST_GAP_MS);
     const url = buildNewsListUrl(source, { type: 1, lastId: "", pageSize: size });
-    const { obs } = await fetchOrFail(url, source.approved_hosts, requestLog, `limit-pagesize-${size}`, LIST_TIMEOUT_MS);
+    const { obs } = await fetchOrFail(
+      url,
+      source.approved_hosts,
+      requestLog,
+      `limit-pagesize-${size}`,
+      LIST_TIMEOUT_MS,
+    );
     latencies.push(obs.elapsed_ms);
     const parsed = parseNewsList(obs.body?.text ?? "");
-    pageSizeProbe.push({ requested_page_size: size, returned_items: parsed.items.length, http_status: obs.http?.status ?? null, elapsed_ms: obs.elapsed_ms });
+    pageSizeProbe.push({
+      requested_page_size: size,
+      returned_items: parsed.items.length,
+      http_status: obs.http?.status ?? null,
+      elapsed_ms: obs.elapsed_ms,
+    });
   }
   index.limit_probe = { page_size: pageSizeProbe };
 
@@ -415,28 +532,46 @@ async function captureMiyousheSource(source, requestLog, runStats) {
   if (postId) {
     await sleep(REQUEST_GAP_MS);
     const url = buildNewsContentUrl(source, postId);
-    const { obs, restriction } = await fetchOnce(url, source.approved_hosts, requestLog, `content-blocked-${postId}`, LIST_TIMEOUT_MS);
+    const { obs, restriction } = await fetchOnce(
+      url,
+      source.approved_hosts,
+      requestLog,
+      `content-blocked-${postId}`,
+      LIST_TIMEOUT_MS,
+    );
     latencies.push(obs.elapsed_ms);
     const status = obs.http?.status ?? null;
     const restricted = restriction?.restricted === true;
-    blockedContent = { post_id: postId, url, http_status: status, outcome: restricted ? "access-restricted-403" : `unexpected-${status ?? obs.error?.kind}` };
+    blockedContent = {
+      post_id: postId,
+      url,
+      http_status: status,
+      outcome: restricted ? "access-restricted-403" : `unexpected-${status ?? obs.error?.kind}`,
+    };
     await saveSample(dir, `content-blocked-${postId}`, {
       schema_version: 1,
       synthetic: false,
       source_id: source.source_id,
       kind: "access-blocked-content",
-      purpose: "getPostFull 正文接口取证：诚实探针 UA、无凭据、单次请求；返回 403 Forbidden（访问控制信号）",
+      purpose:
+        "getPostFull 正文接口取证：诚实探针 UA、无凭据、单次请求；返回 403 Forbidden（访问控制信号）",
       captured_at_utc: new Date().toISOString(),
       url,
       http: { status, headers: obs.http?.headers ?? null },
       restriction_signals: restriction?.signals ?? null,
       body_text: obs.body?.text ?? "",
-      decision: "米游社正文样本未取得。不绕过、不伪装 UA、不使用第三方聚合后端冒充官方来源（AGENTS.md 规则 6 / 主方案 §3.1）。",
+      decision:
+        "米游社正文样本未取得。不绕过、不伪装 UA、不使用第三方聚合后端冒充官方来源（AGENTS.md 规则 6 / 主方案 §3.1）。",
     });
     files.push(`content-blocked-${postId}.json`);
   }
 
-  index.contents = [{ outcome: blockedContent?.outcome ?? "no-post-id", detail: "正文接口 getPostFull 被访问控制拦截（403），正文样本未取得；列表通道正常" }];
+  index.contents = [
+    {
+      outcome: blockedContent?.outcome ?? "no-post-id",
+      detail: "正文接口 getPostFull 被访问控制拦截（403），正文样本未取得；列表通道正常",
+    },
+  ];
   runStats.push({ source_id: source.source_id, latencies_ms: latencies });
   return { dir, files, index };
 }
@@ -463,16 +598,22 @@ async function main() {
 
   if (dryRun) {
     const ann = verified.sources.find((s) => s.source_id === "genshin-ann");
-    process.stdout.write(`[dry-run] 示例 URL：\n${buildAnnListUrl(ann, { page: 1, pageSize: 20 })}\n${buildAnnContentUrl(ann, 3648)}\n${buildNewsListUrl(verified.sources.find((s) => s.source_id === "miyoushe-news"), { type: 1, lastId: "", pageSize: 20 })}\n`);
+    process.stdout.write(
+      `[dry-run] 示例 URL：\n${buildAnnListUrl(ann, { page: 1, pageSize: 20 })}\n${buildAnnContentUrl(ann, 3648)}\n${buildNewsListUrl(
+        verified.sources.find((s) => s.source_id === "miyoushe-news"),
+        { type: 1, lastId: "", pageSize: 20 },
+      )}\n`,
+    );
     return;
   }
 
   for (const source of sources) {
     process.stdout.write(`== 采集 ${source.source_id} ==\n`);
     try {
-      const result = source.source_id === "miyoushe-news"
-        ? await captureMiyousheSource(source, requestLog, runStats)
-        : await captureAnnSource(source, requestLog, runStats);
+      const result =
+        source.source_id === "miyoushe-news"
+          ? await captureMiyousheSource(source, requestLog, runStats)
+          : await captureAnnSource(source, requestLog, runStats);
       sourceResults.push({ source_id: source.source_id, outcome: "captured", ...result });
       process.stdout.write(`   完成：${result.files.length} 个样本文件\n`);
     } catch (e) {
@@ -489,12 +630,20 @@ async function main() {
   // 每来源 index.json 落盘
   for (const r of sourceResults) {
     if (r.outcome !== "captured" || !r.index) continue;
-    await writeFile(path.join(r.dir, "index.json"), `${JSON.stringify({ schema_version: 1, generated_at_utc: new Date().toISOString(), ...r.index, files: r.files }, null, 2)}\n`, "utf8");
+    await writeFile(
+      path.join(r.dir, "index.json"),
+      `${JSON.stringify({ schema_version: 1, generated_at_utc: new Date().toISOString(), ...r.index, files: r.files }, null, 2)}\n`,
+      "utf8",
+    );
   }
 
   // 汇总 LIMIT_PROFILE 观测
-  const allLatencies = runStats.flatMap((s) => s.latencies_ms).filter((n) => typeof n === "number").sort((a, b) => a - b);
-  const stat = (arr, p) => (arr.length ? arr[Math.min(arr.length - 1, Math.floor(arr.length * p))] : null);
+  const allLatencies = runStats
+    .flatMap((s) => s.latencies_ms)
+    .filter((n) => typeof n === "number")
+    .sort((a, b) => a - b);
+  const stat = (arr, p) =>
+    arr.length ? arr[Math.min(arr.length - 1, Math.floor(arr.length * p))] : null;
   const limitObservations = {
     request_timeout_ms: {
       observed_count: allLatencies.length,
@@ -520,7 +669,12 @@ async function main() {
       evidence_grading: "本机网络观测（E2 类），不是目标 Cloudflare 环境证据",
     },
     results: {
-      sources: sourceResults.map((r) => ({ source_id: r.source_id, outcome: r.outcome, reason: r.reason, sample_files: r.files })),
+      sources: sourceResults.map((r) => ({
+        source_id: r.source_id,
+        outcome: r.outcome,
+        reason: r.reason,
+        sample_files: r.files,
+      })),
       request_log: requestLog,
       limit_observations: limitObservations,
       run_stats: runStats,

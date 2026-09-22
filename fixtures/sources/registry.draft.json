@@ -8,9 +8,7 @@
       "game": "genshin",
       "region": "cn",
       "adapter": "announcement-webview-hk4e（未实现；本卡只登记事实，适配器属 P3-01）",
-      "approved_hosts": [
-        "hk4e-ann-api.mihoyo.com"
-      ],
+      "approved_hosts": ["hk4e-ann-api.mihoyo.com"],
       "verified_publishers": [],
       "verified_publishers_note": "公告 API 条目无发布者 UID 字段；来源身份由官方域名与官方 webview 参数形状承载（uid=100000000 为官方登出态哑 uid，非真实账号）",
       "cursor": {
@@ -41,11 +39,7 @@
         "redirect_policy": "redirect:manual，出现 3xx 即记录不跟随"
       },
       "samples_dir": "fixtures/sources/genshin-ann/",
-      "observed_columns": [
-        "游戏公告",
-        "活动公告",
-        "千星奇域"
-      ],
+      "observed_columns": ["游戏公告", "活动公告", "千星奇域"],
       "observed_columns_note": "列表按 type 分组（data.list[].type_label），随运营配置变化；首份样本实测值"
     },
     {
@@ -53,9 +47,7 @@
       "game": "hsr",
       "region": "cn",
       "adapter": "announcement-webview-hkrpg（未实现；本卡只登记事实，适配器属 P3-01）",
-      "approved_hosts": [
-        "hkrpg-ann-api.mihoyo.com"
-      ],
+      "approved_hosts": ["hkrpg-ann-api.mihoyo.com"],
       "verified_publishers": [],
       "verified_publishers_note": "同 genshin-ann：条目无发布者 UID 字段",
       "cursor": {
@@ -81,9 +73,7 @@
         "redirects_observed": 0
       },
       "samples_dir": "fixtures/sources/hsr-ann/",
-      "observed_columns": [
-        "公告"
-      ],
+      "observed_columns": ["公告"],
       "observed_columns_note": "列表按 type 分组（data.list[].type_label），随运营配置变化；首份样本实测值"
     },
     {
@@ -91,9 +81,7 @@
       "game": "zzz",
       "region": "cn",
       "adapter": "announcement-webview-nap（未实现；本卡只登记事实，适配器属 P3-01）",
-      "approved_hosts": [
-        "announcement-api.mihoyo.com"
-      ],
+      "approved_hosts": ["announcement-api.mihoyo.com"],
       "verified_publishers": [],
       "verified_publishers_note": "同 genshin-ann：条目无发布者 UID 字段。注意 nap 列表条目的 title 字段含 HTML 标签（<p style=…>），入库前需剥离",
       "cursor": {
@@ -119,10 +107,7 @@
         "redirects_observed": 0
       },
       "samples_dir": "fixtures/sources/zzz-ann/",
-      "observed_columns": [
-        "游戏公告",
-        "活动公告"
-      ],
+      "observed_columns": ["游戏公告", "活动公告"],
       "observed_columns_note": "列表按 type 分组（data.list[].type_label），随运营配置变化；首份样本实测值"
     },
     {
@@ -130,10 +115,7 @@
       "game": "genshin",
       "region": "cn",
       "adapter": "miyoushe-painter-news（未实现；本卡只登记事实，适配器属 P3-01）",
-      "approved_hosts": [
-        "bbs-api-static.miyoushe.com",
-        "bbs-api.miyoushe.com"
-      ],
+      "approved_hosts": ["bbs-api-static.miyoushe.com", "bbs-api.miyoushe.com"],
       "verified_publishers": [],
       "verified_publishers_note": "painter 列表条目 uid=0（不携带发布者身份）；真实发布者 UID 需正文接口 getPostFull，但该接口被 403 访问控制拦截（见下），未能核验",
       "cursor": {

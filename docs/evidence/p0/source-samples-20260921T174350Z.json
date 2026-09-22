@@ -144,17 +144,7 @@
     "run_stats": [
       {
         "source_id": "miyoushe-news",
-        "latencies_ms": [
-          75,
-          23,
-          18,
-          21,
-          26,
-          19,
-          17,
-          19,
-          133
-        ]
+        "latencies_ms": [75, 23, 18, 21, 26, 19, 17, 19, 133]
       }
     ]
   },

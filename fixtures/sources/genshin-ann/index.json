@@ -15,11 +15,7 @@
     "t": "1790033720_c08c6efddfe3899a6e29332494f931ed_d41d8cd98f00b204e9800998ecf8427e",
     "alert": false,
     "alert_id": 0,
-    "type_labels": [
-      "游戏公告",
-      "活动公告",
-      "千星奇域"
-    ],
+    "type_labels": ["游戏公告", "活动公告", "千星奇域"],
     "boundary": {
       "page": 2,
       "observation": "page=2 返回与 page=1 同构全集（count=41）；服务端忽略分页参数，无空页边界",
@@ -94,9 +90,7 @@
         "date_likely_in_image": false
       },
       "content_text_bytes": 1327,
-      "absolute_datetimes": [
-        "2026/10/13 17:59"
-      ],
+      "absolute_datetimes": ["2026/10/13 17:59"],
       "date_only": [],
       "relative_start_ranges": [
         {
