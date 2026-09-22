@@ -9,7 +9,8 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "astro": "7.3.3"
+    "astro": "7.3.3",
+    "@hoyo/contracts": "workspace:*"
   },
   "devDependencies": {
     "typescript": "7.0.2"
