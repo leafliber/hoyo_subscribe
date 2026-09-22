@@ -22,3 +22,6 @@
 | 编号 | 标题 | 状态 |
 | --- | --- | --- |
 | 0000 | 模板 | — |
+| [0001](0001-official-announcement-level-uid-params.md) | 公告 API 采集使用登出态 `uid` 与 `level` 内容门控参数 | 已接受（所有者 2026-09-22 批准） |
+| [0002](0002-mail-budget-period-and-platform-constraint.md) | 邮件预算周期改为固定 UTC 自然月；平台约束改为单一日上限 | 被 ADR-0003 取代 |
+| [0003](0003-pure-daily-mail-budget.md) | 邮件预算改为纯日额度模型；取消月度池、envelope 与 carry；席位 50→100 | 已接受（所有者 2026-09-22 批准） |

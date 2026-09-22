@@ -85,7 +85,28 @@ pnpm build
 - **命名**：与附录 A 完全一致的全大写名（`SESSION_IDLE_TTL`、`MAIL_URGENT_FLOOR`…）。不得用斜杠缩写、不得改名、不得在消费方另起别名。
 - **启动校验**：`pnpm params:verify` 与 Worker 启动路径都执行附录 A.5 的依赖等式；任一不成立**拒绝启动**并打印不成立的那一条。
 - **P0 待定项**：`MODEL_MAX_INPUT`、`MODEL_MAX_BILLED_OUTPUT`、`SOURCE_LIMIT_PROFILE` 等未填写前，对应能力**默认关闭**，不得用猜测值开启。
-- **秘密**：全部经 Wrangler secret 注入；仓库、前端产物、fixtures、日志、错误上下文中一律不出现。部署配置需记录 origin、资源绑定、发件域、账单周期与实际平台权限。
+- **秘密**：全部经 Wrangler secret 注入；仓库、前端产物、fixtures、日志、错误上下文中一律不出现。部署配置需记录 origin、资源绑定、发件域与实际平台权限（含 `PLATFORM_MAIL_DAY_LIMIT` 实测值）。
+
+## 4.1 成本护栏：不得超出 Workers Paid 套餐
+
+所有者已确认具备 Workers Paid 资格，并给出**硬约束：尽可能不产生套餐之外的额外费用**。
+这不是优化目标，是与附录 A 等式同级的运行约束。
+
+| 计量项 | 附录 A 的上限 | 落地要求 |
+| --- | --- | --- |
+| 邮件 | `MAIL_TOTAL_DAY = 260` | 平台侧唯一硬约束是**日上限**（实测 `PLATFORM_MAIL_DAY_LIMIT = 1,000`，无周期包含量、零其他占用）。须 `MAIL_TOTAL_DAY <= PLATFORM_MAIL_DAY_LIMIT`，当前成立（占 26%）。**已无月度维度**——纯日额度模型见 ADR-0003 |
+| 模型 | `AI_SOFT_DAY = 6,000` / `AI_HARD_DAY = 8,000` Neurons | 硬线必须 ≤ 套餐的每日包含量。P0-03 填入实测值后**反向校验这两个数**，超出就往下调 |
+| D1 / DO / Queue | 无附录参数 | P5-01 的用量指标必须能看出是否逼近包含量；接近即告警并停止低价值扩大 |
+
+三条规则：
+
+1. **任何"提高上限"的改动都不算优化。**预算不够时正确做法是缩小开放名额或降低能力（§9.1
+   "扩大邮件名额必须同时通过月预算、日平滑、平台动态限额和投递质量检查，不能只改 seats 数"）。
+2. **不新增计量项。**不引入 R2、Hyperdrive、向量库或任何附录 A 未覆盖的收费产品；确需新增写 ADR。
+3. **开发与测试不烧生产额度。**Worker 测试跑本地 miniflare；模型调用在 P0-03 之外一律用固定
+   响应替身；探针禁止 `wrangler deploy`，取证用 `wrangler dev` 临时运行后立即停止。
+
+账单告警只是监控，**不是平台收费的绝对封顶**（§10.1）。真正的封顶是账本 + 开关。
 
 ## 5. 代码约定
 
@@ -93,7 +114,7 @@ pnpm build
 
 - 精确时间：UTC 毫秒整数。纯日期：`YYYY-MM-DD` 字符串。**两者不得互转**，只有日期不补午夜。
 - 每个时间值同时保存 `source_timezone`、`raw_expression`、`time_basis`（`official_explicit / deterministic_derived / official_estimate / unresolved`）与 `precision`（`datetime / date / unknown`）。
-- 日桶按固定 UTC 日计算；邮件月预算按**真实账单周期**，不假定自然月。
+- 日桶按固定 UTC 日计算。**邮件预算无月度维度**——每个 UTC 日独立、不跨日结转（ADR-0003）。
 - 前端统一展示北京时间 UTC+8 并标明；展示时区切换不改变源事实与提前量。
 
 ### 5.2 版本量
@@ -138,7 +159,7 @@ pnpm build
 
 | 层 | 位置 | 跑什么 |
 | --- | --- | --- |
-| L1 纯函数 | `packages/contracts/**/*.test.ts` | 枚举、规范化、投影语义、envelope 计算、等式校验 |
+| L1 纯函数 | `packages/contracts/**/*.test.ts` | 枚举、规范化、投影语义、日池与 floor 降级计算、等式校验 |
 | L2 Worker 集成 | `apps/worker/**/*.test.ts` | 真实 D1/DO 上的条件提交、并发、限速、状态机 |
 | L3 合同 | `tests/contract/**` | API 请求/响应 schema、错误码、幂等、权限边界 |
 | L4 纵向闭环 | `tests/flows/**` | 每阶段一条端到端路径（如"注册→保存→启用 Feed→拉取 ICS"） |

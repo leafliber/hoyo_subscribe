@@ -29,7 +29,7 @@
 | A-P0-SOURCE | 每个来源的真实样本；`source_id / game / region / adapter / approved_hosts / verified_publishers / cursor / poll_policy` 已登记；`SOURCE_LIMIT_PROFILE` 已填写 |
 | A-P0-MODEL | 输入保护值、**完整计费输出上界**、可见 JSON 与计费输出的差异、推理相关 usage、截断率、修复率、延迟、单篇费用中位数与高分位 |
 | A-P0-CAL | 至少一个客户端通过：完整快照删除 / 重新加入 / 改期 / VALARM；每个客户端单独记录版本、网络、操作与实测结果，**不共用一份"支持"结论** |
-| A-P0-MAIL | 面向**普通收件人**（非 routing verified destination）的 messageId 与反馈 Queue 关联；账单周期起止、账户日发信权限、其他应用额度占用 |
+| A-P0-MAIL | 面向**普通收件人**（非 routing verified destination）的 messageId 与反馈 Queue 关联；`PLATFORM_MAIL_DAY_LIMIT` 实测值（账单周期与周期包含量在本项目不适用，见 ADR-0003） |
 | A-P0-GATE | 结论表：每项通过/失败/未取得，失败项有明确决策（继续、降级、改方案） |
 
 ### P1
@@ -42,7 +42,7 @@
 | A-P1-DB | 空库重放全部迁移得到预期 schema 与索引；索引覆盖 §8.1 列出的全部访问路径；测量真实 `rows_read` |
 | A-P1-CAS | **CAS 零行后续写入不生效**；数据库报错与条件未命中分别有用例；`batch` 部分成功不得留下半成品状态 |
 | A-P1-CRYPTO | 密钥用途隔离（OTP MAC / 邮箱 lookup / 字段加密 / 退订 MAC / CSRF / VAPID / 管理员 / 恢复 epoch）；唯一 nonce；认证数据含记录类型与 ID；纯验证秘密只存 hash/MAC |
-| A-P1-BUDGET | envelope：`R=20, D=25` 不归零（carry + E=1 生效）；被日硬上限截断的部分**留在 R 里不进 carry**；紧急池不做 envelope；认证软线与 floor 生效后仍保住首次登录；并发预占不超卖 |
+| A-P1-BUDGET | 三个日池每 UTC 日独立重置、**不跨日结转**、池间不互借；`settled+reserved+uncertain` 均占当日额度；当日紧急池剩余 < `MAIL_URGENT_FLOOR` 收紧为只发取消/撤回；当日认证池剩余 < `MAIL_AUTH_FLOOR` 只接受既有账号首次登录并暂停新注册发信与重发；并发预占不超卖。**不得出现 envelope / carry / 月度池**（ADR-0003） |
 | A-P1-SHELL | 七类错误码齐备；认证存在性敏感结果折叠；Origin/CSRF/未知字段/尺寸校验；日志脱敏白名单生效 |
 
 ### P2
@@ -76,7 +76,7 @@
 | A-P4-OCCUR | 发生项不含用户/设备；到期才匹配当前兴趣；新增兴趣**不追溯补发**；改期使旧发生项与未发 Delivery 失效；标题错字不重发；**晚公告四种情况各一例**；`new_event` 关闭但 `late_discovery` 开启；历史回填标 backfill 不群发 |
 | A-P4-FAIR | 完整受众展开后再发；优先级阶梯唯一；轮转游标跨事件跨日持久、按池保存；预算压缩下无注册顺序饥饿；**同批次同用户多条候选合并为一封且不推迟任何一条**；跨优先级不合并；游标在批准尝试时推进（unknown/失败也算） |
 | A-P4-OUTBOX | 状态机全路径；`unknown` **不自动盲重发**、保留预算；`deferred` 不重复提交；认证邮件可在 HTTP 快速路径领取同一租约且不与后台重复外发；一封合并邮件对应多条 Delivery，各自保留去重键 |
-| A-P4-BUDGET | 月末半日片段；跨日/跨账单周期先原子释放未使用预留再重新预占；已调用或 unknown 不假装未调用释放；**R 很小时 envelope 不归零**；紧急池不被摊薄、一次取消可当天覆盖全部席位；`MAIL_AUTH_FLOOR` 生效后仍保住首次登录 |
+| A-P4-BUDGET | 跨 UTC 日边界时先原子释放未使用预留再按新一日重新预占；已调用或 unknown **不假装未调用释放**；**一次官方取消可当天覆盖全部 `MAIL_SEATS_MAX = 100` 个席位**，且之后当日余额落到 `MAIL_URGENT_FLOOR` 触发收紧；`MAIL_AUTH_FLOOR` 生效后仍保住首次登录；当日用尽次日自动恢复 |
 | A-P4-CONSENT | 两层各记同意版本；`routine_enabled` 默认关闭且占子名额；**子名额满时只拒绝第二层**；换新邮箱重新同意；不能借此更换收件地址 |
 | A-P4-UNSUB | **GET 扫描不退订**；旧邮件 one-click 可退当前同地址订阅（跨重新订阅仍有效）；换邮箱后旧链接不影响新地址且返回旧绑定已失效；无 Cookie/CSRF 的标准 POST；List-Unsubscribe 与 List-Unsubscribe-Post 头且 DKIM 覆盖 |
 | A-P4-FEEDBACK | eventId 去重、messageId 关联；先于结果到达的反馈有限保留；投诉/硬退信优先于晚到成功；旧邮箱反馈只更新旧地址；提交后才 ack；重试后进 DLQ；`accepted` **不当已读**；`read_only` 抑制不可绕过；不靠换发件域反复试发 |
@@ -85,7 +85,7 @@
 
 | 验收 ID | 必须覆盖的关键测试 |
 | --- | --- |
-| A-P5-OBS | §10.1 六项新增指标全部有实现与告警：认证池软线状态与是否跌破 floor、基础池 `carry` 与当日 `E`、缩水守卫命中与被拦响应、活动水位写入失败数与回收是否暂停、邮件合并率、席位自动续租与实际释放比例；独立开关覆盖 §10.1 列出的全部对象 |
+| A-P5-OBS | §10.1 六项指标全部有实现与告警：**当日认证池剩余与是否跌破 `MAIL_AUTH_FLOOR`**、**当日各池余额与耗尽时刻**、缩水守卫命中与被拦响应、活动水位写入失败数与回收是否暂停、邮件合并率、席位自动续租与实际释放比例；独立开关覆盖 §10.1 列出的全部对象 |
 | A-P5-RECLAIM | 会话/席位/账号回收各自信号；**Feed 使用但不访网页不误删**；**席位按活动信号自动续租**；"发过邮件""投递成功"不算活动；**活动水位异常时全局暂停回收**；回收前有维护者可见清单复核；删除释放存量但不退已消耗日额度；终止路径不受 `USER_MUTATIONS_DAY` 阻断 |
 | A-P5-BACKUP | 恢复顺序按 §10.2；旧备份**不复活**账号权限、退订状态、恢复码与历史通知；无可信撤销清单时邮件/Push 默认暂停、旧 Feed token 默认撤销；密钥轮换；DO 唤醒丢失、旧租约、Queue DLQ 演练 |
 | A-P5-RELEASE | 冷热请求与外发负载；账单对账（E3）；容量回收实测；独立备份恢复演练完成；已知限制公开 |

@@ -165,47 +165,64 @@ SEQUENCE = public_ical_revision(milestone) + view_revision(feed)
 
 | 层 | 内容 | 默认 | 名额 | 池 |
 | --- | --- | --- | --- | --- |
-| 邮件席位 `email_channels.enabled` | 取消/撤回、重要更正、晚发现 | 用户同意后开启 | `MAIL_SEATS_MAX` | 紧急池 |
-| 常规提醒邮件 `routine_enabled` | 常规提前提醒、新事件公布 | **关闭** | `MAIL_ROUTINE_SEATS_MAX`（席位子集） | 基础池 |
+| 邮件席位 `email_channels.enabled` | 取消/撤回、重要更正、晚发现 | 用户同意后开启 | `MAIL_SEATS_MAX = 100` | 紧急池 |
+| 常规提醒邮件 `routine_enabled` | 常规提前提醒、新事件公布 | **关闭** | `MAIL_ROUTINE_SEATS_MAX = 40`（席位子集） | 基础池 |
 
 第二层默认关闭的理由：`CALENDAR_ALARMS_DEFAULT = true` 之后，启用了个人日历的用户本地已收到同一提醒，再发邮件是重复。
 
-## 7. 预算（§9.1、§9.2）
+## 7. 预算（§9.1；**按 ADR-0003 改为纯日额度模型**）
 
-### 7.1 基础池 envelope（**必须带 carry 与 E=1**）
+> ADR-0003 取消了月度池、envelope、`carry` 与认证软线。平台侧唯一硬约束是**日上限**
+> （`PLATFORM_MAIL_DAY_LIMIT = 1,000`，实测）。每个 UTC 日独立，**不跨日结转**。
 
-```text
-R     = max(0, 池月上限 - 已结算 - 未决预留 - 不确定占用)   （建立本片段前）
-D     = 本周期尚余 UTC 日片段数，含当前片段
-carry = 上一片段未发放的小数余额（同池持久保存，初值 0）
-
-E_raw = R / D + carry
-E     = min(池日硬上限, floor(E_raw))
-carry = E_raw - E    （仅在未被日硬上限截断时累积）
-若 R > 0 且 E = 0，则 E = 1
-
-片段可批准 = E - 本片段已批准且未释放的占用
-实际可批准 = min(片段可批准, UTC 日各级剩余额度, 平台可用额度)
-```
-
-纯 `floor(R/D)` 会在池子见底时归零（R=20、D=25 → 0），把余额永久吞掉。正确行为是**随额度减少平滑降频**。
-
-### 7.2 紧急池：**不做 envelope**
-
-直接按月池消耗；`MAIL_URGENT_DAY` 须足以覆盖 `MAIL_SEATS_MAX` 的一次全量取消。月池剩余跌破 `MAIL_URGENT_FLOOR` 后收紧为只发取消/撤回。
-
-### 7.3 认证池：不排队，但有下限
+### 7.1 三个日池
 
 ```text
-软线 S = 该池剩余月额 / 本周期尚余片段数
+每个 UTC 日开始时重置为固定日额度，池之间不互借：
 
-本片段认证已用量 > S ：同一规范邮箱当日第二次及以后的发送意图降级为稍后重试并延长冷却；
-                      剩余额度优先留给本片段尚未取得任何验证码的邮箱
-剩余月额 < MAIL_AUTH_FLOOR ：只接受既有账号的首次登录意图；
-                      暂停新注册发信与全部重发；页面明确标示认证降级
+  认证池  MAIL_AUTH_DAY    = 90    （新注册子额度 MAIL_SIGNUP_AUTH_DAY = 10）
+  基础池  MAIL_BASE_DAY    = 50    （常规提前提醒、新事件公布）
+  紧急池  MAIL_URGENT_DAY  = 120   （取消/撤回、重要更正、晚发现）
+
+  MAIL_TOTAL_DAY = 260 <= PLATFORM_MAIL_DAY_LIMIT = 1,000
+
+当日用尽即当日停发，次日自动恢复。`settled + reserved + uncertain` 均占用当日额度。
 ```
 
-**恢复入口不依赖发信预算**——这是认证降级期间用户仍能取回控制权的唯一保障。
+### 7.2 降级（口径为**当日剩余**）
+
+```text
+当日紧急池剩余 < MAIL_URGENT_FLOOR (20)
+  → 收紧为只发取消/撤回这一最高档
+
+当日认证池剩余 < MAIL_AUTH_FLOOR (20)
+  → 只接受既有账号的首次登录意图
+  → 暂停新注册发信与全部重发
+  → 页面明确标示处于认证降级
+```
+
+**恢复入口不依赖发信预算**——认证降级期间用户仍能取回控制权的唯一保障（§9.2 保留条款）。
+
+### 7.3 紧急池为什么是 120 而不是 100
+
+§9.1 要求「一次官方取消当天覆盖全部席位」。若 `MAIL_URGENT_DAY` 恰等于 `MAIL_SEATS_MAX`，
+一次全量取消就把当天打空，floor 永远来不及触发。因此：
+
+```text
+MAIL_URGENT_DAY >= MAIL_SEATS_MAX + MAIL_URGENT_FLOOR
+120             >= 100            + 20                （取等号）
+```
+
+一次全量取消后当天余 20，恰好落到 floor 上自动收紧。
+
+### 7.4 已废止（不得恢复，见 AGENTS.md 禁止清单）
+
+`MAIL_TOTAL_MONTH` / `MAIL_EXISTING_AUTH_MONTH` / `MAIL_SIGNUP_AUTH_MONTH` /
+`MAIL_BASE_MONTH` / `MAIL_URGENT_MONTH`、envelope 公式、`carry`、`E = 1` 兜底、
+认证软线 `S`、月末半日片段、跨账单周期的预留释放与重新预占。
+
+**已知代价**：跨日结转没有了。一天内发生两次全量取消时，第二次只能覆盖 20 个席位
+（该场景的概率与后果已由所有者接受，见 ADR-0003）。
 
 ## 8. 认证与会话时序（§4.3、§4.5、附录 A.5）
 
@@ -249,30 +266,42 @@ SESSION_IDLE_TTL > SESSION_EXPIRY_NOTICE
 
 ## 11. 附录 A.5 启动等式（`pnpm params:verify` 必须实现全部）
 
+> 邮件部分按 **ADR-0003** 改写；其余不变。
+
 ```text
-MAIL_TOTAL_MONTH = MAIL_EXISTING_AUTH_MONTH + MAIL_SIGNUP_AUTH_MONTH
-                 + MAIL_BASE_MONTH + MAIL_URGENT_MONTH
-MAIL_TOTAL_DAY   = MAIL_AUTH_DAY + MAIL_BASE_DAY + MAIL_URGENT_DAY
-MAIL_SIGNUP_AUTH_DAY <= MAIL_AUTH_DAY
-MAIL_AUTH_FLOOR   < MAIL_EXISTING_AUTH_MONTH
-MAIL_URGENT_FLOOR < MAIL_URGENT_MONTH
+# 邮件：纯日额度模型
+MAIL_TOTAL_DAY = MAIL_AUTH_DAY + MAIL_BASE_DAY + MAIL_URGENT_DAY     # 260 = 90+50+120
+MAIL_TOTAL_DAY <= PLATFORM_MAIL_DAY_LIMIT                            # 260 <= 1,000（实测）
+MAIL_SIGNUP_AUTH_DAY <= MAIL_AUTH_DAY                                # 10 <= 90
+MAIL_AUTH_FLOOR   < MAIL_AUTH_DAY                                    # 20 < 90
+MAIL_URGENT_FLOOR < MAIL_URGENT_DAY                                  # 20 < 120
 
-MAIL_ROUTINE_SEATS_MAX <= MAIL_SEATS_MAX
-MAIL_BASE_MONTH >= MAIL_ROUTINE_SEATS_MAX × 本账单周期相交UTC日期数 × MAIL_USER_BASE_DAY
-MAIL_URGENT_DAY >= MAIL_SEATS_MAX × 1
+# 池容量要对得起承诺的名额
+MAIL_ROUTINE_SEATS_MAX <= MAIL_SEATS_MAX                             # 40 <= 100
+MAIL_BASE_DAY   >= MAIL_ROUTINE_SEATS_MAX × MAIL_USER_BASE_DAY       # 50 >= 40（含 1.25x 重试余量）
+MAIL_URGENT_DAY >= MAIL_SEATS_MAX + MAIL_URGENT_FLOOR                # 120 >= 120
+    # 一次官方取消要能当天覆盖全部席位，且之后仍触得到 floor
 
+# 合并不得制造新的过期风险
 MAIL_DIGEST_WINDOW 只用于提前发送；合并后任一条的实际发送时间不得晚于其自身 expires_at
 
+# 认证时序：下限本身即安全，不依赖实现另行加算
 PREAUTH_MIN_TTL >= OTP_TTL + AUTH_COMPLETION_TTL + PREAUTH_MARGIN
 OTP绑定Cookie截止 >= 最晚挑战截止 + AUTH_COMPLETION_TTL + PREAUTH_MARGIN
 
+# 会话时序：抖动下界仍须显著大于不活跃期限
 SESSION_ABSOLUTE_TTL - SESSION_ABSOLUTE_JITTER > SESSION_IDLE_TTL > SESSION_RENEW_INTERVAL
 SESSION_IDLE_TTL > SESSION_EXPIRY_NOTICE
 
+# 其余
 DELIVERY_DEDUPE_TTL > 业务发生项最大有效期 + 最大重试余量
 0 < FEED_SHRINK_GUARD_RATIO < 1
-各预留包含于对应总量；pending <= total；价格/usage 单位一致
+各预留包含于对应总量；pending <= total；价格/usage单位一致
 ```
+
+**已删除的等式**（月度模型的遗留，不得恢复）：
+`MAIL_TOTAL_MONTH = …`、`MAIL_AUTH_FLOOR < MAIL_EXISTING_AUTH_MONTH`、
+`MAIL_URGENT_FLOOR < MAIL_URGENT_MONTH`、`MAIL_BASE_MONTH >= … × 本账单周期相交UTC日期数 × …`。
 
 ## 12. API 分组速查（§8.2）
 

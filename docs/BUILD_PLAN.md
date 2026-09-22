@@ -37,12 +37,26 @@
 | G-P0-SOURCE | 每个来源已保存真实样本，并登记 `source_id / approved_hosts / verified_publishers / cursor / poll_policy` | P3-01、P3-02 |
 | G-P0-MODEL | 已记录真实部署的输入保护值、**完整计费输出上界**、单篇费用分布、截断率与修复率 | P3-03 的模型路径（规则与人工路径不受阻） |
 | G-P0-CAL | **至少一个**目标日历客户端通过"完整快照删除 / 重新加入 / 改期 / VALARM"实测 | 对外声称"日历提醒可用"的版本；P3-06 可实现但不得放行；F3-04 不得展示兼容承诺 |
-| G-P0-MAIL | 已验证普通收件人（非 routing verified destination）的 messageId 与反馈 Queue 关联；已记录账单周期、账户日发信权限与其他应用占用 | P4 的一切真实外发；P4 的逻辑实现可用测试替身推进 |
+| G-P0-MAIL | 已验证普通收件人（非 routing verified destination）的 messageId 与反馈 Queue 关联；已记录 `PLATFORM_MAIL_DAY_LIMIT` 实测值 | P4 的一切真实外发；P4 的逻辑实现可用测试替身推进 |
 | G-P1 | P1 全部任务卡验收通过 | P2、P3、P4、P5、P6 |
 | G-P2 | P2 全部任务卡验收通过 | P3-07、F3 |
 | G-D1′ | 日程页浏览时间范围预设档位已定案（纯浏览态参数，不进云端订阅，不等于 `FEED_PAST_DAYS/FEED_FUTURE_DAYS`） | 仅 F1-02 的默认视图定稿 |
 | G-D2 | 权威预览入口、版本绑定语义、关联节点原因与闹钟资格字段已定合同 | F2-02 的正式预览、F3-04 的开通体验 |
 | G-D3 | 前端状态视图与操作结果的最小语义清单已定合同（前端 §13.3） | F3 的正式联调、F4 的通道真实状态 |
+
+### 门禁当前状态（2026-09-22）
+
+| 门禁 | 状态 | 依据 / 还差什么 |
+| --- | --- | --- |
+| **G-P0-CAL** | ✅ **全开** | Apple Calendar / macOS 七步全过、503 保留旧结果、**VALARM 确认弹出**（`docs/evidence/p0/calendar-clients.md`）。§1.2 门槛满足，"日历提醒可用"**可对该客户端说**。Google / Outlook 仍为未测，不得外推 |
+| **G-P0-SOURCE** | 🟡 **部分开** | 三个公告来源 `verified-working`，样本与 `SOURCE_LIMIT_PROFILE` 齐，**已于 `a24be68` 合入 main**（`fixtures/sources/registry.draft.json` 可取）→ **P3-01/P3-02 可对这三个来源开工**。米游社按 `maintenance-required-list-only` 降级登记（正文 403）。待补：跨年样本（12 月窗口）、目标 Cloudflare 环境 E3 复测 |
+| **G-P1** | 🟡 **进行中** | P1-01 ✅ P1-02 ✅（已验收）；P1-03…P1-08 未开始 |
+| **G-P0-MODEL** | ⬜ 未开 | P0-03 未开始。按 ADR-0001，需**按 73 条量级**估日消耗并对照 §4.1 成本护栏。⚠ 账户 entitlements 中**未见任何 `workers_ai.*` 条目**，Workers AI 的可用性与 Neuron 包含量均未证实——P0-03 开工前先确认这一点 |
+| **G-P0-MAIL** | 🟡 **计量已定，链路未验** | 所有者确认：**平台侧只有日限额 1,000 封，无周期包含量，其他应用零占用**。预算模型按 **ADR-0003** 改为纯日额度，`MAIL_SEATS_MAX` 50→100、`MAIL_URGENT_DAY` 60→120、`MAIL_TOTAL_DAY` 175→235，A.5 全部成立。仍缺：发件域 DNS、真实收件人 messageId 与反馈 Queue 关联 |
+| **G-P2** | ⬜ 未开 | P2 未开始 |
+| **G-D1′ / G-D2 / G-D3** | ⬜ 未定案 | 见前端 v1.0 §13 |
+
+> 本表随验收更新。**"部分开"不等于开**——对未覆盖的部分仍按未开处理。
 
 **P0 的现实性说明（必须正视）：** P0 的大部分内容——真实 Cloudflare 账户资格、真实发信、真实账单、真实日历客户端——执行者 Agent 无权也无法完成。Agent 在 P0 的交付是：只读探测代码、采集脚本、证据登记模板、结论表骨架，以及一份"需所有者执行的操作清单"。**不得用模拟结果填充 P0 证据**，也不得因为 P0 未完成就把"先把账号中心做完"当作放行替代（主方案 §10.4）。
 
@@ -71,7 +85,7 @@ ID 规则：`<阶段>-<两位序号>`。每张卡一个分支、一个 PR、一�
 | P1-04 | D1 schema、索引与迁移框架 | P1-02 | A-P1-DB |
 | P1-05 | 条件提交（CAS）原语与并发测试 | P1-04 | A-P1-CAS |
 | P1-06 | 密钥用途隔离、字段加密与 MAC 原语 | P1-03 | A-P1-CRYPTO |
-| P1-07 | 限速与预算账本原语（envelope + carry + floor） | P1-03,P1-05 | A-P1-BUDGET |
+| P1-07 | 限速与预算账本原语（三个日池 + floor 降级） | P1-03,P1-05 | A-P1-BUDGET |
 | P1-08 | API 外壳：错误模型、Origin/CSRF、请求校验、日志脱敏 | P1-02,P1-06 | A-P1-SHELL |
 
 ### P2 · 账号与云配置纵向闭环
@@ -105,7 +119,7 @@ ID 规则：`<阶段>-<两位序号>`。每张卡一个分支、一个 PR、一�
 | P4-01 | 通知发生项生成与到期展开（keyset 分页） | P3-04 | A-P4-OCCUR |
 | P4-02 | 优先级阶梯、公平游标与同批次同用户合并 | P4-01 | A-P4-FAIR |
 | P4-03 | MailProvider 接口与 outbox 状态机 | P4-02,P1-07 | A-P4-OUTBOX |
-| P4-04 | 预算池执行（基础 envelope / 紧急不平滑 / 认证软线与 floor） | P4-03 | A-P4-BUDGET |
+| P4-04 | 预算池执行（三个日池 + 当日 floor 降级） | P4-03 | A-P4-BUDGET |
 | P4-05 | 邮件通道两层同意 API（席位 / 常规提醒子名额） | P4-04,G-P2 | A-P4-CONSENT |
 | P4-06 | 退订 token、确认页与 one-click | P4-05 | A-P4-UNSUB |
 | P4-07 | 反馈 Queue 消费、关联与抑制 | P4-03 | A-P4-FEEDBACK |
