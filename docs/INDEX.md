@@ -18,6 +18,7 @@
 | [ENGINEERING.md](ENGINEERING.md) | 仓库结构、工具链、命令、代码与测试约定、Definition of Done |
 | [CONTRACTS_BASELINE.md](CONTRACTS_BASELINE.md) | 跨阶段反复使用的枚举、公式与边界的集中索引 |
 | [ACCEPTANCE.md](ACCEPTANCE.md) | 验收矩阵 → 测试 ID 映射；每阶段放行检查单；拒收条件 |
+| [DEPLOYMENT_PREREQUISITES.md](DEPLOYMENT_PREREQUISITES.md) | 各卡产生的「需所有者执行」项汇总：secrets、平台配置、待取得实测值 |
 | [tasks/](tasks/) | 每阶段的任务卡：P0–P6（后端与管线）、F1–F5（前端轮次） |
 | [adr/](adr/) | 变更合同的决策记录；改动禁止清单中的任何一条都必须先有 ADR |
 
