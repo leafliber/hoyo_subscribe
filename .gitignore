@@ -25,3 +25,7 @@ playwright-report/
 
 # Astro 生成的本地类型与缓存（build/dev 时重建）
 apps/web/.astro/
+
+# 本地 git worktree（放在仓库内会让 Biome 报 "nested root configuration"，
+# 且容易被 git add -A 误收为 gitlink；建议把 worktree 建在仓库外）
+.worktrees/
