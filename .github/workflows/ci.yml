@@ -1,7 +1,7 @@
 # CI 门禁（任务卡 P1-01 交付物；命令清单见 docs/ENGINEERING.md §3）。
 #
-# params:verify 与 migrate:check 在对应任务卡（P1-03 / P1-04）交付前是"未实现"占位脚本，
-# 按任务卡约定它们必须以非零退出，因此这两个步骤标记 continue-on-error，交付对应任务卡后移除该标记。
+# params:verify 已于 P1-03 交付转正：附录 A.5 等式不成立时 CI 必须红。
+# migrate:check 在 P1-04 交付前仍是"未实现"占位（非零退出），保留 continue-on-error，交付后移除。
 # build 不在任务卡列出的五个 CI 项中，但属于 A-P1-REPO 验收项，一并执行。
 name: CI
 
@@ -28,9 +28,8 @@ jobs:
         run: pnpm typecheck
       - name: test
         run: pnpm test
-      - name: params:verify（预期失败至 P1-03 交付）
+      - name: params:verify（附录 A.5 启动等式）
         run: pnpm params:verify
-        continue-on-error: true
       - name: migrate:check（预期失败至 P1-04 交付）
         run: pnpm migrate:check
         continue-on-error: true

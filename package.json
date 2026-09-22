@@ -11,10 +11,12 @@
     "test:worker": "pnpm --filter @hoyo/worker run test",
     "test:e2e": "node scripts/unimplemented.js \"test:e2e：Playwright 端到端测试，由 F 轮交付\"",
     "migrate:check": "node scripts/unimplemented.js \"migrate:check：迁移重放与索引检查，由 P1-04 交付\"",
-    "params:verify": "node scripts/unimplemented.js \"params:verify：附录 A.5 等式校验，由 P1-03 交付\"",
-    "build": "pnpm -r --if-present run build"
+    "params:verify": "tsx scripts/params/verify.ts",
+    "build": "pnpm -r --if-present run build",
+    "params:docs": "tsx scripts/params/export-docs.ts"
   },
   "devDependencies": {
-    "@biomejs/biome": "2.5.14"
+    "@biomejs/biome": "2.5.14",
+    "tsx": "4.23.15"
   }
 }
