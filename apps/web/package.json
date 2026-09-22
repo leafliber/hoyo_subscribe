@@ -1,5 +1,17 @@
 {
   "name": "@hoyo/web",
   "private": true,
-  "type": "module"
+  "type": "module",
+  "scripts": {
+    "dev": "astro dev",
+    "build": "astro build",
+    "preview": "astro preview --host 127.0.0.1 --port 4173",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "astro": "7.3.3"
+  },
+  "devDependencies": {
+    "typescript": "7.0.2"
+  }
 }

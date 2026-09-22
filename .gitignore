@@ -18,3 +18,10 @@ Thumbs.db
 
 # 日志
 *.log
+
+# Playwright 产物（截图证据单独复制到 docs/evidence/ 提交）
+test-results/
+playwright-report/
+
+# Astro 生成的本地类型与缓存（build/dev 时重建）
+apps/web/.astro/

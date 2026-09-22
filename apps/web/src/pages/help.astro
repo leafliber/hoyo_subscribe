@@ -1,0 +1,40 @@
+---
+import Dialog from "../components/Dialog.astro";
+import Layout from "./_Layout.astro";
+---
+<Layout title="使用帮助">
+  <h1>使用帮助</h1>
+  <p class="skeleton-note">页面骨架：日历接入指引、实测兼容性与时间说明由后续轮次填充。下方为 F1-01 可访问性基线组件的示例区。</p>
+
+  <section class="baseline-demo" aria-labelledby="baseline-demo-title">
+    <h2 id="baseline-demo-title">可访问性基线示例</h2>
+    <button class="button button--secondary" type="button" data-dialog-open="demo-dialog">
+      打开示例弹窗
+    </button>
+    <details class="collapse" id="demo-collapse">
+      <summary>示例折叠区（含错误自动展开定位）</summary>
+      <div class="collapse-body">
+        <div class="field">
+          <label for="demo-field">示例字段</label>
+          <input id="demo-field" name="demo-field" type="text" placeholder="仅作演示" />
+          <p class="field-error" id="demo-field-error" tabindex="-1" hidden>示例错误：该项不能为空</p>
+        </div>
+      </div>
+    </details>
+    <!-- 触发点在折叠区外：真实场景中校验由外部动作（保存/提交）发起，折叠区只承载被定位的错误 -->
+    <button class="button button--secondary" type="button" id="demo-invalidate">
+      模拟校验失败
+    </button>
+    <button class="button button--secondary" type="button" data-announce-demo>
+      模拟状态播报
+    </button>
+  </section>
+
+  <Dialog id="demo-dialog" title="示例弹窗">
+    <p>弹窗打开后焦点移入弹窗，Tab 只在弹窗内循环，背景不可操作；按 Esc 或点「关闭」后，焦点回到触发按钮。</p>
+  </Dialog>
+
+  <script>
+    import "../components/collapse";
+  </script>
+</Layout>

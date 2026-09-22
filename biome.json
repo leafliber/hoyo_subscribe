@@ -6,7 +6,7 @@
     "useIgnoreFile": true
   },
   "files": {
-    "includes": ["**", "!apps/worker/worker-configuration.d.ts"]
+    "includes": ["**", "!apps/worker/worker-configuration.d.ts", "!apps/web/.astro"]
   },
   "formatter": {
     "enabled": true,
@@ -28,6 +28,19 @@
       "trailingCommas": "all"
     }
   },
+  "overrides": [
+    {
+      "includes": ["**/*.astro"],
+      "linter": {
+        "rules": {
+          "correctness": {
+            "noUnusedVariables": "off",
+            "noUnusedImports": "off"
+          }
+        }
+      }
+    }
+  ],
   "assist": {
     "actions": {
       "source": {

@@ -1,0 +1,25 @@
+---
+import FormField from "../components/FormField.astro";
+import Layout from "./_Layout.astro";
+---
+<Layout title="登录">
+  <h1>登录</h1>
+  <p class="skeleton-note">页面骨架：验证码登录流程由 F3 轮交付。此表单仅承载「标签持续可见」的可访问性基线。</p>
+  <form class="form-narrow" novalidate>
+    <FormField
+      id="login-email"
+      label="邮箱地址"
+      type="email"
+      placeholder="you@example.com"
+      hint="用于接收登录验证码"
+      autocomplete="email"
+    />
+    <button class="button" type="button" id="login-request-otp">发送验证码</button>
+  </form>
+  <script>
+    import { announce } from "../components/status";
+    document.getElementById("login-request-otp")?.addEventListener("click", () => {
+      announce("骨架页：验证码发送由 F3 轮交付", "info");
+    });
+  </script>
+</Layout>

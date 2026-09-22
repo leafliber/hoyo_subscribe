@@ -1,0 +1,77 @@
+/* ============================================================================
+   设计 token —— 全站唯一定义源（前端 v1.0 §11.1）
+
+   规则：
+   1. 颜色最终值只允许出现在本文件。tests/e2e/a11y.spec.ts 的
+      「颜色单一来源」用例扫描全部 .css/.astro，出现第二个颜色字面量即失败。
+   2. 颜色 token 一律写字面 hex（或带 alpha 的 rgb），不写 var() 引用，
+      便于测试直接解析（styles/contrast-checks.ts 按名字引用）。
+   3. 半透明降权（D1′「昨天」带等）必须对「合成后的实际颜色」测对比度
+      （styles/color.ts 的 compositeOver + contrast-checks.ts 声明的组合）。
+      达不到阈值时的替代手段：更小字号 / 更浅分隔线 / 折叠态；
+      ★ 不要用"继续降低不透明度"来解决对比度不达标。
+
+   基线值对应 §11.1 表：
+   字号 14/16/22/28 · 间距 4/8/12/16/24/32 · 内容宽 1120/760 ·
+   断点 960（单列）· 触控 ≥44 · 圆角 8 · 细边框
+   ========================================================================== */
+:root {
+  /* —— 基础颜色（浅色、低装饰）—— */
+  --color-bg-page: #f6f8fa; /* 页面浅灰 */
+  --color-bg-surface: #ffffff; /* 内容白 */
+  --color-text-primary: #1f2328; /* 正文深灰 */
+  --color-text-secondary: #57606f; /* 次要文字 */
+  --color-text-aux: #656d76; /* 14px 辅助文字 */
+  --color-border: #d0d7de; /* 细边框（装饰性，无比对度要求） */
+
+  /* —— 强调色：全站唯一变量，链接与主按钮共用 —— */
+  --color-accent: #0969da;
+  --color-accent-strong: #0550ae; /* 悬停 / 按压 */
+  --color-on-accent: #ffffff; /* 强调色上的文字 */
+
+  /* —— 状态颜色：语义变量，同时保留文字或图标说明，不单靠颜色 —— */
+  --color-success: #1a7f37;
+  --color-warning: #9a6700;
+  --color-danger: #cf222e;
+
+  /* —— 焦点 —— */
+  --color-focus-ring: #0969da;
+
+  /* —— 半透明降权层（对合成色测对比度，见文件头规则 3）—— */
+  --alpha-deemphasized-text: 0.72; /* 降权文字：text-primary 叠加在 surface/page 之上 */
+  --color-tint-ink: #000000; /* 减淡层用的「墨色」，只作背景叠层，不作文字 */
+  --alpha-band-tint: 0.04; /* 「昨天」带：墨色背景减淡层，叠加在 surface 之上 */
+  --color-scrim: rgb(0 0 0 / 0.32); /* 弹窗遮罩：无文字落其上，无比对度要求 */
+
+  /* —— 字体与字号层级：辅助 14 / 正文 16 / 分区标题 22 / 页面标题 28 —— */
+  --font-family-body:
+    system-ui, -apple-system, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei",
+    "Noto Sans CJK SC", sans-serif;
+  --font-size-aux: 14px;
+  --font-size-body: 16px;
+  --font-size-section: 22px;
+  --font-size-page: 28px;
+
+  /* —— 间距层级 —— */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 24px;
+  --space-6: 32px;
+
+  /* —— 内容宽度：页面最大 1120 / 单列表单最大 760 —— */
+  --width-page-max: 1120px;
+  --width-form-max: 760px;
+
+  /* —— 断点：960px 以下单列 ——
+     CSS 自定义属性不能用于 media query，此口径由 base.css 的
+     @media (max-width: 960px) 与本注释共同固定为 960px。 */
+
+  /* —— 触控：主要按钮 / 复选项 / 展开入口的有效点击区最小值 —— */
+  --tap-target-min: 44px;
+
+  /* —— 圆角与边框：常用组件圆角 8px，细边框，不叠多层装饰 —— */
+  --radius-control: 8px;
+  --border-thin: 1px;
+}
