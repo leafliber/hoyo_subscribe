@@ -4,7 +4,7 @@
 // - ★ 重发只旋转本挑战 generation：不重置累计失败次数、不延长最初截止、不废其他浏览器挑战；
 // - ★ 错误尝试持久扣减，不被返回错误的事务回滚抵消；
 // - ★ 活动 Cookie 临近到期不影响新验证码；Cookie 丢失 / 无开放挑战不误报为验证码错误；
-// - ★ PREAUTH_MIN_TTL 下限本身满足 A.5 等式；续期覆盖最晚挑战截止 + 完成余量；
+// - ★ PREAUTH_MIN_TTL 下限本身满足 A.5 不等式；续期覆盖最晚挑战截止 + 完成余量；
 // - 大小写不同的登录请求 → 同一账号且投递地址不被改写（§4.1）；
 // - 并发重发不产生多份有效码（同键 / 异键）；
 // - 挑战数达到 AUTH_CHALLENGES_PER_EMAIL 后拒绝；重发冷却与当日合计；
@@ -798,6 +798,76 @@ describe("A-P2-OTP 重发", () => {
     expect(capped.status).toBe(429);
     expect((await errorBody(capped)).code).toBe("rate_limited");
   });
+
+  it("★ 重发地址解析失败关闭：login 载荷已清且 users 行缺失 → 503，零新发送意图（绝不按请求地址改投）", async () => {
+    isolateDay();
+    const localPart = `CaseHold-${crypto.randomUUID().slice(0, 8)}`;
+    const canonical = `${localPart.toLowerCase()}@example.test`;
+    const stored = `${localPart}@example.test`;
+    const seeded = await seedUser(canonical, stored);
+    const ctx = await preauthContext();
+    await apply({ email: canonical, idempotencyKey: "fc-0", preauthValue: ctx.value });
+    const emailKey = seeded.emailKey;
+    const challenge = (await challengesOf(emailKey, ctx.id))[0];
+    expect(challenge.purpose).toBe("login");
+    const dayKey = utcDayPeriod(clockMs).key;
+    expect(await usageOf("existing_auth", dayKey)).toBe(1);
+
+    // 模拟「载荷已被清除」（如 P4 发送后清除）+ 账号已删除（users 行缺失；
+    // 外键引用一并解除，与账号清理后的持久状态同形）。
+    clockMs += (OTP_COOLDOWN + 1) * SECOND;
+    await run(
+      "UPDATE mail_outbox SET recipient_user_id = NULL, payload_ciphertext = NULL WHERE payload_ref = ?",
+      challenge.id,
+    );
+    await run("DELETE FROM users WHERE id = ?", seeded.id);
+
+    // 用不同大小写的请求地址重发：必须失败关闭（503），与创建路径判同一种结果。
+    const requestForm = `${localPart.replace("CaseHold", "CASEHOLD")}@Example.Test`;
+    const blocked = await resend({
+      email: requestForm,
+      idempotencyKey: "fc-r1",
+      preauthValue: ctx.value,
+    });
+    expect(blocked.status).toBe(503);
+    expect((await errorBody(blocked)).code).toBe("temporarily_unavailable");
+
+    // ★ 断言没有任何发送意图以请求原文地址创建：挑战未旋转、无新 outbox 行、
+    // 既无密文可解；预算也未被占用（失败关闭点在预占之前）。
+    const after = (await challengesOf(emailKey, ctx.id))[0];
+    expect(after.generation).toBe(0);
+    expect(after.mac).toBe(challenge.mac);
+    const outbox = await outboxOf(challenge.id);
+    expect(outbox.length).toBe(1); // 只有初始行
+    expect(outbox[0].payload_ciphertext).toBeNull(); // 无任何可解密载荷
+    expect(await usageOf("existing_auth", dayKey)).toBe(1); // 失败不占预算
+  });
+
+  it("signup 挑战历史载荷清除后重发：仍以请求原文投递形态创建发送意图（首次绑定，不是改投）", async () => {
+    isolateDay();
+    const localPart = `Signup.Case-${crypto.randomUUID().slice(0, 8)}`;
+    const email = `${localPart}@example.test`; // signup：请求原文即投递形态（本地部分保留大小写）
+    const ctx = await preauthContext();
+    await apply({ email, idempotencyKey: "sf-0", preauthValue: ctx.value });
+    const emailKey = await emailKeyOf(email.toLowerCase());
+    const challenge = (await challengesOf(emailKey, ctx.id))[0];
+    expect(challenge.purpose).toBe("signup");
+
+    // 历史载荷全部清除 → 兜底取请求投递形态。
+    clockMs += (OTP_COOLDOWN + 1) * SECOND;
+    await run(
+      "UPDATE mail_outbox SET payload_ciphertext = NULL WHERE payload_ref = ?",
+      challenge.id,
+    );
+    const resent = await resend({ email, idempotencyKey: "sf-r1", preauthValue: ctx.value });
+    expect(resent.status).toBe(202);
+    const after = (await challengesOf(emailKey, ctx.id))[0];
+    expect(after.generation).toBe(1);
+    const payload = await latestPayload(challenge.id);
+    expect(payload.generation).toBe(1);
+    expect(payload.address).toBe(email); // 请求投递形态（本地部分大小写保留）
+    expect((await outboxOf(challenge.id)).filter((row) => row.status === "pending").length).toBe(1);
+  });
 });
 
 describe("A-P2-OTP 校验", () => {
@@ -881,9 +951,10 @@ describe("A-P2-OTP 校验", () => {
     expect(await fieldReason(expired)).toBe("no_open_challenge");
   });
 
-  it("★ PREAUTH_MIN_TTL 下限本身满足 A.5 等式；续期覆盖最晚挑战截止 + 完成余量", async () => {
-    // 等式本身（A.2 已按此取值；params:verify 与 Worker 启动共用同一校验）。
-    expect(PREAUTH_MIN_TTL).toBe(OTP_TTL + AUTH_COMPLETION_TTL + PREAUTH_MARGIN);
+  it("★ PREAUTH_MIN_TTL 下限本身满足 A.5 不等式；续期覆盖最晚挑战截止 + 完成余量", async () => {
+    // 安全属性是**不等式**（CONTRACTS_BASELINE §8，P2-02 验收裁定）：安全性不挂在
+    // 当前参数恰好取等（1320 = 600+600+120）的巧合上，调参只需保持不等式成立。
+    expect(PREAUTH_MIN_TTL).toBeGreaterThanOrEqual(OTP_TTL + AUTH_COMPLETION_TTL + PREAUTH_MARGIN);
 
     isolateDay();
     const email = freshEmail("ttl");

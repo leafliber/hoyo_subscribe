@@ -33,10 +33,12 @@
 // 3. 折叠 202 出口统一附加预认证 Cookie 同值续期 Set-Cookie（§4.3，实现于
 //    auth/challenges/renewal.ts）：续期目标（now + PREAUTH_MIN_TTL 与「最晚开放挑战
 //    截止 + AUTH_COMPLETION_TTL + PREAUTH_MARGIN」的最大值）对「本次申请是否真的创建
-//    了挑战」**路径无关**——A.5 第一式取等保证 ≤now 创建的一切挑战所需覆盖都 ≤
-//    now + 下限——因此四条折叠路径附加同一值，字节同形不被破坏，也不会经 Set-Cookie
-//    的出现与否或取值差异回显注册状态。续期读与签名在存在性折叠之外、对所有 202
-//    路径统一执行（时序同增，不改变路径间相对成本）。
+//    了挑战」**路径无关**——A.5 第一式（**不等式** PREAUTH_MIN_TTL >= OTP_TTL +
+//    AUTH_COMPLETION_TTL + PREAUTH_MARGIN）保证 ≤now 创建的一切挑战所需覆盖都 ≤
+//    now + 下限（完整推导见 renewal.ts 文件头与 CONTRACTS_BASELINE.md §8）——因此
+//    四条折叠路径附加同一值，字节同形不被破坏，也不会经 Set-Cookie 的出现与否或
+//    取值差异回显注册状态。续期读与签名在存在性折叠之外、对所有 202 路径统一执行
+//    （时序同增，不改变路径间相对成本）。
 
 import {
   canonicalizeEmail,

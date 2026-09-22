@@ -151,10 +151,16 @@ async function readPriorReservations(
 }
 
 /**
- * 重发载荷的投递地址（§4.1：不按请求大小写改投）：
+ * 重发载荷的投递地址（§4.1 / CONTRACTS_BASELINE §8.1：不按请求大小写改投）：
  * 1. 原挑战最近一条仍可解密的载荷（申请时绑定的实际投递串，最权威）；
  * 2. login 用途：数据库已验证地址（users.email_ciphertext）；
- * 3. signup 兜底：请求原文投递形态（仅当历史载荷已全部清除；边界见交付报告）。
+ *    ★ 前两级都拿不到时**失败关闭**（抛错 → 503），与创建路径（create-challenge.ts
+ *    对称）判同一种结果——绝不回退到请求原文地址：极少数本地部分大小写敏感的邮箱
+ *    会因此把验证码发给另一个人。
+ * 3. signup 兜底：请求原文投递形态（仅当历史载荷已全部清除）——signup 没有已验证
+ *    地址，请求投递形态是**首次绑定**，不是改投。
+ *
+ * 调用时点：在预算预占**之前**（见 runResendOtp）——失败关闭路径零写入、零预算占用。
  */
 async function resolveResendAddress(
   db: D1Database,
@@ -179,18 +185,22 @@ async function resolveResendAddress(
       )
     ).address;
   }
-  if (challenge.purpose === "login" && challenge.recipient_user_id !== null) {
+  if (challenge.purpose === "login") {
+    if (challenge.recipient_user_id === null) {
+      throw new Error("login 用途重发未找到已验证投递地址（并发状态变化，失败关闭）");
+    }
     const user = await db
       .prepare("SELECT email_ciphertext FROM users WHERE id = ?")
       .bind(challenge.recipient_user_id)
       .first<{ email_ciphertext: Uint8Array }>();
-    if (user !== null) {
-      return decryptDeliveryAddress(
-        keys.fieldEncryption(),
-        challenge.recipient_user_id,
-        asEnvelopeBytes(user.email_ciphertext),
-      );
+    if (user === null) {
+      throw new Error("login 用途重发未找到已验证投递地址（并发状态变化，失败关闭）");
     }
+    return decryptDeliveryAddress(
+      keys.fieldEncryption(),
+      challenge.recipient_user_id,
+      asEnvelopeBytes(user.email_ciphertext),
+    );
   }
   return deliveryAddressForm(rawEmail);
 }
@@ -292,6 +302,10 @@ export async function runResendOtp(deps: ResendOtpDeps, input: ResendOtpInput): 
     return finalizeResend(deps, preauth.context, now);
   }
 
+  // —— 投递地址解析（§4.1：login 失败关闭，绝不按请求地址改投）。
+  //    在预算预占**之前**：失败关闭路径零写入、零预算占用（无挂靠预占无泄漏）。 ——
+  const address = await resolveResendAddress(deps.db, deps.keys, challenge, input.email);
+
   // —— 预算预占（先无挂靠预占；旋转失配即归还，账面不丢） ——
   const reservation = await reserveMailBudget(deps.db, {
     intent: "auth_resend",
@@ -314,7 +328,6 @@ export async function runResendOtp(deps: ResendOtpDeps, input: ResendOtpInput): 
     code,
   });
   const outboxId = crypto.randomUUID();
-  const address = await resolveResendAddress(deps.db, deps.keys, challenge, input.email);
   const payload = await encryptOtpPayload(deps.keys.fieldEncryption(), outboxId, {
     challengeId: challenge.id,
     generation: newGeneration,

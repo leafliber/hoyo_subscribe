@@ -5,12 +5,19 @@
 //   续期 = 同 preauth_id、同 issued_at，仅延长 MAC 认证的 expires_at 并重签 MAC。
 // - 浏览器保留期限须覆盖该上下文**所有未过期挑战的最晚结束时间 + AUTH_COMPLETION_TTL
 //   + PREAUTH_MARGIN**（A.5 第二式：OTP绑定Cookie截止 >= 最晚挑战截止 + 两者之和）。
-// - 下限本身即安全（A.5 第一式）：PREAUTH_MIN_TTL = OTP_TTL + AUTH_COMPLETION_TTL
-//   + PREAUTH_MARGIN，因此任意时刻 T 的「now + 下限」恰覆盖 T 及以前创建的一切挑战
-//   （它们的截止 ≤ T + OTP_TTL）。由此，续期目标对「本次申请是否真的创建了挑战」是
-//   **路径无关**的——这对存在性折叠至关重要：申请响应按同一规则对四条路径（已注册/
-//   未注册/满额/关闭注册）统一附加同一 Set-Cookie 值，字节同形不被破坏，也不经
-//   Set-Cookie 出现与否或值差异回显邮箱注册状态。
+// - 下限本身即安全，依据是 A.5 第一式的**不等式**（PREAUTH_MIN_TTL >= OTP_TTL +
+//   AUTH_COMPLETION_TTL + PREAUTH_MARGIN；params:verify 每次启动校验）：
+//     任何未过期挑战的截止 <= now + OTP_TTL
+//     ⇒ 第三项 base + (AUTH_COMPLETION_TTL + PREAUTH_MARGIN)
+//            <= now + OTP_TTL + AUTH_COMPLETION_TTL + PREAUTH_MARGIN
+//            <= now + PREAUTH_MIN_TTL = 第二项
+//   即第三项永远超不过下限项，expiresAt 恒 = max(当前截止, now + PREAUTH_MIN_TTL)。
+//   由此，续期目标对「本次申请是否真的创建了挑战」是**路径无关**的——这对存在性
+//   折叠至关重要：申请响应按同一规则对四条路径（已注册/未注册/满额/关闭注册）统一
+//   附加同一 Set-Cookie 值，字节同形不被破坏，也不经 Set-Cookie 出现与否或取值差异
+//   回显邮箱注册状态。安全性挂在这条**不等式**上，不挂在当前参数恰好取等
+//   （1320 = 600 + 600 + 120）的巧合上：调参只需保持不等式成立，不必保持相等
+//   （CONTRACTS_BASELINE.md §8，P2-02 验收裁定）。
 //
 // 本模块不做数据库读取的调用方决策：maxOpenChallengeDeadline 由调用方（pipeline 的
 // 申请响应出口、verify/resend 的成功响应）读出后传入；对无挑战上下文传 null。
