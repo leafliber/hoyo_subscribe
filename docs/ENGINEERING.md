@@ -184,6 +184,12 @@ describe('A-P2-SESSION 会话生命周期', () => {
 
 验收 ID 清单见 `docs/ACCEPTANCE.md`。交付报告里的"验收测试"表直接引用测试文件与用例名。
 
+**已知偶发（flake）**：`pnpm test` 全量并行跑（contracts 与 worker 同时）时，
+worker 侧曾两次各挂 1 条用例（一次在 `crypto/mac.test.ts`），单独 `pnpm --filter @hoyo/worker test`
+与连续三轮全量复跑均全绿，判定为 miniflare/workerd 并发抖动而非逻辑缺陷。
+**遇到时先复跑确认，不要直接改测试来"修"它**；若复现率上升或能稳定复现，按缺陷处理并单独开卡。
+CI 偶发红比测试缺失更伤——它教人忽略红灯。
+
 **并发与竞态必须真测**：验证码并发消费、两设备同时保存、会话名额争用、预算并发预占，都要写成真实并发用例，不用"逻辑上不可能"代替。
 
 ## 8. Git 与 PR

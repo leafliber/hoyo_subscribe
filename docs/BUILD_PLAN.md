@@ -50,7 +50,7 @@
 | --- | --- | --- |
 | **G-P0-CAL** | ✅ **全开** | Apple Calendar / macOS 七步全过、503 保留旧结果、**VALARM 确认弹出**（`docs/evidence/p0/calendar-clients.md`）。§1.2 门槛满足，"日历提醒可用"**可对该客户端说**。Google / Outlook 仍为未测，不得外推 |
 | **G-P0-SOURCE** | 🟡 **部分开** | 三个公告来源 `verified-working`，样本与 `SOURCE_LIMIT_PROFILE` 齐，**已于 `a24be68` 合入 main**（`fixtures/sources/registry.draft.json` 可取）→ **P3-01/P3-02 可对这三个来源开工**。米游社按 `maintenance-required-list-only` 降级登记（正文 403）。待补：跨年样本（12 月窗口）、目标 Cloudflare 环境 E3 复测 |
-| **G-P1** | 🟡 **进行中** | P1-01…P1-04 ✅ 已合入 main；**P1-05（#8）/ P1-06（#7）已验收通过，待合并**；剩 **P1-07 / P1-08**。两个 PR 零文件重叠、相互可合并。合入后 G-P1 全开 → P2 与 P3 同时解锁 |
+| **G-P1** | ✅ **全开**（2026-09-22，`560fe56`） | P1-01…P1-08 八张卡全部验收合入。main 全绿：lint 0、typecheck 0、test 161+163、params:verify 24/24、migrate:check 通过 → **P2、P3 同时解锁** |
 | **G-P0-MODEL** | ⬜ 未开 | P0-03 未开始。按 ADR-0001，需**按 73 条量级**估日消耗并对照 §4.1 成本护栏。⚠ 账户 entitlements 中**未见任何 `workers_ai.*` 条目**，Workers AI 的可用性与 Neuron 包含量均未证实——P0-03 开工前先确认这一点 |
 | **G-P0-MAIL** | 🟡 **计量已定，链路未验** | 所有者确认：**平台侧只有日限额 1,000 封，无周期包含量，其他应用零占用**。预算模型按 **ADR-0003** 改为纯日额度，`MAIL_SEATS_MAX` 50→100、`MAIL_URGENT_DAY` 60→120、`MAIL_TOTAL_DAY` 175→235，A.5 全部成立。仍缺：发件域 DNS、真实收件人 messageId 与反馈 Queue 关联 |
 | **G-P2** | ⬜ 未开 | P2 未开始 |
