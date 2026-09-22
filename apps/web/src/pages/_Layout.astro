@@ -1,0 +1,59 @@
+---
+import "../styles/base.css";
+
+interface Props {
+  title: string;
+  activeNav?: "schedule" | "subscription";
+}
+
+const { title, activeNav } = Astro.props;
+const siteName = "米哈游官方日程订阅";
+---
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>{title} · {siteName}</title>
+  </head>
+  <body>
+    <a class="skip-link" href="#main">跳到主要内容</a>
+    <header class="app-header">
+      <div class="app-header-inner">
+        <a class="brand" href="/">{siteName}</a>
+        <nav class="primary-nav" aria-label="主导航">
+          <ul>
+            <li><a href="/" aria-current={activeNav === "schedule" ? "page" : undefined}>日程</a></li>
+            <li>
+              <a
+                href="/subscription"
+                aria-current={activeNav === "subscription" ? "page" : undefined}
+              >
+                我的订阅
+              </a>
+            </li>
+          </ul>
+        </nav>
+        <a class="account-entry" href="/login">登录</a>
+      </div>
+    </header>
+    <p class="app-status" id="global-status" role="status" data-kind="info"></p>
+    <main class="app-main" id="main" tabindex="-1">
+      <slot />
+    </main>
+    <footer class="app-footer">
+      <div class="app-footer-inner">
+        <nav class="footer-nav" aria-label="页脚">
+          <ul>
+            <li><a href="/help">帮助</a></li>
+            <li><a href="/status">服务状态</a></li>
+          </ul>
+        </nav>
+      </div>
+    </footer>
+    <script>
+      import "../components/dialog";
+      import "../components/status";
+    </script>
+  </body>
+</html>

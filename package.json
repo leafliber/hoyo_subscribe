@@ -5,11 +5,11 @@
   "packageManager": "pnpm@11.11.0",
   "scripts": {
     "lint": "biome check .",
-    "typecheck": "pnpm -r --if-present run typecheck",
+    "typecheck": "pnpm -r --if-present run typecheck && tsc --project tests/e2e",
     "test": "pnpm -r --if-present run test",
     "test:contracts": "pnpm --filter @hoyo/contracts run test",
     "test:worker": "pnpm --filter @hoyo/worker run test",
-    "test:e2e": "node scripts/unimplemented.js \"test:e2e：Playwright 端到端测试，由 F 轮交付\"",
+    "test:e2e": "pnpm --filter @hoyo/web run build && playwright test --config tests/e2e/playwright.config.ts",
     "migrate:check": "node scripts/migrate/check.mjs",
     "params:verify": "tsx scripts/params/verify.ts",
     "params:docs": "tsx scripts/params/export-docs.ts",
@@ -17,6 +17,9 @@
   },
   "devDependencies": {
     "@biomejs/biome": "2.5.14",
-    "tsx": "4.23.15"
+    "@playwright/test": "1.63.0",
+    "@types/node": "26.6.2",
+    "tsx": "4.23.15",
+    "typescript": "7.0.2"
   }
 }

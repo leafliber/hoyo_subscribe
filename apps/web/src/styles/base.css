@@ -1,0 +1,390 @@
+/* 全站基础排版与布局。颜色/字号/间距只经 tokens.css 的变量引用，
+   本文件不得出现颜色字面量（tests/e2e/a11y.spec.ts 扫描强制）。
+   视觉方向：浅色、低装饰，靠文字层级、对齐、分组与留白区分信息（前端 §11.1）。 */
+@import "./tokens.css";
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html {
+  font-family: var(--font-family-body);
+  font-size: var(--font-size-body);
+  line-height: 1.6;
+  color: var(--color-text-primary);
+  background: var(--color-bg-page);
+}
+
+body {
+  margin: 0;
+}
+
+h1 {
+  font-size: var(--font-size-page);
+  font-weight: 600;
+  margin: 0 0 var(--space-4);
+}
+
+h2 {
+  font-size: var(--font-size-section);
+  font-weight: 600;
+  margin: 0 0 var(--space-3);
+}
+
+p {
+  margin: 0 0 var(--space-3);
+}
+
+a {
+  color: var(--color-accent);
+}
+
+/* 焦点明显：键盘焦点一律给 2px 焦点环（前端 §11.2） */
+:focus-visible {
+  outline: 2px solid var(--color-focus-ring);
+  outline-offset: 2px;
+}
+
+/* 跳到主要内容：平时移出视口，获得焦点时出现 */
+.skip-link {
+  position: absolute;
+  left: var(--space-3);
+  top: var(--space-3);
+  z-index: 40;
+  transform: translateY(-200%);
+  background: var(--color-bg-surface);
+  color: var(--color-text-primary);
+  padding: var(--space-2) var(--space-3);
+  border: var(--border-thin) solid var(--color-border);
+  border-radius: var(--radius-control);
+  min-height: var(--tap-target-min);
+  display: inline-flex;
+  align-items: center;
+  text-decoration: none;
+}
+
+.skip-link:focus-visible {
+  transform: none;
+}
+
+/* —— 页头：品牌 + 主导航（仅两项）+ 右上角登录入口 —— */
+.app-header {
+  border-bottom: var(--border-thin) solid var(--color-border);
+  background: var(--color-bg-surface);
+}
+
+.app-header-inner {
+  max-width: var(--width-page-max);
+  margin: 0 auto;
+  padding: var(--space-3) var(--space-4);
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  flex-wrap: wrap;
+}
+
+.brand {
+  font-weight: 600;
+  color: var(--color-text-primary);
+  text-decoration: none;
+  min-height: var(--tap-target-min);
+  display: inline-flex;
+  align-items: center;
+}
+
+.primary-nav ul {
+  display: flex;
+  gap: var(--space-2);
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.primary-nav a {
+  display: inline-flex;
+  align-items: center;
+  min-height: var(--tap-target-min);
+  padding: 0 var(--space-3);
+  border-radius: var(--radius-control);
+  color: var(--color-text-primary);
+  text-decoration: none;
+}
+
+.primary-nav a[aria-current="page"] {
+  color: var(--color-accent);
+  font-weight: 600;
+}
+
+.account-entry {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  min-height: var(--tap-target-min);
+  padding: 0 var(--space-3);
+  border-radius: var(--radius-control);
+  color: var(--color-accent);
+  text-decoration: none;
+}
+
+/* —— 主内容与内容宽度 —— */
+.app-main {
+  max-width: var(--width-page-max);
+  margin: 0 auto;
+  padding: var(--space-6) var(--space-4);
+}
+
+.form-narrow {
+  max-width: var(--width-form-max);
+}
+
+/* —— 全局状态播报区：role="status"（aria-live=polite），为空时不占位 —— */
+.app-status {
+  max-width: var(--width-page-max);
+  margin: 0 auto;
+  padding: var(--space-3) var(--space-4);
+  border: var(--border-thin) solid var(--color-border);
+  border-radius: var(--radius-control);
+  background: var(--color-bg-surface);
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-aux);
+}
+
+.app-status:empty {
+  display: none;
+}
+
+.app-status[data-kind="success"] {
+  color: var(--color-success);
+}
+
+.app-status[data-kind="warning"] {
+  color: var(--color-warning);
+}
+
+.app-status[data-kind="error"] {
+  color: var(--color-danger);
+}
+
+/* —— 页脚：帮助与服务状态（前端 §2.2，不进主导航） —— */
+.app-footer {
+  border-top: var(--border-thin) solid var(--color-border);
+  background: var(--color-bg-surface);
+  margin-top: var(--space-6);
+}
+
+.app-footer-inner {
+  max-width: var(--width-page-max);
+  margin: 0 auto;
+  padding: var(--space-4);
+  display: flex;
+  gap: var(--space-4);
+  flex-wrap: wrap;
+  align-items: center;
+  color: var(--color-text-secondary);
+}
+
+.footer-nav ul {
+  display: flex;
+  gap: var(--space-2);
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.footer-nav a {
+  display: inline-flex;
+  align-items: center;
+  min-height: var(--tap-target-min);
+  padding: 0 var(--space-2);
+  border-radius: var(--radius-control);
+  color: var(--color-accent);
+}
+
+/* —— 表单字段：标签持续可见，不只用 placeholder（前端 §11.2） —— */
+.field {
+  margin-bottom: var(--space-4);
+}
+
+.field label {
+  display: block;
+  margin-bottom: var(--space-2);
+  font-weight: 600;
+}
+
+.field input {
+  display: block;
+  width: 100%;
+  min-height: var(--tap-target-min);
+  padding: var(--space-2) var(--space-3);
+  font: inherit;
+  color: var(--color-text-primary);
+  background: var(--color-bg-surface);
+  border: var(--border-thin) solid var(--color-border);
+  border-radius: var(--radius-control);
+}
+
+.field-hint {
+  font-size: var(--font-size-aux);
+  color: var(--color-text-aux);
+  margin: var(--space-2) 0 0;
+}
+
+.field-error {
+  font-size: var(--font-size-aux);
+  color: var(--color-danger);
+  margin: var(--space-2) 0 0;
+}
+
+/* —— 按钮：主按钮用唯一强调色，最小触控 44px —— */
+.button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: var(--tap-target-min);
+  padding: var(--space-2) var(--space-5);
+  font: inherit;
+  font-weight: 600;
+  color: var(--color-on-accent);
+  background: var(--color-accent);
+  border: var(--border-thin) solid var(--color-accent);
+  border-radius: var(--radius-control);
+  cursor: pointer;
+}
+
+.button:hover {
+  background: var(--color-accent-strong);
+  border-color: var(--color-accent-strong);
+}
+
+.button--secondary {
+  color: var(--color-text-primary);
+  background: var(--color-bg-surface);
+  border-color: var(--color-border);
+}
+
+.button--secondary:hover {
+  background: var(--color-bg-page);
+  border-color: var(--color-border);
+}
+
+/* —— 折叠区：原生 details/summary，整行可点，含错误时由 JS 展开并定位 —— */
+.collapse {
+  border: var(--border-thin) solid var(--color-border);
+  border-radius: var(--radius-control);
+  background: var(--color-bg-surface);
+  margin-bottom: var(--space-4);
+}
+
+.collapse > summary {
+  display: flex;
+  align-items: center;
+  min-height: var(--tap-target-min);
+  padding: 0 var(--space-4);
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.collapse > summary::marker {
+  content: none;
+}
+
+.collapse > summary::before {
+  content: "▸";
+  margin-right: var(--space-2);
+  color: var(--color-text-secondary);
+}
+
+.collapse[open] > summary {
+  border-bottom: var(--border-thin) solid var(--color-border);
+}
+
+.collapse[open] > summary::before {
+  content: "▾";
+}
+
+.collapse-body {
+  padding: var(--space-4);
+}
+
+/* —— 弹窗：遮罩 + 面板；焦点管理与背景 inert 由 components/dialog.ts 负责 —— */
+.dialog {
+  position: fixed;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: var(--space-4);
+  z-index: 50;
+}
+
+.dialog[hidden] {
+  display: none;
+}
+
+.dialog-backdrop {
+  position: absolute;
+  inset: 0;
+  background: var(--color-scrim);
+}
+
+.dialog-panel {
+  position: relative;
+  background: var(--color-bg-surface);
+  border: var(--border-thin) solid var(--color-border);
+  border-radius: var(--radius-control);
+  max-width: var(--width-form-max);
+  width: 100%;
+  padding: var(--space-5);
+}
+
+/* —— 骨架占位说明 —— */
+.skeleton-note {
+  font-size: var(--font-size-aux);
+  color: var(--color-text-secondary);
+  border: var(--border-thin) dashed var(--color-border);
+  border-radius: var(--radius-control);
+  padding: var(--space-3) var(--space-4);
+  background: var(--color-bg-surface);
+}
+
+/* F1-01 可访问性基线组件演示区（/help） */
+.baseline-demo {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-3);
+  border: var(--border-thin) dashed var(--color-border);
+  border-radius: var(--radius-control);
+  padding: var(--space-4);
+  background: var(--color-bg-surface);
+  margin-top: var(--space-4);
+}
+
+/* —— 响应式：960px 以下优先单列（前端 §11.1/§11.2）。
+   骨架期无双列布局；此后配置/预览双列在此断点收成单列。 —— */
+@media (max-width: 960px) {
+  .app-main {
+    padding: var(--space-4);
+  }
+
+  .app-header-inner {
+    gap: var(--space-2);
+    padding: var(--space-2) var(--space-3);
+  }
+}
+
+/* 减少非必要动效：用户偏好减少动效时全部停用（前端 §11.2）。
+   !important 是无障碍覆盖的标准写法：本规则必须压过任何后续加入的动效。 */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    /* biome-ignore lint/complexity/noImportantStyles: 减少动效偏好必须无条件压过其余动效声明 */
+    transition: none !important;
+    /* biome-ignore lint/complexity/noImportantStyles: 同上 */
+    animation: none !important;
+    /* biome-ignore lint/complexity/noImportantStyles: 同上 */
+    scroll-behavior: auto !important;
+  }
+}

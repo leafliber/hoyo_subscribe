@@ -3,6 +3,7 @@
 # params:verify（P1-03，#5）与 migrate:check（P1-04，#6）均已转正：
 # 等式不成立 / 迁移不可重放时 CI 必须红。
 # build 不在任务卡列出的五个 CI 项中，但属于 A-P1-REPO 验收项，一并执行。
+# test:e2e（F1-01，Playwright）自 F 轮起转正：U28 用例失败时 CI 必须红。
 name: CI
 
 on:
@@ -34,3 +35,7 @@ jobs:
         run: pnpm migrate:check
       - name: build
         run: pnpm build
+      - name: 安装 Playwright 浏览器（chromium）
+        run: pnpm exec playwright install --with-deps chromium
+      - name: test:e2e（U28 可访问性基线）
+        run: pnpm test:e2e

@@ -1,0 +1,15 @@
+---
+import Layout from "../_Layout.astro";
+
+// 静态输出下的动态路由需要 getStaticPaths。骨架期只发布一个样例占位 id，
+// 真实事件 id 由 F1-03 起的数据接入决定。
+export function getStaticPaths() {
+  return [{ params: { event_id: "sample" } }];
+}
+
+const { event_id } = Astro.params;
+---
+<Layout title="事件详情" activeNav="schedule">
+  <h1>事件详情</h1>
+  <p class="skeleton-note">页面骨架（样例占位 id：{event_id}）：完整时间线、变更说明与官方依据由 F1-03 交付。</p>
+</Layout>
