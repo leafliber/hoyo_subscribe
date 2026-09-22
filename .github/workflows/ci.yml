@@ -1,7 +1,7 @@
 # CI 门禁（任务卡 P1-01 交付物；命令清单见 docs/ENGINEERING.md §3）。
 #
-# params:verify 已于 P1-03 交付转正：附录 A.5 等式不成立时 CI 必须红。
-# migrate:check 在 P1-04 交付前仍是"未实现"占位（非零退出），保留 continue-on-error，交付后移除。
+# params:verify（P1-03，#5）与 migrate:check（P1-04，#6）均已转正：
+# 等式不成立 / 迁移不可重放时 CI 必须红。
 # build 不在任务卡列出的五个 CI 项中，但属于 A-P1-REPO 验收项，一并执行。
 name: CI
 
@@ -30,8 +30,7 @@ jobs:
         run: pnpm test
       - name: params:verify（附录 A.5 启动等式）
         run: pnpm params:verify
-      - name: migrate:check（预期失败至 P1-04 交付）
+      - name: migrate:check（空库重放与索引检查）
         run: pnpm migrate:check
-        continue-on-error: true
       - name: build
         run: pnpm build

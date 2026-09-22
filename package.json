@@ -10,10 +10,10 @@
     "test:contracts": "pnpm --filter @hoyo/contracts run test",
     "test:worker": "pnpm --filter @hoyo/worker run test",
     "test:e2e": "node scripts/unimplemented.js \"test:e2e：Playwright 端到端测试，由 F 轮交付\"",
-    "migrate:check": "node scripts/unimplemented.js \"migrate:check：迁移重放与索引检查，由 P1-04 交付\"",
+    "migrate:check": "node scripts/migrate/check.mjs",
     "params:verify": "tsx scripts/params/verify.ts",
-    "build": "pnpm -r --if-present run build",
-    "params:docs": "tsx scripts/params/export-docs.ts"
+    "params:docs": "tsx scripts/params/export-docs.ts",
+    "build": "pnpm -r --if-present run build"
   },
   "devDependencies": {
     "@biomejs/biome": "2.5.14",
