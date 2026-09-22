@@ -15,9 +15,7 @@
     "t": "1790019567_98a4a10f0b0612ee0362920052312624_ca0ec371c85602ed24cd8f0b8df4a03a",
     "alert": false,
     "alert_id": 0,
-    "type_labels": [
-      "公告"
-    ],
+    "type_labels": ["公告"],
     "boundary": {
       "page": 2,
       "observation": "page=2 返回与 page=1 同构全集（count=14）；服务端忽略分页参数，无空页边界",
@@ -71,10 +69,7 @@
         "date_likely_in_image": false
       },
       "content_text_bytes": 545,
-      "absolute_datetimes": [
-        "2026/09/19 04:00:00",
-        "2026/09/28 03:59:00"
-      ],
+      "absolute_datetimes": ["2026/09/19 04:00:00", "2026/09/28 03:59:00"],
       "date_only": [],
       "relative_start_ranges": []
     },

@@ -15,10 +15,7 @@
     "t": "1790029803_fe553845a5c349fa881343187b2b390c_2e10da05309be8c5ead6a7d10fa0c1b3",
     "alert": false,
     "alert_id": 0,
-    "type_labels": [
-      "游戏公告",
-      "活动公告"
-    ],
+    "type_labels": ["游戏公告", "活动公告"],
     "boundary": {
       "page": 2,
       "observation": "page=2 返回与 page=1 同构全集（count=18）；服务端忽略分页参数，无空页边界",
@@ -146,10 +143,7 @@
         "date_likely_in_image": false
       },
       "content_text_bytes": 499,
-      "absolute_datetimes": [
-        "2026/09/23 04:00",
-        "2026/09/28 03:59"
-      ],
+      "absolute_datetimes": ["2026/09/23 04:00", "2026/09/28 03:59"],
       "date_only": [],
       "relative_start_ranges": []
     },
@@ -172,12 +166,7 @@
       },
       "content_text_bytes": 5765,
       "absolute_datetimes": [],
-      "date_only": [
-        "9月9日",
-        "9月16日",
-        "9月11日",
-        "9月10日"
-      ],
+      "date_only": ["9月9日", "9月16日", "9月11日", "9月10日"],
       "relative_start_ranges": []
     },
     {
@@ -204,10 +193,7 @@
         "date_likely_in_image": false
       },
       "content_text_bytes": 1711,
-      "absolute_datetimes": [
-        "2026/09/16 10:00",
-        "2026/10/05 03:59"
-      ],
+      "absolute_datetimes": ["2026/09/16 10:00", "2026/10/05 03:59"],
       "date_only": [],
       "relative_start_ranges": []
     },
@@ -252,9 +238,7 @@
       },
       "content_text_bytes": 546,
       "absolute_datetimes": [],
-      "date_only": [
-        "9月9日"
-      ],
+      "date_only": ["9月9日"],
       "relative_start_ranges": []
     }
   ],

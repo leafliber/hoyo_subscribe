@@ -85,11 +85,7 @@
           "truncated": false,
           "sha256": "fa8356c060c3d2dc6e4cad8b76a3b4894c29e0676ce6f4a1be555ae703e9bfb7",
           "json_parse_ok": true,
-          "json_top_level_keys": [
-            "data",
-            "message",
-            "retcode"
-          ],
+          "json_top_level_keys": ["data", "message", "retcode"],
           "json_envelope_scalars": {
             "message": "提交参数有误",
             "retcode": -1003
@@ -133,11 +129,7 @@
           "truncated": false,
           "sha256": "fa8356c060c3d2dc6e4cad8b76a3b4894c29e0676ce6f4a1be555ae703e9bfb7",
           "json_parse_ok": true,
-          "json_top_level_keys": [
-            "data",
-            "message",
-            "retcode"
-          ],
+          "json_top_level_keys": ["data", "message", "retcode"],
           "json_envelope_scalars": {
             "message": "提交参数有误",
             "retcode": -1003
@@ -181,11 +173,7 @@
           "truncated": false,
           "sha256": "fa8356c060c3d2dc6e4cad8b76a3b4894c29e0676ce6f4a1be555ae703e9bfb7",
           "json_parse_ok": true,
-          "json_top_level_keys": [
-            "data",
-            "message",
-            "retcode"
-          ],
+          "json_top_level_keys": ["data", "message", "retcode"],
           "json_envelope_scalars": {
             "message": "提交参数有误",
             "retcode": -1003
