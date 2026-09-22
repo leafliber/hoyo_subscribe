@@ -8,6 +8,9 @@
 // 枚举、规范化、提醒规则、投影语义只在本包定义一次。前端不得另写判断、不得按中文标签
 // 反推规则（前端 v1.0 §12.1）。本文件是包的唯一出口（package.json exports 仅 "."）。
 
+export * from "./budget/decision";
+export * from "./budget/mutations";
+export * from "./budget/pools";
 export * from "./calendar-nodes";
 export * from "./crypto-types/purposes";
 export * from "./crypto-types/redaction";
