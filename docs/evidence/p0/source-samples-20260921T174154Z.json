@@ -1,0 +1,528 @@
+{
+  "probe": "source-samples",
+  "schema_version": 1,
+  "generated_at_utc": "2026-09-21T17:41:54.848Z",
+  "run_environment": {
+    "type": "local-node",
+    "label": "p0-02-capture-1",
+    "node": "v26.8.1",
+    "platform": "darwin/arm64",
+    "user_agent_sent": "见 lib/guard-core.mjs PROBE_USER_AGENT（诚实探针 UA，无浏览器伪装）",
+    "evidence_grading": "本机网络观测（E2 类），不是目标 Cloudflare 环境证据"
+  },
+  "results": {
+    "sources": [
+      {
+        "source_id": "genshin-ann",
+        "outcome": "captured",
+        "sample_files": [
+          "list-page-1.json",
+          "content-21928.json",
+          "content-21904.json",
+          "content-21876.json",
+          "content-21922.json",
+          "content-21862.json",
+          "content-21819.json"
+        ]
+      },
+      {
+        "source_id": "hsr-ann",
+        "outcome": "captured",
+        "sample_files": [
+          "list-page-1.json",
+          "content-1430.json",
+          "content-1392.json",
+          "content-1411.json",
+          "content-1195.json",
+          "content-1429.json",
+          "content-1420.json"
+        ]
+      },
+      {
+        "source_id": "zzz-ann",
+        "outcome": "captured",
+        "sample_files": [
+          "list-page-1.json",
+          "content-1296.json",
+          "content-1303.json",
+          "content-1318.json",
+          "content-1301.json",
+          "content-1326.json",
+          "content-1322.json"
+        ]
+      },
+      {
+        "source_id": "miyoushe-news",
+        "outcome": "stopped",
+        "reason": "受限信号：[{\"kind\":\"http_status\",\"detail\":\"HTTP 403\"},{\"kind\":\"body_prefix_marker\",\"detail\":\"forbidden\"}]"
+      }
+    ],
+    "request_log": [
+      {
+        "purpose": "list-page-1",
+        "url": "https://hk4e-ann-api.mihoyo.com/common/hk4e_cn/announcement/api/getAnnList?game=hk4e&game_biz=hk4e_cn&bundle_id=hk4e_cn&channel_id=1&lang=zh-cn&level=60&platform=pc&region=cn_gf01&uid=<dummy-uid>&page=1&page_size=20",
+        "elapsed_ms": 174,
+        "error": null,
+        "http_status": 200,
+        "redirect_status": null,
+        "bytes_read": 35561,
+        "truncated": false
+      },
+      {
+        "purpose": "list-page-2-boundary-check",
+        "url": "https://hk4e-ann-api.mihoyo.com/common/hk4e_cn/announcement/api/getAnnList?game=hk4e&game_biz=hk4e_cn&bundle_id=hk4e_cn&channel_id=1&lang=zh-cn&level=60&platform=pc&region=cn_gf01&uid=<dummy-uid>&page=2&page_size=20",
+        "elapsed_ms": 78,
+        "error": null,
+        "http_status": 200,
+        "redirect_status": null,
+        "bytes_read": 35561,
+        "truncated": false
+      },
+      {
+        "purpose": "content-21928",
+        "url": "https://hk4e-ann-api.mihoyo.com/common/hk4e_cn/announcement/api/getAnnContent?game=hk4e&game_biz=hk4e_cn&bundle_id=hk4e_cn&channel_id=1&lang=zh-cn&level=60&platform=pc&region=cn_gf01&uid=<dummy-uid>&announcement_id=21928",
+        "elapsed_ms": 86,
+        "error": null,
+        "http_status": 200,
+        "redirect_status": null,
+        "bytes_read": 254672,
+        "truncated": false
+      },
+      {
+        "purpose": "content-21904",
+        "url": "https://hk4e-ann-api.mihoyo.com/common/hk4e_cn/announcement/api/getAnnContent?game=hk4e&game_biz=hk4e_cn&bundle_id=hk4e_cn&channel_id=1&lang=zh-cn&level=60&platform=pc&region=cn_gf01&uid=<dummy-uid>&announcement_id=21904",
+        "elapsed_ms": 108,
+        "error": null,
+        "http_status": 200,
+        "redirect_status": null,
+        "bytes_read": 254672,
+        "truncated": false
+      },
+      {
+        "purpose": "content-21876",
+        "url": "https://hk4e-ann-api.mihoyo.com/common/hk4e_cn/announcement/api/getAnnContent?game=hk4e&game_biz=hk4e_cn&bundle_id=hk4e_cn&channel_id=1&lang=zh-cn&level=60&platform=pc&region=cn_gf01&uid=<dummy-uid>&announcement_id=21876",
+        "elapsed_ms": 69,
+        "error": null,
+        "http_status": 200,
+        "redirect_status": null,
+        "bytes_read": 254672,
+        "truncated": false
+      },
+      {
+        "purpose": "content-21922",
+        "url": "https://hk4e-ann-api.mihoyo.com/common/hk4e_cn/announcement/api/getAnnContent?game=hk4e&game_biz=hk4e_cn&bundle_id=hk4e_cn&channel_id=1&lang=zh-cn&level=60&platform=pc&region=cn_gf01&uid=<dummy-uid>&announcement_id=21922",
+        "elapsed_ms": 92,
+        "error": null,
+        "http_status": 200,
+        "redirect_status": null,
+        "bytes_read": 254672,
+        "truncated": false
+      },
+      {
+        "purpose": "content-21862",
+        "url": "https://hk4e-ann-api.mihoyo.com/common/hk4e_cn/announcement/api/getAnnContent?game=hk4e&game_biz=hk4e_cn&bundle_id=hk4e_cn&channel_id=1&lang=zh-cn&level=60&platform=pc&region=cn_gf01&uid=<dummy-uid>&announcement_id=21862",
+        "elapsed_ms": 78,
+        "error": null,
+        "http_status": 200,
+        "redirect_status": null,
+        "bytes_read": 254672,
+        "truncated": false
+      },
+      {
+        "purpose": "content-21819",
+        "url": "https://hk4e-ann-api.mihoyo.com/common/hk4e_cn/announcement/api/getAnnContent?game=hk4e&game_biz=hk4e_cn&bundle_id=hk4e_cn&channel_id=1&lang=zh-cn&level=60&platform=pc&region=cn_gf01&uid=<dummy-uid>&announcement_id=21819",
+        "elapsed_ms": 67,
+        "error": null,
+        "http_status": 200,
+        "redirect_status": null,
+        "bytes_read": 254672,
+        "truncated": false
+      },
+      {
+        "purpose": "limit-pagesize-100",
+        "url": "https://hk4e-ann-api.mihoyo.com/common/hk4e_cn/announcement/api/getAnnList?game=hk4e&game_biz=hk4e_cn&bundle_id=hk4e_cn&channel_id=1&lang=zh-cn&level=60&platform=pc&region=cn_gf01&uid=<dummy-uid>&page=1&page_size=100",
+        "elapsed_ms": 86,
+        "error": null,
+        "http_status": 200,
+        "redirect_status": null,
+        "bytes_read": 35561,
+        "truncated": false
+      },
+      {
+        "purpose": "limit-pagesize-1000",
+        "url": "https://hk4e-ann-api.mihoyo.com/common/hk4e_cn/announcement/api/getAnnList?game=hk4e&game_biz=hk4e_cn&bundle_id=hk4e_cn&channel_id=1&lang=zh-cn&level=60&platform=pc&region=cn_gf01&uid=<dummy-uid>&page=1&page_size=1000",
+        "elapsed_ms": 74,
+        "error": null,
+        "http_status": 200,
+        "redirect_status": null,
+        "bytes_read": 35561,
+        "truncated": false
+      },
+      {
+        "purpose": "list-page-1",
+        "url": "https://hkrpg-ann-api.mihoyo.com/common/hkrpg_cn/announcement/api/getAnnList?game=hkrpg&game_biz=hkrpg_cn&bundle_id=hkrpg_cn&channel_id=1&lang=zh-cn&level=70&platform=pc&region=prod_gf_cn&uid=<dummy-uid>&page=1&page_size=20",
+        "elapsed_ms": 96,
+        "error": null,
+        "http_status": 200,
+        "redirect_status": null,
+        "bytes_read": 21199,
+        "truncated": false
+      },
+      {
+        "purpose": "list-page-2-boundary-check",
+        "url": "https://hkrpg-ann-api.mihoyo.com/common/hkrpg_cn/announcement/api/getAnnList?game=hkrpg&game_biz=hkrpg_cn&bundle_id=hkrpg_cn&channel_id=1&lang=zh-cn&level=70&platform=pc&region=prod_gf_cn&uid=<dummy-uid>&page=2&page_size=20",
+        "elapsed_ms": 67,
+        "error": null,
+        "http_status": 200,
+        "redirect_status": null,
+        "bytes_read": 21199,
+        "truncated": false
+      },
+      {
+        "purpose": "content-1430",
+        "url": "https://hkrpg-ann-api.mihoyo.com/common/hkrpg_cn/announcement/api/getAnnContent?game=hkrpg&game_biz=hkrpg_cn&bundle_id=hkrpg_cn&channel_id=1&lang=zh-cn&level=70&platform=pc&region=prod_gf_cn&uid=<dummy-uid>&announcement_id=1430",
+        "elapsed_ms": 105,
+        "error": null,
+        "http_status": 200,
+        "redirect_status": null,
+        "bytes_read": 195598,
+        "truncated": false
+      },
+      {
+        "purpose": "content-1392",
+        "url": "https://hkrpg-ann-api.mihoyo.com/common/hkrpg_cn/announcement/api/getAnnContent?game=hkrpg&game_biz=hkrpg_cn&bundle_id=hkrpg_cn&channel_id=1&lang=zh-cn&level=70&platform=pc&region=prod_gf_cn&uid=<dummy-uid>&announcement_id=1392",
+        "elapsed_ms": 103,
+        "error": null,
+        "http_status": 200,
+        "redirect_status": null,
+        "bytes_read": 195598,
+        "truncated": false
+      },
+      {
+        "purpose": "content-1411",
+        "url": "https://hkrpg-ann-api.mihoyo.com/common/hkrpg_cn/announcement/api/getAnnContent?game=hkrpg&game_biz=hkrpg_cn&bundle_id=hkrpg_cn&channel_id=1&lang=zh-cn&level=70&platform=pc&region=prod_gf_cn&uid=<dummy-uid>&announcement_id=1411",
+        "elapsed_ms": 82,
+        "error": null,
+        "http_status": 200,
+        "redirect_status": null,
+        "bytes_read": 195598,
+        "truncated": false
+      },
+      {
+        "purpose": "content-1195",
+        "url": "https://hkrpg-ann-api.mihoyo.com/common/hkrpg_cn/announcement/api/getAnnContent?game=hkrpg&game_biz=hkrpg_cn&bundle_id=hkrpg_cn&channel_id=1&lang=zh-cn&level=70&platform=pc&region=prod_gf_cn&uid=<dummy-uid>&announcement_id=1195",
+        "elapsed_ms": 95,
+        "error": null,
+        "http_status": 200,
+        "redirect_status": null,
+        "bytes_read": 195598,
+        "truncated": false
+      },
+      {
+        "purpose": "content-1429",
+        "url": "https://hkrpg-ann-api.mihoyo.com/common/hkrpg_cn/announcement/api/getAnnContent?game=hkrpg&game_biz=hkrpg_cn&bundle_id=hkrpg_cn&channel_id=1&lang=zh-cn&level=70&platform=pc&region=prod_gf_cn&uid=<dummy-uid>&announcement_id=1429",
+        "elapsed_ms": 89,
+        "error": null,
+        "http_status": 200,
+        "redirect_status": null,
+        "bytes_read": 195598,
+        "truncated": false
+      },
+      {
+        "purpose": "content-1420",
+        "url": "https://hkrpg-ann-api.mihoyo.com/common/hkrpg_cn/announcement/api/getAnnContent?game=hkrpg&game_biz=hkrpg_cn&bundle_id=hkrpg_cn&channel_id=1&lang=zh-cn&level=70&platform=pc&region=prod_gf_cn&uid=<dummy-uid>&announcement_id=1420",
+        "elapsed_ms": 97,
+        "error": null,
+        "http_status": 200,
+        "redirect_status": null,
+        "bytes_read": 195598,
+        "truncated": false
+      },
+      {
+        "purpose": "limit-pagesize-100",
+        "url": "https://hkrpg-ann-api.mihoyo.com/common/hkrpg_cn/announcement/api/getAnnList?game=hkrpg&game_biz=hkrpg_cn&bundle_id=hkrpg_cn&channel_id=1&lang=zh-cn&level=70&platform=pc&region=prod_gf_cn&uid=<dummy-uid>&page=1&page_size=100",
+        "elapsed_ms": 64,
+        "error": null,
+        "http_status": 200,
+        "redirect_status": null,
+        "bytes_read": 21199,
+        "truncated": false
+      },
+      {
+        "purpose": "limit-pagesize-1000",
+        "url": "https://hkrpg-ann-api.mihoyo.com/common/hkrpg_cn/announcement/api/getAnnList?game=hkrpg&game_biz=hkrpg_cn&bundle_id=hkrpg_cn&channel_id=1&lang=zh-cn&level=70&platform=pc&region=prod_gf_cn&uid=<dummy-uid>&page=1&page_size=1000",
+        "elapsed_ms": 81,
+        "error": null,
+        "http_status": 200,
+        "redirect_status": null,
+        "bytes_read": 21199,
+        "truncated": false
+      },
+      {
+        "purpose": "list-page-1",
+        "url": "https://announcement-api.mihoyo.com/common/nap_cn/announcement/api/getAnnList?game=nap&game_biz=nap_cn&bundle_id=nap_cn&channel_id=1&lang=zh-cn&level=60&platform=pc&region=prod_gf_cn&uid=<dummy-uid>&page=1&page_size=20",
+        "elapsed_ms": 110,
+        "error": null,
+        "http_status": 200,
+        "redirect_status": null,
+        "bytes_read": 24197,
+        "truncated": false
+      },
+      {
+        "purpose": "list-page-2-boundary-check",
+        "url": "https://announcement-api.mihoyo.com/common/nap_cn/announcement/api/getAnnList?game=nap&game_biz=nap_cn&bundle_id=nap_cn&channel_id=1&lang=zh-cn&level=60&platform=pc&region=prod_gf_cn&uid=<dummy-uid>&page=2&page_size=20",
+        "elapsed_ms": 88,
+        "error": null,
+        "http_status": 200,
+        "redirect_status": null,
+        "bytes_read": 24197,
+        "truncated": false
+      },
+      {
+        "purpose": "content-1296",
+        "url": "https://announcement-api.mihoyo.com/common/nap_cn/announcement/api/getAnnContent?game=nap&game_biz=nap_cn&bundle_id=nap_cn&channel_id=1&lang=zh-cn&level=60&platform=pc&region=prod_gf_cn&uid=<dummy-uid>&announcement_id=1296",
+        "elapsed_ms": 96,
+        "error": null,
+        "http_status": 200,
+        "redirect_status": null,
+        "bytes_read": 153329,
+        "truncated": false
+      },
+      {
+        "purpose": "content-1303",
+        "url": "https://announcement-api.mihoyo.com/common/nap_cn/announcement/api/getAnnContent?game=nap&game_biz=nap_cn&bundle_id=nap_cn&channel_id=1&lang=zh-cn&level=60&platform=pc&region=prod_gf_cn&uid=<dummy-uid>&announcement_id=1303",
+        "elapsed_ms": 104,
+        "error": null,
+        "http_status": 200,
+        "redirect_status": null,
+        "bytes_read": 153329,
+        "truncated": false
+      },
+      {
+        "purpose": "content-1318",
+        "url": "https://announcement-api.mihoyo.com/common/nap_cn/announcement/api/getAnnContent?game=nap&game_biz=nap_cn&bundle_id=nap_cn&channel_id=1&lang=zh-cn&level=60&platform=pc&region=prod_gf_cn&uid=<dummy-uid>&announcement_id=1318",
+        "elapsed_ms": 79,
+        "error": null,
+        "http_status": 200,
+        "redirect_status": null,
+        "bytes_read": 153329,
+        "truncated": false
+      },
+      {
+        "purpose": "content-1301",
+        "url": "https://announcement-api.mihoyo.com/common/nap_cn/announcement/api/getAnnContent?game=nap&game_biz=nap_cn&bundle_id=nap_cn&channel_id=1&lang=zh-cn&level=60&platform=pc&region=prod_gf_cn&uid=<dummy-uid>&announcement_id=1301",
+        "elapsed_ms": 101,
+        "error": null,
+        "http_status": 200,
+        "redirect_status": null,
+        "bytes_read": 153329,
+        "truncated": false
+      },
+      {
+        "purpose": "content-1326",
+        "url": "https://announcement-api.mihoyo.com/common/nap_cn/announcement/api/getAnnContent?game=nap&game_biz=nap_cn&bundle_id=nap_cn&channel_id=1&lang=zh-cn&level=60&platform=pc&region=prod_gf_cn&uid=<dummy-uid>&announcement_id=1326",
+        "elapsed_ms": 56,
+        "error": null,
+        "http_status": 200,
+        "redirect_status": null,
+        "bytes_read": 153329,
+        "truncated": false
+      },
+      {
+        "purpose": "content-1322",
+        "url": "https://announcement-api.mihoyo.com/common/nap_cn/announcement/api/getAnnContent?game=nap&game_biz=nap_cn&bundle_id=nap_cn&channel_id=1&lang=zh-cn&level=60&platform=pc&region=prod_gf_cn&uid=<dummy-uid>&announcement_id=1322",
+        "elapsed_ms": 79,
+        "error": null,
+        "http_status": 200,
+        "redirect_status": null,
+        "bytes_read": 153329,
+        "truncated": false
+      },
+      {
+        "purpose": "limit-pagesize-100",
+        "url": "https://announcement-api.mihoyo.com/common/nap_cn/announcement/api/getAnnList?game=nap&game_biz=nap_cn&bundle_id=nap_cn&channel_id=1&lang=zh-cn&level=60&platform=pc&region=prod_gf_cn&uid=<dummy-uid>&page=1&page_size=100",
+        "elapsed_ms": 67,
+        "error": null,
+        "http_status": 200,
+        "redirect_status": null,
+        "bytes_read": 24197,
+        "truncated": false
+      },
+      {
+        "purpose": "limit-pagesize-1000",
+        "url": "https://announcement-api.mihoyo.com/common/nap_cn/announcement/api/getAnnList?game=nap&game_biz=nap_cn&bundle_id=nap_cn&channel_id=1&lang=zh-cn&level=60&platform=pc&region=prod_gf_cn&uid=<dummy-uid>&page=1&page_size=1000",
+        "elapsed_ms": 66,
+        "error": null,
+        "http_status": 200,
+        "redirect_status": null,
+        "bytes_read": 24197,
+        "truncated": false
+      },
+      {
+        "purpose": "news-list-type1-page1",
+        "url": "https://bbs-api-static.miyoushe.com/painter/wapi/getNewsList?gids=2&type=1&last_id=&page_size=20",
+        "elapsed_ms": 198,
+        "error": null,
+        "http_status": 200,
+        "redirect_status": null,
+        "bytes_read": 52334,
+        "truncated": false
+      },
+      {
+        "purpose": "news-list-type2-page1",
+        "url": "https://bbs-api-static.miyoushe.com/painter/wapi/getNewsList?gids=2&type=2&last_id=&page_size=20",
+        "elapsed_ms": 168,
+        "error": null,
+        "http_status": 200,
+        "redirect_status": null,
+        "bytes_read": 110546,
+        "truncated": false
+      },
+      {
+        "purpose": "news-list-type3-page1",
+        "url": "https://bbs-api-static.miyoushe.com/painter/wapi/getNewsList?gids=2&type=3&last_id=&page_size=20",
+        "elapsed_ms": 157,
+        "error": null,
+        "http_status": 200,
+        "redirect_status": null,
+        "bytes_read": 65142,
+        "truncated": false
+      },
+      {
+        "purpose": "news-list-type1-page2",
+        "url": "https://bbs-api-static.miyoushe.com/painter/wapi/getNewsList?gids=2&type=1&last_id=20&page_size=20",
+        "elapsed_ms": 163,
+        "error": null,
+        "http_status": 200,
+        "redirect_status": null,
+        "bytes_read": 50056,
+        "truncated": false
+      },
+      {
+        "purpose": "news-list-type1-page3",
+        "url": "https://bbs-api-static.miyoushe.com/painter/wapi/getNewsList?gids=2&type=1&last_id=40&page_size=20",
+        "elapsed_ms": 188,
+        "error": null,
+        "http_status": 200,
+        "redirect_status": null,
+        "bytes_read": 51149,
+        "truncated": false
+      },
+      {
+        "purpose": "news-list-type1-page4",
+        "url": "https://bbs-api-static.miyoushe.com/painter/wapi/getNewsList?gids=2&type=1&last_id=60&page_size=20",
+        "elapsed_ms": 245,
+        "error": null,
+        "http_status": 200,
+        "redirect_status": null,
+        "bytes_read": 53742,
+        "truncated": false
+      },
+      {
+        "purpose": "limit-pagesize-100",
+        "url": "https://bbs-api-static.miyoushe.com/painter/wapi/getNewsList?gids=2&type=1&last_id=&page_size=100",
+        "elapsed_ms": 142,
+        "error": null,
+        "http_status": 200,
+        "redirect_status": null,
+        "bytes_read": 52334,
+        "truncated": false
+      },
+      {
+        "purpose": "limit-pagesize-1000",
+        "url": "https://bbs-api-static.miyoushe.com/painter/wapi/getNewsList?gids=2&type=1&last_id=&page_size=1000",
+        "elapsed_ms": 145,
+        "error": null,
+        "http_status": 200,
+        "redirect_status": null,
+        "bytes_read": 52334,
+        "truncated": false
+      },
+      {
+        "purpose": "content-blocked-78299710",
+        "url": "https://bbs-api-static.miyoushe.com/post/wapi/getPostFull?post_id=78299710",
+        "elapsed_ms": 113,
+        "error": null,
+        "http_status": 403,
+        "redirect_status": null,
+        "bytes_read": 10,
+        "truncated": false,
+        "restriction": [
+          {
+            "kind": "http_status",
+            "detail": "HTTP 403"
+          },
+          {
+            "kind": "body_prefix_marker",
+            "detail": "forbidden"
+          }
+        ]
+      }
+    ],
+    "limit_observations": {
+      "request_timeout_ms": {
+        "observed_count": 30,
+        "observed_max_ms": 174,
+        "observed_p95_ms": 110,
+        "observed_median_ms": 86,
+        "probe_operational_timeout_ms": 10000
+      },
+      "redirects": {
+        "observed": 0,
+        "note": "全部请求 redirect:manual，未跟随任何重定向；本次未观察到 3xx"
+      }
+    },
+    "run_stats": [
+      {
+        "source_id": "genshin-ann",
+        "latencies_ms": [
+          174,
+          78,
+          86,
+          108,
+          69,
+          92,
+          78,
+          67,
+          86,
+          74
+        ]
+      },
+      {
+        "source_id": "hsr-ann",
+        "latencies_ms": [
+          96,
+          67,
+          105,
+          103,
+          82,
+          95,
+          89,
+          97,
+          64,
+          81
+        ]
+      },
+      {
+        "source_id": "zzz-ann",
+        "latencies_ms": [
+          110,
+          88,
+          96,
+          104,
+          79,
+          101,
+          56,
+          79,
+          67,
+          66
+        ]
+      }
+    ]
+  },
+  "notes": [
+    "请求间隔 ≥800ms，串行；命中受限信号（403 等）立即停止该来源并记录（主方案 §3.1 / AGENTS.md 规则 6）。",
+    "米游社 getPostFull 在采集前已知 403，仍按流程发一次取证请求（诚实 UA、无凭据、不重试）。",
+    "uid=100000000 为官方公告页登出态哑 uid（对齐官方 webview 行为），非凭据、非伪造身份。"
+  ]
+}

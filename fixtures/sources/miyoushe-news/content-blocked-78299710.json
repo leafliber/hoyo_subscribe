@@ -1,0 +1,34 @@
+{
+  "schema_version": 1,
+  "synthetic": false,
+  "source_id": "miyoushe-news",
+  "kind": "access-blocked-content",
+  "purpose": "getPostFull 正文接口取证：诚实探针 UA、无凭据、单次请求；返回 403 Forbidden（访问控制信号）",
+  "captured_at_utc": "2026-09-21T17:43:48.827Z",
+  "url": "https://bbs-api-static.miyoushe.com/post/wapi/getPostFull?post_id=78299710",
+  "http": {
+    "status": 403,
+    "headers": {
+      "content_type": "text/plain; charset=utf-8",
+      "content_length": "10",
+      "location": null,
+      "www_authenticate": null,
+      "cf_mitigated": null,
+      "cf_ray": null,
+      "server": "Tengine",
+      "retry_after": null
+    }
+  },
+  "restriction_signals": [
+    {
+      "kind": "http_status",
+      "detail": "HTTP 403"
+    },
+    {
+      "kind": "body_prefix_marker",
+      "detail": "forbidden"
+    }
+  ],
+  "body_text": "Forbidden\n",
+  "decision": "米游社正文样本未取得。不绕过、不伪装 UA、不使用第三方聚合后端冒充官方来源（AGENTS.md 规则 6 / 主方案 §3.1）。"
+}

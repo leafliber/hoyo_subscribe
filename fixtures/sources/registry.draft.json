@@ -1,0 +1,181 @@
+{
+  "schema_version": 1,
+  "note": "P0-02 来源注册项草案（draft）。所有数值来自 2026-09-21/22 的真实样本与实测（证据：docs/evidence/p0/source-samples-*.json、docs/evidence/p0/source-params.md）。正式注册表在 P1-03 参数注册表落地后由此导出；本文件不是合同，参数单一来源仍以主方案附录 A 为准。poll_policy 引用附录 A.1 的 SOURCE_* 建议值，服从来源实际限制（实测见 limit_profile）。",
+  "generated_at_utc": "2026-09-21T17:43:50Z",
+  "sources": [
+    {
+      "source_id": "genshin-ann",
+      "game": "genshin",
+      "region": "cn",
+      "adapter": "announcement-webview-hk4e（未实现；本卡只登记事实，适配器属 P3-01）",
+      "approved_hosts": [
+        "hk4e-ann-api.mihoyo.com"
+      ],
+      "verified_publishers": [],
+      "verified_publishers_note": "公告 API 条目无发布者 UID 字段；来源身份由官方域名与官方 webview 参数形状承载（uid=100000000 为官方登出态哑 uid，非真实账号）",
+      "cursor": {
+        "model": "full-snapshot-per-request",
+        "observed": "page/page_size 被服务端忽略：page_size=2/20/100/1000 均返回全部 41 条存续公告；page=2 与 page=1 内容相同；水位应按 ann_id 集合差分推进，不按页码",
+        "external_id_field": "ann_id",
+        "content_endpoint_ignores_id": "getAnnContent 同样忽略 announcement_id，单次返回全部 41 条正文（约 249 KiB）"
+      },
+      "poll_policy": {
+        "poll_interval_s": 1800,
+        "hot_poll_interval_s": 600,
+        "recheck_window_days": 7,
+        "recheck_interval_s": 21600,
+        "basis": "附录 A.1 SOURCE_POLL/SOURCE_HOT_POLL/SOURCE_RECHECK_WINDOW/SOURCE_RECHECK_INTERVAL 建议值；单请求即全集，常规轮询一次调用即可完成扫描"
+      },
+      "verification_state": "verified-working",
+      "last_success_at_utc": "2026-09-21T17:41:54Z",
+      "limit_profile_measured": {
+        "pages": 1,
+        "pages_note": "分页参数无效，单次响应即全集（实测 41 条，随版本周期波动）",
+        "batch_upper_bound_items": "全集规模（实测 41；page_size 无效，无按页截断）",
+        "max_observed_content_bytes": 254672,
+        "list_response_bytes_observed": 35561,
+        "list_response_note": "列表（不含正文）35,561 B；正文响应 254,672 B 内含全部 41 条正文",
+        "request_timeout_recommend_ms": 10000,
+        "request_latency_observed": "max 174 ms / p95 110 ms / median 86 ms（两轮共 39 次请求，本机网络 E2 级）",
+        "redirects_observed": 0,
+        "redirect_policy": "redirect:manual，出现 3xx 即记录不跟随"
+      },
+      "samples_dir": "fixtures/sources/genshin-ann/",
+      "observed_columns": [
+        "游戏公告",
+        "活动公告",
+        "千星奇域"
+      ],
+      "observed_columns_note": "列表按 type 分组（data.list[].type_label），随运营配置变化；首份样本实测值"
+    },
+    {
+      "source_id": "hsr-ann",
+      "game": "hsr",
+      "region": "cn",
+      "adapter": "announcement-webview-hkrpg（未实现；本卡只登记事实，适配器属 P3-01）",
+      "approved_hosts": [
+        "hkrpg-ann-api.mihoyo.com"
+      ],
+      "verified_publishers": [],
+      "verified_publishers_note": "同 genshin-ann：条目无发布者 UID 字段",
+      "cursor": {
+        "model": "full-snapshot-per-request",
+        "observed": "分页参数同样被忽略（单次返回全部 14 条）；水位按 ann_id 差分",
+        "external_id_field": "ann_id",
+        "content_endpoint_ignores_id": true
+      },
+      "poll_policy": {
+        "poll_interval_s": 1800,
+        "hot_poll_interval_s": 600,
+        "recheck_window_days": 7,
+        "recheck_interval_s": 21600,
+        "basis": "附录 A.1 建议值"
+      },
+      "verification_state": "verified-working",
+      "last_success_at_utc": "2026-09-21T17:41:54Z",
+      "limit_profile_measured": {
+        "pages": 1,
+        "batch_upper_bound_items": "全集规模（实测 14）",
+        "max_observed_content_bytes": 195598,
+        "request_timeout_recommend_ms": 10000,
+        "redirects_observed": 0
+      },
+      "samples_dir": "fixtures/sources/hsr-ann/",
+      "observed_columns": [
+        "公告"
+      ],
+      "observed_columns_note": "列表按 type 分组（data.list[].type_label），随运营配置变化；首份样本实测值"
+    },
+    {
+      "source_id": "zzz-ann",
+      "game": "zzz",
+      "region": "cn",
+      "adapter": "announcement-webview-nap（未实现；本卡只登记事实，适配器属 P3-01）",
+      "approved_hosts": [
+        "announcement-api.mihoyo.com"
+      ],
+      "verified_publishers": [],
+      "verified_publishers_note": "同 genshin-ann：条目无发布者 UID 字段。注意 nap 列表条目的 title 字段含 HTML 标签（<p style=…>），入库前需剥离",
+      "cursor": {
+        "model": "full-snapshot-per-request",
+        "observed": "分页参数同样被忽略（单次返回全部 18 条）；水位按 ann_id 差分",
+        "external_id_field": "ann_id",
+        "content_endpoint_ignores_id": true
+      },
+      "poll_policy": {
+        "poll_interval_s": 1800,
+        "hot_poll_interval_s": 600,
+        "recheck_window_days": 7,
+        "recheck_interval_s": 21600,
+        "basis": "附录 A.1 建议值"
+      },
+      "verification_state": "verified-working",
+      "last_success_at_utc": "2026-09-21T17:41:54Z",
+      "limit_profile_measured": {
+        "pages": 1,
+        "batch_upper_bound_items": "全集规模（实测 18）",
+        "max_observed_content_bytes": 153329,
+        "request_timeout_recommend_ms": 10000,
+        "redirects_observed": 0
+      },
+      "samples_dir": "fixtures/sources/zzz-ann/",
+      "observed_columns": [
+        "游戏公告",
+        "活动公告"
+      ],
+      "observed_columns_note": "列表按 type 分组（data.list[].type_label），随运营配置变化；首份样本实测值"
+    },
+    {
+      "source_id": "miyoushe-news",
+      "game": "genshin",
+      "region": "cn",
+      "adapter": "miyoushe-painter-news（未实现；本卡只登记事实，适配器属 P3-01）",
+      "approved_hosts": [
+        "bbs-api-static.miyoushe.com",
+        "bbs-api.miyoushe.com"
+      ],
+      "verified_publishers": [],
+      "verified_publishers_note": "painter 列表条目 uid=0（不携带发布者身份）；真实发布者 UID 需正文接口 getPostFull，但该接口被 403 访问控制拦截（见下），未能核验",
+      "cursor": {
+        "model": "last-id-offset",
+        "observed": "last_id 是偏移量式游标（page_size=20 时 20/40/60 递进），不是帖子 id；响应含 is_last 布尔",
+        "external_id_field": "post_id",
+        "boundary_observed": "未在 4 页（80 条）内到达 is_last=true，边界未取得"
+      },
+      "poll_policy": {
+        "poll_interval_s": 1800,
+        "hot_poll_interval_s": 600,
+        "basis": "附录 A.1 建议值；列表三类型（1=公告 2=活动 3=资讯）各自独立游标",
+        "constraint": "正文通道被访问控制拦截，本来源当前只能贡献标题/图片级信息，正文依赖公告 API 或人工——按主方案 §3.1 停用并提示维护"
+      },
+      "verification_state": "maintenance-required-list-only",
+      "maintenance_reason": "post/wapi/getPostFull 对诚实探针 UA（无凭据、单次请求）在两台官方主机均返回 403 Forbidden——访问控制信号（AGENTS.md 规则 6）。列表通道正常；未绕过、未伪装 UA、未使用第三方聚合",
+      "last_success_at_utc": "2026-09-21T17:43:50Z",
+      "limit_profile_measured": {
+        "pages": "未测得边界（≥4 页可达）",
+        "batch_upper_bound_items": 20,
+        "batch_upper_bound_note": "page_size 超范围（100/1000）回落默认 20；文档区间 1-50（50 未单测，登记为文档值）",
+        "list_response_bytes_observed_range": "50,056–110,546 B（page_size=20 时）",
+        "request_timeout_recommend_ms": 10000,
+        "request_latency_observed": "17–133 ms（9 次请求，本机网络 E2 级）",
+        "redirects_observed": 0,
+        "content_endpoint_status": "403 Forbidden（访问控制）"
+      },
+      "samples_dir": "fixtures/sources/miyoushe-news/"
+    }
+  ],
+  "global_limit_observations": {
+    "timezone": "三公告 API data.timezone=8（UTC+8）；列表 start_time/end_time 为 UTC+8 本地时间",
+    "latency_all_requests": "两轮 48 次请求：max 174 ms / p95 110 ms / median 86 ms（E2 级本机观测）",
+    "redirects": 0,
+    "restriction_incidents": [
+      {
+        "source": "miyoushe-news",
+        "endpoint": "post/wapi/getPostFull",
+        "status": 403,
+        "detail": "诚实探针 UA、无凭据、单次请求；bbs-api 与 bbs-api-static 两台官方主机行为一致",
+        "handling": "按 AGENTS.md 规则 6 停用该通道并记录，未实施绕过"
+      }
+    ]
+  }
+}
