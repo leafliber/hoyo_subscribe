@@ -23,7 +23,7 @@
 │   │       │   └── channels/      日历、邮件、Push 的状态与操作
 │   │       ├── lib/           API 访问、错误映射、按账号本机存储、安全格式化
 │   │       └── styles/        设计 token、排版、布局
-│   └── worker/                唯一 Worker 项目（Hono）
+│   └── worker/                唯一 Worker 项目（原生 fetch handler）
 │       └── src/
 │           ├── auth/          预认证、OTP、会话、恢复码、最近认证
 │           ├── accounts/      用户、订阅配置、换邮箱、删除、导出
@@ -52,13 +52,22 @@
 | 包管理 | pnpm workspace | 锁文件提交，`packageManager` 字段固定版本 |
 | Node | 以 `.nvmrc` 固定 LTS | 本机当前为 v26.8.1、pnpm 11.11.0；P1-01 负责记录实际固定值 |
 | 语言 | TypeScript，`strict: true`，禁用隐式 any | 不使用 `any` 逃逸；确需断言时写理由注释 |
-| 后端框架 | Hono（Worker） | 单 Worker，路由按 §1 的子目录挂载 |
+| 后端框架 | **不引入 Web 框架**：原生 `fetch` handler + 自建中间件 | 单 Worker，路由按 §1 的子目录挂载；外壳与中间件由 P1-08 交付，P2 起按 `ShellRoute` 挂载 |
 | 前端 | Astro 静态输出 + 原生 TS 模块 | 不引入大型前端运行时框架 |
 | 校验 | Zod | 类型与运行时校验同源；版本在 P1-01 固定 |
 | 测试 | Vitest + `@cloudflare/vitest-pool-workers` | Worker 测试跑在真实 workerd + miniflare D1/DO 上 |
 | 端到端（前端） | Playwright | 仅 F 轮使用；截图作为交付证据 |
 | Lint/Format | Biome | 单一配置，CI 强制 |
 | 部署 | Wrangler | `compatibility_date` 与 Wrangler 版本一起固定，不随手升级 |
+
+> **为什么不用 Hono**（主方案 §2.1 原文是「API **可用** Hono」，许可而非强制，故无需 ADR）：
+> 本项目的请求管线有两处框架中间件模型不好表达的硬要求。
+> 一是 §4.2 规定了**严格且不可重排的检查顺序**（请求结构与尺寸 → 同源/CSRF → 限速 →
+> Turnstile → 配额 → 原子预占 → 创建挑战），顺序本身是安全属性，需要精确控制而不是
+> 交给框架的洋葱模型。二是 `/feeds/u/{token}.ics` 必须**豁免 Cookie 与 CSRF**
+> 却仍受协议校验与限速（§8.3：个人 Feed 不得放到交互登录墙后），
+> 这类例外在框架路由里最容易写错。
+> P1-08 因此交付了框架无关的中间件；少一个依赖，也少一层版本升级面。
 
 版本升级属于独立任务卡，不夹带在功能卡里。
 
