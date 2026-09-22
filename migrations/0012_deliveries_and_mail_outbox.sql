@@ -9,7 +9,7 @@ CREATE TABLE mail_outbox (
   id                 TEXT PRIMARY KEY,
   purpose            TEXT NOT NULL,          -- 四池用途（§9.1）：existing_auth / new_registration / base_business / urgent_business
   priority           INTEGER NOT NULL CHECK (priority BETWEEN 0 AND 5),
-  period_key         TEXT NOT NULL,          -- 计费周期键（周期口径见 ADR-0002；实际取值由 P1-07 账本写入）
+  period_key         TEXT NOT NULL,          -- 预算周期键 = UTC 日（ADR-0003 纯日额度模型）；取值由 P1-07 账本写入
   recipient_user_id  TEXT REFERENCES users (id),
   email_binding_id   TEXT,
   address_version    INTEGER NOT NULL,       -- 发送前复核投递地址版本（§7.1）

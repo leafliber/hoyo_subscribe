@@ -414,10 +414,6 @@ export const EXPECTED_TABLES: Record<string, readonly string[]> = {
     "reserved",
     "settled",
     "uncertain",
-    "envelope",
-    "carry",
-    "fragment_key",
-    "fragment_approved",
     "period_start",
     "period_end",
     "created_at",
@@ -733,6 +729,6 @@ export const MANDATORY_COLUMNS: Readonly<Record<string, readonly string[]>> = {
     "last_served_generation",
   ],
   deliveries: ["dedupe_family", "priority", "mail_outbox_ref"],
-  usage_periods: ["envelope", "carry", "reserved", "settled", "uncertain"],
+  usage_periods: ["pool", "period_kind", "period_key", "reserved", "settled", "uncertain"],
   recovery_credentials: ["generation", "consumed_at", "saved_confirmed_at"],
 };

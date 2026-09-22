@@ -1,6 +1,5 @@
--- P1-04 · 数据组 13/14：反馈与用量（主方案 §8.1 第 13 组、§6.6、§7.5、§9.1、§9.2）
--- 反馈重复/乱序安全；预算原子；carry 持久化以免 floor 吞额度；公平游标按池保存；
--- 遥测失败计数驱动回收暂停（§8.1 第 13 组约束）。
+-- P1-04 · 数据组 13/14：反馈与用量（主方案 §8.1 第 13 组、§6.6、§7.5、§9.1；ADR-0003）
+-- 反馈重复/乱序安全；预算原子；公平游标按池保存；遥测失败计数驱动回收暂停（§8.1 第 13 组约束）。
 
 -- 邮件反馈：只通过受控 Queue 消费（§7.5）。
 -- provider_event_id 唯一 → 重复反馈安全；乱序由 message_id / mail_outbox_id 关联兜底。
@@ -19,23 +18,22 @@ CREATE TABLE mail_feedback (
 CREATE INDEX idx_mail_feedback_message ON mail_feedback (message_id);
 CREATE INDEX idx_mail_feedback_outbox ON mail_feedback (mail_outbox_id);
 
--- 预算账本（§9.1、§9.2）：settled + reserved + uncertain 均占可用预算。
--- period_kind 实际取值（UTC 月池 / UTC 日硬计数）与周期口径由 P1-07 账本写入；
--- 周期键设计为显式列，账单周期口径若再调整（ADR-0002 状态为"提议"）不需改 schema。
--- user_id 为空 = 池级行；非空 = 该用户日限频计数行（§9.1：每用户基础/紧急日机会分别限频）。
+-- 预算账本（§9.1；ADR-0003 纯日额度模型）：settled + reserved + uncertain 均占可用预算。
+-- 周期为 UTC 日（ADR-0003：每个 UTC 日独立，不跨日结转，不存在月度维度）。
+-- 不建 envelope / carry / 片段列：envelope 平滑、carry 结转与 E=1 兜底已随 ADR-0003 废止
+-- （AGENTS.md 禁止清单：恢复月度池/envelope/carry/E=1 兜底即不合格）。
+-- period_kind 保留为显式列、当前唯一口径 'utc_day'——预算周期口径已经历
+-- 账单周期→UTC 月→UTC 日三次 ADR 修订，显式 kind 让口径变化停留在数据层。
+-- user_id 为空 = 池级行；非空 = 该用户的日限频计数行（每用户基础/紧急日机会分别限频）。
 CREATE TABLE usage_periods (
   id                 TEXT PRIMARY KEY,
   pool               TEXT NOT NULL CHECK (pool IN ('existing_auth','new_registration','base_business','urgent_business')),
-  period_kind        TEXT NOT NULL,
-  period_key         TEXT NOT NULL,          -- 如 '2026-09' / '2026-09-22'
+  period_kind        TEXT NOT NULL,          -- 当前唯一口径：utc_day
+  period_key         TEXT NOT NULL,          -- 如 '2026-09-22'
   user_id            TEXT REFERENCES users (id),
   reserved           INTEGER NOT NULL DEFAULT 0,
   settled            INTEGER NOT NULL DEFAULT 0,
   uncertain          INTEGER NOT NULL DEFAULT 0,
-  envelope           INTEGER,                -- §9.2 基础池片段 envelope（E）；紧急池与认证池不做 envelope（§9.2）
-  carry              REAL NOT NULL DEFAULT 0,   -- §9.2 小数余额持久化：floor 才不会吞掉额度；仅未被日硬上限截断的部分累积
-  fragment_key       TEXT,                   -- 当前片段（UTC 日）；月末半日片段口径随周期定义走
-  fragment_approved  INTEGER NOT NULL DEFAULT 0,  -- 本片段已批准且未释放的占用（§9.2：片段可批准 = E − 本列）
   period_start       INTEGER NOT NULL,
   period_end         INTEGER NOT NULL,
   created_at         INTEGER NOT NULL,
