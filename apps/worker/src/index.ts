@@ -6,7 +6,10 @@
 // 共用同一个函数，不存在第二套校验。
 import { verifyParams } from "@hoyo/contracts";
 import { statusRoute } from "./accounts/admission/status";
+import { makeChallengeRoutes } from "./auth/challenges/routes";
+import { InMemoryAuthRateGate } from "./auth/preauth/rate-gate";
 import { makePreauthInitRoute } from "./auth/preauth/routes";
+import { siteverifyTurnstileVerifier } from "./auth/preauth/turnstile";
 import { applySecurityHeaders } from "./shell/headers";
 import { createApiShell } from "./shell/router";
 import { fromHex } from "./storage/crypto/bytes";
@@ -29,6 +32,8 @@ interface ShellSecrets {
   readonly CRYPTO_OTP_PEPPER?: string;
   /** 退订 MAC 当前签发 key_id（§7.6；Keyring 构造需要，token 签发本身属 P4）。 */
   readonly CRYPTO_UNSUBSCRIBE_KEY_ID?: string;
+  /** Turnstile siteverify 秘密（P2-02：仅申请验证码端点需要；未注入时该端点失败关闭）。 */
+  readonly TURNSTILE_SECRET_KEY?: string;
 }
 
 /** 每隔离实例缓存一次的密钥环（构造含 HKDF 派生，不逐请求重建）。 */
@@ -83,9 +88,18 @@ function getShell(env: Env): Shell {
       csrfKey: () => getKeyring(env as Env & ShellSecrets).then((ring) => ring.csrf()),
       routes: [
         // P2-01 挂载点：预认证初始化（CSRF 签发方，csrf:false 由路由自带）+ /status
-        // 全局注册开关。七步准入管线（P2-01 pipeline.ts）由 P2-02 的申请端点挂载。
+        // 全局注册开关。
         makePreauthInitRoute({ keys: () => getKeyring(env as Env & ShellSecrets) }),
         statusRoute,
+        // P2-02 挂载点：申请 / 重发 / 校验三端点（七步准入管线 + 真实第 7 步效果）。
+        // 近似限速门每 shell（isolate）一个实例；Turnstile 懒构造——秘密未注入时仅
+        // 申请端点失败关闭（503），不影响预认证初始化与其余路由。
+        ...makeChallengeRoutes({
+          keys: () => getKeyring(env as Env & ShellSecrets),
+          rateGate: new InMemoryAuthRateGate(),
+          turnstile: () =>
+            siteverifyTurnstileVerifier((env as Env & ShellSecrets).TURNSTILE_SECRET_KEY ?? ""),
+        }),
       ],
     });
     shellByEnv.set(env, shell);
