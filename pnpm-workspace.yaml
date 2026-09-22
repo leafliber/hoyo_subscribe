@@ -1,0 +1,17 @@
+packages:
+  - apps/*
+  - packages/*
+# esbuild / workerd 的 postinstall 用于链接平台二进制；
+# 不批准则 wrangler 构建与 vitest-pool-workers（真实 workerd）无法运行，故显式允许。
+allowBuilds:
+  esbuild: true
+  workerd: true
+minimumReleaseAgeExclude:
+  - '@cloudflare/workerd-darwin-64@1.20260921.1'
+  - '@cloudflare/workerd-darwin-arm64@1.20260921.1'
+  - '@cloudflare/workerd-linux-64@1.20260921.1'
+  - '@cloudflare/workerd-linux-arm64@1.20260921.1'
+  - '@cloudflare/workerd-windows-64@1.20260921.1'
+  - miniflare@5.20260921.0-alpha
+  - workerd@1.20260921.1
+  - wrangler@4.136.0

@@ -1,0 +1,38 @@
+# CI 门禁（任务卡 P1-01 交付物；命令清单见 docs/ENGINEERING.md §3）。
+#
+# params:verify 与 migrate:check 在对应任务卡（P1-03 / P1-04）交付前是"未实现"占位脚本，
+# 按任务卡约定它们必须以非零退出，因此这两个步骤标记 continue-on-error，交付对应任务卡后移除该标记。
+# build 不在任务卡列出的五个 CI 项中，但属于 A-P1-REPO 验收项，一并执行。
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v5
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      - name: 安装依赖（锁文件冻结）
+        run: pnpm install --frozen-lockfile
+      - name: lint
+        run: pnpm lint
+      - name: typecheck
+        run: pnpm typecheck
+      - name: test
+        run: pnpm test
+      - name: params:verify（预期失败至 P1-03 交付）
+        run: pnpm params:verify
+        continue-on-error: true
+      - name: migrate:check（预期失败至 P1-04 交付）
+        run: pnpm migrate:check
+        continue-on-error: true
+      - name: build
+        run: pnpm build
