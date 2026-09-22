@@ -110,7 +110,25 @@
 | `results.result.response_text_sha256` / `response_text_prefix_200` | 输出指纹与前 200 字符（不做质量评估） |
 | `results.result.elapsed_ms` | 调用耗时 |
 
+### 4.5 source-samples（P0-02 采集器）
+
+`results.sources[]`（每来源一条）与 `results.request_log[]`（每次请求一条）：
+
+| 字段 | 含义 |
+| --- | --- |
+| `results.sources[].outcome` | `captured` / `stopped`（含原因） |
+| `results.sources[].sample_files` | 该来源落盘到 `fixtures/sources/<id>/` 的文件清单 |
+| `results.request_log[].purpose / url / elapsed_ms / http_status / bytes_read` | 每次受限请求的观测（url 中哑 uid 已标注 `<dummy-uid>`） |
+| `results.request_log[].restriction` | 命中的受限信号（如米游社 getPostFull 的 403） |
+| `results.limit_observations.request_timeout_ms` | 全部请求的时延统计（max/p95/median） |
+| `results.limit_observations.redirects` | 重定向观察计数 |
+
+P0-02 的叙述性证据（非探针 JSON）：`source-params.md`（参数核验与发现记录）、`list-display-time-vs-event-time.md`（列表展示时间 ≠ 活动时间对照，由 `analyze-time.mjs` 离线生成）。
+
+注意：与 P0-01 的 sources-reachability 不同，**source-samples 的样本本体（完整公开公告 JSON）存 `fixtures/sources/`**（`synthetic:false`，带 `captured_at_utc` 与 `url`）；本目录只放运行记录。公开公告内容不属于秘密政策禁止项。
+
 ## 5. 与后续任务卡的关系
 
 - P0-02 起来源真实样本存 `fixtures/sources/`（不存本目录）；本目录只放探针输出与人工结论。
+- P0-02 的来源注册草案：`fixtures/sources/registry.draft.json`（正式注册表在 P1-03 落地）。
 - P0-06 的 `CONCLUSIONS.md`（结论表）将引用本目录文件路径作为证据。

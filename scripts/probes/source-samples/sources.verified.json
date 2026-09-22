@@ -1,0 +1,132 @@
+{
+  "schema_version": 1,
+  "note": "P0-02 参数核验结果（2026-09-22 实测，发现过程见 docs/evidence/p0/source-params.md）。P0-01 线索 URL 失败原因：公告 API 缺 game_biz/bundle_id/platform/region/level/uid（retcode:-1003），米游社 getNewsList 已从 post/wapi 迁移到 painter/wapi。本文件是采集脚本的输入，不是正式来源注册表；正式注册项见 fixtures/sources/registry.draft.json。",
+  "discovery": {
+    "verified_at_utc": "2026-09-22",
+    "environment": "local-node（E2 级，本机网络）",
+    "announcement_api": {
+      "minimal_required_params": ["game", "game_biz", "bundle_id", "platform", "region"],
+      "optional_but_content_gating": [
+        "level（缺省时返回条目大幅减少：原神 4→41、星铁 2→14、绝区零 3→18）",
+        "uid（与 level 一同出现才有效果；官方公告页登出态使用哑 uid=100000000，非凭据）"
+      ],
+      "droppable": ["lang", "channel_id", "announcement_version"],
+      "game_param_values": {
+        "hk4e_cn": "game=hk4e",
+        "hkrpg_cn": "game=hkrpg（game=hkrpg_cn 会 retcode:-1000 系统异常）",
+        "nap_cn": "game=nap（game=nap_cn 会 retcode:-1000 系统异常）"
+      },
+      "region_param_values": {
+        "hk4e_cn": "cn_gf01",
+        "hkrpg_cn": "prod_gf_cn（region=prod 可达但 total=0）",
+        "nap_cn": "prod_gf_cn（region=prod 可达但 total=0）"
+      },
+      "platform": "pc（1-6/windows/android/ios 均被接受，但本次仅对 pc 组合验证过有数据）"
+    },
+    "miyoushe": {
+      "old_path": "post/wapi/getNewsList → 404（已废弃）",
+      "current_path": "painter/wapi/getNewsList（来自米游社线上前端 bundle 的当前调用）",
+      "hosts": ["bbs-api-static.miyoushe.com", "bbs-api.miyoushe.com"],
+      "type_enum_from_bundle": "I={DEFAULT:\"1\",EVENT:\"2\",NEWS:\"3\"}（1=公告 2=活动 3=资讯）",
+      "content_endpoint": "post/wapi/getPostFull → HTTP 403 Forbidden（两台官方主机、诚实探针 UA、无凭据、各一次请求）——访问控制信号，按 AGENTS.md 规则 6 停用该通道并记录，不绕过、不伪装 UA、不用第三方聚合"
+    }
+  },
+  "sources": [
+    {
+      "source_id": "genshin-ann",
+      "label": "原神公告（hk4e_cn）",
+      "game": "genshin",
+      "region": "cn",
+      "approved_hosts": ["hk4e-ann-api.mihoyo.com"],
+      "list": {
+        "path": "/common/hk4e_cn/announcement/api/getAnnList",
+        "params": {
+          "game": "hk4e",
+          "game_biz": "hk4e_cn",
+          "bundle_id": "hk4e_cn",
+          "channel_id": "1",
+          "lang": "zh-cn",
+          "level": "60",
+          "platform": "pc",
+          "region": "cn_gf01",
+          "uid": "100000000"
+        },
+        "pagination": "page/page_size"
+      },
+      "content": {
+        "path": "/common/hk4e_cn/announcement/api/getAnnContent",
+        "params_key": "announcement_id"
+      }
+    },
+    {
+      "source_id": "hsr-ann",
+      "label": "星穹铁道公告（hkrpg_cn）",
+      "game": "hsr",
+      "region": "cn",
+      "approved_hosts": ["hkrpg-ann-api.mihoyo.com"],
+      "list": {
+        "path": "/common/hkrpg_cn/announcement/api/getAnnList",
+        "params": {
+          "game": "hkrpg",
+          "game_biz": "hkrpg_cn",
+          "bundle_id": "hkrpg_cn",
+          "channel_id": "1",
+          "lang": "zh-cn",
+          "level": "70",
+          "platform": "pc",
+          "region": "prod_gf_cn",
+          "uid": "100000000"
+        },
+        "pagination": "page/page_size"
+      },
+      "content": {
+        "path": "/common/hkrpg_cn/announcement/api/getAnnContent",
+        "params_key": "announcement_id"
+      }
+    },
+    {
+      "source_id": "zzz-ann",
+      "label": "绝区零公告（nap_cn）",
+      "game": "zzz",
+      "region": "cn",
+      "approved_hosts": ["announcement-api.mihoyo.com"],
+      "list": {
+        "path": "/common/nap_cn/announcement/api/getAnnList",
+        "params": {
+          "game": "nap",
+          "game_biz": "nap_cn",
+          "bundle_id": "nap_cn",
+          "channel_id": "1",
+          "lang": "zh-cn",
+          "level": "60",
+          "platform": "pc",
+          "region": "prod_gf_cn",
+          "uid": "100000000"
+        },
+        "pagination": "page/page_size"
+      },
+      "content": {
+        "path": "/common/nap_cn/announcement/api/getAnnContent",
+        "params_key": "announcement_id"
+      }
+    },
+    {
+      "source_id": "miyoushe-news",
+      "label": "米游社官方资讯（gids=2 原神）",
+      "game": "genshin",
+      "region": "cn",
+      "approved_hosts": ["bbs-api-static.miyoushe.com", "bbs-api.miyoushe.com"],
+      "list": {
+        "path": "/painter/wapi/getNewsList",
+        "params": { "gids": "2" },
+        "extra_params": { "type": "1|2|3", "last_id": "游标", "page_size": "1-50" },
+        "pagination": "last_id 游标（data.last_id / data.is_last）"
+      },
+      "content": {
+        "path": "/post/wapi/getPostFull",
+        "params_key": "post_id",
+        "state": "blocked-403"
+      }
+    }
+  ]
+}

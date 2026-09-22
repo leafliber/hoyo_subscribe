@@ -1,0 +1,419 @@
+{
+  "schema_version": 1,
+  "generated_at_utc": "2026-09-21T17:41:54.847Z",
+  "source_id": "zzz-ann",
+  "list_observation": {
+    "page_size": 20,
+    "per_page_counts": [
+      {
+        "page": 1,
+        "count": 18
+      }
+    ],
+    "api_total_first_page": 18,
+    "timezone": 8,
+    "t": "1790029803_fe553845a5c349fa881343187b2b390c_2e10da05309be8c5ead6a7d10fa0c1b3",
+    "alert": false,
+    "alert_id": 0,
+    "type_labels": [
+      "游戏公告",
+      "活动公告"
+    ],
+    "boundary": {
+      "page": 2,
+      "observation": "page=2 返回与 page=1 同构全集（count=18）；服务端忽略分页参数，无空页边界",
+      "artifact": "list-page-2-duplicate.json"
+    }
+  },
+  "contents": [
+    {
+      "ann_id": 1296,
+      "kind": "maintenance",
+      "title": "<p style=\"white-space: pre-wrap;\">3.2版本「她与她的隐秘往事」更新公告</p>",
+      "list_start_time": "2026-09-09 07:00:00",
+      "list_end_time": "2026-10-21 06:59:59",
+      "list_tag_start_time": "2000-01-02 15:04:05",
+      "content_start_time": null,
+      "content_time_timezone": 8,
+      "extracted_event_time_ranges": [
+        {
+          "start": "2026/09/10 10:00",
+          "end": "2026/10/19 03:59",
+          "end_has_time": true
+        },
+        {
+          "start": "2026/09/16 10:00",
+          "end": "2026/10/05 03:59",
+          "end_has_time": true
+        },
+        {
+          "start": "2026/09/23 10:00",
+          "end": "2026/10/20 03:59",
+          "end_has_time": true
+        },
+        {
+          "start": "2026/09/23 04:00",
+          "end": "2026/09/28 03:59",
+          "end_has_time": true
+        },
+        {
+          "start": "2026/09/30 10:00",
+          "end": "2026/10/19 03:59",
+          "end_has_time": true
+        },
+        {
+          "start": "2026/09/30 10:00",
+          "end": "2026/10/20 03:59",
+          "end_has_time": true
+        },
+        {
+          "start": "2026/10/03 10:00",
+          "end": "2026/10/19 03:59",
+          "end_has_time": true
+        },
+        {
+          "start": "2026/10/14 04:00",
+          "end": "2026/10/19 03:59",
+          "end_has_time": true
+        }
+      ],
+      "image_date_analysis": {
+        "image_count": 0,
+        "text_length": 9097,
+        "has_full_date_range": true,
+        "has_any_date": true,
+        "date_likely_in_image": false
+      },
+      "content_text_bytes": 24457,
+      "absolute_datetimes": [
+        "2026/09/09 06:00",
+        "2026/09/09 06:00",
+        "2026/10/21 06:00",
+        "2026/09/09 06:00",
+        "2026/10/09 23:59",
+        "2026/10/20 03:59",
+        "2026/11/30 03:59",
+        "2026/09/10 10:00",
+        "2026/10/19 03:59",
+        "2026/09/16 10:00",
+        "2026/10/05 03:59",
+        "2026/09/23 10:00",
+        "2026/10/20 03:59",
+        "2026/09/23 04:00",
+        "2026/09/28 03:59",
+        "2026/09/30 10:00",
+        "2026/10/19 03:59",
+        "2026/09/30 10:00",
+        "2026/10/20 03:59",
+        "2026/10/03 10:00",
+        "2026/10/19 03:59",
+        "2026/10/14 04:00",
+        "2026/10/19 03:59"
+      ],
+      "date_only": [],
+      "relative_start_ranges": [
+        {
+          "relative_start": "[加密母带]*10！ 活动时间：3.2版本更新后",
+          "end": "2026/10/20 03:59"
+        },
+        {
+          "relative_start": "活动时间：3.2版本更新后",
+          "end": "2026/11/30 03:59"
+        }
+      ]
+    },
+    {
+      "ann_id": 1303,
+      "kind": "event",
+      "title": "<p style=\"white-space: pre-wrap;\">「先遣赏金-区域巡防」活动说明</p>",
+      "list_start_time": "2026-09-21 12:30:00",
+      "list_end_time": "2026-09-28 03:59:59",
+      "list_tag_start_time": "2000-01-02 15:04:05",
+      "content_start_time": null,
+      "content_time_timezone": 8,
+      "extracted_event_time_ranges": [
+        {
+          "start": "2026/09/23 04:00",
+          "end": "2026/09/28 03:59",
+          "end_has_time": true
+        }
+      ],
+      "image_date_analysis": {
+        "image_count": 0,
+        "text_length": 203,
+        "has_full_date_range": true,
+        "has_any_date": true,
+        "date_likely_in_image": false
+      },
+      "content_text_bytes": 499,
+      "absolute_datetimes": [
+        "2026/09/23 04:00",
+        "2026/09/28 03:59"
+      ],
+      "date_only": [],
+      "relative_start_ranges": []
+    },
+    {
+      "ann_id": 1318,
+      "kind": "misc",
+      "title": "<p style=\"white-space: pre-wrap;\">已知问题及游戏优化说明</p>",
+      "list_start_time": "2026-09-09 07:00:00",
+      "list_end_time": "2026-10-21 07:00:00",
+      "list_tag_start_time": "2000-01-02 15:04:05",
+      "content_start_time": null,
+      "content_time_timezone": 8,
+      "extracted_event_time_ranges": [],
+      "image_date_analysis": {
+        "image_count": 0,
+        "text_length": 2096,
+        "has_full_date_range": false,
+        "has_any_date": true,
+        "date_likely_in_image": false
+      },
+      "content_text_bytes": 5765,
+      "absolute_datetimes": [],
+      "date_only": [
+        "9月9日",
+        "9月16日",
+        "9月11日",
+        "9月10日"
+      ],
+      "relative_start_ranges": []
+    },
+    {
+      "ann_id": 1301,
+      "kind": "misc",
+      "title": "<p style=\"white-space: pre-wrap;\">「虚境逐影争锋」活动说明</p>",
+      "list_start_time": "2026-09-14 12:00:00",
+      "list_end_time": "2026-10-05 03:59:59",
+      "list_tag_start_time": "2000-01-02 15:04:05",
+      "content_start_time": null,
+      "content_time_timezone": 8,
+      "extracted_event_time_ranges": [
+        {
+          "start": "2026/09/16 10:00",
+          "end": "2026/10/05 03:59",
+          "end_has_time": true
+        }
+      ],
+      "image_date_analysis": {
+        "image_count": 1,
+        "text_length": 644,
+        "has_full_date_range": true,
+        "has_any_date": true,
+        "date_likely_in_image": false
+      },
+      "content_text_bytes": 1711,
+      "absolute_datetimes": [
+        "2026/09/16 10:00",
+        "2026/10/05 03:59"
+      ],
+      "date_only": [],
+      "relative_start_ranges": []
+    },
+    {
+      "ann_id": 1326,
+      "kind": "misc",
+      "title": "<p style=\"white-space: pre-wrap;\">养成指南上新丨洛克茜养成材料预告</p>",
+      "list_start_time": "2026-09-19 13:00:00",
+      "list_end_time": "2026-09-29 23:59:59",
+      "list_tag_start_time": "2000-01-02 15:04:05",
+      "content_start_time": null,
+      "content_time_timezone": 8,
+      "extracted_event_time_ranges": [],
+      "image_date_analysis": {
+        "image_count": 0,
+        "text_length": 127,
+        "has_full_date_range": false,
+        "has_any_date": false,
+        "date_likely_in_image": false
+      },
+      "content_text_bytes": 339,
+      "absolute_datetimes": [],
+      "date_only": [],
+      "relative_start_ranges": []
+    },
+    {
+      "ann_id": 1322,
+      "kind": "misc",
+      "title": "<p style=\"white-space: pre-wrap;\">「维尔乌姆假日相册」网页活动开启</p>",
+      "list_start_time": "2026-09-09 12:00:00",
+      "list_end_time": "2026-10-10 23:59:59",
+      "list_tag_start_time": "2000-01-02 15:04:05",
+      "content_start_time": null,
+      "content_time_timezone": 8,
+      "extracted_event_time_ranges": [],
+      "image_date_analysis": {
+        "image_count": 0,
+        "text_length": 202,
+        "has_full_date_range": false,
+        "has_any_date": true,
+        "date_likely_in_image": false
+      },
+      "content_text_bytes": 546,
+      "absolute_datetimes": [],
+      "date_only": [
+        "9月9日"
+      ],
+      "relative_start_ranges": []
+    }
+  ],
+  "boundary": null,
+  "pinned_like_observations": [
+    {
+      "ann_id": 1296,
+      "title": "<p style=\"white-space: pre-wrap;\">3.2版本「她与她的隐秘往事」更新公告</p>",
+      "flags": {
+        "login_alert": 1
+      }
+    },
+    {
+      "ann_id": 1318,
+      "title": "<p style=\"white-space: pre-wrap;\">已知问题及游戏优化说明</p>",
+      "flags": {
+        "login_alert": 1
+      }
+    },
+    {
+      "ann_id": 1303,
+      "title": "<p style=\"white-space: pre-wrap;\">「先遣赏金-区域巡防」活动说明</p>",
+      "flags": {
+        "login_alert": 1
+      }
+    },
+    {
+      "ann_id": 1301,
+      "title": "<p style=\"white-space: pre-wrap;\">「虚境逐影争锋」活动说明</p>",
+      "flags": {
+        "login_alert": 1
+      }
+    },
+    {
+      "ann_id": 1326,
+      "title": "<p style=\"white-space: pre-wrap;\">养成指南上新丨洛克茜养成材料预告</p>",
+      "flags": {
+        "login_alert": 1
+      }
+    },
+    {
+      "ann_id": 1322,
+      "title": "<p style=\"white-space: pre-wrap;\">「维尔乌姆假日相册」网页活动开启</p>",
+      "flags": {
+        "login_alert": 1
+      }
+    },
+    {
+      "ann_id": 1299,
+      "title": "<p style=\"white-space: pre-wrap;\">3.2版本「商城」上新说明</p>",
+      "flags": {
+        "login_alert": 1
+      }
+    },
+    {
+      "ann_id": 1300,
+      "title": "<p style=\"white-space: pre-wrap;\">「全新放送」活动说明</p>",
+      "flags": {
+        "login_alert": 1
+      }
+    },
+    {
+      "ann_id": 1302,
+      "title": "<p style=\"white-space: pre-wrap;\">「潜能预演·烈火重锤」活动说明</p>",
+      "flags": {
+        "login_alert": 1
+      }
+    },
+    {
+      "ann_id": 1298,
+      "title": "<p style=\"white-space: pre-wrap;\">3.2版本「丽都城募」说明</p>",
+      "flags": {
+        "login_alert": 1
+      }
+    },
+    {
+      "ann_id": 1313,
+      "title": "<p style=\"white-space: pre-wrap;\">新品情报丨2026AW服饰等多款周边上新</p>",
+      "flags": {
+        "login_alert": 1
+      }
+    },
+    {
+      "ann_id": 1245,
+      "title": "<p style=\"white-space: pre-wrap;\">《绝区零》PC端视觉体验升级功能使用FAQ（7月29日更新）</p>",
+      "flags": {
+        "login_alert": 1
+      }
+    },
+    {
+      "ann_id": 1134,
+      "title": "<p style=\"white-space: pre-wrap;\">《绝区零》谨防诈骗提醒</p>",
+      "flags": {
+        "login_alert": 1
+      }
+    },
+    {
+      "ann_id": 1032,
+      "title": "<p style=\"white-space: pre-wrap;\">绝区零官方小程序，正式上线！</p>",
+      "flags": {
+        "login_alert": 1
+      }
+    },
+    {
+      "ann_id": 238,
+      "title": "<p style=\"white-space: pre-wrap;\">绳网认证分部一览</p>",
+      "flags": {
+        "login_alert": 1
+      }
+    },
+    {
+      "ann_id": 307,
+      "title": "<p style=\"white-space: pre-wrap;\">米游社《绝区零》专属工具一览</p>",
+      "flags": {
+        "login_alert": 1
+      }
+    },
+    {
+      "ann_id": 242,
+      "title": "<p style=\"white-space: pre-wrap;\">防沉迷系统公告</p>",
+      "flags": {
+        "login_alert": 1
+      }
+    },
+    {
+      "ann_id": 239,
+      "title": "<p style=\"white-space: pre-wrap;\">公平运营声明</p>",
+      "flags": {
+        "login_alert": 1
+      }
+    }
+  ],
+  "limit_probe": {
+    "page_size": [
+      {
+        "requested_page_size": 100,
+        "returned_items": 18,
+        "api_total": 18,
+        "http_status": 200,
+        "elapsed_ms": 67
+      },
+      {
+        "requested_page_size": 1000,
+        "returned_items": 18,
+        "api_total": 18,
+        "http_status": 200,
+        "elapsed_ms": 66
+      }
+    ],
+    "max_content_bytes": 153329
+  },
+  "files": [
+    "list-page-1.json",
+    "content-1296.json",
+    "content-1303.json",
+    "content-1318.json",
+    "content-1301.json",
+    "content-1326.json",
+    "content-1322.json",
+    "list-page-2-duplicate.json"
+  ]
+}

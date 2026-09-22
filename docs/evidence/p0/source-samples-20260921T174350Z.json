@@ -1,0 +1,166 @@
+{
+  "probe": "source-samples",
+  "schema_version": 1,
+  "generated_at_utc": "2026-09-21T17:43:50.432Z",
+  "run_environment": {
+    "type": "local-node",
+    "label": "p0-02-capture-2-miyoushe",
+    "node": "v26.8.1",
+    "platform": "darwin/arm64",
+    "user_agent_sent": "见 lib/guard-core.mjs PROBE_USER_AGENT（诚实探针 UA，无浏览器伪装）",
+    "evidence_grading": "本机网络观测（E2 类），不是目标 Cloudflare 环境证据"
+  },
+  "results": {
+    "sources": [
+      {
+        "source_id": "miyoushe-news",
+        "outcome": "captured",
+        "sample_files": [
+          "news-list-type1-page1.json",
+          "news-list-type2-page1.json",
+          "news-list-type3-page1.json",
+          "news-list-type1-page2.json",
+          "news-list-type1-page3.json",
+          "news-list-type1-page4.json",
+          "content-blocked-78299710.json"
+        ]
+      }
+    ],
+    "request_log": [
+      {
+        "purpose": "news-list-type1-page1",
+        "url": "https://bbs-api-static.miyoushe.com/painter/wapi/getNewsList?gids=2&type=1&last_id=&page_size=20",
+        "elapsed_ms": 75,
+        "error": null,
+        "http_status": 200,
+        "redirect_status": null,
+        "bytes_read": 52334,
+        "truncated": false
+      },
+      {
+        "purpose": "news-list-type2-page1",
+        "url": "https://bbs-api-static.miyoushe.com/painter/wapi/getNewsList?gids=2&type=2&last_id=&page_size=20",
+        "elapsed_ms": 23,
+        "error": null,
+        "http_status": 200,
+        "redirect_status": null,
+        "bytes_read": 110546,
+        "truncated": false
+      },
+      {
+        "purpose": "news-list-type3-page1",
+        "url": "https://bbs-api-static.miyoushe.com/painter/wapi/getNewsList?gids=2&type=3&last_id=&page_size=20",
+        "elapsed_ms": 18,
+        "error": null,
+        "http_status": 200,
+        "redirect_status": null,
+        "bytes_read": 65142,
+        "truncated": false
+      },
+      {
+        "purpose": "news-list-type1-page2",
+        "url": "https://bbs-api-static.miyoushe.com/painter/wapi/getNewsList?gids=2&type=1&last_id=20&page_size=20",
+        "elapsed_ms": 21,
+        "error": null,
+        "http_status": 200,
+        "redirect_status": null,
+        "bytes_read": 50056,
+        "truncated": false
+      },
+      {
+        "purpose": "news-list-type1-page3",
+        "url": "https://bbs-api-static.miyoushe.com/painter/wapi/getNewsList?gids=2&type=1&last_id=40&page_size=20",
+        "elapsed_ms": 26,
+        "error": null,
+        "http_status": 200,
+        "redirect_status": null,
+        "bytes_read": 51149,
+        "truncated": false
+      },
+      {
+        "purpose": "news-list-type1-page4",
+        "url": "https://bbs-api-static.miyoushe.com/painter/wapi/getNewsList?gids=2&type=1&last_id=60&page_size=20",
+        "elapsed_ms": 19,
+        "error": null,
+        "http_status": 200,
+        "redirect_status": null,
+        "bytes_read": 53742,
+        "truncated": false
+      },
+      {
+        "purpose": "limit-pagesize-100",
+        "url": "https://bbs-api-static.miyoushe.com/painter/wapi/getNewsList?gids=2&type=1&last_id=&page_size=100",
+        "elapsed_ms": 17,
+        "error": null,
+        "http_status": 200,
+        "redirect_status": null,
+        "bytes_read": 52334,
+        "truncated": false
+      },
+      {
+        "purpose": "limit-pagesize-1000",
+        "url": "https://bbs-api-static.miyoushe.com/painter/wapi/getNewsList?gids=2&type=1&last_id=&page_size=1000",
+        "elapsed_ms": 19,
+        "error": null,
+        "http_status": 200,
+        "redirect_status": null,
+        "bytes_read": 52334,
+        "truncated": false
+      },
+      {
+        "purpose": "content-blocked-78299710",
+        "url": "https://bbs-api-static.miyoushe.com/post/wapi/getPostFull?post_id=78299710",
+        "elapsed_ms": 133,
+        "error": null,
+        "http_status": 403,
+        "redirect_status": null,
+        "bytes_read": 10,
+        "truncated": false,
+        "restriction": [
+          {
+            "kind": "http_status",
+            "detail": "HTTP 403"
+          },
+          {
+            "kind": "body_prefix_marker",
+            "detail": "forbidden"
+          }
+        ]
+      }
+    ],
+    "limit_observations": {
+      "request_timeout_ms": {
+        "observed_count": 9,
+        "observed_max_ms": 133,
+        "observed_p95_ms": 133,
+        "observed_median_ms": 21,
+        "probe_operational_timeout_ms": 10000
+      },
+      "redirects": {
+        "observed": 0,
+        "note": "全部请求 redirect:manual，未跟随任何重定向；本次未观察到 3xx"
+      }
+    },
+    "run_stats": [
+      {
+        "source_id": "miyoushe-news",
+        "latencies_ms": [
+          75,
+          23,
+          18,
+          21,
+          26,
+          19,
+          17,
+          19,
+          133
+        ]
+      }
+    ]
+  },
+  "notes": [
+    "请求间隔 ≥800ms，串行；命中受限信号（403 等）立即停止该来源并记录（主方案 §3.1 / AGENTS.md 规则 6）。",
+    "米游社 getPostFull 在采集前已知 403，仍按流程发一次取证请求（诚实 UA、无凭据、不重试）。",
+    "uid=100000000 为官方公告页登出态哑 uid（对齐官方 webview 行为），非凭据、非伪造身份。"
+  ]
+}

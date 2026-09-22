@@ -2,6 +2,7 @@
 
 > 任务卡 P0-01。四个探针各自独立可跑，输出结构化 JSON 到 `docs/evidence/p0/<probe>-<YYYYMMDDTHHMMSS>Z.json`。
 > 证据字段含义、命名规范与秘密政策见 `docs/evidence/p0/README.md`；目标环境操作见 `docs/evidence/p0/OWNER_CHECKLIST.md`。
+> P0-02 新增 `source-samples` 采集器（见下表末行），同样遵循本文件的安全边界。
 
 ## 探针总览
 
@@ -11,6 +12,7 @@
 | `d1-conditional-tx` | D1 batch 与 CAS 的真实行为：**CAS 更新零行时 batch 是否回滚**（§3.6、§8.1、[R08]） | `node scripts/probes/d1-conditional-tx/run-local.mjs` | 替换 wrangler.jsonc 中的 `database_id` 后 `npx wrangler@4 dev --remote --port 8791`，再 `node scripts/probes/save-from-url.mjs d1-conditional-tx "http://127.0.0.1:8791/probe" --type remote-worker` |
 | `do-send-location` | DO 请求两侧的 colo/ray 字段、alarm 无请求自触发、读-等-写/紧凑读写的丢失更新差异 | `node scripts/probes/do-send-location/run-local.mjs` | `npx wrangler@4 dev --remote --port 8792`，再 `node scripts/probes/save-from-url.mjs do-send-location "http://127.0.0.1:8792/probe/report" --type remote-worker`（建议先依次访问 `/probe/observation`、`/probe/alarm?delay_ms=2000`、等 5 秒、`/probe/serialization?n=8&delay_ms=150`） |
 | `model-echo` | 模型 profile 对固定合成样本的 usage/计费字段发现（不做质量评估） | **不可本地运行**（Workers AI 仅 remote 可用） | `npx wrangler@4 dev --remote --port 8793`，再 `node scripts/probes/save-from-url.mjs model-echo "http://127.0.0.1:8793/probe?run=echo-once" --type remote-worker`（⚠ 每次调用产生真实用量/费用，取证一次即止） |
+| `source-samples`（P0-02） | 按已核验参数采集四个官方来源的真实样本到 `fixtures/sources/`，实测 SOURCE_LIMIT_PROFILE | `node scripts/probes/source-samples/run-local.mjs [--only <source_id>]`；离线重算分析：`--reindex`；证据对照：`node scripts/probes/source-samples/analyze-time.mjs` | 未建 worker 版；目标环境复测属"需所有者执行"（见 `docs/evidence/p0/source-params.md` §5） |
 
 ## 前置要求
 
@@ -33,6 +35,7 @@ scripts/probes/
 ├── lib/                     共享：受限 fetch/信号识别（guard-core）、证据信封（evidence）、wrangler dev 启停（spawn-wrangler）
 │   └── *.test.mjs           单元测试（node --test），标题带 A-P0-PROBE
 ├── sources-reachability/    线索清单 + 本地 runner + Worker 版
+├── source-samples/          P0-02：已核验参数清单 + 采集 runner + 离线重析/证据生成（单测标题带 A-P0-SOURCE）
 ├── d1-conditional-tx/       Worker 实验 + 本地 runner
 ├── do-send-location/        Worker + DO + 本地 runner
 ├── model-echo/              Worker + 固定合成样本
@@ -42,7 +45,7 @@ scripts/probes/
 ## 测试
 
 ```bash
-node --test scripts/probes/lib/
+node --test scripts/probes/lib/ scripts/probes/source-samples/
 ```
 
 ## 回退点
