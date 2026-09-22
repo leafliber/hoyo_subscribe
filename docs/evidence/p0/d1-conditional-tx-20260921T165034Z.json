@@ -1,0 +1,227 @@
+{
+  "probe": "d1-conditional-tx",
+  "schema_version": 1,
+  "generated_at_utc": "2026-09-21T16:50:34.060Z",
+  "run_environment": {
+    "type": "wrangler-dev-local",
+    "label": "miniflare-local-d1",
+    "runtime_user_agent": "Cloudflare-Workers",
+    "wrangler_command": "npx --yes wrangler@4 dev（本地 miniflare，未登录账户）",
+    "evidence_grading": "本地 miniflare 的 D1 观测（E2 类）；G-P0 放行需同一实验在目标环境（remote/生产 D1）复跑"
+  },
+  "results": {
+    "ok": true,
+    "summary": {
+      "sqlite_version": null,
+      "batch_rolls_back_on_sql_error": true,
+      "cas_zero_rows_batch_threw": false,
+      "dependent_write_persisted_despite_cas_zero_rows": true,
+      "batch_rolls_back_on_cas_zero_rows": false,
+      "changes_guard_insert_ran_when_update_matched": true,
+      "changes_guard_blocked_dependent_write_on_miss": true,
+      "single_cas_miss_threw": false,
+      "single_cas_miss_changes": 0,
+      "single_sql_error_threw": true
+    },
+    "steps": [
+      {
+        "id": "setup",
+        "purpose": "创建探针自有临时表 p0_probe_cas / p0_probe_log（结束后删除）",
+        "threw": false,
+        "error": null,
+        "batch_meta": null,
+        "observation": {
+          "seeded_row": {
+            "id": 1,
+            "version": 1,
+            "done": 0
+          }
+        }
+      },
+      {
+        "id": "sqlite-version",
+        "purpose": "SELECT sqlite_version()（可选；本地/部分部署可能禁用）",
+        "threw": true,
+        "error": {
+          "name": "Error",
+          "message": "D1_ERROR: not authorized to use function: sqlite_version at offset 7: SQLITE_ERROR"
+        },
+        "batch_meta": null,
+        "observation": {
+          "note": "sqlite_version() 不可用（该部署禁用了此函数）"
+        }
+      },
+      {
+        "id": "E1-sql-error-rollback",
+        "purpose": "batch([合法 UPDATE, 语法错误 SQL])：SQL 失败时整批是否回滚",
+        "threw": true,
+        "error": {
+          "name": "Error",
+          "message": "D1_ERROR: near \"THIS\": syntax error at offset 0: SQLITE_ERROR"
+        },
+        "batch_meta": null,
+        "observation": {
+          "version_after_batch": 1,
+          "expected_if_rolled_back": 1
+        }
+      },
+      {
+        "id": "E2-cas-zero-rows",
+        "purpose": "batch([UPDATE WHERE version=99（永不命中）, INSERT 依赖行])：CAS 零行时 batch 是否回滚",
+        "threw": false,
+        "error": null,
+        "batch_meta": [
+          {
+            "served_by": "miniflare.db",
+            "duration": 0,
+            "changes": 0,
+            "last_row_id": 1,
+            "changed_db": false,
+            "size_after": 20480,
+            "rows_read": 1,
+            "rows_written": 0
+          },
+          {
+            "served_by": "miniflare.db",
+            "duration": 0,
+            "changes": 1,
+            "last_row_id": 1,
+            "changed_db": true,
+            "size_after": 20480,
+            "rows_read": 1,
+            "rows_written": 2
+          }
+        ],
+        "observation": {
+          "depended_rows_persisted": 1,
+          "first_statement_changes": 0,
+          "second_statement_changes": 1
+        }
+      },
+      {
+        "id": "E3a-changes-guard-hit",
+        "purpose": "batch([UPDATE 命中(version=1), INSERT ... WHERE changes()=1])：守卫应放行依赖写入",
+        "threw": false,
+        "error": null,
+        "batch_meta": [
+          {
+            "served_by": "miniflare.db",
+            "duration": 0,
+            "changes": 1,
+            "last_row_id": 1,
+            "changed_db": true,
+            "size_after": 20480,
+            "rows_read": 1,
+            "rows_written": 1
+          },
+          {
+            "served_by": "miniflare.db",
+            "duration": 0,
+            "changes": 1,
+            "last_row_id": 2,
+            "changed_db": true,
+            "size_after": 20480,
+            "rows_read": 1,
+            "rows_written": 2
+          }
+        ],
+        "observation": {
+          "cas_condition": "version = 1 AND done = 0",
+          "guard_rows": 1,
+          "update_changes": 1
+        }
+      },
+      {
+        "id": "E3b-changes-guard-miss",
+        "purpose": "batch([UPDATE 不命中(version=99), INSERT ... WHERE changes()=1])：守卫应拦下依赖写入",
+        "threw": false,
+        "error": null,
+        "batch_meta": [
+          {
+            "served_by": "miniflare.db",
+            "duration": 0,
+            "changes": 0,
+            "last_row_id": 2,
+            "changed_db": false,
+            "size_after": 20480,
+            "rows_read": 1,
+            "rows_written": 0
+          },
+          {
+            "served_by": "miniflare.db",
+            "duration": 0,
+            "changes": 0,
+            "last_row_id": 2,
+            "changed_db": false,
+            "size_after": 20480,
+            "rows_read": 1,
+            "rows_written": 0
+          }
+        ],
+        "observation": {
+          "cas_condition": "version = 99 AND done = 0",
+          "guard_rows": 0,
+          "update_changes": 0
+        }
+      },
+      {
+        "id": "E4a-single-cas-miss",
+        "purpose": "prepare('UPDATE WHERE version=99').run()：条件未命中是否抛错",
+        "threw": false,
+        "error": null,
+        "batch_meta": null,
+        "observation": {
+          "meta": {
+            "served_by": "miniflare.db",
+            "duration": 0,
+            "changes": 0,
+            "last_row_id": 2,
+            "changed_db": false,
+            "size_after": 20480,
+            "rows_read": 1,
+            "rows_written": 0
+          }
+        }
+      },
+      {
+        "id": "E4b-single-sql-error",
+        "purpose": "prepare('STILL NOT SQL').run()：语法错误应抛错",
+        "threw": true,
+        "error": {
+          "name": "Error",
+          "message": "D1_ERROR: near \"STILL\": syntax error at offset 0: SQLITE_ERROR"
+        },
+        "batch_meta": null,
+        "observation": {}
+      },
+      {
+        "id": "cleanup",
+        "purpose": "DROP 探针自有临时表",
+        "threw": false,
+        "error": null,
+        "batch_meta": null,
+        "observation": {
+          "dropped": ["p0_probe_cas", "p0_probe_log"]
+        }
+      }
+    ],
+    "d1_meta_fields_observed": [
+      "changed_db",
+      "changes",
+      "duration",
+      "last_row_id",
+      "rows_read",
+      "rows_written",
+      "served_by",
+      "size_after"
+    ],
+    "cleanup_ok": true
+  },
+  "notes": [
+    "本探针只写自己的临时表 p0_probe_cas / p0_probe_log，结束时 DROP；不接触任何业务表。",
+    "E2 是关键观测：CAS 零行 + 依赖写入同批提交 → 证实『batch 不会因 CAS 零行自动回滚』（[R08]），实现必须自带统一条件守卫。",
+    "E3 观测 changes() 守卫在同批内是否可用；这只是行为记录，不构成 P1-05 条件提交原语的实现承诺。",
+    "探针只写自己的临时表 p0_probe_cas / p0_probe_log 并在结束时 DROP（见 results.cleanup_ok）。",
+    "wrangler dev 日志尾部（排查用）：[wrangler:info] Ready on http://localhost:8791 | [wrangler:info] GET /health 200 OK (6ms) | [wrangler:info] GET /probe 200 OK (16ms)"
+  ]
+}

@@ -1,0 +1,9 @@
+// P0-01 探针 sources-reachability 的 Worker 配置（wrangler dev --remote 用于目标环境取证）。
+// ⚠ 仅供临时运行：本地 `npx wrangler@4 dev`（无绑定）或所有者 `npx wrangler@4 dev --remote`。
+// ⚠ 禁止 wrangler deploy 公开部署本探针。
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "p0-probe-sources-reachability",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-09-01"
+}

@@ -1,0 +1,226 @@
+{
+  "probe": "do-send-location",
+  "schema_version": 1,
+  "generated_at_utc": "2026-09-21T16:51:28.331Z",
+  "run_environment": {
+    "type": "wrangler-dev-local",
+    "label": "miniflare-local-do",
+    "wrangler_command": "npx --yes wrangler@4 dev（本地 miniflare，未登录账户）",
+    "evidence_grading": "本地 miniflare 的 DO 观测（E2 类）；真实 colo 与边缘 alarm 行为需目标环境（remote）复跑"
+  },
+  "results": {
+    "observation": {
+      "front_worker": {
+        "ts_utc": "2026-09-21T16:51:23.627Z",
+        "cf_colo": "ORD",
+        "cf_ray": null
+      },
+      "durable_object": {
+        "ts_utc": "2026-09-21T16:51:23.629Z",
+        "cf_colo": null,
+        "cf_ray": null,
+        "current_alarm_ms": null
+      }
+    },
+    "alarm_set": {
+      "requested_delay_ms": 2000,
+      "durable_object": {
+        "set_at_ms": 1790009483634,
+        "scheduled_for_ms": 1790009485634,
+        "delay_ms": 2000
+      }
+    },
+    "alarm_waited_ms": 4500,
+    "serialization": {
+      "slow_interleaved": {
+        "n": 8,
+        "delay_ms": 150,
+        "wall_ms": 166,
+        "final_counter": 1,
+        "lost_updates": 7,
+        "note": "读-等-写之间有 sleep 窗口；丢失更新 > 0 说明门禁在纯等待期间放行并发"
+      },
+      "compact": {
+        "n": 8,
+        "delay_ms": 0,
+        "wall_ms": 6,
+        "final_counter": 8,
+        "lost_updates": 0,
+        "note": "读写紧邻无外来 await；丢失更新 = 0 说明存储操作期间输入门禁串行化"
+      }
+    },
+    "report": {
+      "front_worker": {
+        "ts_utc": "2026-09-21T16:51:28.327Z",
+        "cf_colo": "ORD",
+        "cf_ray": null
+      },
+      "durable_object": {
+        "ts_utc": "2026-09-21T16:51:28.327Z",
+        "cf_colo": null,
+        "cf_ray": null,
+        "counter": 8,
+        "current_alarm_ms": null,
+        "req_log": [
+          {
+            "ts_utc": "2026-09-21T16:51:23.628Z",
+            "path": "/observation",
+            "cf_colo": null,
+            "cf_ray": null
+          },
+          {
+            "ts_utc": "2026-09-21T16:51:23.634Z",
+            "path": "/set-alarm",
+            "cf_colo": null,
+            "cf_ray": null
+          },
+          {
+            "ts_utc": "2026-09-21T16:51:28.143Z",
+            "path": "/reset-counter",
+            "cf_colo": null,
+            "cf_ray": null
+          },
+          {
+            "ts_utc": "2026-09-21T16:51:28.145Z",
+            "path": "/bump",
+            "cf_colo": null,
+            "cf_ray": null
+          },
+          {
+            "ts_utc": "2026-09-21T16:51:28.146Z",
+            "path": "/bump",
+            "cf_colo": null,
+            "cf_ray": null
+          },
+          {
+            "ts_utc": "2026-09-21T16:51:28.146Z",
+            "path": "/bump",
+            "cf_colo": null,
+            "cf_ray": null
+          },
+          {
+            "ts_utc": "2026-09-21T16:51:28.146Z",
+            "path": "/bump",
+            "cf_colo": null,
+            "cf_ray": null
+          },
+          {
+            "ts_utc": "2026-09-21T16:51:28.146Z",
+            "path": "/bump",
+            "cf_colo": null,
+            "cf_ray": null
+          },
+          {
+            "ts_utc": "2026-09-21T16:51:28.146Z",
+            "path": "/bump",
+            "cf_colo": null,
+            "cf_ray": null
+          },
+          {
+            "ts_utc": "2026-09-21T16:51:28.147Z",
+            "path": "/bump",
+            "cf_colo": null,
+            "cf_ray": null
+          },
+          {
+            "ts_utc": "2026-09-21T16:51:28.147Z",
+            "path": "/bump",
+            "cf_colo": null,
+            "cf_ray": null
+          },
+          {
+            "ts_utc": "2026-09-21T16:51:28.312Z",
+            "path": "/counter",
+            "cf_colo": null,
+            "cf_ray": null
+          },
+          {
+            "ts_utc": "2026-09-21T16:51:28.313Z",
+            "path": "/reset-counter",
+            "cf_colo": null,
+            "cf_ray": null
+          },
+          {
+            "ts_utc": "2026-09-21T16:51:28.315Z",
+            "path": "/bump",
+            "cf_colo": null,
+            "cf_ray": null
+          },
+          {
+            "ts_utc": "2026-09-21T16:51:28.315Z",
+            "path": "/bump",
+            "cf_colo": null,
+            "cf_ray": null
+          },
+          {
+            "ts_utc": "2026-09-21T16:51:28.315Z",
+            "path": "/bump",
+            "cf_colo": null,
+            "cf_ray": null
+          },
+          {
+            "ts_utc": "2026-09-21T16:51:28.315Z",
+            "path": "/bump",
+            "cf_colo": null,
+            "cf_ray": null
+          },
+          {
+            "ts_utc": "2026-09-21T16:51:28.316Z",
+            "path": "/bump",
+            "cf_colo": null,
+            "cf_ray": null
+          },
+          {
+            "ts_utc": "2026-09-21T16:51:28.316Z",
+            "path": "/bump",
+            "cf_colo": null,
+            "cf_ray": null
+          },
+          {
+            "ts_utc": "2026-09-21T16:51:28.316Z",
+            "path": "/bump",
+            "cf_colo": null,
+            "cf_ray": null
+          },
+          {
+            "ts_utc": "2026-09-21T16:51:28.317Z",
+            "path": "/bump",
+            "cf_colo": null,
+            "cf_ray": null
+          },
+          {
+            "ts_utc": "2026-09-21T16:51:28.320Z",
+            "path": "/counter",
+            "cf_colo": null,
+            "cf_ray": null
+          },
+          {
+            "ts_utc": "2026-09-21T16:51:28.327Z",
+            "path": "/report",
+            "cf_colo": null,
+            "cf_ray": null
+          }
+        ],
+        "alarm_log": [
+          {
+            "scheduled_for_ms": 1790009485634,
+            "set_at_ms": 1790009483634,
+            "fired_at_ms": 1790009485637,
+            "fired_at_utc": "2026-09-21T16:51:25.637Z",
+            "skew_ms": 3
+          }
+        ],
+        "alarm_scheduled": {
+          "scheduled_for_ms": 1790009485634,
+          "set_at_ms": 1790009483634
+        }
+      }
+    }
+  },
+  "notes": [
+    "alarm_log 非空 = alarm 在无外部请求时自行触发；skew_ms 为触发时刻与计划时刻的偏差。",
+    "serialization.slow_interleaved.lost_updates > 0 说明『读-等-写』窗口内输入门禁放行并发；compact.lost_updates = 0 说明存储操作期间串行化。",
+    "cf.colo 字段以实际观测为准（本地 dev 可能为占位值）；目标环境结论以 remote 复跑为准。",
+    "wrangler dev 日志尾部（排查用）：[wrangler:info] GET /probe/alarm 200 OK (3ms) | [wrangler:info] GET /probe/serialization 200 OK (180ms) | [wrangler:info] GET /probe/report 200 OK (5ms)"
+  ]
+}

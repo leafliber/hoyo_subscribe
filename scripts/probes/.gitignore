@@ -1,0 +1,5 @@
+# wrangler 本地状态与依赖缓存不入库
+.wrangler/
+node_modules/
+*.log
+.dev.vars

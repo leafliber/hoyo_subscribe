@@ -1,0 +1,19 @@
+// P0-01 探针 model-echo 的 Worker 配置。
+// Workers AI 绑定只在 remote 模式可用：本地 `wrangler dev` 无法代理 AI 调用，
+// 目标环境运行需所有者先 `npx wrangler@4 login`，再 `npx wrangler@4 dev --remote --port 8793`。
+// ⚠ 每次调用 /probe?run=echo-once 都会产生真实模型用量/费用：只跑一次，取证后立即停止 dev server。
+// ⚠ 仅供临时运行取证，禁止 wrangler deploy 公开部署本探针。
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "p0-probe-model-echo",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-09-01",
+  "vars": {
+    // 默认测试对象来自主方案 §3.5（@cf/qwen/qwen3-30b-a3b-fp8 保留为测试对象，不承诺已适合本项目）。
+    // 更换 profile 时改这里或用 --var 覆盖；批准的 profile 登记属 P0-03。
+    "MODEL_PROFILE_ID": "@cf/qwen/qwen3-30b-a3b-fp8"
+  },
+  "ai": {
+    "binding": "AI"
+  }
+}

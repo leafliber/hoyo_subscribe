@@ -1,0 +1,24 @@
+// P0-01 探针 do-send-location 的 Worker 配置（含一个固定 SQLite-backed DO）。
+// 本地运行（无需账户）：npx wrangler@4 dev --port 8792（miniflare 本地 DO）
+// 目标环境（需所有者）：npx wrangler@4 dev --remote（DO 在 Cloudflare 边缘运行，可观测真实 colo）
+// ⚠ 仅供临时运行取证，禁止 wrangler deploy 公开部署本探针。
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "p0-probe-do-send-location",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-09-01",
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "PROBE_DO",
+        "class_name": "P0ProbeDO"
+      }
+    ]
+  },
+  "migrations": [
+    {
+      "tag": "v1",
+      "new_sqlite_classes": ["P0ProbeDO"]
+    }
+  ]
+}

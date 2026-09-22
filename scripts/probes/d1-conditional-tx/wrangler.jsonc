@@ -1,0 +1,19 @@
+// P0-01 探针 d1-conditional-tx 的 Worker 配置。
+// 本地运行（无需账户）：npx wrangler@4 dev --port 8791（miniflare 本地 D1，database_id 用占位符即可）
+// 目标环境（需所有者）：把 database_id 替换为临时探针库的真实 ID 后 npx wrangler@4 dev --remote。
+// ⚠ 请绑定【临时/专用探针数据库】；探针只写自己的 p0_probe_* 临时表并自行清理。
+// ⚠ 仅供临时运行取证，禁止 wrangler deploy 公开部署本探针。
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "p0-probe-d1-conditional-tx",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-09-01",
+  "d1_databases": [
+    {
+      "binding": "PROBE_DB",
+      "database_name": "p0-probe-scratch",
+      // 本地 dev 可用占位符；目标环境运行前由所有者替换为 `npx wrangler@4 d1 create p0-probe-scratch` 返回的真实 ID
+      "database_id": "00000000-0000-0000-0000-000000000000"
+    }
+  ]
+}
