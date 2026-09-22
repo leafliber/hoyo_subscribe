@@ -1,0 +1,59 @@
+GitHub Actions run: https://github.com/leafliber/hoyo_subscribe/actions/runs/35750179514
+Commit: 3b8e916
+Result: success (2026-09-22T15:53:57Z)
+
+verify	test	2026-09-22T15:52:39.1669122Z packages/contracts test: ^[[2m Test Files ^[[22m ^[[1m^[[32m18 passed^[[39m^[[22m^[[90m (18)^[[39m
+verify	test	2026-09-22T15:52:39.1669980Z packages/contracts test: ^[[2m      Tests ^[[22m ^[[1m^[[32m174 passed^[[39m^[[22m^[[90m (174)^[[39m
+verify	test	2026-09-22T15:52:59.9551836Z apps/worker test: ^[[2m Test Files ^[[22m ^[[1m^[[32m32 passed^[[39m^[[22m^[[90m (32)^[[39m
+verify	test	2026-09-22T15:52:59.9553612Z apps/worker test: ^[[2m      Tests ^[[22m ^[[1m^[[32m305 passed^[[39m^[[22m^[[90m (305)^[[39m
+verify	build	﻿2026-09-22T15:53:05.6331706Z ##[group]Run pnpm build
+verify	build	2026-09-22T15:53:05.6331999Z ^[[36;1mpnpm build^[[0m
+verify	build	2026-09-22T15:53:05.6367914Z shell: /usr/bin/bash -e {0}
+verify	build	2026-09-22T15:53:05.6368194Z env:
+verify	build	2026-09-22T15:53:05.6368469Z   PNPM_HOME: /home/runner/setup-pnpm/node_modules/.bin
+verify	build	2026-09-22T15:53:05.6368799Z ##[endgroup]
+verify	build	2026-09-22T15:53:06.0867115Z $ pnpm -r --if-present run build
+verify	build	2026-09-22T15:53:06.5176455Z Scope: 3 of 4 workspace projects
+verify	build	2026-09-22T15:53:06.5209840Z apps/web build$ astro build
+verify	build	2026-09-22T15:53:06.5218565Z apps/worker build$ wrangler deploy --dry-run --outdir=dist
+verify	build	2026-09-22T15:53:07.5574031Z apps/worker build:  ⛅️ wrangler 4.136.0
+verify	build	2026-09-22T15:53:07.5628697Z apps/worker build: ────────────────────
+verify	build	2026-09-22T15:53:07.6442220Z apps/web build: ^[[2m15:53:07^[[22m ^[[34m[types]^[[39m Generated ^[[2m170ms^[[22m
+verify	build	2026-09-22T15:53:07.6455639Z apps/web build: ^[[2m15:53:07^[[22m ^[[34m[build]^[[39m output: ^[[34m"static"^[[39m
+verify	build	2026-09-22T15:53:07.6475223Z apps/web build: ^[[2m15:53:07^[[22m ^[[34m[build]^[[39m mode: ^[[34m"static"^[[39m
+verify	build	2026-09-22T15:53:07.6477737Z apps/web build: ^[[2m15:53:07^[[22m ^[[34m[build]^[[39m directory: ^[[34m/home/runner/work/hoyo_subscribe/hoyo_subscribe/apps/web/dist/^[[39m
+verify	build	2026-09-22T15:53:07.6480109Z apps/web build: ^[[2m15:53:07^[[22m ^[[34m[build]^[[39m Collecting build info...
+verify	build	2026-09-22T15:53:07.6481978Z apps/web build: ^[[2m15:53:07^[[22m ^[[34m[build]^[[39m ^[[32m✓ Completed in 209ms.^[[39m
+verify	build	2026-09-22T15:53:07.6483765Z apps/web build: ^[[2m15:53:07^[[22m ^[[34m[build]^[[39m Building static entrypoints...
+verify	build	2026-09-22T15:53:07.9956720Z apps/web build: ^[[2m15:53:07^[[22m ^[[34m[vite]^[[39m ^[[32m✓ built in 313ms^[[39m
+verify	build	2026-09-22T15:53:08.0542781Z apps/worker build: Total Upload: 840.48 KiB / gzip: 139.30 KiB
+verify	build	2026-09-22T15:53:08.0572951Z apps/worker build: Your Worker has access to the following bindings:
+verify	build	2026-09-22T15:53:08.0574520Z apps/worker build: Binding                                          Resource
+verify	build	2026-09-22T15:53:08.0576077Z apps/worker build: env.PIPELINE_DO (PipelineDO)                     Durable Object
+verify	build	2026-09-22T15:53:08.0578475Z apps/worker build: env.DELIVERY_DO (DeliveryDO)                     Durable Object
+verify	build	2026-09-22T15:53:08.0610687Z apps/worker build: env.AUTH_MAILER (unrestricted)                   Send Email
+verify	build	2026-09-22T15:53:08.0621814Z apps/worker build: env.BIZ_MAILER (unrestricted)                    Send Email
+verify	build	2026-09-22T15:53:08.0623442Z apps/worker build: env.MAIL_FEEDBACK_QUEUE (mail-feedback)          Queue
+verify	build	2026-09-22T15:53:08.0624951Z apps/worker build: env.DB (hoyo-subscribe-db)                       D1 Database
+verify	build	2026-09-22T15:53:08.0626124Z apps/worker build: --dry-run: exiting now.
+verify	build	2026-09-22T15:53:08.0631189Z apps/worker build: Cloudflare collects anonymous telemetry about your usage of Wrangler. Learn more at https://github.com/cloudflare/workers-sdk/tree/main/packages/wrangler/telemetry.md
+verify	build	2026-09-22T15:53:08.1076088Z apps/web build: ^[[2m15:53:08^[[22m ^[[34m[vite]^[[39m ^[[32m✓ built in 108ms^[[39m
+verify	build	2026-09-22T15:53:08.1169535Z apps/web build: ^[[2m15:53:08^[[22m ^[[34m[build]^[[39m Rearranging server assets...
+verify	build	2026-09-22T15:53:08.1178534Z apps/worker build: Done
+verify	build	2026-09-22T15:53:08.1355098Z apps/web build: ^[[42m^[[30m generating static routes ^[[39m^[[49m
+verify	build	2026-09-22T15:53:08.1578869Z apps/web build: ^[[2m15:53:08^[[22m   ^[[34m├─^[[39m ^[[2m/account/index.html^[[22m ^[[2m(+20ms)^[[22m
+verify	build	2026-09-22T15:53:08.1605931Z apps/web build: ^[[2m15:53:08^[[22m   ^[[34m├─^[[39m ^[[2m/events/sample/index.html^[[22m ^[[2m(+3ms)^[[22m
+verify	build	2026-09-22T15:53:08.1629006Z apps/web build: ^[[2m15:53:08^[[22m   ^[[34m├─^[[39m ^[[2m/help/index.html^[[22m ^[[2m(+2ms)^[[22m
+verify	build	2026-09-22T15:53:08.1650237Z apps/web build: ^[[2m15:53:08^[[22m   ^[[34m├─^[[39m ^[[2m/login/index.html^[[22m ^[[2m(+2ms)^[[22m
+verify	build	2026-09-22T15:53:08.1668451Z apps/web build: ^[[2m15:53:08^[[22m   ^[[34m├─^[[39m ^[[2m/recover/index.html^[[22m ^[[2m(+2ms)^[[22m
+verify	build	2026-09-22T15:53:08.1684410Z apps/web build: ^[[2m15:53:08^[[22m   ^[[34m├─^[[39m ^[[2m/status/index.html^[[22m ^[[2m(+2ms)^[[22m
+verify	build	2026-09-22T15:53:08.1701693Z apps/web build: ^[[2m15:53:08^[[22m   ^[[34m├─^[[39m ^[[2m/subscription/index.html^[[22m ^[[2m(+2ms)^[[22m
+verify	build	2026-09-22T15:53:08.1791144Z apps/web build: ^[[2m15:53:08^[[22m   ^[[34m├─^[[39m ^[[2m/index.html^[[22m ^[[2m(+9ms)^[[22m
+verify	build	2026-09-22T15:53:08.1792454Z apps/web build: ^[[2m15:53:08^[[22m ^[[32m✓ Completed in 64ms.
+verify	build	2026-09-22T15:53:08.1793437Z apps/web build: ^[[39m
+verify	build	2026-09-22T15:53:08.1808882Z apps/web build: ^[[2m15:53:08^[[22m ^[[34m[build]^[[39m ^[[32m✓ Completed in 533ms.^[[39m
+verify	build	2026-09-22T15:53:08.1814079Z apps/web build: ^[[2m15:53:08^[[22m ^[[34m[build]^[[39m 8 page(s) built in ^[[1m747ms^[[22m
+verify	build	2026-09-22T15:53:08.1816713Z apps/web build: ^[[2m15:53:08^[[22m ^[[34m[build]^[[39m ^[[1mComplete!^[[22m
+verify	build	2026-09-22T15:53:08.1994278Z apps/web build: Done
+verify	test:e2e（U28 可访问性基线）	2026-09-22T15:53:49.0059916Z   5 skipped
+verify	test:e2e（U28 可访问性基线）	2026-09-22T15:53:49.0060339Z   41 passed (15.8s)

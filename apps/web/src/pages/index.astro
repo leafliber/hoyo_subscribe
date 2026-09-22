@@ -1,7 +1,49 @@
 ---
+import {
+  BROWSE_RANGES,
+  BROWSE_TIMEZONE,
+  defaultBrowseFilters,
+  EVENT_NAMES,
+  EVENT_TYPES,
+  GAME_NAMES,
+  NODE_NAMES,
+  NODE_TYPES,
+  SUPPORTED_SCOPE_GAMES,
+} from "@hoyo/contracts";
+import { DEMO_SCENARIOS, demoSnapshot } from "../features/schedule/fixtures";
+import { renderResults } from "../features/schedule/render";
+import "../features/schedule/schedule.css";
 import Layout from "./_Layout.astro";
+
+const now = Date.now();
+const filters = defaultBrowseFilters();
+const snapshot = demoSnapshot(now, "normal");
 ---
 <Layout title="日程" activeNav="schedule">
-  <h1>日程</h1>
-  <p class="skeleton-note">页面骨架：日程列表、筛选与时间呈现由 F1-02 交付。</p>
+  <div class="schedule-home">
+    <div class="schedule-intro">
+      <div><p class="page-kicker">每一段旅程，都有迹可循</p><h1>日程<span class="title-dot" aria-hidden="true">.</span></h1></div>
+      <div class="intro-aside"><p>CN · 简体中文</p><p>{BROWSE_TIMEZONE}</p></div>
+    </div>
+    <p class="sample-notice"><span>样例预览 · synthetic</span> 以下为隔离演示数据，不代表官方日程。</p>
+    <form id="browse-filters" class="browse-filters" aria-label="浏览筛选">
+      <fieldset class="game-filters"><legend class="sr-only">游戏选择</legend><div class="game-options">
+        {SUPPORTED_SCOPE_GAMES.map((game) => <label class="game-option"><input type="checkbox" name="games" value={game} checked /><span>{GAME_NAMES[game]}</span></label>)}
+      </div></fieldset>
+      <div class="filter-toolbar"><fieldset class="range-filters"><legend class="sr-only">时间范围</legend><div class="range-options">
+        {BROWSE_RANGES.map((range) => <label class="range-option"><input type="radio" name="range" value={range.id} checked={range.id === filters.range} /><span>{range.label}</span></label>)}
+      </div></fieldset></div><div class="filter-tools"><label class="deadline-filter"><input type="checkbox" name="ending" value="1" />临近截止</label>
+      <details class="more-filters" id="more-filters"><summary>更多筛选<span id="more-summary">事件类型、节点类型</span></summary><div class="more-content">
+        <fieldset><legend>事件类型</legend><div class="checkbox-options">{EVENT_TYPES.map((type) => <label><input type="checkbox" name="events" value={type} />{EVENT_NAMES[type]}</label>)}</div></fieldset>
+        <fieldset><legend>节点类型</legend><div class="checkbox-options">{NODE_TYPES.map((type) => <label><input type="checkbox" name="nodes" value={type} />{NODE_NAMES[type]}</label>)}</div></fieldset>
+      </div></details></div>
+      <div class="filter-summary"><p id="browse-summary">全部游戏 · 近3天</p><button id="reset-filters" type="button">清除筛选</button></div>
+    </form>
+    <div id="schedule-results" set:html={renderResults({ snapshot, filters, now, expanded: false, loading: "ready", offline: false, stale: false })}></div>
+    <div class="subscription-hint"><div><strong>把日程，放进你的日历。</strong><p>浏览筛选只影响当前页面，订阅内容由你另行设置。</p></div><a href="/subscription">设置我的订阅 →</a></div>
+    <details class="demo-controls"><summary>样例场景切换（仅体验验证）</summary><label>演示场景<select id="demo-scenario">{DEMO_SCENARIOS.map(([value, label]) => <option value={value}>{label}</option>)}</select></label><p>此处切换的是 synthetic 数据，不会连接账号或官方来源。样例详情沿用现有占位页。</p></details>
+    <p id="browse-announcement" class="sr-only" role="status"></p>
+    <noscript><p class="data-warning">当前展示构建时的样例日程。启用 JavaScript 后可筛选并按今日更新浏览窗口。</p></noscript>
+  </div>
+  <script>import "../features/schedule/home";</script>
 </Layout>

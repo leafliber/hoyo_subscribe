@@ -1,0 +1,242 @@
+$ pnpm --filter @hoyo/web run build && playwright test --config tests/e2e/playwright.config.ts
+$ astro build
+23:34:39 [types] Generated 29ms
+23:34:39 [build] output: "static"
+23:34:39 [build] mode: "static"
+23:34:39 [build] directory: /private/tmp/hoyo-f1-02/apps/web/dist/
+23:34:39 [build] Collecting build info...
+23:34:39 [build] ✓ Completed in 39ms.
+23:34:39 [build] Building static entrypoints...
+23:34:39 [vite] ✓ built in 117ms
+23:34:39 [vite] ✓ built in 36ms
+23:34:39 [build] Rearranging server assets...
+
+ generating static routes
+23:34:39   ├─ /account/index.html (+5ms)
+23:34:39   ├─ /events/sample/index.html (+1ms)
+23:34:39   ├─ /help/index.html (+1ms)
+23:34:39   ├─ /login/index.html (+1ms)
+23:34:39   ├─ /recover/index.html (+1ms)
+23:34:39   ├─ /status/index.html (+1ms)
+23:34:39   ├─ /subscription/index.html (+1ms)
+23:34:39   ├─ /index.html (+3ms)
+23:34:39 ✓ Completed in 22ms.
+
+23:34:39 [build] ✓ Completed in 190ms.
+23:34:39 [build] 8 page(s) built in 231ms
+23:34:39 [build] Complete!
+
+Running 44 tests using 5 workers
+
+(node:37506) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:37504) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:37505) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:37503) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:37507) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✓   1 [desktop-chromium] › tests/e2e/a11y.spec.ts:127:1 › U28 color.ts 工具函数：contrastRatio / compositeOver 对照已知值 (4ms)
+  ✓   4 [desktop-chromium] › tests/e2e/a11y.spec.ts:59:1 › U28 对比度：token 全部前景/背景组合与半透明合成色逐一达到阈值 (8ms)
+  ✓   5 [desktop-chromium] › tests/e2e/a11y.spec.ts:101:1 › U28 颜色单一来源：tokens.css 之外不允许出现颜色字面量 (12ms)
+  ✓   8 [desktop-chromium] › tests/e2e/a11y.spec.ts:239:1 › U28 表单标签在 placeholder 之外持续可见并与控件关联 (447ms)
+  ✓   2 [desktop-chromium] › tests/e2e/a11y.spec.ts:150:1 › U28 主导航仅「日程 / 我的订阅」两项；登录在页头，帮助与服务状态在页脚；能力型 URL 不出现在页面 (429ms)
+  ✓   6 [desktop-chromium] › tests/e2e/a11y.spec.ts:175:1 › U28 键盘 Tab 走完主要操作（跳过链接→主导航→登录→表单→页脚），焦点环可见 (498ms)
+  -  11 [desktop-chromium] › tests/e2e/a11y.spec.ts:281:1 › U28 触控目标：主要按钮、导航、展开入口与输入的有效点击区 ≥ 44px
+  ✓   7 [desktop-chromium] › tests/e2e/a11y.spec.ts:213:1 › U28 弹窗：焦点移入、Tab 只在弹窗内循环、背景 inert 不可误操作、Esc 关闭并恢复焦点 (613ms)
+  -  12 [desktop-chromium] › tests/e2e/a11y.spec.ts:300:1 › U28 页面缩放（窄视口代理）：关键操作不丢失、无横向溢出
+  ✓   9 [desktop-chromium] › tests/e2e/a11y.spec.ts:253:1 › U28 折叠区含错误时自动展开并把焦点定位到错误 (229ms)
+  ✓   3 [desktop-chromium] › tests/e2e/a11y.spec.ts:140:1 › U28 路由骨架：八条路由全部可达并渲染统一布局 (687ms)
+  ✓  10 [desktop-chromium] › tests/e2e/a11y.spec.ts:263:1 › U28 状态播报：加载/保存/失败消息经 role=status 区域可被辅助技术获知 (299ms)
+  ✓  14 [desktop-chromium] › tests/e2e/schedule.spec.ts:19:1 › U01 游客看到时间、动作与游戏，不创建用户；首屏包含日程 (249ms)
+  ✓  13 [desktop-chromium] › tests/e2e/a11y.spec.ts:337:1 › U28 交付证据截图：桌面与手机两个视口的实际渲染 (321ms)
+  ✓  15 [desktop-chromium] › tests/e2e/schedule.spec.ts:38:1 › U03 八种时间状态、长标题、日期与未知混排不伪造时刻 (419ms)
+  ✓  17 [desktop-chromium] › tests/e2e/schedule.spec.ts:99:1 › U06 改浏览筛选不改写云配置、草稿或接收方式；URL只含白名单 (522ms)
+  ✓  19 [desktop-chromium] › tests/e2e/schedule.spec.ts:150:1 › U05 三种新鲜度字段分开、陈旧缓存与离线明确标记 (323ms)
+  ✓  20 [desktop-chromium] › tests/e2e/schedule.spec.ts:166:1 › U05 加载失败保留条目并可重试，不假称全部加载完成 (334ms)
+  ✘  18 [desktop-chromium] › tests/e2e/schedule.spec.ts:129:1 › U03 六档切换保留今日节点，昨天常驻末尾并采用已验证半透明组合 (504ms)
+  ✓  22 [desktop-chromium] › tests/e2e/schedule.spec.ts:201:1 › U03 U05 E2 桌面与手机实际截图、窄屏不裁剪关键内容 (327ms)
+  ✓  21 [desktop-chromium] › tests/e2e/schedule.spec.ts:185:1 › U06 返回列表恢复筛选、已展开日程与合理滚动位置 (384ms)
+(node:37543) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:37544) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  -  23 [mobile-chromium] › tests/e2e/a11y.spec.ts:59:1 › U28 对比度：token 全部前景/背景组合与半透明合成色逐一达到阈值
+  -  24 [mobile-chromium] › tests/e2e/a11y.spec.ts:101:1 › U28 颜色单一来源：tokens.css 之外不允许出现颜色字面量
+(node:37545) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:37546) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  -  27 [mobile-chromium] › tests/e2e/a11y.spec.ts:127:1 › U28 color.ts 工具函数：contrastRatio / compositeOver 对照已知值
+  ✓  26 [mobile-chromium] › tests/e2e/a11y.spec.ts:175:1 › U28 键盘 Tab 走完主要操作（跳过链接→主导航→登录→表单→页脚），焦点环可见 (225ms)
+  ✓  25 [mobile-chromium] › tests/e2e/a11y.spec.ts:150:1 › U28 主导航仅「日程 / 我的订阅」两项；登录在页头，帮助与服务状态在页脚；能力型 URL 不出现在页面 (236ms)
+  ✓  30 [mobile-chromium] › tests/e2e/a11y.spec.ts:239:1 › U28 表单标签在 placeholder 之外持续可见并与控件关联 (151ms)
+  ✓  31 [mobile-chromium] › tests/e2e/a11y.spec.ts:253:1 › U28 折叠区含错误时自动展开并把焦点定位到错误 (189ms)
+  ✓  33 [mobile-chromium] › tests/e2e/a11y.spec.ts:281:1 › U28 触控目标：主要按钮、导航、展开入口与输入的有效点击区 ≥ 44px (220ms)
+  ✓  32 [mobile-chromium] › tests/e2e/a11y.spec.ts:263:1 › U28 状态播报：加载/保存/失败消息经 role=status 区域可被辅助技术获知 (291ms)
+  ✓  28 [mobile-chromium] › tests/e2e/a11y.spec.ts:213:1 › U28 弹窗：焦点移入、Tab 只在弹窗内循环、背景 inert 不可误操作、Esc 关闭并恢复焦点 (425ms)
+  ✓  29 [mobile-chromium] › tests/e2e/a11y.spec.ts:140:1 › U28 路由骨架：八条路由全部可达并渲染统一布局 (453ms)
+  ✓  36 [mobile-chromium] › tests/e2e/schedule.spec.ts:19:1 › U01 游客看到时间、动作与游戏，不创建用户；首屏包含日程 (187ms)
+  ✓  34 [mobile-chromium] › tests/e2e/a11y.spec.ts:300:1 › U28 页面缩放（窄视口代理）：关键操作不丢失、无横向溢出 (301ms)
+  ✓  35 [mobile-chromium] › tests/e2e/a11y.spec.ts:337:1 › U28 交付证据截图：桌面与手机两个视口的实际渲染 (369ms)
+  ✓  37 [mobile-chromium] › tests/e2e/schedule.spec.ts:38:1 › U03 八种时间状态、长标题、日期与未知混排不伪造时刻 (362ms)
+  ✓  39 [mobile-chromium] › tests/e2e/schedule.spec.ts:99:1 › U06 改浏览筛选不改写云配置、草稿或接收方式；URL只含白名单 (401ms)
+  ✓  41 [mobile-chromium] › tests/e2e/schedule.spec.ts:150:1 › U05 三种新鲜度字段分开、陈旧缓存与离线明确标记 (238ms)
+  ✘  40 [mobile-chromium] › tests/e2e/schedule.spec.ts:129:1 › U03 六档切换保留今日节点，昨天常驻末尾并采用已验证半透明组合 (441ms)
+  ✓  42 [mobile-chromium] › tests/e2e/schedule.spec.ts:166:1 › U05 加载失败保留条目并可重试，不假称全部加载完成 (305ms)
+(node:37577) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✓  43 [mobile-chromium] › tests/e2e/schedule.spec.ts:185:1 › U06 返回列表恢复筛选、已展开日程与合理滚动位置 (361ms)
+  ✓  44 [mobile-chromium] › tests/e2e/schedule.spec.ts:201:1 › U03 U05 E2 桌面与手机实际截图、窄屏不裁剪关键内容 (424ms)
+  ✘  16 [desktop-chromium] › tests/e2e/schedule.spec.ts:77:1 › U05 四种空态分别表达；平静期有近7天出口，候选只给聚合信息 (30.1s)
+  ✘  38 [mobile-chromium] › tests/e2e/schedule.spec.ts:77:1 › U05 四种空态分别表达；平静期有近7天出口，候选只给聚合信息 (30.1s)
+
+
+  1) [desktop-chromium] › tests/e2e/schedule.spec.ts:77:1 › U05 四种空态分别表达；平静期有近7天出口，候选只给聚合信息 ────────
+
+    Test timeout of 30000ms exceeded.
+
+    Error: locator.selectOption: Test timeout of 30000ms exceeded.
+    Call log:
+      - waiting for getByLabel('演示场景')
+        - locator resolved to <select id="demo-scenario">…</select>
+      - attempting select option action
+        2 × waiting for element to be visible and enabled
+          - element is not visible
+        - retrying select option action
+        - waiting 20ms
+        2 × waiting for element to be visible and enabled
+          - element is not visible
+        - retrying select option action
+          - waiting 100ms
+        58 × waiting for element to be visible and enabled
+           - element is not visible
+         - retrying select option action
+           - waiting 500ms
+
+
+      10 |   const control = page.locator(".demo-controls");
+      11 |   if (!(await control.getAttribute("open"))) await control.locator("summary").click();
+    > 12 |   await page.getByLabel("演示场景").selectOption(name);
+         |                                 ^
+      13 | }
+      14 | async function expand(page: Page) {
+      15 |   const button = page.getByRole("button", { name: "继续查看日程 ↓" });
+        at scenario (/private/tmp/hoyo-f1-02/tests/e2e/schedule.spec.ts:12:33)
+        at /private/tmp/hoyo-f1-02/tests/e2e/schedule.spec.ts:88:3
+
+    Error Context: tests/e2e/test-results/schedule-U05-四种空态分别表达；平静期有近7天出口，候选只给聚合信息-desktop-chromium/error-context.md
+
+    attachment #2: trace (application/zip) ─────────────────────────────────────────────────────────
+    tests/e2e/test-results/schedule-U05-四种空态分别表达；平静期有近7天出口，候选只给聚合信息-desktop-chromium/trace.zip
+    Usage:
+
+        pnpm exec playwright show-trace tests/e2e/test-results/schedule-U05-四种空态分别表达；平静期有近7天出口，候选只给聚合信息-desktop-chromium/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+  2) [desktop-chromium] › tests/e2e/schedule.spec.ts:129:1 › U03 六档切换保留今日节点，昨天常驻末尾并采用已验证半透明组合 ──────
+
+    Error: expect(received).toBe(expected) // Object.is equality
+
+    Expected: ".04"
+    Received: "0.04"
+
+      144 |       textOpacity: getComputedStyle(element).opacity,
+      145 |     }));
+    > 146 |   expect(alpha.actual).toBe(alpha.token);
+          |                        ^
+      147 |   expect(alpha.textOpacity).toBe("1");
+      148 | });
+      149 |
+        at /private/tmp/hoyo-f1-02/tests/e2e/schedule.spec.ts:146:24
+
+    Error Context: tests/e2e/test-results/schedule-U03-六档切换保留今日节点，昨天常驻末尾并采用已验证半透明组合-desktop-chromium/error-context.md
+
+    attachment #2: trace (application/zip) ─────────────────────────────────────────────────────────
+    tests/e2e/test-results/schedule-U03-六档切换保留今日节点，昨天常驻末尾并采用已验证半透明组合-desktop-chromium/trace.zip
+    Usage:
+
+        pnpm exec playwright show-trace tests/e2e/test-results/schedule-U03-六档切换保留今日节点，昨天常驻末尾并采用已验证半透明组合-desktop-chromium/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+  3) [mobile-chromium] › tests/e2e/schedule.spec.ts:77:1 › U05 四种空态分别表达；平静期有近7天出口，候选只给聚合信息 ─────────
+
+    Test timeout of 30000ms exceeded.
+
+    Error: locator.selectOption: Test timeout of 30000ms exceeded.
+    Call log:
+      - waiting for getByLabel('演示场景')
+        - locator resolved to <select id="demo-scenario">…</select>
+      - attempting select option action
+        2 × waiting for element to be visible and enabled
+          - element is not visible
+        - retrying select option action
+        - waiting 20ms
+        2 × waiting for element to be visible and enabled
+          - element is not visible
+        - retrying select option action
+          - waiting 100ms
+        59 × waiting for element to be visible and enabled
+           - element is not visible
+         - retrying select option action
+           - waiting 500ms
+
+
+      10 |   const control = page.locator(".demo-controls");
+      11 |   if (!(await control.getAttribute("open"))) await control.locator("summary").click();
+    > 12 |   await page.getByLabel("演示场景").selectOption(name);
+         |                                 ^
+      13 | }
+      14 | async function expand(page: Page) {
+      15 |   const button = page.getByRole("button", { name: "继续查看日程 ↓" });
+        at scenario (/private/tmp/hoyo-f1-02/tests/e2e/schedule.spec.ts:12:33)
+        at /private/tmp/hoyo-f1-02/tests/e2e/schedule.spec.ts:88:3
+
+    Error Context: tests/e2e/test-results/schedule-U05-四种空态分别表达；平静期有近7天出口，候选只给聚合信息-mobile-chromium/error-context.md
+
+    attachment #2: trace (application/zip) ─────────────────────────────────────────────────────────
+    tests/e2e/test-results/schedule-U05-四种空态分别表达；平静期有近7天出口，候选只给聚合信息-mobile-chromium/trace.zip
+    Usage:
+
+        pnpm exec playwright show-trace tests/e2e/test-results/schedule-U05-四种空态分别表达；平静期有近7天出口，候选只给聚合信息-mobile-chromium/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+  4) [mobile-chromium] › tests/e2e/schedule.spec.ts:129:1 › U03 六档切换保留今日节点，昨天常驻末尾并采用已验证半透明组合 ───────
+
+    Error: expect(received).toBe(expected) // Object.is equality
+
+    Expected: ".04"
+    Received: "0.04"
+
+      144 |       textOpacity: getComputedStyle(element).opacity,
+      145 |     }));
+    > 146 |   expect(alpha.actual).toBe(alpha.token);
+          |                        ^
+      147 |   expect(alpha.textOpacity).toBe("1");
+      148 | });
+      149 |
+        at /private/tmp/hoyo-f1-02/tests/e2e/schedule.spec.ts:146:24
+
+    Error Context: tests/e2e/test-results/schedule-U03-六档切换保留今日节点，昨天常驻末尾并采用已验证半透明组合-mobile-chromium/error-context.md
+
+    attachment #2: trace (application/zip) ─────────────────────────────────────────────────────────
+    tests/e2e/test-results/schedule-U03-六档切换保留今日节点，昨天常驻末尾并采用已验证半透明组合-mobile-chromium/trace.zip
+    Usage:
+
+        pnpm exec playwright show-trace tests/e2e/test-results/schedule-U03-六档切换保留今日节点，昨天常驻末尾并采用已验证半透明组合-mobile-chromium/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+  4 failed
+    [desktop-chromium] › tests/e2e/schedule.spec.ts:77:1 › U05 四种空态分别表达；平静期有近7天出口，候选只给聚合信息 ─────────
+    [desktop-chromium] › tests/e2e/schedule.spec.ts:129:1 › U03 六档切换保留今日节点，昨天常驻末尾并采用已验证半透明组合 ───────
+    [mobile-chromium] › tests/e2e/schedule.spec.ts:77:1 › U05 四种空态分别表达；平静期有近7天出口，候选只给聚合信息 ──────────
+    [mobile-chromium] › tests/e2e/schedule.spec.ts:129:1 › U03 六档切换保留今日节点，昨天常驻末尾并采用已验证半透明组合 ────────
+  5 skipped
+  35 passed (33.7s)
+[ELIFECYCLE] Command failed with exit code 1.

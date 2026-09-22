@@ -1,0 +1,90 @@
+落地验证：grep -c F1_02_DATE_MUTATION packages/contracts/src/schedule-browse.ts
+1
+
+ RUN  v4.1.11 /private/tmp/hoyo-f1-02/packages/contracts
+
+ ❯ src/schedule-browse.test.ts (13 tests | 2 failed) 13ms
+   × U03 纯日期不能补 00:00 参加精确排序；未知节点没有排序日期；同时间按身份 3ms
+   × U03 纯日期窗口逐档按原日期过滤，未知日期始终独立 1ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  src/schedule-browse.test.ts > U03 纯日期不能补 00:00 参加精确排序；未知节点没有排序日期；同时间按身份
+AssertionError: expected [ 'date', 'a', 'b' ] to deeply equal [ 'a', 'b' ]
+
+- Expected
++ Received
+
+  [
++   "date",
+    "a",
+    "b",
+  ]
+
+ ❯ src/schedule-browse.test.ts:104:53
+    102|     now,
+    103|   );
+    104|   expect(view.days[0].timed.map((node) => node.id)).toEqual(["a", "b"]…
+       |                                                     ^
+    105|   expect(view.days[0].dateOnly).toEqual([date]);
+    106|   expect(view.pending).toEqual([unknown]);
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/2]⎯
+
+ FAIL  src/schedule-browse.test.ts > U03 纯日期窗口逐档按原日期过滤，未知日期始终独立
+AssertionError: expected [ { id: 'start', …(8) } ] to deeply equal []
+
+- Expected
++ Received
+
+- []
++ [
++   {
++     "eventType": "limited_event",
++     "evidence": "synthetic",
++     "game": "genshin",
++     "id": "start",
++     "nodeType": "start",
++     "noticePublishedAt": 1790006400000,
++     "status": "scheduled",
++     "time": {
++       "date": "2026-09-22",
++       "precision": "datetime",
++       "raw_expression": "2026-09-22",
++       "source_timezone": "UTC+8",
++       "time_basis": "official_explicit",
++       "utc_ms": 1790006400000,
++     },
++     "title": "start",
++   },
++ ]
+
+ ❯ src/schedule-browse.test.ts:158:51
+    156|       now,
+    157|     );
+    158|     expect(view.days.flatMap((day) => day.timed)).toEqual([]);
+       |                                                   ^
+    159|     expect(view.days.flatMap((day) => day.dateOnly.map((node) => node.…
+    160|       range.id === "all" ? ["start", "outside"] : ["start"],
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/2]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  2 failed | 11 passed (13)
+   Start at  23:40:43
+   Duration  135ms (transform 21ms, setup 0ms, import 56ms, tests 13ms, environment 0ms)
+
+undefined
+/private/tmp/hoyo-f1-02/packages/contracts:
+[ERR_PNPM_RECURSIVE_EXEC_FIRST_FAIL] Command failed with exit code 1: vitest run src/schedule-browse.test.ts
+变异测试 exit=1（必须非零）
+已恢复原实现，复跑同一测试
+
+ RUN  v4.1.11 /private/tmp/hoyo-f1-02/packages/contracts
+
+
+ Test Files  1 passed (1)
+      Tests  13 passed (13)
+   Start at  23:40:44
+   Duration  114ms (transform 22ms, setup 0ms, import 44ms, tests 10ms, environment 0ms)

@@ -1,0 +1,47 @@
+Scope: all 4 workspace projects
+✓ Lockfile passes supply-chain policies (verified 23m ago)
+Lockfile is up to date, resolution step is skipped
+Already up to date
+
+Done in 2.3s using pnpm v11.11.0
+$ pnpm -r --if-present run build
+Scope: 3 of 4 workspace projects
+apps/web build$ astro build
+apps/worker build$ wrangler deploy --dry-run --outdir=dist
+apps/worker build:  ⛅️ wrangler 4.136.0
+apps/worker build: ────────────────────
+apps/worker build: Total Upload: 840.48 KiB / gzip: 138.60 KiB
+apps/worker build: Your Worker has access to the following bindings:
+apps/worker build: Binding                                          Resource
+apps/worker build: env.PIPELINE_DO (PipelineDO)                     Durable Object
+apps/worker build: env.DELIVERY_DO (DeliveryDO)                     Durable Object
+apps/worker build: env.AUTH_MAILER (unrestricted)                   Send Email
+apps/worker build: env.BIZ_MAILER (unrestricted)                    Send Email
+apps/worker build: env.MAIL_FEEDBACK_QUEUE (mail-feedback)          Queue
+apps/worker build: env.DB (hoyo-subscribe-db)                       D1 Database
+apps/worker build: --dry-run: exiting now.
+apps/web build: 23:47:26 [types] Generated 27ms
+apps/web build: 23:47:26 [build] output: "static"
+apps/web build: 23:47:26 [build] mode: "static"
+apps/web build: 23:47:26 [build] directory: /private/tmp/hoyo-f1-02/apps/web/dist/
+apps/web build: 23:47:26 [build] Collecting build info...
+apps/web build: 23:47:26 [build] ✓ Completed in 37ms.
+apps/web build: 23:47:26 [build] Building static entrypoints...
+apps/web build: 23:47:27 [vite] ✓ built in 98ms
+apps/web build: 23:47:27 [vite] ✓ built in 25ms
+apps/web build: 23:47:27 [build] Rearranging server assets...
+apps/web build:  generating static routes
+apps/web build: 23:47:27   ├─ /account/index.html (+3ms)
+apps/web build: 23:47:27   ├─ /events/sample/index.html (+1ms)
+apps/web build: 23:47:27   ├─ /help/index.html (+1ms)
+apps/web build: 23:47:27   ├─ /login/index.html (+1ms)
+apps/web build: 23:47:27   ├─ /recover/index.html (+0ms)
+apps/web build: 23:47:27   ├─ /status/index.html (+1ms)
+apps/web build: 23:47:27   ├─ /subscription/index.html (+0ms)
+apps/web build: 23:47:27   ├─ /index.html (+3ms)
+apps/web build: 23:47:27 ✓ Completed in 19ms.
+apps/web build: 23:47:27 [build] ✓ Completed in 153ms.
+apps/web build: 23:47:27 [build] 8 page(s) built in 193ms
+apps/web build: 23:47:27 [build] Complete!
+apps/web build: Done
+apps/worker build: Done
