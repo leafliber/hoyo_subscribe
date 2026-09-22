@@ -9,6 +9,9 @@
 // 反推规则（前端 v1.0 §12.1）。本文件是包的唯一出口（package.json exports 仅 "."）。
 
 export * from "./calendar-nodes";
+export * from "./crypto-types/purposes";
+export * from "./crypto-types/redaction";
+export * from "./crypto-types/storage-policy";
 export * from "./email";
 export * from "./enums";
 export * from "./notification-scope";
