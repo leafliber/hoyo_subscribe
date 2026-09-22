@@ -7,7 +7,7 @@
     "lint": "biome check .",
     "typecheck": "pnpm -r --if-present run typecheck",
     "test": "pnpm -r --if-present run test",
-    "test:contracts": "node scripts/unimplemented.js \"test:contracts：packages/contracts 纯函数测试，由 P1-02 交付\"",
+    "test:contracts": "pnpm --filter @hoyo/contracts run test",
     "test:worker": "pnpm --filter @hoyo/worker run test",
     "test:e2e": "node scripts/unimplemented.js \"test:e2e：Playwright 端到端测试，由 F 轮交付\"",
     "migrate:check": "node scripts/unimplemented.js \"migrate:check：迁移重放与索引检查，由 P1-04 交付\"",
