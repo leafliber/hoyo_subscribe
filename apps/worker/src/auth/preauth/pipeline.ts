@@ -21,6 +21,24 @@
 //
 // 本卡到第 7 步的接缝为止：验证码本身的生成、存储与校验不在范围（P2-02/P2-03）。
 // POST /api/v2/auth/challenges（§8.2 申请端点）由 P2-02 挂载并注入第 7 步真实效果。
+//
+// —— P2-02 获准的注入点改动（理由逐条，见任务卡范围条款） ——
+// 1. ChallengeAndMailTaskContext 增补 keys / rawEmail / idempotencyKey：真实效果
+//    （auth/challenges/create-challenge.ts）需要密钥环算 MAC 与受控密文；需要**请求
+//    原文邮箱**派生新地址挑战的实际投递串（§4.1：身份键折叠大小写、投递地址不折叠，
+//    canonical 字段不够）；需要幂等键落实 §4.3「网络重试沿用绑定预认证上下文的
+//    idempotency_key」。
+// 2. PreauthAdmissionInput 增补可选 idempotencyKey（缺省 null）：P2-01 测试不传即
+//    维持原行为。
+// 3. 折叠 202 出口统一附加预认证 Cookie 同值续期 Set-Cookie（§4.3，实现于
+//    auth/challenges/renewal.ts）：续期目标（now + PREAUTH_MIN_TTL 与「最晚开放挑战
+//    截止 + AUTH_COMPLETION_TTL + PREAUTH_MARGIN」的最大值）对「本次申请是否真的创建
+//    了挑战」**路径无关**——A.5 第一式（**不等式** PREAUTH_MIN_TTL >= OTP_TTL +
+//    AUTH_COMPLETION_TTL + PREAUTH_MARGIN）保证 ≤now 创建的一切挑战所需覆盖都 ≤
+//    now + 下限（完整推导见 renewal.ts 文件头与 CONTRACTS_BASELINE.md §8）——因此
+//    四条折叠路径附加同一值，字节同形不被破坏，也不会经 Set-Cookie 的出现与否或
+//    取值差异回显注册状态。续期读与签名在存在性折叠之外、对所有 202 路径统一执行
+//    （时序同增，不改变路径间相对成本）。
 
 import {
   canonicalizeEmail,
@@ -48,6 +66,7 @@ import { conditionalCommit } from "../../storage/cas";
 import type { Keyring } from "../../storage/crypto/keyring";
 import { computeEmailKey } from "../../storage/crypto/mac";
 import { readMailDayLedger } from "../../storage/ledger/mail-ledger";
+import { renewPreauthCookieForContext } from "../challenges/renewal";
 import { PREAUTH_COOKIE_NAME, verifyPreauthCookieValue } from "./cookie";
 import { type AuthQuotaSnapshot, decideAuthQuota, intentsDayStartMs } from "./quota";
 import type { ApproximateRateGate } from "./rate-gate";
@@ -56,13 +75,19 @@ import type { TurnstileVerifier } from "./turnstile";
 /** 秒→毫秒（注册表秒值的换算，不引入第二份常量）。 */
 const MS_PER_SECOND = 1_000;
 
-/** 第 7 步效果接缝：创建挑战及发信任务（真实实装属 P2-02；本卡测试注入替身）。 */
+/** 第 7 步效果接缝：创建挑战及发信任务（P2-02 注入真实实现；测试可注入替身）。 */
 export interface ChallengeAndMailTaskContext {
   readonly db: D1Database;
+  /** 密钥环（P2-02：真实效果计算验证码 MAC 与受控密文所需）。 */
+  readonly keys: Keyring;
   readonly intent: MailIntentKind;
   readonly canonicalEmail: string;
+  /** 请求原文邮箱（P2-02：新地址挑战按原文投递形态取实际投递串，§4.1）。 */
+  readonly rawEmail: string;
   readonly emailKey: string;
   readonly preauthId: string;
+  /** 网络重试幂等键（§4.3，绑定预认证上下文由 (preauth_id, idempotency_key) 索引承担）。 */
+  readonly idempotencyKey: string | null;
   /** 注册预占 id（仅注册路径非空；登录路径为 null，不占新注册槽）。 */
   readonly reservationId: string | null;
   /** 挑战最初截止（重发不延长，P2-02）；预占到同一时刻。 */
@@ -88,6 +113,8 @@ export interface PreauthAdmissionInput {
   /** 请求体 email 字段原值（规范化在管线内完成，失败即 validation）。 */
   readonly email: string;
   readonly turnstileToken: string;
+  /** 网络重试幂等键（P2-02；缺省 null = 无幂等约束，维持 P2-01 行为）。 */
+  readonly idempotencyKey?: string | null;
 }
 
 /** 未注册邮箱在注册侧被折叠拒绝的读侧快照决策（第 5 步产物，仅在 fold 分支内消费）。 */
@@ -318,10 +345,13 @@ export async function runPreauthAdmission(
       if (decision.mailApproved) {
         await deps.effect({
           db: deps.db,
+          keys: deps.keys,
           intent: decision.intent,
           canonicalEmail: decision.canonicalEmail,
+          rawEmail: input.email,
           emailKey: decision.emailKey,
           preauthId: preauth.context.preauthId,
+          idempotencyKey: input.idempotencyKey ?? null,
           reservationId: null,
           challengeDeadline,
           now,
@@ -344,10 +374,13 @@ export async function runPreauthAdmission(
       if (decision.registrationGatesPassed && decision.mailApproved && slot === "reserved") {
         await deps.effect({
           db: deps.db,
+          keys: deps.keys,
           intent: decision.intent,
           canonicalEmail: decision.canonicalEmail,
+          rawEmail: input.email,
           emailKey: decision.emailKey,
           preauthId: preauth.context.preauthId,
+          idempotencyKey: input.idempotencyKey ?? null,
           reservationId,
           challengeDeadline,
           now,
@@ -358,6 +391,15 @@ export async function runPreauthAdmission(
     },
   });
 
-  // 公开响应唯一出口：四条路径同形（202 + 固定模板）。
-  return publicAuthIntentResponse();
+  // 公开响应唯一出口：四条路径同形（202 + 固定模板）+ 统一同值续期（§4.3，见文件头
+  // 第 3 条：续期取值路径无关，同形不被破坏）。
+  const response = publicAuthIntentResponse();
+  const renewal = await renewPreauthCookieForContext(
+    deps.db,
+    deps.keys.preauthCookie(),
+    preauth.context,
+    now,
+  );
+  response.headers.append("set-cookie", renewal.setCookie);
+  return response;
 }
