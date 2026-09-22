@@ -1,7 +1,7 @@
 // 密钥环：按用途隔离的密钥句柄（任务卡 P1-06 交付物一；主方案 §8.3）。
 //
 // 结构：
-// - 两份根秘密：masterSecret（派生除 OTP MAC 外的七个用途）与 otpPepper（**独立 pepper**，
+// - 两份根秘密：masterSecret（派生除 OTP MAC 外的各用途）与 otpPepper（**独立 pepper**，
 //   §4.3——OTP 验证 MAC 不与任何其他用途共根，改一个不影响另一个，也禁止配成同一串）。
 // - 每用途经 HKDF-SHA-256 以不同 info 派生 256 位子钥（用途隔离的密码学面）：
 //   info = "hoyo-crypto:v1:<purpose>"，退订 MAC 再拼 key_id（轮换）。
@@ -20,6 +20,7 @@ import {
   isValidUnsubscribeKeyId,
   type KeyPurpose,
   type OtpMacKey,
+  type PreauthCookieKey,
   type RecoveryEpochKey,
   SECRET_BITS,
   type UnsubscribeMacKeys,
@@ -100,7 +101,7 @@ function toArrayBuffer(bytes: Uint8Array): ArrayBuffer {
 }
 
 /**
- * 密钥环：八个用途的句柄工厂。异步构造一次，随请求/环境复用；
+ * 密钥环：各用途的句柄工厂（§8.3 八个 + P2-01 增补 preauth-cookie）。异步构造一次，随请求/环境复用；
  * 句柄本身不可变，内部 CryptoKey 均不可导出（extractable=false）。
  */
 export class Keyring {
@@ -162,6 +163,14 @@ export class Keyring {
       await importHmacKey(await deriveRaw(config.masterSecret, purposeInfo("recovery-epoch"))),
     );
 
+    // 预认证 Cookie MAC：独立派生用途（P2-01 验收增补；§4.3 preauth 签发/截止认证，
+    // 与 CSRF 不同威胁面，不共用 csrf 派生材料）。
+    ring.#preauthCookie = brandHandle();
+    macMaterials.set(
+      ring.#preauthCookie,
+      await importHmacKey(await deriveRaw(config.masterSecret, purposeInfo("preauth-cookie"))),
+    );
+
     // 退订 MAC：每个 key_id 独立派生（info 拼 key_id）。
     const currentKeyId = config.unsubscribeMacCurrentKeyId;
     if (!isValidUnsubscribeKeyId(currentKeyId)) {
@@ -206,6 +215,7 @@ export class Keyring {
   #vapid!: VapidKey;
   #admin!: AdminKey;
   #recoveryEpoch!: RecoveryEpochKey;
+  #preauthCookie!: PreauthCookieKey;
   #unsubscribeCurrentKeyId!: string;
   #unsubscribeAcceptedKeyIds!: readonly string[];
 
@@ -247,6 +257,11 @@ export class Keyring {
   /** 恢复 epoch 密钥（§4.5、§8.3）。 */
   recoveryEpoch(): RecoveryEpochKey {
     return this.#recoveryEpoch;
+  }
+
+  /** 预认证 Cookie MAC 密钥（§4.3；P2-01 验收增补用途）。 */
+  preauthCookie(): PreauthCookieKey {
+    return this.#preauthCookie;
   }
 
   /** 当前退订 MAC 签发 key_id（§7.6：随 token 明文携带）。 */

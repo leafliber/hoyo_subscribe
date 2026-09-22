@@ -241,7 +241,7 @@ export async function runPreauthAdmission(
   if (cookieValue === undefined) {
     throw new ApiError("unauthorized", { code: "unauthorized", reason: "no_session" });
   }
-  const preauth = await verifyPreauthCookieValue(deps.keys.csrf(), cookieValue, now);
+  const preauth = await verifyPreauthCookieValue(deps.keys.preauthCookie(), cookieValue, now);
   if (!preauth.ok) {
     throw new ApiError("unauthorized", { code: "unauthorized", reason: "no_session" });
   }
@@ -303,7 +303,7 @@ export async function runPreauthAdmission(
   await runExistenceFold(decision.exists, {
     // 已注册分支：真实单元工作 = 对真实 preauth Cookie 再做一次完整 MAC 验证。
     real: async () => {
-      const recheck = await verifyPreauthCookieValue(deps.keys.csrf(), cookieValue, now);
+      const recheck = await verifyPreauthCookieValue(deps.keys.preauthCookie(), cookieValue, now);
       if (!recheck.ok) {
         throw new ApiError("unauthorized", { code: "unauthorized", reason: "no_session" });
       }

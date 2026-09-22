@@ -26,7 +26,7 @@ const SECOND = 1_000;
 
 describe("A-P2-PREAUTH __Host-preauth Cookie 值（§4.3 前半）", () => {
   it("签发→验证闭环：MAC 认证的签发/截止信息可被服务端重建", async () => {
-    const key = (await testKeyring).csrf();
+    const key = (await testKeyring).preauthCookie();
     const { value, context } = await mintPreauthCookieValue(key, T0);
     expect(context.expiresAt).toBe(initialPreauthExpiry(T0));
     const verified = await verifyPreauthCookieValue(key, value, T0 + 1);
@@ -39,14 +39,14 @@ describe("A-P2-PREAUTH __Host-preauth Cookie 值（§4.3 前半）", () => {
   });
 
   it("两次签发产生不同的随机值（不同标签页各自建立上下文）", async () => {
-    const key = (await testKeyring).csrf();
+    const key = (await testKeyring).preauthCookie();
     const a = await mintPreauthCookieValue(key, T0);
     const b = await mintPreauthCookieValue(key, T0);
     expect(a.context.preauthId).not.toBe(b.context.preauthId);
   });
 
   it("篡改截止时间被 MAC 拒绝（bad_mac，不接受未认证的截止信息）", async () => {
-    const key = (await testKeyring).csrf();
+    const key = (await testKeyring).preauthCookie();
     const { value } = await mintPreauthCookieValue(key, T0);
     const parts = value.split(".");
     parts[2] = String(Number(parts[2]) + 60_000);
@@ -55,7 +55,7 @@ describe("A-P2-PREAUTH __Host-preauth Cookie 值（§4.3 前半）", () => {
   });
 
   it("过期 Cookie 在 MAC 成立时按 expired 拒绝（判定在 MAC 之后，无时间侧信道）", async () => {
-    const key = (await testKeyring).csrf();
+    const key = (await testKeyring).preauthCookie();
     const { value } = await mintPreauthCookieValue(key, T0);
     const atExpiry = initialPreauthExpiry(T0);
     const verified = await verifyPreauthCookieValue(key, value, atExpiry);
@@ -63,7 +63,7 @@ describe("A-P2-PREAUTH __Host-preauth Cookie 值（§4.3 前半）", () => {
   });
 
   it("结构损坏（段数不对 / 非整数）按 malformed 拒绝", async () => {
-    const key = (await testKeyring).csrf();
+    const key = (await testKeyring).preauthCookie();
     expect(await verifyPreauthCookieValue(key, "abc", T0)).toEqual({
       ok: false,
       reason: "malformed",
@@ -84,8 +84,8 @@ describe("A-P2-PREAUTH __Host-preauth Cookie 值（§4.3 前半）", () => {
       otpPepper: crypto.getRandomValues(new Uint8Array(32)),
       unsubscribeMacCurrentKeyId: "other",
     });
-    const { value } = await mintPreauthCookieValue((await testKeyring).csrf(), T0);
-    const verified = await verifyPreauthCookieValue(other.csrf(), value, T0);
+    const { value } = await mintPreauthCookieValue((await testKeyring).preauthCookie(), T0);
+    const verified = await verifyPreauthCookieValue(other.preauthCookie(), value, T0);
     expect(verified).toEqual({ ok: false, reason: "bad_mac" });
   });
 

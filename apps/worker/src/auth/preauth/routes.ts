@@ -53,7 +53,7 @@ export function makePreauthInitRoute(deps: PreauthRouteDeps): ShellRoute {
       let preauthId: string;
       let maxAge: number;
       if (existing !== undefined) {
-        const verified = await verifyPreauthCookieValue(keys.csrf(), existing, now);
+        const verified = await verifyPreauthCookieValue(keys.preauthCookie(), existing, now);
         if (verified.ok) {
           preauthValue = existing;
           preauthId = verified.context.preauthId;
@@ -61,7 +61,7 @@ export function makePreauthInitRoute(deps: PreauthRouteDeps): ShellRoute {
           return finalize(keys, preauthValue, preauthId, maxAge);
         }
       }
-      const minted = await mintPreauthCookieValue(keys.csrf(), now);
+      const minted = await mintPreauthCookieValue(keys.preauthCookie(), now);
       preauthValue = minted.value;
       preauthId = minted.context.preauthId;
       maxAge = remainingSeconds(minted.context.expiresAt, now);

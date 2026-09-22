@@ -347,7 +347,9 @@ interface AdmissionOptions {
 
 async function admissionRequest(options: AdmissionOptions): Promise<Request> {
   const key = (await testKeyring).csrf();
-  const preauthValue = options.preauthValue ?? (await mintPreauthCookieValue(key, T0)).value;
+  const preauthValue =
+    options.preauthValue ??
+    (await mintPreauthCookieValue((await testKeyring).preauthCookie(), T0)).value;
   const preauthId = preauthValue.split(".")[0];
   const headers = new Headers({ "content-type": "application/json" });
   if (options.origin !== null) {
@@ -916,7 +918,8 @@ describe("A-P2-PREAUTH 并发预占不超卖（§4.2 同一规范邮箱共享有
       effect: effect.effect,
       now: fixedClock().now,
     });
-    const preauthValue = (await mintPreauthCookieValue((await testKeyring).csrf(), T0)).value;
+    const preauthValue = (await mintPreauthCookieValue((await testKeyring).preauthCookie(), T0))
+      .value;
     const csrf = await mintCsrfToken(
       (await testKeyring).csrf(),
       preauthValue.split(".")[0],

@@ -9,6 +9,7 @@ import type {
   CsrfKey,
   EmailLookupKey,
   OtpMacKey,
+  PreauthCookieKey,
   RecoveryEpochKey,
   VapidKey,
 } from "@hoyo/contracts";
@@ -108,6 +109,56 @@ export async function computeEmailKey(
   canonicalEmail: string,
 ): Promise<string> {
   return toHex(await hmacSign(key, utf8Encode(canonicalEmail)));
+}
+
+// —— 预认证 Cookie MAC（§4.3 前半；P2-01 验收增补的独立用途 preauth-cookie） ——
+
+/**
+ * §4.3 预认证 Cookie 的 MAC 绑定字段：preauth_id、签发时刻、截止时刻。
+ * 用途本身就是隔离边界（独立派生密钥 + PreauthCookieKey 品牌），消息构造只承担
+ * 定长结构编码（JSON 数组、字段间无拼接歧义），不承担跨用途域分隔。
+ */
+export interface PreauthCookieMacBinding {
+  readonly preauthId: string;
+  readonly issuedAt: number;
+  readonly expiresAt: number;
+}
+
+const PREAUTH_COOKIE_MAC_LABEL = "preauth-cookie-mac:v1";
+
+function preauthCookieMessage(binding: PreauthCookieMacBinding): Uint8Array {
+  return utf8Encode(
+    JSON.stringify([
+      PREAUTH_COOKIE_MAC_LABEL,
+      binding.preauthId,
+      binding.issuedAt,
+      binding.expiresAt,
+    ]),
+  );
+}
+
+/**
+ * 计算 `__Host-preauth` 值内的签发/截止 MAC（§4.3）：认证服务端签发的状态。
+ * 返回 base64url（Cookie 值第四段）。
+ */
+export async function macPreauthCookie(
+  key: PreauthCookieKey,
+  binding: PreauthCookieMacBinding,
+): Promise<string> {
+  return toBase64Url(await hmacSign(key, preauthCookieMessage(binding)));
+}
+
+/** 验证预认证 Cookie MAC（§4.3）：格式非法或不匹配返回 false，不抛错。 */
+export async function verifyPreauthCookieMac(
+  key: PreauthCookieKey,
+  binding: PreauthCookieMacBinding,
+  macBase64Url: string,
+): Promise<boolean> {
+  const mac = fromBase64Url(macBase64Url);
+  if (!mac) {
+    return false;
+  }
+  return hmacVerify(key, preauthCookieMessage(binding), mac);
 }
 
 /** CSRF / VAPID / 管理员 / 恢复 epoch 四个用途共用的键控 MAC（§8.3）。 */

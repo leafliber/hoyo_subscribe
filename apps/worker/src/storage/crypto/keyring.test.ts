@@ -3,7 +3,7 @@
 // 这里验证：根秘密强度约束、独立 pepper、HKDF 派生的用途互异、key_id 轮换约束。
 import { describe, expect, it } from "vitest";
 import { Keyring } from "./keyring";
-import { computePurposeMac, macOtpVerification, type OtpMacBinding } from "./mac";
+import { computePurposeMac, macOtpVerification, macPreauthCookie, type OtpMacBinding } from "./mac";
 import { signUnsubscribeToken } from "./unsubscribe";
 
 function randomBytes(length: number): Uint8Array {
@@ -77,8 +77,8 @@ describe("A-P1-CRYPTO · 根秘密强度与独立性约束", () => {
   });
 });
 
-describe("A-P1-CRYPTO · 八用途句柄（§8.3 清单）", () => {
-  it("八个访问器各自返回稳定句柄（派生一次，重复取用同实例）", async () => {
+describe("A-P1-CRYPTO · 用途句柄（§8.3 清单 + P2-01 增补 preauth-cookie）", () => {
+  it("九个访问器各自返回稳定句柄（派生一次，重复取用同实例）", async () => {
     const ring = await Keyring.create({
       masterSecret: master1,
       otpPepper: pepper1,
@@ -92,7 +92,8 @@ describe("A-P1-CRYPTO · 八用途句柄（§8.3 清单）", () => {
     expect(ring.vapid()).toBe(ring.vapid());
     expect(ring.admin()).toBe(ring.admin());
     expect(ring.recoveryEpoch()).toBe(ring.recoveryEpoch());
-    // 八个句柄互为不同对象
+    expect(ring.preauthCookie()).toBe(ring.preauthCookie());
+    // 九个句柄互为不同对象
     const handles = [
       ring.otpMac(),
       ring.emailLookup(),
@@ -102,8 +103,9 @@ describe("A-P1-CRYPTO · 八用途句柄（§8.3 清单）", () => {
       ring.vapid(),
       ring.admin(),
       ring.recoveryEpoch(),
+      ring.preauthCookie(),
     ];
-    expect(new Set(handles).size).toBe(8);
+    expect(new Set(handles).size).toBe(9);
   });
 
   it("句柄是不透明对象：读不出密钥材料（WeakMap 私有）", async () => {
@@ -162,6 +164,16 @@ describe("A-P1-CRYPTO · HKDF 派生的用途互异（密码学面）", () => {
       ).map(([domain, key]) => computePurposeMac(key, `${domain}:probe`, "same-input")),
     );
     expect(new Set(macs).size).toBe(4);
+    // P2-01 增补用途：preauth-cookie 与 csrf 同 master 下派生互异
+    // （不同用途不同 HKDF info → 不同密钥 → 不同 MAC；正是验收要求独立于 CsrfKey 的密码学面）。
+    const preauthBinding = { preauthId: "probe-id", issuedAt: 0, expiresAt: 1 };
+    const preauthMac = await macPreauthCookie(ring.preauthCookie(), preauthBinding);
+    const csrfShapedMac = await computePurposeMac(
+      ring.csrf(),
+      "probe",
+      JSON.stringify(preauthBinding),
+    );
+    expect(preauthMac).not.toBe(csrfShapedMac);
     const otpMac = await macOtpVerification(ring.otpMac(), OTP_BINDING);
     // OTP MAC 为 hex、通用 MAC 为 base64url，编码不同不直接比对；断言互不为对方的另一种编码来源即可
     expect(macs.every((m) => m !== otpMac)).toBe(true);

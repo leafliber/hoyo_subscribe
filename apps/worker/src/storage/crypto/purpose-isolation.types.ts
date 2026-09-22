@@ -12,6 +12,7 @@ import type {
   EmailLookupKey,
   FieldEncryptionKey,
   OtpMacKey,
+  PreauthCookieKey,
   RecoveryEpochKey,
   UnsubscribeMacKeys,
   VapidKey,
@@ -21,8 +22,10 @@ import {
   computeEmailKey,
   computePurposeMac,
   macOtpVerification,
+  macPreauthCookie,
   type OtpMacBinding,
   verifyOtpMac,
+  verifyPreauthCookieMac,
 } from "./mac";
 import {
   signUnsubscribeToken,
@@ -38,6 +41,7 @@ declare const csrfKey: CsrfKey;
 declare const vapidKey: VapidKey;
 declare const adminKey: AdminKey;
 declare const recoveryEpochKey: RecoveryEpochKey;
+declare const preauthCookieKey: PreauthCookieKey;
 
 declare const binding: OtpMacBinding;
 declare const unsubscribeBinding: UnsubscribeBinding;
@@ -97,6 +101,18 @@ export function purposeMisuseMustNotCompile(): void {
   // @ts-expect-error RecoveryEpochKey 不是 FieldEncryptionKey
   void decryptFieldTextWrongPurpose(recoveryEpochKey);
 
+  // 预认证 Cookie 密钥（P2-01 验收增补用途）→ 其他用途；CSRF/OTP 密钥 → 预认证 Cookie
+  // @ts-expect-error PreauthCookieKey 不是 OtpMacKey
+  void macOtpVerification(preauthCookieKey, binding);
+  // @ts-expect-error PreauthCookieKey 不在 GeneralMacKey（csrf/vapid/admin/recovery-epoch）联合内
+  void computePurposeMac(preauthCookieKey, text, text);
+  // @ts-expect-error PreauthCookieKey 不是 EmailLookupKey
+  void computeEmailKey(preauthCookieKey, text);
+  // @ts-expect-error CsrfKey 不是 PreauthCookieKey（验收点名：预认证 Cookie 不复用 CSRF 密钥）
+  void macPreauthCookie(csrfKey, { preauthId: text, issuedAt: 0, expiresAt: 1 });
+  // @ts-expect-error OtpMacKey 不是 PreauthCookieKey
+  void verifyPreauthCookieMac(otpKey, { preauthId: text, issuedAt: 0, expiresAt: 1 }, text);
+
   // 句柄之间的赋值混用
   // @ts-expect-error OtpMacKey 不能赋给 UnsubscribeMacKeys
   const _a: UnsubscribeMacKeys = otpKey;
@@ -108,7 +124,11 @@ export function purposeMisuseMustNotCompile(): void {
   const _d: OtpMacKey = emailLookupKey;
   // @ts-expect-error RecoveryEpochKey 不能赋给 VapidKey
   const _e: VapidKey = recoveryEpochKey;
-  void [_a, _b, _c, _d, _e];
+  // @ts-expect-error PreauthCookieKey 不能赋给 CsrfKey
+  const _f: CsrfKey = preauthCookieKey;
+  // @ts-expect-error CsrfKey 不能赋给 PreauthCookieKey
+  const _g: PreauthCookieKey = csrfKey;
+  void [_a, _b, _c, _d, _e, _f, _g];
 }
 
 // 辅助：给上面某行一个「错误用途调 decryptField」的形状（签名要求 FieldEncryptionKey）。

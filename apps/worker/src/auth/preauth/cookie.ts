@@ -4,28 +4,18 @@
 // - 首次同源 POST 生成 `__Host-preauth`：Secure、HttpOnly、SameSite=Lax、Path=/、
 //   **不设置 Domain**（__Host- 前缀本身就要求这三条，序列化仍逐条写出以便测试钉住）。
 // - Cookie 携带**服务端认证的签发/截止信息**：值 = `<preauth_id>.<issued_ms>.<expires_ms>.<MAC>`，
-//   MAC 覆盖三元组。MAC 用 P1-06 的 computePurposeMac / verifyPurposeMac（CsrfKey 句柄 +
-//   独立域标签 "preauth:v1"），不自拼 HMAC。
+//   MAC 覆盖三元组，用 P1-06 模式的**独立密钥用途 preauth-cookie**（P2-01 验收增补，
+//   PR #13 复核意见：预认证 Cookie 的签发状态认证与 CSRF 双提交是不同威胁面，
+//   隔离由 PreauthCookieKey 品牌 + 独立 HKDF 派生承担，编译期互斥）。
 // - 不同标签页复用同一个未失效随机值（§4.3）：验证通过且未过期的 Cookie 不换新随机值；
 //   preauth_id 是稳定身份，CSRF 与挑战都绑它。续期（同值延截止）属 P2-02 挑战创建。
-//
-// 密钥用途说明：contracts/crypto-types 的八个用途清单没有单独的 preauth 槽；CsrfKey 的
-// 注释（purposes.ts）写明它覆盖「预认证/正式会话的 CSRF 绑定 MAC」——预认证 Cookie 的
-// 签发/截止认证与 CSRF 绑定同属预认证安全面，这里以独立域标签 "preauth:v1" 复用该句柄，
-// 域分隔保证密码学上不与 "csrf:v1" 混用。此推断列入交付报告待确认项。
 
-import { type CsrfKey, PREAUTH_MIN_TTL, SECRET_BITS } from "@hoyo/contracts";
-import { computePurposeMac, verifyPurposeMac } from "../../storage/crypto/mac";
+import { PREAUTH_MIN_TTL, type PreauthCookieKey, SECRET_BITS } from "@hoyo/contracts";
+import { macPreauthCookie, verifyPreauthCookieMac } from "../../storage/crypto/mac";
 import { generateSecretToken } from "../../storage/crypto/random";
 
 /** 预认证 Cookie 名（§4.3）。__Host- 前缀：仅 HTTPS、无 Domain、Path=/。 */
 export const PREAUTH_COOKIE_NAME = "__Host-preauth";
-
-/** preauth Cookie MAC 的域分隔标签（与 "csrf:v1" 不同域，签发与验证固定一致）。 */
-export const PREAUTH_COOKIE_MAC_DOMAIN = "preauth:v1";
-
-/** 秒转毫秒（本模块内 PREAUTH_MIN_TTL 的单位换算，不引入第二份常量）。 */
-const MS_PER_SECOND = 1_000;
 
 /** 已认证的预认证上下文（由验证方重建；不信任 Cookie 内任何未认证字段）。 */
 export interface PreauthContext {
@@ -43,26 +33,18 @@ export type PreauthCookieResult =
 
 /** 初始签发的有效期：PREAUTH_MIN_TTL（A.5 等式已保证下限本身覆盖完成交付余量）。 */
 export function initialPreauthExpiry(now: number): number {
-  return now + PREAUTH_MIN_TTL * MS_PER_SECOND;
-}
-
-function cookieMaterial(preauthId: string, issuedAt: number, expiresAt: number): string {
-  return `${preauthId}\n${issuedAt}\n${expiresAt}`;
+  return now + PREAUTH_MIN_TTL * 1_000;
 }
 
 /** 签发新的预认证 Cookie 值（随机值达 SECRET_BITS；MAC 认证签发/截止）。 */
 export async function mintPreauthCookieValue(
-  key: CsrfKey,
+  key: PreauthCookieKey,
   now: number,
 ): Promise<{ value: string; context: PreauthContext }> {
   const preauthId = generateSecretToken().base64url;
   const issuedAt = now;
   const expiresAt = initialPreauthExpiry(now);
-  const mac = await computePurposeMac(
-    key,
-    PREAUTH_COOKIE_MAC_DOMAIN,
-    cookieMaterial(preauthId, issuedAt, expiresAt),
-  );
+  const mac = await macPreauthCookie(key, { preauthId, issuedAt, expiresAt });
   return {
     value: `${preauthId}.${issuedAt}.${expiresAt}.${mac}`,
     context: { preauthId, issuedAt, expiresAt },
@@ -74,7 +56,7 @@ export async function mintPreauthCookieValue(
  * 避免对未认证数据形成过期时间侧信道。
  */
 export async function verifyPreauthCookieValue(
-  key: CsrfKey,
+  key: PreauthCookieKey,
   value: string,
   now: number,
 ): Promise<PreauthCookieResult> {
@@ -93,12 +75,7 @@ export async function verifyPreauthCookieValue(
   ) {
     return { ok: false, reason: "malformed" };
   }
-  const macOk = await verifyPurposeMac(
-    key,
-    PREAUTH_COOKIE_MAC_DOMAIN,
-    cookieMaterial(preauthId, issuedAt, expiresAt),
-    mac,
-  );
+  const macOk = await verifyPreauthCookieMac(key, { preauthId, issuedAt, expiresAt }, mac);
   if (!macOk) {
     return { ok: false, reason: "bad_mac" };
   }

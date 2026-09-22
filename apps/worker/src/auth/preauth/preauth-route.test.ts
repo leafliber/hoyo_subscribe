@@ -87,8 +87,7 @@ describe("A-P2-PREAUTH POST /api/v2/auth/preauth（§4.3 前半）", () => {
   });
 
   it("携带有效 Cookie 时复用同一个未失效随机值（§4.3 多标签页），CSRF 绑同一 preauth_id", async () => {
-    const key = (await testKeyring).csrf();
-    const minted = await mintPreauthCookieValue(key, T0);
+    const minted = await mintPreauthCookieValue((await testKeyring).preauthCookie(), T0);
     const res = await initShell().fetch(
       postPreauth({}, `${PREAUTH_COOKIE_NAME}=${minted.value}`),
       {} as Env,
@@ -98,8 +97,13 @@ describe("A-P2-PREAUTH POST /api/v2/auth/preauth（§4.3 前半）", () => {
     const cookies = setCookies(res);
     expect(cookies.get(PREAUTH_COOKIE_NAME)).toBe(minted.value);
     // 绑定值 = preauth_id：CSRF MAC 对该绑定成立（用 P1-08 mint/verify 同一语义构造验证）。
+    // 两个句柄类型不同（preauth-cookie ≠ csrf），混用是编译错误——正是 P2-01 验收要求的隔离。
     const body = (await res.json()) as { csrf_token: string };
-    const token = await mintCsrfToken(key, minted.context.preauthId, randomBytes(SECRET_BITS / 8));
+    const token = await mintCsrfToken(
+      (await testKeyring).csrf(),
+      minted.context.preauthId,
+      randomBytes(SECRET_BITS / 8),
+    );
     expect(body.csrf_token.split(".").length).toBe(token.split(".").length);
   });
 
@@ -114,7 +118,7 @@ describe("A-P2-PREAUTH POST /api/v2/auth/preauth（§4.3 前半）", () => {
     const value = cookies.get(PREAUTH_COOKIE_NAME) ?? "";
     expect(value).not.toContain("forged");
     expect(
-      await verifyPreauthCookieValue((await testKeyring).csrf(), value, Date.now()),
+      await verifyPreauthCookieValue((await testKeyring).preauthCookie(), value, Date.now()),
     ).toMatchObject({
       ok: true,
     });

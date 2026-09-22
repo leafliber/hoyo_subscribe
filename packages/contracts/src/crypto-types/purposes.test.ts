@@ -4,8 +4,8 @@
 import { describe, expect, it } from "vitest";
 import { isValidUnsubscribeKeyId, KEY_PURPOSES } from "./purposes";
 
-describe("A-P1-CRYPTO · 密钥用途清单（§8.3）", () => {
-  it("八个用途与合同原文一一对应，顺序即合同顺序", () => {
+describe("A-P1-CRYPTO · 密钥用途清单（§8.3；P2-01 验收增补 preauth-cookie）", () => {
+  it("清单与合同原文一一对应（八个）+ 增补项居末，顺序即合同顺序", () => {
     expect([...KEY_PURPOSES]).toEqual([
       "otp-mac",
       "email-lookup",
@@ -15,6 +15,7 @@ describe("A-P1-CRYPTO · 密钥用途清单（§8.3）", () => {
       "vapid",
       "admin",
       "recovery-epoch",
+      "preauth-cookie",
     ]);
   });
 
