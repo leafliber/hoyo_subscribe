@@ -65,7 +65,7 @@ F1-02 · 日程首页 · 阶段 F1
 | `pnpm test:e2e` | exit 0；41 passed、5 skipped（既有设备分工） | [e2e.txt](logs/e2e.txt) |
 | `pnpm params:verify` | exit 0；24 条成立，0 条不成立 | [params.txt](logs/params.txt) |
 | `pnpm migrate:check` | exit 0；14 个迁移静态检查及空库重放；6 测试通过 | [migrate.txt](logs/migrate.txt) |
-| `pnpm build` | 本地未正常退出：Astro 8 页成功；Worker 打印 `--dry-run: exiting now` 后持续等待，手动停止，不记为通过 | [build.txt](logs/build.txt) |
+| `pnpm build` | **CI 正常通过**；本地未正常退出：Astro 8 页成功；Worker 打印 `--dry-run: exiting now` 后持续等待，手动停止，不记为通过 | [build.txt](logs/build.txt) |
 | `python3 tests/e2e/mutate-schedule-date.py` | grep 落地计数 1；变异 exit 1，2 failed / 11 passed；还原后 exit 0，13 passed | [mutation.txt](logs/mutation.txt) |
 | `git diff --check` | exit 0，无输出 | 无需附文件 |
 
@@ -77,11 +77,13 @@ F1-02 · 日程首页 · 阶段 F1
 - 样式初次定向 `biome check --write` 报选择器优先级警告；调整选择器后最终 lint 无警告。
 - 沙箱内 `pnpm --filter @hoyo/web preview`：exit 1，预览进程启动失败；批准本地预览权限后 exit 0。
 - 首轮 E2E：35 passed、4 failed、5 skipped。两设备各失败两条：测试错误地把 `open=""` 当作关闭，再次点击折叠区导致场景选择超时；CSS opacity 字符串 `0.04` 与 token `.04` 被按字符串比较。修正新测试的 DOM 布尔属性判断、按数值比较后 39 passed；增加竞态/键盘测试后的最终结果为 41 passed。[首轮原始日志](logs/e2e-first-failed.txt)
-- 本地 `pnpm build` 两次均在 Worker dry-run 完成输出后未自行退出，已定向终止。依次尝试 `WRANGLER_SEND_METRICS=false pnpm build`、`CI=true WRANGLER_SEND_METRICS=false pnpm build`、`CI=true WRANGLER_SEND_METRICS=false WRANGLER_NO_SKILLS_UPDATE_PROMPTS=true pnpm build`，均复现并已停止。未修改依赖或 Worker 工具链；[禁用遥测日志](logs/build-no-metrics.txt)、[CI 模式日志](logs/build-ci.txt)、[禁用更新提示日志](logs/build-no-update.txt)。不能把终止后包装器的退出码作为构建正常完成证据。PR CI 会运行原始 `pnpm build`，结果另行补充。
+- 本地 `pnpm build` 两次均在 Worker dry-run 完成输出后未自行退出，已定向终止。依次尝试 `WRANGLER_SEND_METRICS=false pnpm build`、`CI=true WRANGLER_SEND_METRICS=false pnpm build`、`CI=true WRANGLER_SEND_METRICS=false WRANGLER_NO_SKILLS_UPDATE_PROMPTS=true pnpm build`，均复现并已停止。未修改依赖或 Worker 工具链；[禁用遥测日志](logs/build-no-metrics.txt)、[CI 模式日志](logs/build-ci.txt)、[禁用更新提示日志](logs/build-no-update.txt)。不能把终止后包装器的退出码作为构建正常完成证据。随后 PR CI 的原始 `pnpm build` 于 2026-09-22 23:53:08（UTC+8）正常通过，详见下方 CI 证据。
 - 记录证据后再次在受限沙箱执行 `pnpm lint`：pnpm 因 CI 运行后依赖目录状态差异触发自动安装，报 `ERR_PNPM_ABORTED_REMOVE_MODULES_DIR_NO_TTY`，lint 本身未运行。改用与安装相同的权限环境后 exit 0，锁文件未额外变化。[该次输出](logs/lint-environment-failed.txt)
 - 本次 Worker 全量测试未出现 ENGINEERING §7 所述抖动，未改动任何 Worker 测试。
 
 5 条跳过均来自既有 `a11y.spec.ts`：桌面跳过 2 条手机触控/缩放专测；手机跳过 3 条纯计算颜色/对比度用例（这些已在桌面实际执行）。本卡的 20 个设备用例全部执行通过。
+
+独立 CI 验证：提交 `3b8e916` 的 [GitHub Actions #35750179514](https://github.com/leafliber/hoyo_subscribe/actions/runs/35750179514) 于 2026-09-22 23:53:57（UTC+8）全部通过。冻结安装、lint、typecheck、test、params:verify、migrate:check、**原始 `pnpm build`**、test:e2e 八项均 success；CI 的 contracts 174、Worker 305、E2E 41 passed / 5 skipped（本地 Worker 为 264，分别按各自日志记录）。[CI build 与测试原始输出节选](logs/ci-build-and-tests.txt)。本地退出等待未通过修改 Worker 代码掩盖。
 
 ## 验收测试
 
@@ -131,7 +133,7 @@ E2 采集时间：2026-09-22 23:41（Asia/Shanghai）。截图来自仓库 `pnpm
 
 ## 已知问题与回退点
 
-- 本地全量 build 的 Worker dry-run 退出等待尚未解释，七项其余命令通过。提交为待 CI 验证的 PR；不能声称本地八项全部通过。
+- 本地全量 build 的 Worker dry-run 退出等待尚未解释；Linux CI 原始 `pnpm build` 正常通过，八项命令均已取得 CI 成功证据。不能声称本地八项全部通过，保留环境差异供后续工具链排查。
 - 当前为显式 synthetic 原型。来源“重新检查”不伪造恢复成功；公开说明其仍为样例状态。正式来源/分页接入留给后续任务。
 - 事件链接沿用 `/events/sample` 占位页；本卡不交付独立事件详情。
 - `_Layout.astro` 和站名定义保持 main 原状（当前为“米哈游官方日程订阅”）；未越界修改 F1-01 的站点品牌或其测试。
