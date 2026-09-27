@@ -672,7 +672,7 @@ describe("A-P2-PREAUTH 检查顺序（§4.2：顺序是安全属性）", () => {
 // —— ★ 四条路径响应一致性与时序 ——
 
 describe("A-P2-PREAUTH 四条路径同形（§4.2 折叠：已注册/未注册/满额/关闭注册）", () => {
-  it("响应体、状态码、字节数逐对一致；耗时中位数无系统性差异", async () => {
+  it("A-P2-TIMING 响应体、状态码、字节数逐对一致；耗时中位数无系统性差异", async () => {
     const keys = await testKeyring;
     const registeredEmail = "reg@fold.test";
     const registeredKey = await computeEmailKey(keys.emailLookup(), registeredEmail);
@@ -726,39 +726,54 @@ describe("A-P2-PREAUTH 四条路径同形（§4.2 折叠：已注册/未注册/�
       "signup_auth",
     ]);
 
-    // —— 时序：中位数两两比较（开放态先测，再满额、再关闭，逐步收紧条件） ——
-
-    async function medianMs(path: () => Promise<Response>, warmup = 3, n = 15): Promise<number> {
-      for (let i = 0; i < warmup; i++) {
-        await path();
-      }
-      const samples: number[] = [];
-      for (let i = 0; i < n; i++) {
-        const start = performance.now();
-        await path();
-        samples.push(performance.now() - start);
-      }
+    // —— 时序：四条路径逐轮交替采样，让并行负载漂移落到每条路径上。 ——
+    function medianMs(samples: number[]): number {
       samples.sort((a, b) => a - b);
       return samples[Math.floor(samples.length / 2)];
     }
 
-    // 重新开放注册并把存量清回 0，恢复 admitted 形态。
-    await writeRegistrationOpen(env.DB, true, T0);
-    await seedCapacity(ACCOUNTS_TOTAL_CAPACITY_KEY, 0);
-    const registeredMs = await medianMs(async () =>
-      shell.fetch(await requestFor(registeredEmail), fakeEnv, fakeCtx),
-    );
-    const unregisteredMs = await medianMs(async () =>
-      shell.fetch(await requestFor(`t${signupSeq++}@fold.test`), fakeEnv, fakeCtx),
-    );
-    await seedCapacity(ACCOUNTS_TOTAL_CAPACITY_KEY, ACCOUNT_MAX_STORED);
-    const fullMs = await medianMs(async () =>
-      shell.fetch(await requestFor(`f${signupSeq++}@fold.test`), fakeEnv, fakeCtx),
-    );
-    await writeRegistrationOpen(env.DB, false, T0);
-    const closedMs = await medianMs(async () =>
-      shell.fetch(await requestFor(`c${signupSeq++}@fold.test`), fakeEnv, fakeCtx),
-    );
+    const warmupRounds = 3;
+    const sampleRounds = 15;
+    const registeredSamples: number[] = [];
+    const unregisteredSamples: number[] = [];
+    const fullSamples: number[] = [];
+    const closedSamples: number[] = [];
+
+    async function visit(path: () => Promise<Response>, samples: number[] | null): Promise<void> {
+      const start = performance.now();
+      await path();
+      if (samples) samples.push(performance.now() - start);
+    }
+
+    for (let round = 0; round < warmupRounds + sampleRounds; round++) {
+      const collecting = round >= warmupRounds;
+      // 状态切换不计入路径耗时；每轮保持与形状检查相同的四种准入条件。
+      await writeRegistrationOpen(env.DB, true, T0);
+      await seedCapacity(ACCOUNTS_TOTAL_CAPACITY_KEY, 0);
+      await visit(
+        async () => shell.fetch(await requestFor(registeredEmail), fakeEnv, fakeCtx),
+        collecting ? registeredSamples : null,
+      );
+      await visit(
+        async () => shell.fetch(await requestFor(`t${signupSeq++}@fold.test`), fakeEnv, fakeCtx),
+        collecting ? unregisteredSamples : null,
+      );
+      await seedCapacity(ACCOUNTS_TOTAL_CAPACITY_KEY, ACCOUNT_MAX_STORED);
+      await visit(
+        async () => shell.fetch(await requestFor(`f${signupSeq++}@fold.test`), fakeEnv, fakeCtx),
+        collecting ? fullSamples : null,
+      );
+      await writeRegistrationOpen(env.DB, false, T0);
+      await visit(
+        async () => shell.fetch(await requestFor(`c${signupSeq++}@fold.test`), fakeEnv, fakeCtx),
+        collecting ? closedSamples : null,
+      );
+    }
+
+    const registeredMs = medianMs(registeredSamples);
+    const unregisteredMs = medianMs(unregisteredSamples);
+    const fullMs = medianMs(fullSamples);
+    const closedMs = medianMs(closedSamples);
 
     const ratioBound = 2.5;
     expect(registeredMs / unregisteredMs).toBeLessThan(ratioBound);

@@ -72,7 +72,9 @@ describe("A-P1-CRYPTO · OTP 验证 MAC（§4.3 六元组绑定）", () => {
       false,
     );
     expect(await verifyOtpMac(ring.otpMac(), { ...BASE_BINDING, generation: 3 }, mac)).toBe(false);
-    expect(await verifyOtpMac(ring.otpMac(), BASE_BINDING, `0${mac.slice(1)}`)).toBe(false);
+    const damagedMac = `${mac.startsWith("0") ? "1" : "0"}${mac.slice(1)}`;
+    expect(damagedMac).not.toBe(mac);
+    expect(await verifyOtpMac(ring.otpMac(), BASE_BINDING, damagedMac)).toBe(false);
     expect(await verifyOtpMac(ring.otpMac(), BASE_BINDING, "not-hex!")).toBe(false);
   });
 
