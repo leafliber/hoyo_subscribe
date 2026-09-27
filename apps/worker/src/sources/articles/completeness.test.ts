@@ -8,6 +8,7 @@ import genshinContent from "../../../../../fixtures/sources/genshin-ann/content-
 import { bodyHasVisibleText, splitBodyBlocks } from "./blocks";
 import {
   ARTICLE_COMPLETENESS_STATES,
+  articleBodyWasFetched,
   COMPLETENESS_GAP_STATES,
   type CompletenessInput,
   determineCompleteness,
@@ -55,6 +56,25 @@ describe("A-P3-ARTICLE 完整性判定：真实样本", () => {
     expect(determineCompleteness(fetchedInput(findEntry(21862).content))).toBe(
       "review-image-borne",
     );
+  });
+});
+
+describe("A-P3-TRUNCATE 正文是否取得的单一判定", () => {
+  it("按实际正文文本或正文图片判定，列表图片与完整性标签不能代替正文", () => {
+    const title = { kind: "title" as const, text: "列表标题" };
+    expect(articleBodyWasFetched([title, ...splitBodyBlocks("<p>官方正文</p>")], [])).toBe(true);
+    expect(
+      articleBodyWasFetched(
+        [title, ...splitBodyBlocks(findEntry(21922).content)],
+        [{ url: "https://example.test/body.png", origin: "body" }],
+      ),
+    ).toBe(true);
+    expect(
+      articleBodyWasFetched([title], [{ url: "https://example.test/list.png", origin: "list" }]),
+    ).toBe(false);
+    expect(
+      articleBodyWasFetched([title, ...splitBodyBlocks('<p style="height:1em"></p>')], []),
+    ).toBe(false);
   });
 });
 

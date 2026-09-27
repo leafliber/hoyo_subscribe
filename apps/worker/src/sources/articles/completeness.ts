@@ -15,6 +15,8 @@
 // 的 image_date_analysis）。正文有文本但日期不全的情况属抽取层（P3-03）的证据校验，
 // 本层不做日期猜测、不越权判定。
 
+import { type ArticleBodyBlock, type ArticleMediaRef, bodyHasVisibleText } from "./blocks";
+
 /**
  * 完整性状态全集。前缀约定：
  *   - complete：官方所给材料完整取得；
@@ -57,6 +59,18 @@ export interface CompletenessInput {
   readonly mediaRefCount: number;
   /** 列表是否声称有正文（stub.hasContent）。null = 来源不携带该概念（米游社维护态）。 */
   readonly listClaimsContent: boolean | null;
+}
+
+/**
+ * 版本是否真的拿到正文：只认正文可读文本或从正文 HTML 提取的图片。
+ * 标题与列表图片不能证明正文可得；review-image-borne 也可能来自正文通道不可用，
+ * 因此不能以 completeness 标签判定。新计划与已存版本共用这个谓词。
+ */
+export function articleBodyWasFetched(
+  blocks: readonly ArticleBodyBlock[],
+  mediaRefs: readonly ArticleMediaRef[],
+): boolean {
+  return bodyHasVisibleText(blocks) || mediaRefs.some((ref) => ref.origin === "body");
 }
 
 /**
