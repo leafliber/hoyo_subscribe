@@ -1,9 +1,23 @@
+import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { defineConfig, devices } from "@playwright/test";
 
 // 放在 tests/e2e/ 下（而非仓库根）：ENGINEERING §7 的 L5 层就把前端 E2E
 // 固定在 tests/e2e/**，配置与用例同目录；仓库根保持只挂根级脚本。
 const repoRoot = fileURLToPath(new URL("../..", import.meta.url));
+const baseURL = "http://127.0.0.1:4173";
+
+// Playwright 在启动 webServer.command 前就会检查 URL；先报告监听者，避免它的
+// 通用 "already used" 错误隐藏占用本次构建端口的进程。
+if (process.env.TEST_WORKER_INDEX === undefined) {
+  // Playwright worker 会再次加载此配置；那时本次 webServer 已经在监听。
+  const listener = spawnSync("lsof", ["-nP", "-iTCP:4173", "-sTCP:LISTEN"], {
+    encoding: "utf8",
+  });
+  if (listener.status === 0 && listener.stdout.trim()) {
+    throw new Error(`E2E 端口 4173 已被占用：\n${listener.stdout.trim()}`);
+  }
+}
 
 export default defineConfig({
   testDir: ".",
@@ -16,16 +30,15 @@ export default defineConfig({
   retries: process.env.CI ? 1 : 0,
   reporter: [["list"]],
   use: {
-    baseURL: "http://127.0.0.1:4173",
+    baseURL,
     trace: "retain-on-failure",
   },
   webServer: {
-    // 先由根 test:e2e 脚本完成 astro build，这里只负责起静态预览服务
-    // （端口固化在 apps/web 的 preview 脚本里：astro CLI 不接受透传参数）
-    command: "pnpm --filter @hoyo/web run preview",
-    url: "http://127.0.0.1:4173",
+    // 根 test:e2e 脚本先完成 astro build；前台进程直接服务本次构建。
+    command: "node scripts/e2e/serve.mjs",
+    url: baseURL,
     cwd: repoRoot,
-    reuseExistingServer: !process.env.CI,
+    reuseExistingServer: false,
     timeout: 60_000,
   },
   projects: [

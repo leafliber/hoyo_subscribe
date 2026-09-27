@@ -178,7 +178,7 @@ test("U28 键盘 Tab 走完主要操作（跳过链接→主导航→登录→�
   await page.goto("/login");
   const expectedOrder = [
     "跳到主要内容",
-    "米哈游官方日程订阅",
+    "HoYo日历",
     "日程",
     "我的订阅",
     "登录",
@@ -308,7 +308,7 @@ test("U28 页面缩放（窄视口代理）：关键操作不丢失、无横向�
     expect(overflow, `${width}px 视口不应横向溢出`).toBeLessThanOrEqual(1);
     // 关键操作仍可见且落在视口横向范围内
     const keyActions = [
-      // exact：品牌链接名「米哈游官方日程订阅」包含「日程」，非精确匹配会撞上
+      // exact：明确只匹配主导航的「日程」链接。
       page.getByRole("link", { name: "日程", exact: true }),
       page.getByRole("link", { name: "我的订阅", exact: true }),
       page.getByRole("link", { name: "登录", exact: true }),
