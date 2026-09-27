@@ -190,6 +190,23 @@ worker 侧曾两次各挂 1 条用例（一次在 `crypto/mac.test.ts`），单�
 **遇到时先复跑确认，不要直接改测试来"修"它**；若复现率上升或能稳定复现，按缺陷处理并单独开卡。
 CI 偶发红比测试缺失更伤——它教人忽略红灯。
 
+> **2026-09-27 升级为缺陷 → P2-08。**6 轮全量并行跑有 2 轮各挂 1 条，而且是两条**不同**的测试
+> （新出现的 `auth/preauth/admission.test.ts` 折叠计时断言，以及上面那条 `mac.test.ts`）。
+> 复现率已经上升，按本条规则单独开卡。P2-08 合入前再遇到这两条失败，仍按"先复跑确认"处理，
+> **不要在其他卡里顺手改这两个测试**。
+
+**本地 e2e 与 astro preview 守护进程（2026-09-27）**：Astro 7.3.3 的 `astro preview` 被 Playwright
+拉起时会自行转入后台并以 0 退出；它按项目在 `apps/web/.astro/preview.json` 写锁，锁在时忽略 `--port`，
+端口被占时会悄悄换端口；守护进程成为孤儿后长期存活。**F1-05 合入之前，本地 `pnpm test:e2e` 不可靠**，
+CI 上的绿也是赢了竞态。跑过 e2e 或 `astro preview` 之后要清理：
+
+```bash
+cd apps/web && npx astro preview stop    # 停掉本项目登记的守护进程并清锁
+lsof -nP -iTCP:4173 -sTCP:LISTEN          # 确认 4173 没有残留
+```
+
+在别的 worktree 里起的守护进程只能到那个目录里 stop；目录已删的，按 PID 结束。
+
 **并发与竞态必须真测**：验证码并发消费、两设备同时保存、会话名额争用、预算并发预占，都要写成真实并发用例，不用"逻辑上不可能"代替。
 
 ## 8. Git 与 PR
@@ -198,6 +215,11 @@ CI 偶发红比测试缺失更伤——它教人忽略红灯。
 - 一张任务卡一个 PR；PR 描述就是 `AGENTS.md` 第 5 节的交付报告。
 - CI 必须通过：`lint`、`typecheck`、`test`、`params:verify`、`migrate:check`。
 - 不在功能 PR 里夹带依赖升级、格式化全量改动或无关重构。
+- **worktree 建在仓库外**（如 `/tmp/<卡号>`）。建在 `.worktrees/` 下有两个后果：Biome 报
+  "Found a nested root configuration" 使 `lint` 在本地失败（干净检出的 CI 看不到），
+  且容易被 `git add -A` 误收为 gitlink——`0e1bc13` 已经发生过一次。
+  `.gitignore` 已收录 `.worktrees/`，但 **gitignore 对已跟踪路径无效**，
+  已入库的 gitlink 需 `git rm --cached <路径>` 解除跟踪。
 
 ## 9. Definition of Done
 

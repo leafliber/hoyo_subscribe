@@ -295,10 +295,10 @@ export const LATE_NOTICE_TTL = 900 as const;
 /** 开始后允许补报范围；截止已过不补临近通知。附录 A.3；§7.2。 */
 export const LATE_POST_START_WINDOW = 7200 as const;
 
-/** 模型日预算软线（Neurons）：优先前瞻/维护/截止/关键更正，停低价值回填。附录 A.3；§10.1。注意：套餐 Neuron 包含量未证实（docs/evidence/p0/platform-facts.md），启用前须 P0-03 反向校验。 */
+/** 模型日预算软线（Neurons）：优先前瞻/维护/截止/关键更正，停低价值回填。附录 A.3；§10.1。包含量已证实为 10,000 Neurons/日（Free/Paid 相同），**本软线与 AI_HARD_DAY=8000 均在免费额度内——硬线守住即零费用**；实际单篇消耗仍须 P0-03 反向校验。 */
 export const AI_SOFT_DAY = 6000 as const;
 
-/** 模型日预算硬线（Neurons）；所有模型 profile 共用账本，含失败和重试。附录 A.3；§10.1。同上：不得用编造的包含量让校验通过。 */
+/** 模型日预算硬线（Neurons）；所有模型 profile 共用账本，含失败和重试。附录 A.3；§10.1。8,000 < 免费额度 10,000，这是「不产生额外费用」的落点；不得用编造的实测值抬高本线。 */
 export const AI_HARD_DAY = 8000 as const;
 
 /** 输入保护值——**未填写**（P0-03 按真实部署填写）。附录 A.3。未填写前依赖模型自动调用的能力默认关闭。 */
@@ -324,8 +324,14 @@ export const AUTO_PUBLISH_TIME_ERRORS = 0 as const;
 
 /**
  * 模型自动调用能力总开关：MODEL_MAX_INPUT 与 MODEL_MAX_BILLED_OUTPUT 均取得实测值前为 false。
- * 依据：账户 entitlements 112 条中无任何 workers_ai.* 条目（docs/evidence/p0/platform-facts.md，
- * 2026-09-22）——Workers AI 可用性与 Neuron 包含量均未证实。**不得用假设值冒充实测值翻转本开关。**
+ *
+ * 依据（2026-09-22 更正）：Workers AI 可用性与 Neuron 包含量**已证实**——Free/Paid 均含
+ * 10,000 Neurons/日，超出 $0.011/1,000 Neurons；@cf/qwen/qwen3-30b-a3b-fp8 在目录中。
+ * 此前记「entitlements 无 workers_ai.* 故未证实」是看错了信号：该产品不由 entitlement 开通。
+ *
+ * 本开关仍为 false，因为真正缺的是**另一个**数：该模型 reasoning = true，思考 token 计入
+ * 计费输出，而输出单价是输入的 6.58 倍（30.45 vs 4.63 Neurons/1,000 token）——完整计费输出
+ * 上界未测，P0-03 的职责。**不得用假设值冒充实测值翻转本开关。**
  */
 export const AI_BILLING_PROFILE_CONFIGURED =
   MODEL_MAX_INPUT !== null && MODEL_MAX_BILLED_OUTPUT !== null;

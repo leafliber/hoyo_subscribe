@@ -8,12 +8,12 @@
 
 | Secret | 来源卡 | 用途 | 未注入时的行为 |
 | --- | --- | --- | --- |
-| `CRYPTO_MASTER_SECRET` | P1-06 / P1-08 | 七用途 HKDF 派生根 | 写路由 fail-closed 503 |
+| `CRYPTO_MASTER_SECRET` | P1-06 / P1-08 | 除 OTP MAC 外八个用途的 HKDF 派生根 | 写路由 fail-closed 503 |
 | `CRYPTO_OTP_PEPPER` | P1-06 / P1-08 | OTP MAC 独立 pepper（§4.3 双根） | 同上 |
 | `CRYPTO_UNSUBSCRIBE_KEY_ID` | P1-06 / P1-08 | 退订 token 的 key_id | 同上 |
 | `TURNSTILE_SECRET_KEY` | P2-01 | Turnstile 服务端 siteverify（[R09]） | 第 4 步失败关闭 |
 
-生成方式见 `docs/ENGINEERING.md` §4；**八个用途各自独立，不得复用同一份材料**。
+生成方式见 `docs/ENGINEERING.md` §4；**九个用途各自独立，不得复用同一份材料**（P2-01 新增第 9 个 `preauth-cookie`）。
 
 ## 2. 平台侧配置
 
@@ -21,7 +21,8 @@
 | --- | --- | --- | --- |
 | **按 IP 的边缘限速规则** | P2-01 | §4.2 第 3 步、§8.3、[R16] | ⚠ 应用侧只做**同邮箱**近似限速——附录 A 无 IP 维度参数，按 [R16] 该维度属边缘。**边缘规则未配时，换邮箱即可绕过第 3 步**；这不是应用缺陷，但上线前必须配 |
 | 发件子域与 DNS（认证域 / 业务域分开） | P0-05 | §2.2 | 关闭认证域 Email preview；两用途均关闭「静默丢弃受抑制收件人」 |
-| Workers AI 可用性确认 | P0-03 | — | 账户 entitlements 中未见任何 `workers_ai.*`，可用性未证实 |
+| ~~Workers AI 可用性确认~~ **已解决（2026-09-22）** | P0-03 | — | 可用性与 10,000 Neurons/日免费额度已查实；此前按 entitlements 判断是看错了信号。见 `docs/evidence/p0/platform-facts.md` |
+| 带 Workers AI 推理权限的 API token（或 `wrangler login`） | P0-03 | — | **仅在决定做 P0-03 计费基线时需要**。本机 wrangler 当前未登录；测思考 token 分布需要约 30–50 次真实推理调用，落在单日免费额度内 |
 
 ## 3. 待取得的实测值
 

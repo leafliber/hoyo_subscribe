@@ -16,7 +16,11 @@
 | 每周期包含量 | **不存在**——平台侧只有日限额，无周期包含量 | 所有者确认 | 2026-09-22 |
 | 超额费率 | **不适用**（无周期计量即无超额） | 所有者确认 | 2026-09-22 |
 | 账户其他应用已占用 | **零占用** | 所有者确认 | 2026-09-22 |
-| Workers AI 可用性 / Neurons 限额 | **未取得**（entitlements 中无 `workers_ai.*` 条目；AI Gateway 已启用且为付费档，但不等同于 Workers AI 的 Neuron 包含量） | — | — |
+| Workers AI 可用性 | **已确认可用**（`GET /accounts/{id}/ai/models/search` → 200，目录 310 个模型）。⚠ **2026-09-22 更正**：此前记「entitlements 中无 `workers_ai.*` 故未证实」是**看错了信号**——Workers AI 在 Free 与 Paid 计划中**均默认包含**，不由 entitlement 行开通，所以该条目本就不存在 | `GET /accounts/{id}/ai/models/search` | 2026-09-22（更正） |
+| Neurons 包含量 | **10,000 Neurons / 日**（Free 与 Paid **相同**），超出按 **$0.011 / 1,000 Neurons** 计费，每日 00:00 UTC 重置 | Cloudflare 官方文档 `workers-ai/platform/pricing` | 2026-09-22 |
+| 目标模型在册 | `@cf/qwen/qwen3-30b-a3b-fp8` **在目录中**：Text Generation、`context_window = 32768`、`reasoning = true`、`function_calling = true`、`async_queue = true`。**不在「需付费计费方式」的受限模型名单内** | 同上 models/search | 2026-09-22 |
+| 目标模型单价 | **$0.0509 / M 输入 token**、**$0.335 / M 输出 token**（官方说明：token 单价与 Neuron 单价等价，只是两种显示单位） | 同上 | 2026-09-22 |
+| Neuron 换算（本项目推导） | 输入 **≈ 4.63 Neurons / 1,000 token**；输出 **≈ 30.45 Neurons / 1,000 token**。**输出是输入的 6.58 倍** | 由上两行按 $0.011/1,000 Neurons 换算 | 2026-09-22 |
 
 ### 附带取得的其他计量项（供 §4.1 成本护栏参考）
 
@@ -74,7 +78,7 @@
 
 | # | 事实 | 为什么卡着 |
 | --- | --- | --- |
-| 1 | **Workers AI 的可用性与 Neuron 包含量** | entitlements 112 条中**无任何 `workers_ai.*`**，可用性未证实。决定 `AI_HARD_DAY = 8,000` 会不会出套餐；按 ADR-0001 采集量是 73 条而非 9 条，要按实际量级重估 |
+| 1 | ~~**Workers AI 的可用性与 Neuron 包含量**~~ **已解决（2026-09-22）**，不再需要所有者执行 | 可用性已证实、包含量 10,000 Neurons/日已查明。**关键结论：`AI_HARD_DAY = 8,000` < 免费额度 10,000，硬线守住即零费用。** 剩余未知只有一个数——`reasoning = true` 的**思考 token 计入计费输出**，其分布未测，见 P0-03 |
 | 2 | 发件域与 DNS（§2 整节） | P0-05 的真实收件人测试与 G-P0-MAIL 都依赖它 |
 
 > 邮件计量口径的三项已由所有者确认关闭（见上）。剩下这两项一个要实测、一个是创建动作。
