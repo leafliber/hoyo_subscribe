@@ -136,6 +136,15 @@ export type ArticleFetchResult =
       fetchedAtMs: number;
     }
   | {
+      /** 响应超上限，JSON 不可解析；只准使用已获得的列表条目构造缺口，不能保存截断正文。 */
+      status: "truncated";
+      sourceId: string;
+      externalId: string;
+      /** 已读到的字节数下界和配置上限，只用于诊断，不包含响应体。 */
+      observedAtLeastBytes: number;
+      capBytes: number;
+    }
+  | {
       /** 列表声称有正文，但全量正文响应里找不到该条（缺口的原料，不是失败）。 */
       status: "missing-from-content-set";
       sourceId: string;

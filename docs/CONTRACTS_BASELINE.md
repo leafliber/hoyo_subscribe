@@ -345,6 +345,9 @@ SESSION_IDLE_TTL > SESSION_EXPIRY_NOTICE
 DELIVERY_DEDUPE_TTL > 业务发生项最大有效期 + 最大重试余量
 0 < FEED_SHRINK_GUARD_RATIO < 1
 各预留包含于对应总量；pending <= total；价格/usage单位一致
+
+# P3-08 工程依赖（§3.1 请求大小限制，附录 A.1 SOURCE_LIMIT_PROFILE）
+每来源 responseCapsBytes > 0 且 <= responseCapCeilingBytes
 ```
 
 **已删除的等式**（月度模型的遗留，不得恢复）：

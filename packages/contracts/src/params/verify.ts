@@ -16,8 +16,16 @@ import { PARAMS } from "./registry";
  * 数值参数宽化为 number 的快照类型：等式校验与反向验证测试需要注入"人为破坏值"，
  * as const 的字面量类型（如 260）会拒绝 259。非数值参数保持原类型。
  */
+type WidenNumbers<T> = T extends number
+  ? number
+  : T extends readonly unknown[]
+    ? T
+    : T extends object
+      ? { readonly [K in keyof T]: WidenNumbers<T[K]> }
+      : T;
+
 export type WritableParamValues = {
-  readonly [K in keyof ParamValues]: ParamValues[K] extends number ? number : ParamValues[K];
+  readonly [K in keyof ParamValues]: WidenNumbers<ParamValues[K]>;
 };
 
 /** 一条启动等式的定义。 */
@@ -281,6 +289,24 @@ export const PARAM_EQUATIONS: readonly EquationDefinition[] = [
     (v) => `AI_SOFT_DAY(${v.AI_SOFT_DAY}) < AI_HARD_DAY(${v.AI_HARD_DAY})`,
     (v) => v.AI_SOFT_DAY < v.AI_HARD_DAY,
     { AI_SOFT_DAY: 8000 },
+  ),
+  // —— SOURCE_LIMIT_PROFILE 工程依赖（P3-08；§3.1 大小限制、附录 A.1）——
+  eq(
+    "source-response-caps-within-ceiling",
+    "来源上限",
+    "SOURCE_LIMIT_PROFILE 每来源响应上限 > 0 且 <= responseCapCeilingBytes",
+    (v) =>
+      `max(SOURCE_LIMIT_PROFILE.responseCapsBytes)(${Math.max(...Object.values(v.SOURCE_LIMIT_PROFILE.responseCapsBytes))}) <= responseCapCeilingBytes(${v.SOURCE_LIMIT_PROFILE.responseCapCeilingBytes})`,
+    (v) =>
+      Object.values(v.SOURCE_LIMIT_PROFILE.responseCapsBytes).every(
+        (cap) => cap > 0 && cap <= v.SOURCE_LIMIT_PROFILE.responseCapCeilingBytes,
+      ),
+    {
+      SOURCE_LIMIT_PROFILE: {
+        ...PARAMS.SOURCE_LIMIT_PROFILE,
+        responseCapCeilingBytes: 0,
+      },
+    },
   ),
 ];
 

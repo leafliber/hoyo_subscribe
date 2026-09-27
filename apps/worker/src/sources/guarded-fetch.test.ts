@@ -2,7 +2,7 @@
 // 覆盖：非白名单域名 / userinfo / 非 https / 重定向不跟随 / 403 访问控制 / 429 /
 // 非 JSON 类型 / 超大响应 / 超时 / 网络错误。全部用替身 fetch，不发真实网络请求。
 
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   classifyRestriction,
   type GuardedFetchLimits,
@@ -93,10 +93,38 @@ describe("A-P3-FETCH 受限 fetch：请求限制与失败分类", () => {
     expect(outcome).toMatchObject({ kind: "bad-content-type", contentType: "text/html" });
   });
 
-  it("响应体超过上限：response-too-large（截断的 JSON 宁弃勿用）", async () => {
-    const { fetchFn } = recordingFetch([jsonResponse("x".repeat(LIMITS.maxResponseBytes + 1))]);
-    const outcome = await guardedSourceFetch("https://hk4e-ann-api.mihoyo.com/x", LIMITS, fetchFn);
-    expect(outcome).toMatchObject({ kind: "response-too-large", cap: LIMITS.maxResponseBytes });
+  it("A-P3-TRUNCATE 响应超限只返回截断分类并发白名单结构化信号，不解析正文/重试", async () => {
+    const { fetchFn, calls } = recordingFetch([
+      jsonResponse("x".repeat(LIMITS.maxResponseBytes + 1)),
+    ]);
+    const log = vi.spyOn(console, "log").mockImplementation(() => {});
+    try {
+      const outcome = await guardedSourceFetch(
+        "https://hk4e-ann-api.mihoyo.com/x?uid=synthetic-private-marker",
+        LIMITS,
+        fetchFn,
+      );
+      expect(outcome).toEqual({
+        kind: "response-too-large",
+        bytes: LIMITS.maxResponseBytes + 1,
+        cap: LIMITS.maxResponseBytes,
+      });
+      expect(calls).toHaveLength(1);
+      const records = log.mock.calls.map(([line]) => JSON.parse(line) as Record<string, unknown>);
+      expect(records).toContainEqual(
+        expect.objectContaining({
+          level: "warn",
+          event: "source_response_truncated",
+          source: "hk4e-ann-api.mihoyo.com",
+          reason_code: "response_cap_exceeded",
+          count: 1,
+        }),
+      );
+      expect(JSON.stringify(records)).not.toContain("synthetic-private-marker");
+      expect(JSON.stringify(records)).not.toContain("/x?");
+    } finally {
+      log.mockRestore();
+    }
   });
 
   it("超时中止：受限时限内未完成即 timeout，不等待", async () => {

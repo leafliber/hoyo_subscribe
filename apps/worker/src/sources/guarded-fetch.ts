@@ -6,8 +6,10 @@
 // 不跟随重定向、超时、限量读体、诚实 UA、不重试），按 Worker 生产要求用 TypeScript 重写；
 // 探针代码不被 import（任务卡约束）。
 //
-// 数值全部来自 registry.draft.json 的 limit_profile_measured（经 sources/registry.ts 转录，
+// 数值全部来自 SOURCE_LIMIT_PROFILE 指向的 registry.draft.json（经 sources/registry.ts 转录，
 // 漂移测试锁定），本文件零自有阈值。
+
+import { logEvent } from "../shell/logger";
 
 /** 诚实 UA：标识服务与只读用途，不伪装浏览器（AGENTS.md 规则 6）。 */
 export const SOURCE_COLLECTOR_USER_AGENT =
@@ -32,7 +34,7 @@ export type GuardedFetchOutcome =
       bodyText: string;
       bytes: number;
       contentType: string | null;
-      /** 响应体按上限读体是否触及上限（触及即作废，见 response-too-large）。 */
+      /** 仅完整读体才有 ok；超限返回 response-too-large 且绝不解析残缺 JSON。 */
       bodyTruncated: boolean;
     }
   | { kind: "restricted"; status: number; signals: readonly string[] }
@@ -115,29 +117,28 @@ export function classifyRestriction(status: number, message: string | null): str
 }
 
 /**
- * 受限读体：超过上限即停止读取并作废（JSON 截断后不可解析，宁弃勿用）。
- * 上限值来自 limit_profile_measured（max_observed_content_bytes 等），超限是运营信号：
- * 需重新实测并更新登记，不在代码里放宽。
+ * 受限读体：超过上限即停止读取，丢弃残缺 JSON。即使上游送来一个超过上限的单块，
+ * 也不分配同样大小的缓冲。超限由调用方转成缺口并登记运营信号。
  */
 async function readBodyCapped(
   body: ReadableStream<Uint8Array> | null,
   maxBytes: number,
-): Promise<{ buffer: Uint8Array; truncated: boolean }> {
+): Promise<
+  { buffer: Uint8Array; truncated: false } | { truncated: true; observedAtLeastBytes: number }
+> {
   if (body === null) return { buffer: new Uint8Array(0), truncated: false };
   const reader = body.getReader();
   const chunks: Uint8Array[] = [];
   let total = 0;
-  let truncated = false;
   for (;;) {
     const { done, value } = await reader.read();
     if (done) break;
     if (value) {
-      total += value.byteLength;
-      if (total > maxBytes) {
-        truncated = true;
+      if (value.byteLength > maxBytes - total) {
         await reader.cancel().catch(() => {});
-        break;
+        return { truncated: true, observedAtLeastBytes: total + value.byteLength };
       }
+      total += value.byteLength;
       chunks.push(value);
     }
   }
@@ -147,7 +148,7 @@ async function readBodyCapped(
     buffer.set(chunk, offset);
     offset += chunk.byteLength;
   }
-  return { buffer, truncated };
+  return { buffer, truncated: false };
 }
 
 /**
@@ -200,15 +201,26 @@ export async function guardedSourceFetch(
       return { kind: "bad-content-type", contentType };
     }
 
-    const { buffer, truncated } = await readBodyCapped(response.body, limits.maxResponseBytes);
-    if (truncated) {
-      return { kind: "response-too-large", bytes: buffer.byteLength, cap: limits.maxResponseBytes };
+    const body = await readBodyCapped(response.body, limits.maxResponseBytes);
+    if (body.truncated) {
+      // 只记白名单内的官方主机与固定事件名；URL/查询参数/正文绝不入日志。
+      // 此日志可按 source 聚合为 source_response_truncated_total（§5.5）。
+      logEvent("warn", "source_response_truncated", {
+        source: url.hostname,
+        reason_code: "response_cap_exceeded",
+        count: 1,
+      });
+      return {
+        kind: "response-too-large",
+        bytes: body.observedAtLeastBytes,
+        cap: limits.maxResponseBytes,
+      };
     }
     return {
       kind: "ok",
       status: response.status,
-      bodyText: new TextDecoder("utf-8", { fatal: false, ignoreBOM: true }).decode(buffer),
-      bytes: buffer.byteLength,
+      bodyText: new TextDecoder("utf-8", { fatal: false, ignoreBOM: true }).decode(body.buffer),
+      bytes: body.buffer.byteLength,
       contentType,
       bodyTruncated: false,
     };

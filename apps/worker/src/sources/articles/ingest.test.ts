@@ -446,22 +446,19 @@ describe("A-P3-ARTICLE 缺口成态：截断 / 图片承载日期 / 来源暂空
     expect(mediaRefs).toHaveLength(1);
   });
 
-  it("正文截断信号 → gap-body-truncated 版本（构造截断，非官方样本；当前管线截断即整请求作废）", async () => {
-    const entry = findContentEntry(21928);
+  it("A-P3-TRUNCATE 截断态只存列表标题，绝不把无法解析的正文当完整正文", async () => {
     const stub = await genshinStub("21928");
     const truncated: ArticleFetchResult = {
-      status: "fetched",
+      status: "truncated",
       sourceId: genshinEntry.sourceId,
       externalId: "21928",
-      title: entry.title,
-      contentHtml: entry.content,
-      contentSha256: await sha256Hex(entry.content),
-      signals: signalsFor(entry.content, { bodyTruncated: true }),
-      fetchedAtMs: T1,
+      observedAtLeastBytes: genshinEntry.requestLimits.maxResponseBytes + 1,
+      capBytes: genshinEntry.requestLimits.maxResponseBytes,
     };
     const plan = await buildArticleIngestPlan(genshinEntry, stub, truncated, T1);
     if (plan.kind !== "version") throw new Error("该场景必须产版本计划");
     expect(plan.plan.completeness).toBe("gap-body-truncated");
+    expect(plan.plan.blocks).toEqual([{ kind: "title", text: stub.title }]);
   });
 
   it("来源暂空：列表声称有正文而正文集合给空 → gap-source-empty 版本（构造空正文的真实条目）", async () => {
@@ -573,5 +570,60 @@ describe("A-P3-ARTICLE 米游社：通道不可用 ≠ 正文为空（真实列�
     if (plan.kind !== "version") throw new Error("该场景必须产版本计划");
     expect(plan.plan.completeness).toBe("gap-channel-unavailable");
     expect(plan.plan.mediaRefs).toEqual([]);
+  });
+});
+
+describe("A-P3-TRUNCATE 受限读体到落库的闭环（合成超限响应）", () => {
+  it("全量正文超限时用真实列表条目落 gap-body-truncated 行，不保存残缺正文，也不追加请求", async () => {
+    const stub = await genshinStub("762");
+    const cap = 1024; // 测试专用小上限；生产值只从 SOURCE_LIMIT_PROFILE 取。
+    const privateBodyMarker = "SYNTHETIC_TRUNCATED_BODY_MUST_NOT_BE_STORED";
+    const responseBody = JSON.stringify({
+      retcode: 0,
+      data: { list: [{ ann_id: 762, content: `${privateBodyMarker}${"x".repeat(cap)}` }] },
+    });
+    expect(new TextEncoder().encode(responseBody).byteLength).toBeGreaterThan(cap);
+    let requests = 0;
+    const fetchFn = (async () => {
+      requests += 1;
+      return new Response(responseBody, { headers: { "content-type": "application/json" } });
+    }) as typeof fetch;
+    const adapter = createAnnouncementAdapter(
+      {
+        ...genshinEntry,
+        requestLimits: { ...genshinEntry.requestLimits, maxResponseBytes: cap },
+      },
+      { fetchFn },
+    );
+    const article = await adapter.fetchArticle({
+      sourceId: genshinEntry.sourceId,
+      externalId: stub.externalId,
+      title: stub.title,
+    });
+    expect(article).toMatchObject({
+      status: "truncated",
+      capBytes: cap,
+      observedAtLeastBytes: expect.any(Number),
+    });
+    const plan = await buildArticleIngestPlan(genshinEntry, stub, article, T2);
+    expect(plan.kind).toBe("version");
+    if (plan.kind !== "version") return;
+    expect(plan.plan.completeness).toBe("gap-body-truncated");
+    expect(plan.plan.blocks).toEqual([{ kind: "title", text: stub.title }]);
+    expect(JSON.stringify(plan.plan)).not.toContain(privateBodyMarker);
+    expect(requests).toBe(1);
+
+    expect(await saveArticleVersions(env.DB, [plan])).toEqual({
+      created: 1,
+      unchanged: 0,
+      skippedNoWrite: 0,
+    });
+    const saved = await articleByExternalId(stub.externalId);
+    expect(saved).toBeDefined();
+    if (saved === undefined) return;
+    const rows = await versionsOf(saved.id);
+    expect(rows).toHaveLength(1);
+    expect(rows[0].completeness).toBe("gap-body-truncated");
+    expect(rows[0].body_blocks_json).not.toContain(privateBodyMarker);
   });
 });

@@ -8,6 +8,7 @@
 // 红线落点：
 //   - **抓取失败不落任何行**：fetchArticle=failed 是"不知道"——不写文章行、不写版本，
 //     更不存在任何取消语义；下一批成功再建（列表存在性证据在 P3-01 快照水位里，不在本表）。
+//     response-too-large 在公告适配器被明确映射为 truncated，而非 failed。
 //   - **空列表零写入**：没有条目就没有任何 SQL 效果；本模块不提供任何删除/取消类写操作，
 //     事件取消只能来自官方取消证据（P3-04 的职责）。
 //   - 内容 hash 是版本是否新增的唯一判据：抓取时间等易变噪声不触发新版本。
@@ -80,6 +81,7 @@ function officialUrlForEntry(entry: SourceRegistryEntry): string {
  * fetched：标题块 + 正文块（保真）+ 正文图片引用；
  * missing-from-content-set：标题块，completeness=gap-content-missing（列表声称有正文但集合缺条）；
  * channel-unavailable：标题块 + 列表图片级引用（封面 + image_list），拿不到 ≠ 空；
+ * truncated：只用列表标题/图片级引用，绝不保存截断正文；
  * failed：no-write。
  */
 export async function buildArticleIngestPlan(
@@ -119,6 +121,21 @@ export async function buildArticleIngestPlan(
       bodyTruncated: fetchResult.signals.bodyTruncated,
       contentEmpty: fetchResult.signals.contentEmpty,
       bodyHasText: bodyHasVisibleText(blocks),
+      mediaRefCount: mediaRefs.length,
+      listClaimsContent: stub.hasContent,
+    };
+  } else if (fetchResult.status === "truncated") {
+    // 截断发生在完整 JSON 解析之前，不能从残缺载荷中信任任何正文/媒体引用。
+    blocks = [titleBlock];
+    mediaRefs = mergeMediaRefs(
+      stub.coverUrl === null ? [] : [{ url: stub.coverUrl, origin: "cover" as const }],
+      stub.imageUrls.map((url) => ({ url, origin: "list" as const })),
+    );
+    completenessInput = {
+      bodyAvailability: "truncated",
+      bodyTruncated: true,
+      contentEmpty: false,
+      bodyHasText: false,
       mediaRefCount: mediaRefs.length,
       listClaimsContent: stub.hasContent,
     };

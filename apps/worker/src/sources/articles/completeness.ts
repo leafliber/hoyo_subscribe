@@ -41,13 +41,13 @@ export const COMPLETENESS_GAP_STATES: readonly ArticleCompleteness[] = [
   "review-image-borne",
 ];
 
-/** 正文可得性（fetchArticle 结果在完整性维度的投影；failed 不产版本，不进入判定）。 */
-export type BodyAvailability = "fetched" | "content-missing" | "channel-unavailable";
+/** 正文可得性（fetchArticle 结果在完整性维度的投影；一般 failed 不产版本）。 */
+export type BodyAvailability = "fetched" | "truncated" | "content-missing" | "channel-unavailable";
 
 /** 完整性判定原料：P3-01 的信号 + 本卡的内容构造结果。 */
 export interface CompletenessInput {
   readonly bodyAvailability: BodyAvailability;
-  /** 响应体读取被上限截断（P3-01 signals.bodyTruncated；当前管线把截断整个请求作废，此值留作直达信号）。 */
+  /** 正文截断信号；完整 JSON 也可能携带此信号，受限读体超限则用 truncated 可得性。 */
   readonly bodyTruncated: boolean;
   /** 正文 HTML 为空串（P3-01 signals.contentEmpty）。 */
   readonly contentEmpty: boolean;
@@ -69,6 +69,9 @@ export interface CompletenessInput {
  *   - 正文不承载可读文本且无图片 → 与空正文同归 gap-source-empty（声称有正文的空壳同样是暂空）。
  */
 export function determineCompleteness(input: CompletenessInput): ArticleCompleteness {
+  if (input.bodyAvailability === "truncated") {
+    return "gap-body-truncated";
+  }
   if (input.bodyAvailability === "content-missing") {
     return "gap-content-missing";
   }

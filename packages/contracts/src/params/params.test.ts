@@ -69,8 +69,8 @@ describe("A-P1-PARAM 附录 A.5 启动等式", () => {
     expect(results.every((r) => r.ok)).toBe(true);
   });
 
-  it("覆盖 §11 的全部数值等式（24 条）外加 1 条语义条款单列", () => {
-    expect(PARAM_EQUATIONS).toHaveLength(24);
+  it("覆盖 §11 的原有数值等式及 P3-08 来源上限依赖（25 条），另有 1 条语义条款", () => {
+    expect(PARAM_EQUATIONS).toHaveLength(25);
     expect(SEMANTIC_INVARIANTS.map((s) => s.id)).toEqual(["mail-digest-window-forward-only"]);
   });
 

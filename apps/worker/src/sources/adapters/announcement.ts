@@ -283,6 +283,17 @@ export function createAnnouncementAdapter(
       // fetchArticle 是全量正文集合在单条上的投影（"复查=全量重拉"的落点）。
       const fetchedSet = await fetchAnnouncementContentSet(entry, fetchFn);
       if ("failure" in fetchedSet) {
+        if (fetchedSet.failure.kind === "response-too-large") {
+          // 全量正文 JSON 已被限量读体截断，无法按 ann_id 解析。保留定位键，
+          // 让 articles/ingest 用列表证据落缺口；残缺正文绝不进入 fetched。
+          return {
+            status: "truncated",
+            sourceId: entry.sourceId,
+            externalId: ref.externalId,
+            observedAtLeastBytes: fetchedSet.failure.bytes,
+            capBytes: fetchedSet.failure.cap,
+          };
+        }
         return {
           status: "failed",
           sourceId: entry.sourceId,

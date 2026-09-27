@@ -59,6 +59,19 @@ describe("A-P3-ARTICLE 完整性判定：真实样本", () => {
 });
 
 describe("A-P3-ARTICLE 完整性判定：三种缺口各自成态（构造变体，非官方样本）", () => {
+  it("A-P3-TRUNCATE 完整 JSON 不可得时截断态直接归入 gap-body-truncated", () => {
+    expect(
+      determineCompleteness({
+        bodyAvailability: "truncated",
+        bodyTruncated: true,
+        contentEmpty: false,
+        bodyHasText: false,
+        mediaRefCount: 0,
+        listClaimsContent: true,
+      }),
+    ).toBe("gap-body-truncated");
+  });
+
   it("正文截断 → gap-body-truncated", () => {
     expect(
       determineCompleteness(fetchedInput(findEntry(21928).content, { bodyTruncated: true })),

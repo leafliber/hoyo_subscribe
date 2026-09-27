@@ -36,7 +36,7 @@ P0 待定项（`MODEL_MAX_INPUT`、`MODEL_MAX_BILLED_OUTPUT`）未填写前，�
 | SOURCE_HOT_POLL | 600 | 秒 | 前瞻/更新前后的热点轮询 | 基线 |
 | SOURCE_RECHECK_WINDOW | 7 | 天 | 近期公告正文复查范围 | 基线 |
 | SOURCE_RECHECK_INTERVAL | 21,600 | 秒 | 复查间隔；活跃关联公告继续受限跟踪 | 基线 |
-| SOURCE_LIMIT_PROFILE | {"status":"measured-by-p0-02","registryFile":"fixtures/sources/registry.draft.json","perSourceField":"sources[].limit_profile_measured"} | 按来源结构 | 页数、正文大小、请求超时、重定向和批量上限 | 实测引用；P0-02 实测，见 fixtures/sources/registry.draft.json 的 limit_profile_measured |
+| SOURCE_LIMIT_PROFILE | {"status":"measured-by-p0-02","registryFile":"fixtures/sources/registry.draft.json","perSourceField":"sources[].limit_profile_measured","responseCapsBytes":{"genshin-ann":458752,"hsr-ann":524288,"zzz-ann":393216,"miyoushe-news":131072},"responseCapCeilingBytes":524288} | 按来源结构 | 页数、正文大小、请求超时、重定向和批量上限 | 实测引用；P0-02 实测见 fixtures/sources/registry.draft.json；P3-08 生产响应上限和统一安全界在本参数项 |
 | DISCOVERY_TARGET | 1,800 | 秒 | 自官方发布时间计的发现目标（不是 SLA） | 基线 |
 | PUBLICATION_TARGET | 2,700 | 秒 | 自官方发布时间计的发布目标（不是 SLA） | 基线 |
 | WATCHDOG_INTERVAL | 600 | 秒 | 修复两个固定执行器 | 基线 |
@@ -219,6 +219,7 @@ P0 待定项（`MODEL_MAX_INPUT`、`MODEL_MAX_BILLED_OUTPUT`）未填写前，�
 | push-critical-reserved-within-send-day | 预留与容量包含 | PUSH_CRITICAL_RESERVED_DAY <= PUSH_SEND_DAY（关键预留包含在外发总预算内） | PUSH_CRITICAL_RESERVED_DAY(500) <= PUSH_SEND_DAY(5000) |
 | push-test-day-within-send-day | 预留与容量包含 | PUSH_TEST_DAY <= PUSH_SEND_DAY（测试日量仍计入总发送） | PUSH_TEST_DAY(200) <= PUSH_SEND_DAY(5000) |
 | ai-soft-below-hard | usage 单位一致 | AI_SOFT_DAY < AI_HARD_DAY（同为 Neurons/日，软线严于硬线） | AI_SOFT_DAY(6000) < AI_HARD_DAY(8000) |
+| source-response-caps-within-ceiling | 来源上限 | SOURCE_LIMIT_PROFILE 每来源响应上限 > 0 且 <= responseCapCeilingBytes | max(SOURCE_LIMIT_PROFILE.responseCapsBytes)(524288) <= responseCapCeilingBytes(524288) |
 
 ### 语义条款（无法用参数数值校验，由实现阶段测试保证）
 
@@ -226,5 +227,5 @@ P0 待定项（`MODEL_MAX_INPUT`、`MODEL_MAX_BILLED_OUTPUT`）未填写前，�
 
 ### 等式数量核对
 
-数值等式 24 条、语义条款 1 条。
+数值等式 25 条、语义条款 1 条。
 `pnpm params:verify` 与 Worker 启动路径逐条校验数值等式，任一不成立即拒绝并指明该条。
