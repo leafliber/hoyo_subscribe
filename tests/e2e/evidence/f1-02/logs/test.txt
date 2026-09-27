@@ -1,0 +1,16 @@
+$ pnpm -r --if-present run test
+Scope: 3 of 4 workspace projects
+packages/contracts test$ vitest run
+packages/contracts test:  RUN  v4.1.11 /private/tmp/hoyo-f1-02/packages/contracts
+packages/contracts test:  Test Files  18 passed (18)
+packages/contracts test:       Tests  174 passed (174)
+packages/contracts test:    Start at  23:41:09
+packages/contracts test:    Duration  402ms (transform 496ms, setup 0ms, import 1.18s, tests 193ms, environment 1ms)
+packages/contracts test: Done
+apps/worker test$ vitest run
+apps/worker test:  RUN  v4.1.11 /private/tmp/hoyo-f1-02/apps/worker
+apps/worker test:  Test Files  29 passed (29)
+apps/worker test:       Tests  264 passed (264)
+apps/worker test:    Start at  23:41:10
+apps/worker test:    Duration  5.01s (transform 3.48s, setup 0ms, import 21.68s, tests 1.49s, environment 2ms)
+apps/worker test: Done

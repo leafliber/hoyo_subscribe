@@ -1,0 +1,54 @@
+$ tsx scripts/params/verify.ts
+✓ [mail-total-day-sum]（邮件（纯日额度））MAIL_TOTAL_DAY = MAIL_AUTH_DAY + MAIL_BASE_DAY + MAIL_URGENT_DAY
+    MAIL_TOTAL_DAY(260) = MAIL_AUTH_DAY(90) + MAIL_BASE_DAY(50) + MAIL_URGENT_DAY(120) → 260 = 260
+✓ [mail-total-day-within-platform-limit]（邮件（纯日额度））MAIL_TOTAL_DAY <= PLATFORM_MAIL_DAY_LIMIT（平台实测日上限）
+    MAIL_TOTAL_DAY(260) <= PLATFORM_MAIL_DAY_LIMIT(1000)
+✓ [mail-signup-auth-day-subset]（邮件（纯日额度））MAIL_SIGNUP_AUTH_DAY <= MAIL_AUTH_DAY
+    MAIL_SIGNUP_AUTH_DAY(10) <= MAIL_AUTH_DAY(90)
+✓ [mail-auth-floor-below-day]（邮件（纯日额度））MAIL_AUTH_FLOOR < MAIL_AUTH_DAY（floor 必须真正触得到）
+    MAIL_AUTH_FLOOR(20) < MAIL_AUTH_DAY(90)
+✓ [mail-urgent-floor-below-day]（邮件（纯日额度））MAIL_URGENT_FLOOR < MAIL_URGENT_DAY（floor 必须真正触得到）
+    MAIL_URGENT_FLOOR(20) < MAIL_URGENT_DAY(120)
+✓ [mail-routine-seats-within-seats]（邮件（池容量对得起承诺的名额））MAIL_ROUTINE_SEATS_MAX <= MAIL_SEATS_MAX
+    MAIL_ROUTINE_SEATS_MAX(40) <= MAIL_SEATS_MAX(100)
+✓ [mail-base-day-covers-routine-seats]（邮件（池容量对得起承诺的名额））MAIL_BASE_DAY >= MAIL_ROUTINE_SEATS_MAX × MAIL_USER_BASE_DAY（1.25x 重试余量：50 对 40）
+    MAIL_BASE_DAY(50) >= MAIL_ROUTINE_SEATS_MAX(40) × MAIL_USER_BASE_DAY(1) = 40
+✓ [mail-urgent-day-covers-seats-plus-floor]（邮件（池容量对得起承诺的名额））MAIL_URGENT_DAY >= MAIL_SEATS_MAX + MAIL_URGENT_FLOOR（一次官方取消当天覆盖全部席位，且之后仍触得到 floor）
+    MAIL_URGENT_DAY(120) >= MAIL_SEATS_MAX(100) + MAIL_URGENT_FLOOR(20) = 120
+✓ [preauth-min-ttl-safe]（认证时序）PREAUTH_MIN_TTL >= OTP_TTL + AUTH_COMPLETION_TTL + PREAUTH_MARGIN
+    PREAUTH_MIN_TTL(1320) >= OTP_TTL(600) + AUTH_COMPLETION_TTL(600) + PREAUTH_MARGIN(120) = 1320
+✓ [otp-cookie-covers-late-challenge]（认证时序）OTP 绑定 Cookie 截止 >= 最晚挑战截止 + AUTH_COMPLETION_TTL + PREAUTH_MARGIN
+    OTP绑定Cookie截止(PREAUTH_MIN_TTL=1320) >= 最晚挑战截止(OTP_TTL=600) + AUTH_COMPLETION_TTL(600) + PREAUTH_MARGIN(120) = 1320
+✓ [session-absolute-lower-above-idle]（会话时序）SESSION_ABSOLUTE_TTL - SESSION_ABSOLUTE_JITTER > SESSION_IDLE_TTL
+    SESSION_ABSOLUTE_TTL(15552000) - SESSION_ABSOLUTE_JITTER(1728000) = 13824000 > SESSION_IDLE_TTL(7776000)
+✓ [session-idle-above-renew-interval]（会话时序）SESSION_IDLE_TTL > SESSION_RENEW_INTERVAL
+    SESSION_IDLE_TTL(7776000) > SESSION_RENEW_INTERVAL(604800)
+✓ [session-idle-above-expiry-notice]（会话时序）SESSION_IDLE_TTL > SESSION_EXPIRY_NOTICE
+    SESSION_IDLE_TTL(7776000) > SESSION_EXPIRY_NOTICE(1209600)
+✓ [delivery-dedupe-above-occurrence-ttls]（其余）DELIVERY_DEDUPE_TTL > 业务发生项最大有效期 + 最大重试余量
+    DELIVERY_DEDUPE_TTL(604800) > max(REMINDER_GRACE 300, NEW_EVENT_TTL 21600, CHANGE_TTL 86400, LATE_NOTICE_TTL 900) = 86400（重试余量由调度实现再行加算，参数层以最大有效期为下界）
+✓ [feed-shrink-guard-ratio-open-interval]（其余）0 < FEED_SHRINK_GUARD_RATIO < 1
+    0 < FEED_SHRINK_GUARD_RATIO(0.4) < 1
+✓ [mail-auth-reserved-within-pending]（预留与容量包含）MAIL_AUTH_RESERVED_PENDING <= MAIL_PENDING_MAX（认证预留包含在未完成总量内）
+    MAIL_AUTH_RESERVED_PENDING(200) <= MAIL_PENDING_MAX(500)
+✓ [mail-pending-within-record]（预留与容量包含）MAIL_PENDING_MAX <= MAIL_RECORD_MAX（未完成量包含在元数据容量内）
+    MAIL_PENDING_MAX(500) <= MAIL_RECORD_MAX(10000)
+✓ [mail-unmatched-within-feedback]（预留与容量包含）MAIL_UNMATCHED_MAX <= MAIL_FEEDBACK_MAX（未关联反馈保留包含在反馈容量内）
+    MAIL_UNMATCHED_MAX(1000) <= MAIL_FEEDBACK_MAX(20000)
+✓ [delivery-pending-within-record]（预留与容量包含）DELIVERY_PENDING_MAX <= DELIVERY_RECORD_MAX（未完成任务包含在记录容量内）
+    DELIVERY_PENDING_MAX(5000) <= DELIVERY_RECORD_MAX(50000)
+✓ [push-active-within-total]（预留与容量包含）PUSH_ACTIVE_MAX <= PUSH_TOTAL_MAX
+    PUSH_ACTIVE_MAX(500) <= PUSH_TOTAL_MAX(550)
+✓ [push-pending-within-total]（预留与容量包含）PUSH_PENDING_MAX <= PUSH_TOTAL_MAX
+    PUSH_PENDING_MAX(50) <= PUSH_TOTAL_MAX(550)
+✓ [push-critical-reserved-within-send-day]（预留与容量包含）PUSH_CRITICAL_RESERVED_DAY <= PUSH_SEND_DAY（关键预留包含在外发总预算内）
+    PUSH_CRITICAL_RESERVED_DAY(500) <= PUSH_SEND_DAY(5000)
+✓ [push-test-day-within-send-day]（预留与容量包含）PUSH_TEST_DAY <= PUSH_SEND_DAY（测试日量仍计入总发送）
+    PUSH_TEST_DAY(200) <= PUSH_SEND_DAY(5000)
+✓ [ai-soft-below-hard]（usage 单位一致）AI_SOFT_DAY < AI_HARD_DAY（同为 Neurons/日，软线严于硬线）
+    AI_SOFT_DAY(6000) < AI_HARD_DAY(8000)
+
+数值等式 24 条：24 条成立，0 条不成立。
+· 语义条款（由实现保证，不在数值校验内）：[mail-digest-window-forward-only] MAIL_DIGEST_WINDOW 只用于提前发送；合并后任一条的实际发送时间不得晚于其自身 expires_at（附录 A.5 / §11） → P4-02 调度实现（合并只能提前，不得推迟任何一条）
+
+参数等式校验通过（附录 A.5 / CONTRACTS_BASELINE.md §11 全部成立）。

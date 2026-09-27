@@ -26,6 +26,9 @@ importers:
 
   apps/web:
     dependencies:
+      '@hoyo/contracts':
+        specifier: workspace:*
+        version: link:../../packages/contracts
       astro:
         specifier: 7.3.3
         version: 7.3.3(@emnapi/core@1.11.1)(@emnapi/runtime@1.11.3)(@types/node@26.6.2)(tsx@4.23.15)
