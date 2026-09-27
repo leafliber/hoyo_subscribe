@@ -4,9 +4,11 @@
 // 的全部数值等式在模块加载时执行。任一不成立时 verifyParams 抛出 ParamEquationError
 // （消息逐条指明是哪一条），Worker 实例化失败即**拒绝启动**——与 `pnpm params:verify`
 // 共用同一个函数，不存在第二套校验。
+// P2-03 裁定授权注入：挂载原 preauth + 操作幂等键领取 pending Cookie 的完成端点。
 import { verifyParams } from "@hoyo/contracts";
 import { statusRoute } from "./accounts/admission/status";
 import { makeChallengeRoutes } from "./auth/challenges/routes";
+import { makeCompleteRoute } from "./auth/consume/routes";
 import { InMemoryAuthRateGate } from "./auth/preauth/rate-gate";
 import { makePreauthInitRoute } from "./auth/preauth/routes";
 import { siteverifyTurnstileVerifier } from "./auth/preauth/turnstile";
@@ -100,6 +102,7 @@ function getShell(env: Env): Shell {
           turnstile: () =>
             siteverifyTurnstileVerifier((env as Env & ShellSecrets).TURNSTILE_SECRET_KEY ?? ""),
         }),
+        makeCompleteRoute(() => getKeyring(env as Env & ShellSecrets)),
       ],
     });
     shellByEnv.set(env, shell);

@@ -4,6 +4,7 @@
 // - 验证码另按 OTP_DIGITS 均匀随机生成：每位数字用**拒绝采样**从随机字节映射，
 //   上界 = floor(256/10)*10（运行时推导，不写字面量），拒绝 250–255，
 //   使每位在 0–9 上严格均匀——直接 `byte % 10` 会给 0–5 多 1/256 的偏置（有卡方测试防回退）。
+// P2-03 注入：会话绝对期限的毫秒抖动也须均匀，复用本模块的拒绝采样纪律。
 
 import { OTP_DIGITS, SECRET_BITS } from "@hoyo/contracts";
 import { toBase64Url } from "./bytes";
@@ -44,4 +45,24 @@ export function generateOtpCode(): string {
     code += uniformDecimalDigit().toString();
   }
   return code;
+}
+
+/** 在闭区间内均匀抽取整数；拒绝采样消除 Uint32 取模偏置。 */
+export function uniformIntegerInclusive(min: number, max: number): number {
+  if (!Number.isSafeInteger(min) || !Number.isSafeInteger(max) || min > max) {
+    throw new Error("均匀随机整数区间无效");
+  }
+  const span = max - min + 1;
+  const domain = 2 ** 32;
+  if (!Number.isSafeInteger(span) || span > domain) {
+    throw new Error("均匀随机整数区间超出 Uint32 拒绝采样能力");
+  }
+  const limit = Math.floor(domain / span) * span;
+  const buffer = new Uint32Array(1);
+  for (;;) {
+    crypto.getRandomValues(buffer);
+    if (buffer[0] < limit) {
+      return min + (buffer[0] % span);
+    }
+  }
 }

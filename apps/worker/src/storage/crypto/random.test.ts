@@ -2,9 +2,9 @@
 // 重点：SECRET_BITS 强度与唯一性；OTP_DIGITS 均匀性的卡方检验——
 // 直接 byte % 10 的偏置（0–5 多 1/256）在同样本量下卡方值会到 ~100+，
 // 远超上界，因此这条测试同时是拒绝采样不被退化成取模的回归测试。
-import { OTP_DIGITS, SECRET_BITS } from "@hoyo/contracts";
+import { OTP_DIGITS, SECRET_BITS, SESSION_ABSOLUTE_JITTER } from "@hoyo/contracts";
 import { describe, expect, it } from "vitest";
-import { generateOtpCode, generateSecretToken } from "./random";
+import { generateOtpCode, generateSecretToken, uniformIntegerInclusive } from "./random";
 
 describe("A-P1-CRYPTO · 强随机秘密（SECRET_BITS，§4.5）", () => {
   it("长度 = SECRET_BITS/8 字节；base64url 形态 43 字符无填充", () => {
@@ -19,6 +19,27 @@ describe("A-P1-CRYPTO · 强随机秘密（SECRET_BITS，§4.5）", () => {
       seen.add(generateSecretToken().base64url);
     }
     expect(seen.size).toBe(2000);
+  });
+});
+
+describe("A-P2-CONSUME · 会话绝对期限抖动的均匀随机", () => {
+  it("覆盖注册表 ± 抖动毫秒范围；拒绝采样消除 32 位直接取模的低段偏置", () => {
+    const bound = SESSION_ABSOLUTE_JITTER * 1_000;
+    const sampleCount = 10_000;
+    const lowerQuarter = -bound + Math.floor((2 * bound + 1) / 4);
+    let low = 0;
+    const seen = new Set<number>();
+    for (let i = 0; i < sampleCount; i++) {
+      const value = uniformIntegerInclusive(-bound, bound);
+      expect(value).toBeGreaterThanOrEqual(-bound);
+      expect(value).toBeLessThanOrEqual(bound);
+      seen.add(value);
+      if (value < lowerQuarter) low += 1;
+    }
+    expect(seen.size).toBeGreaterThan(sampleCount * 0.99);
+    // 取模偏置会使低四分位约占 39%，远离下述随机波动带。
+    expect(low / sampleCount).toBeGreaterThan(0.22);
+    expect(low / sampleCount).toBeLessThan(0.28);
   });
 });
 
