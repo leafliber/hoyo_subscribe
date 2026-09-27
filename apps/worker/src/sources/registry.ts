@@ -20,20 +20,25 @@
 import type { GameId } from "@hoyo/contracts";
 import {
   SOURCE_HOT_POLL,
+  SOURCE_LIMIT_PROFILE,
   SOURCE_POLL,
   SOURCE_RECHECK_INTERVAL,
   SOURCE_RECHECK_WINDOW,
 } from "@hoyo/contracts";
 import type { MiyousheNewsType } from "./types";
 
-/** 每来源请求限制：数值逐项来自 registry.draft.json 的 limit_profile_measured（漂移测试锁定）。 */
+/** 来源请求限制：实测项来自 P0-02 登记；生产上限来自 SOURCE_LIMIT_PROFILE。 */
 export interface SourceRequestLimits {
   /** request_timeout_recommend_ms（四来源实测一致 10,000 ms）。 */
   readonly timeoutMs: number;
   /**
-   * 响应体上限 = 该来源实测最大响应：公告源取 max_observed_content_bytes；
-   * 米游社正文通道被停用，取列表实测上界 list_response_bytes_observed_range 的最大值。
-   * 超限不是错误放宽的理由，而是重新实测并更新登记的信号。
+   * 生产响应上限取 SOURCE_LIMIT_PROFILE.responseCapsBytes，区别于观测峰值。
+   * 公告源：观测全集 + 20 条（已核验 page_size 的一批）的观测平均体积 + 一条最大观测
+   * 正文的体积，最后进位到 64 KiB。最大单条按原始响应/样本 JSON 比例折算，覆盖新批中
+   * 一条较大的公告；超过一批或更大单条由截断缺口+告警处理，不自动抬限。
+   * 米游社列表固定 20 条/页：最大观测页 + 该页最大单条再增长一倍，进位到 64 KiB。
+   * 四来源一律不得超过 SOURCE_LIMIT_PROFILE.responseCapCeilingBytes（512 KiB）。
+   * 这只提高一次既有请求的读体界，不增加请求次数或引入新计量项。
    */
   readonly maxResponseBytes: number;
   /** 单请求批量上限：米游社 page_size 实测回落值 20；公告源无按页截断 → null。 */
@@ -121,7 +126,11 @@ const GENSHIN_ANN: AnnouncementSourceEntry = {
   verificationState: "verified-working",
   contentChannelDisabled: false,
   lastSuccessAtUtc: "2026-09-21T17:41:54Z",
-  requestLimits: { timeoutMs: 10_000, maxResponseBytes: 254_672, listPageSizeCap: null },
+  requestLimits: {
+    timeoutMs: 10_000,
+    maxResponseBytes: SOURCE_LIMIT_PROFILE.responseCapsBytes["genshin-ann"],
+    listPageSizeCap: null,
+  },
   request: {
     listPath: "/common/hk4e_cn/announcement/api/getAnnList",
     listParams: {
@@ -154,7 +163,11 @@ const HSR_ANN: AnnouncementSourceEntry = {
   verificationState: "verified-working",
   contentChannelDisabled: false,
   lastSuccessAtUtc: "2026-09-21T17:41:54Z",
-  requestLimits: { timeoutMs: 10_000, maxResponseBytes: 195_598, listPageSizeCap: null },
+  requestLimits: {
+    timeoutMs: 10_000,
+    maxResponseBytes: SOURCE_LIMIT_PROFILE.responseCapsBytes["hsr-ann"],
+    listPageSizeCap: null,
+  },
   request: {
     listPath: "/common/hkrpg_cn/announcement/api/getAnnList",
     listParams: {
@@ -187,7 +200,11 @@ const ZZZ_ANN: AnnouncementSourceEntry = {
   verificationState: "verified-working",
   contentChannelDisabled: false,
   lastSuccessAtUtc: "2026-09-21T17:41:54Z",
-  requestLimits: { timeoutMs: 10_000, maxResponseBytes: 153_329, listPageSizeCap: null },
+  requestLimits: {
+    timeoutMs: 10_000,
+    maxResponseBytes: SOURCE_LIMIT_PROFILE.responseCapsBytes["zzz-ann"],
+    listPageSizeCap: null,
+  },
   request: {
     listPath: "/common/nap_cn/announcement/api/getAnnList",
     listParams: {
@@ -227,7 +244,11 @@ const MIYOUSHE_NEWS: MiyousheNewsSourceEntry = {
   // 不重试、不换路径、不伪装 UA、不用第三方聚合后端（AGENTS.md 规则 6）。
   contentChannelDisabled: true,
   lastSuccessAtUtc: "2026-09-21T17:43:50Z",
-  requestLimits: { timeoutMs: 10_000, maxResponseBytes: 110_546, listPageSizeCap: 20 },
+  requestLimits: {
+    timeoutMs: 10_000,
+    maxResponseBytes: SOURCE_LIMIT_PROFILE.responseCapsBytes["miyoushe-news"],
+    listPageSizeCap: 20,
+  },
   request: { listPath: "/painter/wapi/getNewsList", listParams: { gids: "2" } },
   newsTypes: ["1", "2", "3"],
 };
@@ -239,6 +260,12 @@ export const SOURCE_REGISTRY: readonly SourceRegistryEntry[] = [
   ZZZ_ANN,
   MIYOUSHE_NEWS,
 ];
+
+for (const entry of SOURCE_REGISTRY) {
+  if (entry.requestLimits.maxResponseBytes > SOURCE_LIMIT_PROFILE.responseCapCeilingBytes) {
+    throw new Error(`来源 ${entry.sourceId} 的响应上限超过 SOURCE_LIMIT_PROFILE 安全上界`);
+  }
+}
 
 export function listSourceEntries(): readonly SourceRegistryEntry[] {
   return SOURCE_REGISTRY;

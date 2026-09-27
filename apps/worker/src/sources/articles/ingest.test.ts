@@ -4,7 +4,7 @@
 // ★ 抓取失败/列表为空零写入、无取消语义；米游社通道不可用 ≠ 正文为空。
 
 import { env } from "cloudflare:test";
-import { beforeAll, describe, expect, it } from "vitest";
+import { beforeAll, describe, expect, it, vi } from "vitest";
 import genshinContent from "../../../../../fixtures/sources/genshin-ann/content-21819.json";
 import genshinList from "../../../../../fixtures/sources/genshin-ann/list-page-1.json";
 import miyousheType2 from "../../../../../fixtures/sources/miyoushe-news/news-list-type2-page1.json";
@@ -15,7 +15,12 @@ import type { AnnouncementSourceEntry, MiyousheNewsSourceEntry } from "../regist
 import { getSourceEntry, SOURCE_REGISTRY } from "../registry";
 import { sha256Hex } from "../snapshot-diff";
 import type { ArticleCompletenessSignals, ArticleFetchResult, SourceItemStub } from "../types";
-import { buildArticleIngestPlan, saveArticleVersion, saveArticleVersions } from "./ingest";
+import {
+  type ArticleSaveOutcome,
+  buildArticleIngestPlan,
+  saveArticleVersion,
+  saveArticleVersions,
+} from "./ingest";
 
 declare global {
   interface ImportMeta {
@@ -194,6 +199,45 @@ async function articleByExternalId(externalId: string): Promise<ArticleRow | und
     externalId,
   );
   return rows[0];
+}
+
+/** 独立的合成文章身份，正文仍用 P0-02 真实样本，避免六条回归场景共享版本历史。 */
+async function syntheticGenshinCase(externalId: string): Promise<{
+  stub: SourceItemStub;
+  fetched: (atMs: number) => Promise<ArticleFetchResult>;
+  truncated: ArticleFetchResult;
+  missing: ArticleFetchResult;
+}> {
+  const content = findContentEntry(21928);
+  const stub: SourceItemStub = { ...(await genshinStub("21928")), externalId };
+  const fetched = async (atMs: number): Promise<ArticleFetchResult> => ({
+    ...(await fetchedResult(content, content.content, atMs)),
+    externalId,
+  });
+  const truncated: ArticleFetchResult = {
+    status: "truncated",
+    sourceId: genshinEntry.sourceId,
+    externalId,
+    observedAtLeastBytes: genshinEntry.requestLimits.maxResponseBytes + 1,
+    capBytes: genshinEntry.requestLimits.maxResponseBytes,
+  };
+  const missing: ArticleFetchResult = {
+    status: "missing-from-content-set",
+    sourceId: genshinEntry.sourceId,
+    externalId,
+    note: "合成：全量正文集合缺条",
+  };
+  return { stub, fetched, truncated, missing };
+}
+
+async function saveSyntheticPlan(
+  stub: SourceItemStub,
+  result: ArticleFetchResult,
+  nowMs: number,
+): Promise<ArticleSaveOutcome> {
+  const plan = await buildArticleIngestPlan(genshinEntry, stub, result, nowMs);
+  if (plan.kind !== "version") throw new Error("该回归场景必须产版本计划");
+  return saveArticleVersion(env.DB, plan.plan);
 }
 
 beforeAll(async () => {
@@ -387,7 +431,7 @@ describe("A-P3-ARTICLE ★ 抓取失败与空列表：零写入、无取消语�
     const plan = await buildArticleIngestPlan(genshinEntry, stub, failed, T1);
     expect(plan.kind).toBe("no-write");
     const report = await saveArticleVersions(env.DB, [plan]);
-    expect(report).toEqual({ created: 0, unchanged: 0, skippedNoWrite: 1 });
+    expect(report).toEqual({ created: 0, unchanged: 0, skippedNoWrite: 1, skippedDegraded: 0 });
     expect(await articleByExternalId("21819")).toBeUndefined();
   });
 
@@ -415,7 +459,7 @@ describe("A-P3-ARTICLE ★ 抓取失败与空列表：零写入、无取消语�
       "SELECT COUNT(*) AS count FROM article_versions",
     );
     const report = await saveArticleVersions(env.DB, []);
-    expect(report).toEqual({ created: 0, unchanged: 0, skippedNoWrite: 0 });
+    expect(report).toEqual({ created: 0, unchanged: 0, skippedNoWrite: 0, skippedDegraded: 0 });
     const articlesAfter = await query<{ count: number }>("SELECT COUNT(*) AS count FROM articles");
     const versionsAfter = await query<{ count: number }>(
       "SELECT COUNT(*) AS count FROM article_versions",
@@ -446,34 +490,62 @@ describe("A-P3-ARTICLE 缺口成态：截断 / 图片承载日期 / 来源暂空
     expect(mediaRefs).toHaveLength(1);
   });
 
-  it("正文截断信号 → gap-body-truncated 版本（构造截断，非官方样本；当前管线截断即整请求作废）", async () => {
-    const entry = findContentEntry(21928);
+  it("A-P3-TRUNCATE 截断态只存列表标题，绝不把无法解析的正文当完整正文", async () => {
     const stub = await genshinStub("21928");
     const truncated: ArticleFetchResult = {
-      status: "fetched",
+      status: "truncated",
       sourceId: genshinEntry.sourceId,
       externalId: "21928",
-      title: entry.title,
-      contentHtml: entry.content,
-      contentSha256: await sha256Hex(entry.content),
-      signals: signalsFor(entry.content, { bodyTruncated: true }),
-      fetchedAtMs: T1,
+      observedAtLeastBytes: genshinEntry.requestLimits.maxResponseBytes + 1,
+      capBytes: genshinEntry.requestLimits.maxResponseBytes,
     };
     const plan = await buildArticleIngestPlan(genshinEntry, stub, truncated, T1);
     if (plan.kind !== "version") throw new Error("该场景必须产版本计划");
     expect(plan.plan.completeness).toBe("gap-body-truncated");
+    expect(plan.plan.blocks).toEqual([{ kind: "title", text: stub.title }]);
+
+    // 即便适配器返回 fetched 形状，显式 bodyTruncated 信号仍使正文不可被信任。
+    const entry = findContentEntry(21928);
+    const signaled = await fetchedResult(entry, entry.content, T1);
+    if (signaled.status !== "fetched") throw new Error("测试原料应为 fetched");
+    const signaledPlan = await buildArticleIngestPlan(
+      genshinEntry,
+      stub,
+      { ...signaled, signals: { ...signaled.signals, bodyTruncated: true } },
+      T1,
+    );
+    if (signaledPlan.kind !== "version") throw new Error("截断信号应产缺口计划");
+    expect(signaledPlan.plan.completeness).toBe("gap-body-truncated");
+    expect(signaledPlan.plan.blocks).toEqual([{ kind: "title", text: stub.title }]);
   });
 
   it("来源暂空：列表声称有正文而正文集合给空 → gap-source-empty 版本（构造空正文的真实条目）", async () => {
     const entry = findContentEntry(21928);
     const stub = await genshinStub("21928");
     const emptied: ContentEntry = { ...entry, content: "" };
-    const plan = await buildArticleIngestPlan(
-      genshinEntry,
-      stub,
-      await fetchedResult(emptied, "", T1),
-      T1,
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    let plan: Awaited<ReturnType<typeof buildArticleIngestPlan>>;
+    let logLines: string[] = [];
+    try {
+      plan = await buildArticleIngestPlan(
+        genshinEntry,
+        stub,
+        await fetchedResult(emptied, "", T1),
+        T1,
+      );
+      logLines = logSpy.mock.calls.map(([line]) => String(line));
+    } finally {
+      logSpy.mockRestore();
+    }
+    expect(logLines.map((line) => JSON.parse(line))).toContainEqual(
+      expect.objectContaining({
+        event: "source_content_gap",
+        source: genshinEntry.sourceId,
+        reason_code: "source_empty",
+        count: 1,
+      }),
     );
+    expect(logLines.join("\n")).not.toContain(stub.externalId);
     if (plan.kind !== "version") throw new Error("该场景必须产版本计划");
     expect(plan.plan.completeness).toBe("gap-source-empty");
     expect(plan.plan.blocks).toHaveLength(1); // 只剩标题块
@@ -573,5 +645,228 @@ describe("A-P3-ARTICLE 米游社：通道不可用 ≠ 正文为空（真实列�
     if (plan.kind !== "version") throw new Error("该场景必须产版本计划");
     expect(plan.plan.completeness).toBe("gap-channel-unavailable");
     expect(plan.plan.mediaRefs).toEqual([]);
+  });
+});
+
+describe("A-P3-TRUNCATE 受限读体到落库的闭环（合成超限响应）", () => {
+  it("全量正文超限时用真实列表条目落 gap-body-truncated 行，不保存残缺正文，也不追加请求", async () => {
+    const stub = await genshinStub("762");
+    const cap = 1024; // 测试专用小上限；生产值只从 SOURCE_LIMIT_PROFILE 取。
+    const privateBodyMarker = "SYNTHETIC_TRUNCATED_BODY_MUST_NOT_BE_STORED";
+    const responseBody = JSON.stringify({
+      retcode: 0,
+      data: { list: [{ ann_id: 762, content: `${privateBodyMarker}${"x".repeat(cap)}` }] },
+    });
+    expect(new TextEncoder().encode(responseBody).byteLength).toBeGreaterThan(cap);
+    let requests = 0;
+    const fetchFn = (async () => {
+      requests += 1;
+      return new Response(responseBody, { headers: { "content-type": "application/json" } });
+    }) as typeof fetch;
+    const adapter = createAnnouncementAdapter(
+      {
+        ...genshinEntry,
+        requestLimits: { ...genshinEntry.requestLimits, maxResponseBytes: cap },
+      },
+      { fetchFn },
+    );
+    const article = await adapter.fetchArticle({
+      sourceId: genshinEntry.sourceId,
+      externalId: stub.externalId,
+      title: stub.title,
+    });
+    expect(article).toMatchObject({
+      status: "truncated",
+      capBytes: cap,
+      observedAtLeastBytes: expect.any(Number),
+    });
+    const plan = await buildArticleIngestPlan(genshinEntry, stub, article, T2);
+    expect(plan.kind).toBe("version");
+    if (plan.kind !== "version") return;
+    expect(plan.plan.completeness).toBe("gap-body-truncated");
+    expect(plan.plan.blocks).toEqual([{ kind: "title", text: stub.title }]);
+    expect(JSON.stringify(plan.plan)).not.toContain(privateBodyMarker);
+    expect(requests).toBe(1);
+
+    expect(await saveArticleVersions(env.DB, [plan])).toEqual({
+      created: 1,
+      unchanged: 0,
+      skippedNoWrite: 0,
+      skippedDegraded: 0,
+    });
+    const saved = await articleByExternalId(stub.externalId);
+    expect(saved).toBeDefined();
+    if (saved === undefined) return;
+    const rows = await versionsOf(saved.id);
+    expect(rows).toHaveLength(1);
+    expect(rows[0].completeness).toBe("gap-body-truncated");
+    expect(rows[0].body_blocks_json).not.toContain(privateBodyMarker);
+  });
+});
+
+describe("A-P3-TRUNCATE 降级抓取不得覆盖真实正文（独立合成身份）", () => {
+  it("A-P3-TRUNCATE 完整→截断→同正文恢复：最新版本始终是完整版", async () => {
+    const { stub, fetched, truncated } = await syntheticGenshinCase("p3-08-truncate-recover");
+    expect(await saveSyntheticPlan(stub, await fetched(T1), T1)).toBe("created");
+    const article = await articleByExternalId(stub.externalId);
+    if (article === undefined) throw new Error("应已建文章行");
+    const first = (await versionsOf(article.id))[0];
+    expect(first.completeness).toBe("complete");
+
+    const degraded = await buildArticleIngestPlan(genshinEntry, stub, truncated, T2);
+    expect(await saveArticleVersions(env.DB, [degraded])).toEqual({
+      created: 0,
+      unchanged: 0,
+      skippedNoWrite: 0,
+      skippedDegraded: 1,
+    });
+    expect(await saveSyntheticPlan(stub, await fetched(T2 + 1), T2 + 1)).toBe("unchanged");
+    const versions = await versionsOf(article.id);
+    expect(versions).toHaveLength(1);
+    expect(versions.at(-1)).toEqual(first);
+    expect((await articleByExternalId(stub.externalId))?.last_checked_at).toBe(T2 + 1);
+  });
+
+  it("A-P3-TRUNCATE 完整→集合缺条→同正文恢复：最新版本仍是完整版且缺条有信号", async () => {
+    const { stub, fetched, missing } = await syntheticGenshinCase("p3-08-missing-recover");
+    expect(await saveSyntheticPlan(stub, await fetched(T1), T1)).toBe("created");
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    let logLines: string[] = [];
+    try {
+      expect(await saveSyntheticPlan(stub, missing, T2)).toBe("degraded-skipped");
+      logLines = logSpy.mock.calls.map(([line]) => String(line));
+    } finally {
+      logSpy.mockRestore();
+    }
+    expect(logLines.map((line) => JSON.parse(line))).toContainEqual(
+      expect.objectContaining({
+        level: "warn",
+        event: "source_content_gap",
+        source: genshinEntry.sourceId,
+        reason_code: "content_set_missing",
+        count: 1,
+      }),
+    );
+    expect(logLines.join("\n")).not.toContain(stub.externalId);
+    expect(await saveSyntheticPlan(stub, await fetched(T2 + 1), T2 + 1)).toBe("unchanged");
+    const article = await articleByExternalId(stub.externalId);
+    if (article === undefined) throw new Error("应已建文章行");
+    const versions = await versionsOf(article.id);
+    expect(versions).toHaveLength(1);
+    expect(versions.at(-1)?.completeness).toBe("complete");
+  });
+
+  it("A-P3-TRUNCATE 新文章先截断落标题缺口版，再取得正文成为最新完整版", async () => {
+    const { stub, fetched, truncated } = await syntheticGenshinCase("p3-08-first-gap");
+    expect(await saveSyntheticPlan(stub, truncated, T1)).toBe("created");
+    const article = await articleByExternalId(stub.externalId);
+    if (article === undefined) throw new Error("缺口版应建立文章行");
+    const first = (await versionsOf(article.id))[0];
+    expect(first.completeness).toBe("gap-body-truncated");
+    expect(JSON.parse(first.body_blocks_json)).toEqual([{ kind: "title", text: stub.title }]);
+
+    expect(await saveSyntheticPlan(stub, await fetched(T2), T2)).toBe("created");
+    const versions = await versionsOf(article.id);
+    expect(versions).toHaveLength(2);
+    expect(versions[1]).toMatchObject({ version_no: 2, completeness: "complete" });
+    expect(versions[1].body_blocks_json).toContain("&lt;t class=");
+  });
+
+  it("A-P3-TRUNCATE 最新完整遇截断：无新版本、有超限信号、复查水位不推进", async () => {
+    const { stub, fetched } = await syntheticGenshinCase("p3-08-no-success-watermark");
+    expect(await saveSyntheticPlan(stub, await fetched(T1), T1)).toBe("created");
+    const article = await articleByExternalId(stub.externalId);
+    if (article === undefined) throw new Error("应已建文章行");
+    const before = await versionsOf(article.id);
+    const cap = 1024; // 测试专用；生产上限来自 SOURCE_LIMIT_PROFILE。
+    const adapter = createAnnouncementAdapter(
+      {
+        ...genshinEntry,
+        requestLimits: { ...genshinEntry.requestLimits, maxResponseBytes: cap },
+      },
+      {
+        fetchFn: replayFetch({
+          retcode: 0,
+          data: { list: [{ ann_id: 21928, content: "x".repeat(cap) }] },
+        }),
+      },
+    );
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    let result: ArticleFetchResult | undefined;
+    let logLines: string[] = [];
+    try {
+      result = await adapter.fetchArticle({
+        sourceId: genshinEntry.sourceId,
+        externalId: stub.externalId,
+        title: stub.title,
+      });
+      logLines = logSpy.mock.calls.map(([line]) => String(line));
+    } finally {
+      logSpy.mockRestore();
+    }
+    if (result === undefined) throw new Error("适配器应返回抓取结果");
+    expect(result.status).toBe("truncated");
+    expect(logLines.map((line) => JSON.parse(line))).toContainEqual(
+      expect.objectContaining({
+        level: "warn",
+        event: "source_response_truncated",
+        source: genshinEntry.approvedHosts[0],
+        reason_code: "response_cap_exceeded",
+        count: 1,
+      }),
+    );
+    expect(await saveSyntheticPlan(stub, result, T2)).toBe("degraded-skipped");
+    expect(await versionsOf(article.id)).toEqual(before);
+    expect((await articleByExternalId(stub.externalId))?.last_checked_at).toBe(T1);
+  });
+
+  it("A-P3-TRUNCATE 降级→降级且列表标题变化：新增降级版本", async () => {
+    const { stub, truncated } = await syntheticGenshinCase("p3-08-gap-retitle");
+    expect(await saveSyntheticPlan(stub, truncated, T1)).toBe("created");
+    const retitled: SourceItemStub = { ...stub, title: `${stub.title}（列表修订）` };
+    expect(await saveSyntheticPlan(retitled, truncated, T2)).toBe("created");
+    const article = await articleByExternalId(stub.externalId);
+    if (article === undefined) throw new Error("应已建文章行");
+    const versions = await versionsOf(article.id);
+    expect(versions).toHaveLength(2);
+    expect(versions[1].completeness).toBe("gap-body-truncated");
+    expect(JSON.parse(versions[1].body_blocks_json)).toEqual([
+      { kind: "title", text: retitled.title },
+    ]);
+    expect((await articleByExternalId(stub.externalId))?.last_checked_at).toBe(T1);
+  });
+
+  it("A-P3-TRUNCATE 米游社列表级变化仍新增版本，即使 review-image-borne 无正文", async () => {
+    const adapter = createMiyousheNewsAdapter(miyousheEntry, "2", {
+      fetchFn: replayFetch((miyousheType2 as { body: unknown }).body),
+    });
+    const list = await adapter.list(null, 20);
+    const sample = list.items.find((item) => item.imageUrls.length > 0);
+    if (sample === undefined) throw new Error("样本应含图片级条目");
+    const stub: SourceItemStub = { ...sample, externalId: "p3-08-miyoushe-list-change" };
+    const unavailable: ArticleFetchResult = {
+      status: "channel-unavailable",
+      sourceId: miyousheEntry.sourceId,
+      externalId: stub.externalId,
+      reason: "合成：正文通道不可用",
+    };
+    const first = await buildArticleIngestPlan(miyousheEntry, stub, unavailable, T1);
+    if (first.kind !== "version") throw new Error("应产列表级版本");
+    expect(first.plan.completeness).toBe("review-image-borne");
+    expect(await saveArticleVersion(env.DB, first.plan)).toBe("created");
+
+    const retitled: SourceItemStub = { ...stub, title: `${stub.title}（列表修订）` };
+    const second = await buildArticleIngestPlan(miyousheEntry, retitled, unavailable, T2);
+    if (second.kind !== "version") throw new Error("应产列表级版本");
+    expect(second.plan.completeness).toBe("review-image-borne");
+    expect(await saveArticleVersion(env.DB, second.plan)).toBe("created");
+    const rows = await query<VersionRow>(
+      `SELECT av.* FROM article_versions av JOIN articles a ON a.id = av.article_id
+       WHERE a.source_id = ? AND a.external_id = ? ORDER BY av.version_no`,
+      miyousheEntry.sourceId,
+      stub.externalId,
+    );
+    expect(rows).toHaveLength(2);
+    expect(rows[1].content_hash).not.toBe(rows[0].content_hash);
   });
 });

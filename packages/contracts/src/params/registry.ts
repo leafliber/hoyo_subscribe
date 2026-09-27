@@ -95,6 +95,16 @@ export const SOURCE_LIMIT_PROFILE = {
   status: "measured-by-p0-02",
   registryFile: "fixtures/sources/registry.draft.json",
   perSourceField: "sources[].limit_profile_measured",
+  // P3-08 生产上限；增长模型和 P0 样本对应关系见 sources/registry.ts 注释及测试。
+  responseCapsBytes: {
+    "genshin-ann": 458_752,
+    "hsr-ann": 524_288,
+    "zzz-ann": 393_216,
+    "miyoushe-news": 131_072,
+  },
+  // 工程安全上界：单次来源响应最多缓冲 512 KiB，远低于 Workers 128 MiB isolate 内存。
+  // 增长超过本界时转缺口并发告警，不自动放大；不是允许额外请求/计费的额度。
+  responseCapCeilingBytes: 512 * 1024,
 } as const;
 
 /** 消费方读取 fixtures 来源注册项时 limit_profile_measured 的结构（类型契约，不是第二份值）。 */
@@ -746,7 +756,7 @@ export const PARAM_META: Readonly<Record<keyof ParamValues, ParamMeta>> = {
     unit: "按来源结构",
     description: "页数、正文大小、请求超时、重定向和批量上限",
     status: "measured-ref",
-    note: "P0-02 实测，见 fixtures/sources/registry.draft.json 的 limit_profile_measured",
+    note: "P0-02 实测见 fixtures/sources/registry.draft.json；P3-08 生产响应上限和统一安全界在本参数项",
   },
   DISCOVERY_TARGET: {
     section: "A.1",

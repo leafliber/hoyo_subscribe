@@ -15,6 +15,8 @@
 // 的 image_date_analysis）。正文有文本但日期不全的情况属抽取层（P3-03）的证据校验，
 // 本层不做日期猜测、不越权判定。
 
+import { type ArticleBodyBlock, type ArticleMediaRef, bodyHasVisibleText } from "./blocks";
+
 /**
  * 完整性状态全集。前缀约定：
  *   - complete：官方所给材料完整取得；
@@ -41,13 +43,13 @@ export const COMPLETENESS_GAP_STATES: readonly ArticleCompleteness[] = [
   "review-image-borne",
 ];
 
-/** 正文可得性（fetchArticle 结果在完整性维度的投影；failed 不产版本，不进入判定）。 */
-export type BodyAvailability = "fetched" | "content-missing" | "channel-unavailable";
+/** 正文可得性（fetchArticle 结果在完整性维度的投影；一般 failed 不产版本）。 */
+export type BodyAvailability = "fetched" | "truncated" | "content-missing" | "channel-unavailable";
 
 /** 完整性判定原料：P3-01 的信号 + 本卡的内容构造结果。 */
 export interface CompletenessInput {
   readonly bodyAvailability: BodyAvailability;
-  /** 响应体读取被上限截断（P3-01 signals.bodyTruncated；当前管线把截断整个请求作废，此值留作直达信号）。 */
+  /** 正文截断信号；完整 JSON 也可能携带此信号，受限读体超限则用 truncated 可得性。 */
   readonly bodyTruncated: boolean;
   /** 正文 HTML 为空串（P3-01 signals.contentEmpty）。 */
   readonly contentEmpty: boolean;
@@ -60,6 +62,18 @@ export interface CompletenessInput {
 }
 
 /**
+ * 版本是否真的拿到正文：只认正文可读文本或从正文 HTML 提取的图片。
+ * 标题与列表图片不能证明正文可得；review-image-borne 也可能来自正文通道不可用，
+ * 因此不能以 completeness 标签判定。新计划与已存版本共用这个谓词。
+ */
+export function articleBodyWasFetched(
+  blocks: readonly ArticleBodyBlock[],
+  mediaRefs: readonly ArticleMediaRef[],
+): boolean {
+  return bodyHasVisibleText(blocks) || mediaRefs.some((ref) => ref.origin === "body");
+}
+
+/**
  * 完整性判定（纯函数）。优先级：截断 > 正文不可得 > （空/无文本正文）暂空或图片承载 > 完整。
  *
  * 两处刻意的保守：
@@ -69,6 +83,9 @@ export interface CompletenessInput {
  *   - 正文不承载可读文本且无图片 → 与空正文同归 gap-source-empty（声称有正文的空壳同样是暂空）。
  */
 export function determineCompleteness(input: CompletenessInput): ArticleCompleteness {
+  if (input.bodyAvailability === "truncated") {
+    return "gap-body-truncated";
+  }
   if (input.bodyAvailability === "content-missing") {
     return "gap-content-missing";
   }

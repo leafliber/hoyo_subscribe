@@ -8,14 +8,19 @@
 
 import {
   SOURCE_HOT_POLL,
+  SOURCE_LIMIT_PROFILE,
   SOURCE_POLL,
   SOURCE_RECHECK_INTERVAL,
   SOURCE_RECHECK_WINDOW,
 } from "@hoyo/contracts";
 import { describe, expect, it } from "vitest";
+import genshinContent from "../../../../fixtures/sources/genshin-ann/content-21819.json";
 import genshinIndex from "../../../../fixtures/sources/genshin-ann/index.json";
+import hsrContent from "../../../../fixtures/sources/hsr-ann/content-1195.json";
 import hsrIndex from "../../../../fixtures/sources/hsr-ann/index.json";
+import miyousheType2 from "../../../../fixtures/sources/miyoushe-news/news-list-type2-page1.json";
 import registryDraft from "../../../../fixtures/sources/registry.draft.json";
+import zzzContent from "../../../../fixtures/sources/zzz-ann/content-1301.json";
 import zzzIndex from "../../../../fixtures/sources/zzz-ann/index.json";
 import sourcesVerified from "../../../../scripts/probes/source-samples/sources.verified.json";
 import { getSourceEntry, listSourceEntries, SOURCE_REGISTRY } from "./registry";
@@ -27,6 +32,16 @@ const annIndexes: Record<string, { list_observation: { page_size: number } }> = 
   "hsr-ann": hsrIndex as { list_observation: { page_size: number } },
   "zzz-ann": zzzIndex as { list_observation: { page_size: number } },
 };
+
+const contentSamples: Record<string, { body: { data: { list: unknown[] } } }> = {
+  "genshin-ann": genshinContent,
+  "hsr-ann": hsrContent,
+  "zzz-ann": zzzContent,
+};
+
+const utf8Bytes = (value: unknown): number =>
+  new TextEncoder().encode(JSON.stringify(value)).length;
+const roundToBlock = (bytes: number): number => Math.ceil(bytes / (64 * 1024)) * 64 * 1024;
 
 function draftEntry(sourceId: string): Record<string, unknown> {
   const found = draft.sources.find((source) => source.source_id === sourceId);
@@ -86,21 +101,54 @@ describe("A-P3-FETCH 来源注册表与 P0-02 登记零漂移", () => {
     }
   });
 
-  it("请求限制数值来自 limit_profile_measured：超时、响应上限、批量上限", () => {
+  it("A-P3-TRUNCATE 请求上限来自 SOURCE_LIMIT_PROFILE 且高于观测峰值、低于统一安全界", () => {
     for (const entry of SOURCE_REGISTRY) {
       const limits = limitsOf(entry.sourceId);
       expect(entry.requestLimits.timeoutMs).toBe(limits.request_timeout_recommend_ms);
+      const registeredCaps = SOURCE_LIMIT_PROFILE.responseCapsBytes as Readonly<
+        Record<string, number>
+      >;
+      expect(entry.requestLimits.maxResponseBytes).toBe(registeredCaps[entry.sourceId]);
+      expect(entry.requestLimits.maxResponseBytes).toBeGreaterThan(0);
+      expect(entry.requestLimits.maxResponseBytes).toBeLessThanOrEqual(
+        SOURCE_LIMIT_PROFILE.responseCapCeilingBytes,
+      );
       if (entry.adapterKind === "announcement-webview") {
-        expect(entry.requestLimits.maxResponseBytes).toBe(limits.max_observed_content_bytes);
+        expect(entry.requestLimits.maxResponseBytes).toBeGreaterThan(
+          limits.max_observed_content_bytes as number,
+        );
         expect(entry.requestLimits.listPageSizeCap).toBeNull();
       } else {
         // 米游社无正文（403 停用）：上限取列表实测区间上界（"50,056–110,546 B（…）"）。
         const range = limits.list_response_bytes_observed_range as string;
         const numbers = range.match(/\d[\d,]*/g)?.map((raw) => Number(raw.replace(/,/g, ""))) ?? [];
-        expect(entry.requestLimits.maxResponseBytes).toBe(Math.max(...numbers));
+        expect(entry.requestLimits.maxResponseBytes).toBeGreaterThan(Math.max(...numbers));
         expect(entry.requestLimits.listPageSizeCap).toBe(limits.batch_upper_bound_items);
       }
     }
+  });
+
+  it("A-P3-TRUNCATE 余量按公告一批增长和最大单篇、列表最大卡片推导，非任意倍数", () => {
+    for (const [sourceId, sample] of Object.entries(contentSamples)) {
+      const observed = limitsOf(sourceId).max_observed_content_bytes as number;
+      const items = sample.body.data.list;
+      const sampleBytes = utf8Bytes(sample.body);
+      const largestItemBytes = Math.max(...items.map(utf8Bytes));
+      const pageSize = annIndexes[sourceId].list_observation.page_size;
+      const projected =
+        observed +
+        Math.ceil((observed / items.length) * pageSize) +
+        Math.ceil((largestItemBytes / sampleBytes) * observed);
+      expect(getSourceEntry(sourceId).requestLimits.maxResponseBytes).toBe(roundToBlock(projected));
+    }
+    const miyousheItems = (miyousheType2 as { body: { data: { list: unknown[] } } }).body.data.list;
+    const observedRange = limitsOf("miyoushe-news").list_response_bytes_observed_range as string;
+    const observed = Math.max(
+      ...(observedRange.match(/\d[\d,]*/g)?.map((value) => Number(value.replace(/,/g, ""))) ?? []),
+    );
+    expect(getSourceEntry("miyoushe-news").requestLimits.maxResponseBytes).toBe(
+      roundToBlock(observed + Math.max(...miyousheItems.map(utf8Bytes))),
+    );
   });
 
   it("请求形状沿用 sources.verified.json 的已核验参数集（level/uid 门控不自行调整，ADR-0001）", () => {

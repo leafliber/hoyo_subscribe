@@ -8,9 +8,10 @@
 // 红线落点：
 //   - **抓取失败不落任何行**：fetchArticle=failed 是"不知道"——不写文章行、不写版本，
 //     更不存在任何取消语义；下一批成功再建（列表存在性证据在 P3-01 快照水位里，不在本表）。
+//     response-too-large 在公告适配器被明确映射为 truncated，而非 failed。
 //   - **空列表零写入**：没有条目就没有任何 SQL 效果；本模块不提供任何删除/取消类写操作，
 //     事件取消只能来自官方取消证据（P3-04 的职责）。
-//   - 内容 hash 是版本是否新增的唯一判据：抓取时间等易变噪声不触发新版本。
+//   - 真正拿到的正文不能被后续抓取缺口覆盖；成功抓取后的内容 hash 决定是否新增版本。
 //   - official_published_at 只接受来源载荷中的真实发布时间（米游社 post.created_at）；
 //     公告列表 start_time/end_time 是**展示窗口时间**（§3.1 红线），不写入本字段。
 //
@@ -18,6 +19,7 @@
 // 若出现并发重放，UNIQUE (article_id, content_hash) 会让后到者整批报错回滚——宁可响亮失败，
 // 不静默双版本。
 
+import { logEvent } from "../../shell/logger";
 import { buildSourceUrl } from "../adapters/shared";
 import type { SourceRegistryEntry } from "../registry";
 import { sha256Hex } from "../snapshot-diff";
@@ -32,7 +34,11 @@ import {
   mergeMediaRefs,
   splitBodyBlocks,
 } from "./blocks";
-import { type ArticleCompleteness, determineCompleteness } from "./completeness";
+import {
+  type ArticleCompleteness,
+  articleBodyWasFetched,
+  determineCompleteness,
+} from "./completeness";
 
 /** 一个待保存的文章版本（已判完整性、已算内容 hash）。 */
 export interface ArticleVersionPlan {
@@ -80,6 +86,7 @@ function officialUrlForEntry(entry: SourceRegistryEntry): string {
  * fetched：标题块 + 正文块（保真）+ 正文图片引用；
  * missing-from-content-set：标题块，completeness=gap-content-missing（列表声称有正文但集合缺条）；
  * channel-unavailable：标题块 + 列表图片级引用（封面 + image_list），拿不到 ≠ 空；
+ * truncated：只用列表标题/图片级引用，绝不保存截断正文；
  * failed：no-write。
  */
 export async function buildArticleIngestPlan(
@@ -107,7 +114,7 @@ export async function buildArticleIngestPlan(
   let mediaRefs: ArticleMediaRef[];
   let completenessInput: Parameters<typeof determineCompleteness>[0];
 
-  if (fetchResult.status === "fetched") {
+  if (fetchResult.status === "fetched" && !fetchResult.signals.bodyTruncated) {
     const bodyBlocks = splitBodyBlocks(fetchResult.contentHtml);
     blocks = [titleBlock, ...bodyBlocks];
     mediaRefs = extractImageRefsFromHtml(fetchResult.contentHtml).map((url) => ({
@@ -119,6 +126,24 @@ export async function buildArticleIngestPlan(
       bodyTruncated: fetchResult.signals.bodyTruncated,
       contentEmpty: fetchResult.signals.contentEmpty,
       bodyHasText: bodyHasVisibleText(blocks),
+      mediaRefCount: mediaRefs.length,
+      listClaimsContent: stub.hasContent,
+    };
+  } else if (
+    fetchResult.status === "truncated" ||
+    (fetchResult.status === "fetched" && fetchResult.signals.bodyTruncated)
+  ) {
+    // 截断发生在完整 JSON 解析之前，不能从残缺载荷中信任任何正文/媒体引用。
+    blocks = [titleBlock];
+    mediaRefs = mergeMediaRefs(
+      stub.coverUrl === null ? [] : [{ url: stub.coverUrl, origin: "cover" as const }],
+      stub.imageUrls.map((url) => ({ url, origin: "list" as const })),
+    );
+    completenessInput = {
+      bodyAvailability: "truncated",
+      bodyTruncated: true,
+      contentEmpty: false,
+      bodyHasText: false,
       mediaRefCount: mediaRefs.length,
       listClaimsContent: stub.hasContent,
     };
@@ -151,6 +176,25 @@ export async function buildArticleIngestPlan(
     };
   }
 
+  // 只有白名单来源和固定原因码：缺条、暂空即使被保存层保护而不产生新版本，也可观测。
+  if (fetchResult.status === "missing-from-content-set") {
+    logEvent("warn", "source_content_gap", {
+      source: entry.sourceId,
+      reason_code: "content_set_missing",
+      count: 1,
+    });
+  } else if (
+    fetchResult.status === "fetched" &&
+    !fetchResult.signals.bodyTruncated &&
+    !articleBodyWasFetched(blocks, mediaRefs)
+  ) {
+    logEvent("warn", "source_content_gap", {
+      source: entry.sourceId,
+      reason_code: "source_empty",
+      count: 1,
+    });
+  }
+
   return {
     kind: "version",
     plan: {
@@ -169,8 +213,8 @@ export async function buildArticleIngestPlan(
   };
 }
 
-/** D1 保存结果：created = 新增了不可变版本；unchanged = 语义内容未变，仅推进复查水位。 */
-export type ArticleSaveOutcome = "created" | "unchanged";
+/** degraded-skipped = 最新有真实正文，降级抓取不写版本、不推进成功复查水位。 */
+export type ArticleSaveOutcome = "created" | "unchanged" | "degraded-skipped";
 
 /** 存储不变量被破坏（D1 行为回归或并发重放）：编程/平台错误，不是业务失败。 */
 export class ArticleStoreInvariantError extends Error {
@@ -183,7 +227,7 @@ export class ArticleStoreInvariantError extends Error {
 /**
  * 保存一个文章版本（单文章原子批次；整批一起生效或一起回滚）：
  *   1. 幂等建文章行（身份 (source_id, external_id)；official_url 首建固定，冲突不覆盖）；
- *   2. 推进 last_checked_at（近期公告复查的落点，§3.2）；
+ *   2. 成功取得正文时推进 last_checked_at（近期公告复查的落点，§3.2）；
  *   3. 同 hash 版本已存在时不新增（内容 hash 是唯一判据——抓取时间等噪声不触发新版本）。
  * 版本行只 INSERT；任何 UPDATE 由 P1-04 触发器拒绝（不可变）。
  */
@@ -192,6 +236,24 @@ export async function saveArticleVersion(
   plan: ArticleVersionPlan,
 ): Promise<ArticleSaveOutcome> {
   const articleId = await articleRowId(plan.sourceId, plan.externalId);
+  const bodyFetched = articleBodyWasFetched(plan.blocks, plan.mediaRefs);
+  if (!bodyFetched) {
+    const latest = await db
+      .prepare(
+        `SELECT body_blocks_json, media_refs_json FROM article_versions
+         WHERE article_id = ? ORDER BY version_no DESC LIMIT 1`,
+      )
+      .bind(articleId)
+      .first<{ body_blocks_json: string; media_refs_json: string }>();
+    if (latest !== null) {
+      const latestBlocks = JSON.parse(latest.body_blocks_json) as ArticleBodyBlock[];
+      const latestMediaRefs = JSON.parse(latest.media_refs_json) as ArticleMediaRef[];
+      if (articleBodyWasFetched(latestBlocks, latestMediaRefs)) {
+        // 单例 PipelineDO 顺序写入：既有正文不被这次失败覆盖，复查水位也不伪称成功。
+        return "degraded-skipped";
+      }
+    }
+  }
   const versionId = crypto.randomUUID();
   const results = await db.batch([
     db
@@ -211,8 +273,11 @@ export async function saveArticleVersion(
         plan.nowMs,
       ),
     db
-      .prepare(`UPDATE articles SET last_checked_at = ?, updated_at = ? WHERE id = ?`)
-      .bind(plan.nowMs, plan.nowMs, articleId),
+      .prepare(
+        `UPDATE articles SET last_checked_at = CASE WHEN ? THEN ? ELSE last_checked_at END,
+         updated_at = ? WHERE id = ?`,
+      )
+      .bind(bodyFetched ? 1 : 0, plan.nowMs, plan.nowMs, articleId),
     db
       .prepare(
         `INSERT INTO article_versions (id, article_id, version_no, content_hash, body_blocks_json, media_refs_json, completeness, official_published_at, fetched_at, created_at)
@@ -253,6 +318,8 @@ export interface ArticleBatchSaveReport {
   readonly unchanged: number;
   /** no-write 条目数（抓取失败：不落任何行，等待下一批）。 */
   readonly skippedNoWrite: number;
+  /** 已有真实正文时拒绝降级覆盖的条目数（不算成功复查）。 */
+  readonly skippedDegraded: number;
 }
 
 /**
@@ -266,6 +333,7 @@ export async function saveArticleVersions(
   let created = 0;
   let unchanged = 0;
   let skippedNoWrite = 0;
+  let skippedDegraded = 0;
   for (const item of plans) {
     if (item.kind === "no-write") {
       skippedNoWrite += 1;
@@ -274,9 +342,11 @@ export async function saveArticleVersions(
     const outcome = await saveArticleVersion(db, item.plan);
     if (outcome === "created") {
       created += 1;
-    } else {
+    } else if (outcome === "unchanged") {
       unchanged += 1;
+    } else {
+      skippedDegraded += 1;
     }
   }
-  return { created, unchanged, skippedNoWrite };
+  return { created, unchanged, skippedNoWrite, skippedDegraded };
 }
