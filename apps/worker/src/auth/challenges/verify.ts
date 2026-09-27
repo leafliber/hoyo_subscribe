@@ -11,19 +11,26 @@
 // ★ 关键约束（第 2 条）：错误尝试**持久扣减**。attempts 自增是独立的已提交语句，
 // 随后的错误响应不经过任何回滚路径（无事务包裹、无 catch-rollback）。
 //
-// 本卡到「挑战可被校验」为止：验证成功不消费挑战、不创建会话（P2-03）。
+// P2-03 获准注入点：仅 MAC 命中后的成功出口改为原子消费、pending Session 与回执。
+// 消费前若原 preauth 剩余期限不足，先交同值续期 Cookie，客户端重试同一码。
 // 邮箱级防猜测边界 EMAIL_VERIFY_ATTEMPTS_HOUR（A.2）按最近一小时 attempts 合计读侧
 // 门控（每次错误尝试都持久落行，窗口读即真实计数）。
 
 import {
+  AUTH_COMPLETION_TTL,
   canonicalizeEmail,
   EMAIL_VERIFY_ATTEMPTS_HOUR,
   OTP_ATTEMPTS,
   OTP_DIGITS,
+  PREAUTH_MARGIN,
 } from "@hoyo/contracts";
 import { ApiError, jsonResponse, parseCookieHeader } from "../../shell";
 import type { Keyring } from "../../storage/crypto/keyring";
 import { computeEmailKey, verifyOtpMac } from "../../storage/crypto/mac";
+import { clearTerminalOtpPayloads } from "../consume/cleanup";
+import { consumeVerifiedOtp } from "../consume/consume";
+import { requireOperationKey } from "../consume/operation";
+import { serializePendingSessionCookie } from "../consume/session";
 import { PREAUTH_COOKIE_NAME, verifyPreauthCookieValue } from "../preauth/cookie";
 import { isChallengePurpose } from "./purposes";
 import { renewPreauthCookieForContext } from "./renewal";
@@ -178,16 +185,56 @@ export async function runVerifyOtp(deps: VerifyOtpDeps, input: VerifyOtpInput): 
       row.mac,
     );
     if (matched) {
-      // 本卡止于「可被校验」：不消费、不建会话（P2-03 原子消费）。
-      // 续期同一 Cookie 值：消费前上下文须具备完成交付剩余期限（§4.4）。
+      const operationKey = requireOperationKey(input.request);
+      // §4.4：先续期，等浏览器确认新 preauth 到手后再消费一次性凭证。
+      if (
+        preauth.context.expiresAt - now <
+        (AUTH_COMPLETION_TTL + PREAUTH_MARGIN) * MS_PER_SECOND
+      ) {
+        const renewal = await renewPreauthCookieForContext(
+          deps.db,
+          deps.keys.preauthCookie(),
+          preauth.context,
+          now,
+        );
+        const response = jsonResponse({ verified: false, preauth_renewal_required: true }, 409);
+        response.headers.append("set-cookie", renewal.setCookie);
+        response.headers.set("cache-control", "no-store");
+        return response;
+      }
+      const consumed = await consumeVerifiedOtp(
+        { db: deps.db, keys: deps.keys },
+        {
+          verified: {
+            id: row.id,
+            purpose: row.purpose,
+            addressVersion: row.address_version,
+            generation: row.generation,
+            mac: row.mac,
+          },
+          preauth: preauth.context,
+          emailKey,
+          operationKey,
+          now,
+        },
+      );
+      if (consumed.outcome === "condition_missed") {
+        throw new ApiError("conflict", { code: "conflict" });
+      }
+      await clearTerminalOtpPayloads(deps.db, now, row.id);
       const renewal = await renewPreauthCookieForContext(
         deps.db,
         deps.keys.preauthCookie(),
         preauth.context,
         now,
       );
-      const response = jsonResponse({ verified: true, challenge_id: row.id });
+      const response = jsonResponse({ verified: true, pending_session_id: consumed.session.id });
       response.headers.append("set-cookie", renewal.setCookie);
+      response.headers.append(
+        "set-cookie",
+        serializePendingSessionCookie(consumed.session.cookieValue),
+      );
+      response.headers.set("cache-control", "no-store");
       return response;
     }
   }

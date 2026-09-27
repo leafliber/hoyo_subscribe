@@ -10,16 +10,23 @@
 //   密文，非「不可读取」）。
 // - ★ 投递地址锁定（§4.1）：login 用途解密 users.email_ciphertext（已验证实际地址），
 //   不按请求大小写改投；signup 用途取请求原文的投递形态（本地部分保留大小写）。
+// - P2-03 裁定授权注入：同一实际投递串另以 auth_challenges.id 为 AAD 独立加密落库，
+//   供发送载荷清除后的消费与重发读取；预算拒绝终止挑战时一并清除。
 // - 发信预算：P1-07 reserveMailBudget 以 outbox 行为挂靠原子预占（decideMailIntent 的
 //   SQL 化守卫）；预占失配（读侧判定与并发写入竞争输掉）时挑战终止、outbox 跳过并
 //   即时清除验证码密文——不留下「永远不会发送的挑战」。
 
 import { OUTBOX_UNRESERVED_PERIOD_KEY, poolOfMailIntent, utcDayPeriod } from "@hoyo/contracts";
+import { encryptField } from "../../storage/crypto/aead";
 import { macOtpVerification } from "../../storage/crypto/mac";
 import { generateOtpCode } from "../../storage/crypto/random";
 import { reserveMailBudget } from "../../storage/ledger/mail-ledger";
 import type { CreateChallengeAndMailTask } from "../preauth/pipeline";
-import { decryptDeliveryAddress, deliveryAddressForm } from "./delivery";
+import {
+  DELIVERY_ADDRESS_RECORD_TYPE,
+  decryptDeliveryAddress,
+  deliveryAddressForm,
+} from "./delivery";
 import { asEnvelopeBytes, encryptOtpPayload, OTP_PAYLOAD_KIND } from "./payload";
 import { purposeOfAdmissionIntent } from "./purposes";
 
@@ -109,6 +116,11 @@ export const createChallengeAndMailTask: CreateChallengeAndMailTask = async (ctx
     code,
     address,
   });
+  const deliveryAddressCiphertext = await encryptField(
+    ctx.keys.fieldEncryption(),
+    { type: DELIVERY_ADDRESS_RECORD_TYPE, id: challengeId },
+    address,
+  );
 
   // —— 挑战与发信任务同批落库（D1 batch 事务：任一 SQL 失败整批回滚） ——
   try {
@@ -117,8 +129,9 @@ export const createChallengeAndMailTask: CreateChallengeAndMailTask = async (ctx
         .prepare(
           `INSERT INTO auth_challenges
              (id, purpose, email_key, address_version, preauth_id, idempotency_key, mac,
-              generation, attempts, deadline, reservation_id, created_at, updated_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+              generation, attempts, deadline, reservation_id, delivery_address_ciphertext,
+              created_at, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         )
         .bind(
           challengeId,
@@ -132,6 +145,7 @@ export const createChallengeAndMailTask: CreateChallengeAndMailTask = async (ctx
           INITIAL_ATTEMPTS,
           ctx.challengeDeadline,
           ctx.reservationId,
+          deliveryAddressCiphertext,
           ctx.now,
           ctx.now,
         ),
@@ -182,7 +196,7 @@ export const createChallengeAndMailTask: CreateChallengeAndMailTask = async (ctx
         .bind(ctx.now, outboxId, OUTBOX_UNRESERVED_PERIOD_KEY),
       ctx.db
         .prepare(
-          "UPDATE auth_challenges SET aborted_at = ?, updated_at = ? WHERE id = ? AND consumed_at IS NULL AND aborted_at IS NULL",
+          "UPDATE auth_challenges SET aborted_at = ?, delivery_address_ciphertext = NULL, updated_at = ? WHERE id = ? AND consumed_at IS NULL AND aborted_at IS NULL",
         )
         .bind(ctx.now, ctx.now, challengeId),
     ]);

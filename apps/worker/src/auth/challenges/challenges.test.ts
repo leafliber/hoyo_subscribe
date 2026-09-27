@@ -15,6 +15,7 @@
 // 迁移重放纪律与 A-P2-PREAUTH 相同：空库顺序重放，本文件自足。
 // 隔离纪律：共享 D1 与可控时钟；每个用例先跳到独立 UTC 日（usage_periods 按日分桶，
 // 跨用例共用同一天会互相吃掉认证池额度），邮箱逐用例唯一。
+// P2-03 裁定测试适配：成功 verify 现会消费并清载荷；测试请求带操作幂等键。
 
 import { env } from "cloudflare:test";
 import {
@@ -34,6 +35,7 @@ import {
 } from "@hoyo/contracts";
 import { beforeAll, describe, expect, it } from "vitest";
 import { writeRegistrationOpen } from "../../accounts/admission/registration";
+import { allocateUserOrder } from "../../accounts/users/order";
 import { createApiShell, mintCsrfToken, parseCookieHeader, type ShellRoute } from "../../shell";
 import { randomBytes, testKeyring } from "../../shell/test-support";
 import { encryptField } from "../../storage/crypto/aead";
@@ -295,6 +297,7 @@ async function buildRequest(
     randomBytes(SECRET_BITS / 8),
   );
   const headers = new Headers({ "content-type": "application/json", origin: "https://app.test" });
+  headers.set("idempotency-key", `verify-${crypto.randomUUID()}`);
   if (!options.noCookies) {
     headers.set("x-csrf-token", csrfToken);
     if (options.csrfOnly) {
@@ -349,8 +352,6 @@ async function verify(options: RequestOptions & { code: string }): Promise<Respo
 
 // —— 种子与读侧辅助 ——
 
-let userSeq = 1;
-
 /** 种子既有账号：身份键 = canonicalEmail 的 HMAC，密文 = 投递地址原大小写（§4.1）。 */
 async function seedUser(
   canonicalEmail: string,
@@ -359,6 +360,7 @@ async function seedUser(
   const keys = await testKeyring;
   const emailKey = await computeEmailKey(keys.emailLookup(), canonicalEmail);
   const id = `u_${crypto.randomUUID().slice(0, 12)}`;
+  const userOrder = await allocateUserOrder(env.DB, clockMs);
   // 受控密文 delivery-email-address；AAD 记录 ID = users.id（delivery.ts 读取侧约定）。
   const ciphertext = await encryptField(
     keys.fieldEncryption(),
@@ -368,10 +370,10 @@ async function seedUser(
   await run(
     'INSERT INTO users (id, "order", status, email_key, email_binding_id, email_ciphertext, email_version, auth_epoch, recovery_epoch, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, 1, 0, 0, ?, ?)',
     id,
-    userSeq++,
+    userOrder,
     "active",
     emailKey,
-    `eb_${userSeq}`,
+    `eb_${crypto.randomUUID()}`,
     ciphertext,
     clockMs,
     clockMs,
@@ -690,11 +692,11 @@ describe("A-P2-OTP 重发", () => {
     const goodB = await verify({ email, code: codeB, preauthValue: tabB.value });
     expect(goodB.status).toBe(200);
 
-    // 旧发送任务终止且密文清除；只剩一条 pending。
+    // P2-03 消费成功后，新旧发送载荷均清除；原先唯一 pending 也已终止。
     const outbox = await outboxOf(challengeA.id);
-    expect(outbox.filter((row) => row.status === "pending").length).toBe(1);
-    expect(outbox.filter((row) => row.status === "superseded").length).toBe(1);
-    expect(outbox.find((row) => row.status === "superseded")?.payload_ciphertext).toBeNull();
+    expect(outbox.filter((row) => row.status === "pending").length).toBe(0);
+    expect(outbox.filter((row) => row.status === "superseded").length).toBe(2);
+    expect(outbox.every((row) => row.payload_ciphertext === null)).toBe(true);
   });
 
   it("并发重发不产生多份有效码：同键只旋转一次；异键并发也只剩一个有效 generation", async () => {
@@ -923,13 +925,19 @@ describe("A-P2-OTP 校验", () => {
     );
 
     const nearExpiry = await verify({ email, code, preauthValue: ctx.value });
-    expect(nearExpiry.status).toBe(200); // ★ 临近到期不影响校验新验证码
+    expect(nearExpiry.status).toBe(409); // P2-03：先交付续期，不能先消费
     const renewedValue = renewedPreauthValue(nearExpiry).split(".");
     expect(renewedValue[0]).toBe(ctx.id); // 同一个随机值（§4.3 多标签页条款）
     expect(Number(renewedValue[1])).toBe(issuedAt);
     expect(Number(renewedValue[2])).toBeGreaterThanOrEqual(
       challenge.deadline + (AUTH_COMPLETION_TTL + PREAUTH_MARGIN) * SECOND,
     );
+    const retried = await verify({
+      email,
+      code,
+      preauthValue: renewedPreauthValue(nearExpiry),
+    });
+    expect(retried.status).toBe(200);
 
     // preauth Cookie 丢失（CSRF 仍在）：401 unauthorized，不是验证码错误。
     const lost = await verify({ email, code, csrfOnly: true });
@@ -1126,6 +1134,7 @@ describe("A-P2-OTP 密码学与清除", () => {
       origin: "https://app.test",
       cookie: `${PREAUTH_COOKIE_NAME}=${minted.value}; __Host-hoyo_csrf=${csrf}`,
       "x-csrf-token": csrf,
+      "idempotency-key": "route-verify",
     });
     const applied = await routesShell.fetch(
       new Request("https://app.test/api/v2/auth/challenges", {

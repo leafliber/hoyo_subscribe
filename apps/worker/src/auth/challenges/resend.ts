@@ -21,6 +21,8 @@
 // 仍放行（其判定在准入管线，不经本模块）。
 //
 // 错误分层与 verify 相同：无/坏 Cookie → 401；无开放挑战 → no_open_challenge（不是码错）。
+// P2-03 裁定授权注入：投递串只解挑战独立密文（AAD=auth_challenges.id）；
+// 发送载荷清除后仍可重发，列缺失/损坏一律失败关闭，login 失败关闭语义保留。
 
 import {
   AUTH_MAIL_POOLS,
@@ -45,8 +47,8 @@ import {
 } from "../../storage/ledger/mail-ledger";
 import type { PreauthContext } from "../preauth/cookie";
 import { PREAUTH_COOKIE_NAME, verifyPreauthCookieValue } from "../preauth/cookie";
-import { decryptDeliveryAddress, deliveryAddressForm } from "./delivery";
-import { asEnvelopeBytes, decryptOtpPayload, encryptOtpPayload, OTP_PAYLOAD_KIND } from "./payload";
+import { decryptDeliveryAddress } from "./delivery";
+import { asEnvelopeBytes, encryptOtpPayload, OTP_PAYLOAD_KIND } from "./payload";
 import { renewPreauthCookieForContext } from "./renewal";
 
 /** 秒→毫秒（注册表秒值的换算，不引入第二份常量）。 */
@@ -77,6 +79,7 @@ interface ChallengeRow {
   readonly deadline: number;
   readonly address_version: number;
   readonly recipient_user_id: string | null;
+  readonly delivery_address_ciphertext: ArrayBuffer | Uint8Array | null;
 }
 
 /** 重发侧的发送行为快照（mail_outbox 真实行；排除从未外发的 skipped）。 */
@@ -114,6 +117,7 @@ async function loadLatestOpenChallenge(
     (await db
       .prepare(
         `SELECT c.id, c.purpose, c.generation, c.attempts, c.deadline, c.address_version,
+                c.delivery_address_ciphertext,
                 (SELECT u.id FROM users u WHERE u.email_key = c.email_key) AS recipient_user_id
            FROM auth_challenges c
           WHERE c.preauth_id = ? AND c.email_key = ? AND c.consumed_at IS NULL
@@ -151,58 +155,38 @@ async function readPriorReservations(
 }
 
 /**
- * 重发载荷的投递地址（§4.1 / CONTRACTS_BASELINE §8.1：不按请求大小写改投）：
- * 1. 原挑战最近一条仍可解密的载荷（申请时绑定的实际投递串，最权威）；
- * 2. login 用途：数据库已验证地址（users.email_ciphertext）；
- *    ★ 前两级都拿不到时**失败关闭**（抛错 → 503），与创建路径（create-challenge.ts
- *    对称）判同一种结果——绝不回退到请求原文地址：极少数本地部分大小写敏感的邮箱
- *    会因此把验证码发给另一个人。
- * 3. signup 兜底：请求原文投递形态（仅当历史载荷已全部清除）——signup 没有已验证
- *    地址，请求投递形态是**首次绑定**，不是改投。
- *
- * 调用时点：在预算预占**之前**（见 runResendOtp）——失败关闭路径零写入、零预算占用。
+ * 重发只认挑战创建时独立加密的实际投递串。login 与 signup 均不能从请求地址
+ * 或发送载荷回退；发送后载荷按 §4.3 清空仍须可重发。失败发生在预算预占前。
  */
 async function resolveResendAddress(
   db: D1Database,
   keys: Keyring,
   challenge: ChallengeRow,
-  rawEmail: string,
 ): Promise<string> {
-  const prior = await db
-    .prepare(
-      `SELECT id, payload_ciphertext FROM mail_outbox
-        WHERE payload_ref = ? AND payload_ciphertext IS NOT NULL
-        ORDER BY created_at DESC LIMIT 1`,
-    )
-    .bind(challenge.id)
-    .first<{ id: string; payload_ciphertext: Uint8Array }>();
-  if (prior !== null) {
-    return (
-      await decryptOtpPayload(
-        keys.fieldEncryption(),
-        prior.id,
-        asEnvelopeBytes(prior.payload_ciphertext),
-      )
-    ).address;
-  }
   if (challenge.purpose === "login") {
     if (challenge.recipient_user_id === null) {
-      throw new Error("login 用途重发未找到已验证投递地址（并发状态变化，失败关闭）");
+      throw new Error("login 用途重发未找到已验证账号（失败关闭）");
     }
     const user = await db
-      .prepare("SELECT email_ciphertext FROM users WHERE id = ?")
+      .prepare("SELECT email_version, status FROM users WHERE id = ?")
       .bind(challenge.recipient_user_id)
-      .first<{ email_ciphertext: Uint8Array }>();
-    if (user === null) {
-      throw new Error("login 用途重发未找到已验证投递地址（并发状态变化，失败关闭）");
+      .first<{ email_version: number; status: string }>();
+    if (
+      user === null ||
+      user.email_version !== challenge.address_version ||
+      user.status !== "active"
+    ) {
+      throw new Error("login 用途重发地址版本已变化（失败关闭）");
     }
-    return decryptDeliveryAddress(
-      keys.fieldEncryption(),
-      challenge.recipient_user_id,
-      asEnvelopeBytes(user.email_ciphertext),
-    );
   }
-  return deliveryAddressForm(rawEmail);
+  if (challenge.delivery_address_ciphertext === null) {
+    throw new Error("挑战绑定的投递地址缺失（失败关闭）");
+  }
+  return decryptDeliveryAddress(
+    keys.fieldEncryption(),
+    challenge.id,
+    asEnvelopeBytes(challenge.delivery_address_ciphertext),
+  );
 }
 
 function scopedOutboxIdempotencyKey(preauthId: string, clientKey: string): string {
@@ -304,7 +288,7 @@ export async function runResendOtp(deps: ResendOtpDeps, input: ResendOtpInput): 
 
   // —— 投递地址解析（§4.1：login 失败关闭，绝不按请求地址改投）。
   //    在预算预占**之前**：失败关闭路径零写入、零预算占用（无挂靠预占无泄漏）。 ——
-  const address = await resolveResendAddress(deps.db, deps.keys, challenge, input.email);
+  const address = await resolveResendAddress(deps.db, deps.keys, challenge);
 
   // —— 预算预占（先无挂靠预占；旋转失配即归还，账面不丢） ——
   const reservation = await reserveMailBudget(deps.db, {
@@ -340,8 +324,20 @@ export async function runResendOtp(deps: ResendOtpDeps, input: ResendOtpInput): 
   const rotation = await conditionalCommit(deps.db, {
     guard: {
       sql: `UPDATE auth_challenges SET generation = ?, mac = ?, updated_at = ?
-             WHERE id = ? AND generation = ? AND consumed_at IS NULL AND aborted_at IS NULL AND deadline > ?`,
-      params: [newGeneration, mac, now, challenge.id, challenge.generation, now],
+             WHERE id = ? AND generation = ? AND consumed_at IS NULL AND aborted_at IS NULL AND deadline > ?
+               AND (purpose <> 'login' OR EXISTS (
+                 SELECT 1 FROM users u WHERE u.id = ? AND u.email_key = auth_challenges.email_key
+                   AND u.email_version = auth_challenges.address_version AND u.status = 'active'
+               ))`,
+      params: [
+        newGeneration,
+        mac,
+        now,
+        challenge.id,
+        challenge.generation,
+        now,
+        challenge.recipient_user_id,
+      ],
     },
     effects: [
       {
@@ -380,19 +376,25 @@ export async function runResendOtp(deps: ResendOtpDeps, input: ResendOtpInput): 
           ],
         ],
       },
-      {
-        kind: "update",
-        table: "mail_outbox",
-        set: {
-          status: "superseded",
-          payload_ciphertext: null,
-          updated_at: now,
-        },
-        where: {
-          sql: "payload_ref = ? AND status IN ('pending', 'leased') AND id <> ?",
-          params: [challenge.id, outboxId],
-        },
-      },
+      // P2-03：发送后载荷/状态已清时没有旧 pending 行；CAS 原语要求每项 update
+      // 守卫命中后必命中至少一行，故只在读到旧预留时附加这项。
+      ...(priorReservations.length > 0
+        ? ([
+            {
+              kind: "update",
+              table: "mail_outbox",
+              set: {
+                status: "superseded",
+                payload_ciphertext: null,
+                updated_at: now,
+              },
+              where: {
+                sql: "payload_ref = ? AND status IN ('pending', 'leased') AND id <> ?",
+                params: [challenge.id, outboxId],
+              },
+            },
+          ] as const)
+        : []),
     ],
   });
 

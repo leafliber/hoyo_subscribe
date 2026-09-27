@@ -192,6 +192,7 @@ export const EXPECTED_TABLES: Record<string, readonly string[]> = {
     "receipt_ciphertext",
     "receipt_expires_at",
     "pending_session_id",
+    "delivery_address_ciphertext", // P2-03 裁定：迁移 0015 增列，空库回放期望同步。
     "created_at",
     "updated_at",
   ],
