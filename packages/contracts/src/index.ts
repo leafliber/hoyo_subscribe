@@ -24,6 +24,7 @@ export * from "./notification-scope";
 export * from "./params/docs";
 export * from "./params/registry";
 export * from "./params/verify";
+export * from "./publishing";
 export * from "./rules";
 export * from "./schedule-browse";
 export * from "./subscription";
