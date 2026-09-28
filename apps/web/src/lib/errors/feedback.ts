@@ -1,3 +1,4 @@
+// P2-07 获准跨卡接缝：recent_auth_required 改为所有危险操作共用的措辞。
 // P2-05 获准跨卡接缝：F1-04 穷尽表补恢复码保存与最近认证原因。
 import type {
   ApiErrorBody,
@@ -84,9 +85,9 @@ export const UNAUTHORIZED_FEEDBACK: Readonly<Record<UnauthorizedReason, Feedback
     action: "check_status",
   },
   recent_auth_required: {
-    title: "需要重新验证邮箱",
-    explanation: "这次生成未执行，当前会话的认证时间已超过有效期。",
-    nextStep: "请重新验证邮箱后再生成恢复码。",
+    title: "需要最近认证",
+    explanation: "这次操作未执行，当前会话缺少有效的用途限定认证证明。",
+    nextStep: "请完成本次操作要求的邮箱或恢复码验证后再试。",
     action: "login",
   },
   wrong_domain: {

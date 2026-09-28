@@ -1,3 +1,4 @@
+// P2-07 获准跨卡接线：挂载账号最近认证、换绑、轮换、删除、导出及摘要。
 // P2-05 授权跨卡改动：挂载 public 恢复动作及本人新码交付路径。
 // P2-06 跨卡接线：挂载云端订阅 GET/PATCH；沿用 P2-04 的 active 会话鉴权。
 // P2-04 跨卡修正：把 P1-08 的无身份桩换成逐请求 D1 主状态鉴权，挂载会话路由。
@@ -10,6 +11,7 @@
 // P2-03 裁定授权注入：挂载原 preauth + 操作幂等键领取 pending Cookie 的完成端点。
 import { verifyParams } from "@hoyo/contracts";
 import { statusRoute } from "./accounts/admission/status";
+import { makeLifecycleRoutes } from "./accounts/lifecycle/routes";
 import { makeSubscriptionRoutes } from "./accounts/subscription/routes";
 import { makeChallengeRoutes } from "./auth/challenges/routes";
 import { makeCompleteRoute } from "./auth/consume/routes";
@@ -109,6 +111,7 @@ function getShell(env: Env): Shell {
         // P2-05：public 恢复动作与 active 会话的新码交付；通道暂停效果由各通道卡挂入。
         ...makeRecoveryRoutes({ keys: () => getKeyring(env as Env & ShellSecrets) }),
         ...makeSubscriptionRoutes(),
+        ...makeLifecycleRoutes({ keys: () => getKeyring(env as Env & ShellSecrets) }),
       ],
     });
     shellByEnv.set(env, shell);
