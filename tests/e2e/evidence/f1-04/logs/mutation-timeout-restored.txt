@@ -1,0 +1,10 @@
+[WebServer] (node:2438) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+[WebServer] (Use `node --trace-warnings ...` to show where the warning was created)
+
+Running 1 test using 1 worker
+
+(node:2484) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✓  1 [desktop-chromium] › tests/e2e/account.spec.ts:65:1 › U27 超时结果不确定，要求重新读取确认，不能显示成功或未执行 (2ms)
+
+  1 passed (488ms)

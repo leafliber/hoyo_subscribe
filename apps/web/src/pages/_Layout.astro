@@ -1,5 +1,6 @@
 ---
 import "../styles/base.css";
+import ServiceFaultBanner from "../components/feedback/ServiceFaultBanner.astro";
 
 interface Props {
   title: string;
@@ -38,6 +39,7 @@ const siteName = "HoYo日历";
       </div>
     </header>
     <p class="app-status" id="global-status" role="status" data-kind="info"></p>
+    <ServiceFaultBanner />
     <main class="app-main" id="main" tabindex="-1">
       <slot />
     </main>

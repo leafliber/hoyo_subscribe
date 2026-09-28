@@ -1,0 +1,50 @@
+$ pnpm -r --if-present run test
+Scope: 3 of 4 workspace projects
+packages/contracts test$ vitest run
+packages/contracts test:  RUN  v4.1.11 /private/tmp/hoyo-f1-04/packages/contracts
+packages/contracts test:  Test Files  18 passed (18)
+packages/contracts test:       Tests  175 passed (175)
+packages/contracts test:    Start at  13:05:07
+packages/contracts test:    Duration  380ms (transform 497ms, setup 0ms, import 1.20s, tests 141ms, environment 1ms)
+packages/contracts test: Done
+apps/worker test$ vitest run
+apps/worker test:  RUN  v4.1.11 /private/tmp/hoyo-f1-04/apps/worker
+apps/worker test: [31m✘ [41;31m[[41;97mERROR[41;31m][0m [1mFailed to write to log file Error: EPERM: operation not permitted, open '/Users/cassia/Library/Preferences/.wrangler/logs/wrangler-2026-09-28_05-05-08_683.log'[0m
+apps/worker test:       at open (node:internal/fs/promises:1387:25)
+apps/worker test:       at writeFile (node:internal/fs/promises:2116:14)
+apps/worker test:       at /private/tmp/hoyo-f1-04/node_modules/.pnpm/wrangler@4.124.0/node_modules/wrangler/wrangler-dist/cli.js:61259:7
+apps/worker test:       at Mutex.runWith (/private/tmp/hoyo-f1-04/node_modules/.pnpm/miniflare@5.20260815.0-alpha/node_modules/miniflare/dist/src/index.js:85487:48)
+apps/worker test:       at appendToDebugLogFile (/private/tmp/hoyo-f1-04/node_modules/.pnpm/wrangler@4.124.0/node_modules/wrangler/wrangler-dist/cli.js:61256:3) {
+apps/worker test:     errno: -1,
+apps/worker test:     code: 'EPERM',
+apps/worker test:     syscall: 'open',
+apps/worker test:     path: '/Users/cassia/Library/Preferences/.wrangler/logs/wrangler-2026-09-28_05-05-08_683.log'
+apps/worker test:   }
+apps/worker test: [31m✘ [41;31m[[41;97mERROR[41;31m][0m [1mWould have written: [0m
+apps/worker test:   --- 2026-09-28T05:05:08.850Z debug
+apps/worker test:   🪵  Writing logs to "/Users/cassia/Library/Preferences/.wrangler/logs/wrangler-2026-09-28_05-05-08_683.log"
+apps/worker test:   ---
+apps/worker test:
+apps/worker test: 🪵  Logs were written to "/Users/cassia/Library/Preferences/.wrangler/logs/wrangler-2026-09-28_05-05-08_683.log"
+apps/worker test: node:events:505
+apps/worker test:     throw er; // Unhandled 'error' event
+apps/worker test:     ^
+apps/worker test: Error: listen EPERM: operation not permitted 127.0.0.1
+apps/worker test:     at Server.setupListenHandle [as _listen2] (node:net:2306:21)
+apps/worker test:     at listenInCluster (node:net:2437:12)
+apps/worker test:     at node:net:2666:7
+apps/worker test:     at processTicksAndRejections (node:internal/process/task_queues:90:21)
+apps/worker test: Emitted 'error' event on Server instance at:
+apps/worker test:     at emitErrorNT (node:net:2416:8)
+apps/worker test:     at processTicksAndRejections (node:internal/process/task_queues:90:21) {
+apps/worker test:   code: 'EPERM',
+apps/worker test:   errno: -1,
+apps/worker test:   syscall: 'listen',
+apps/worker test:   address: '127.0.0.1'
+apps/worker test: }
+apps/worker test: Node.js v26.8.1
+apps/worker test: Failed
+/private/tmp/hoyo-f1-04/apps/worker:
+[ERR_PNPM_RECURSIVE_RUN_FIRST_FAIL] @hoyo/worker@ test: `vitest run`
+Exit status 1
+[ELIFECYCLE] Test failed. See above for more details.

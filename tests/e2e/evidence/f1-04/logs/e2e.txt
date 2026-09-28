@@ -1,0 +1,178 @@
+$ pnpm --filter @hoyo/web run build && playwright test --config tests/e2e/playwright.config.ts
+$ astro build
+13:06:29 [types] Generated 15ms
+13:06:29 [build] output: "static"
+13:06:29 [build] mode: "static"
+13:06:29 [build] directory: /private/tmp/hoyo-f1-04/apps/web/dist/
+13:06:29 [build] Collecting build info...
+13:06:29 [build] ✓ Completed in 24ms.
+13:06:29 [build] Building static entrypoints...
+13:06:30 [vite] ✓ built in 127ms
+13:06:30 [vite] ✓ built in 25ms
+13:06:30 [build] Rearranging server assets...
+
+ generating static routes
+13:06:30   ├─ /account/index.html (+4ms)
+13:06:30   ├─ /events/sample/index.html (+1ms)
+13:06:30   ├─ /help/index.html (+1ms)
+13:06:30   ├─ /login/index.html (+1ms)
+13:06:30   ├─ /recover/index.html (+1ms)
+13:06:30   ├─ /status/index.html (+1ms)
+13:06:30   ├─ /subscription/index.html (+1ms)
+13:06:30   ├─ /index.html (+7ms)
+13:06:30 ✓ Completed in 23ms.
+
+13:06:30 [build] ✓ Completed in 188ms.
+13:06:30 [build] 8 page(s) built in 213ms
+13:06:30 [build] Complete!
+[WebServer] (node:96989) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+[WebServer] (Use `node --trace-warnings ...` to show where the warning was created)
+
+Running 62 tests using 5 workers
+
+(node:96994) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:96993) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:96991) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:96992) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:96990) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✓   2 [desktop-chromium] › tests/e2e/a11y.spec.ts:59:1 › U28 对比度：token 全部前景/背景组合与半透明合成色逐一达到阈值 (5ms)
+  ✓   4 [desktop-chromium] › tests/e2e/a11y.spec.ts:127:1 › U28 color.ts 工具函数：contrastRatio / compositeOver 对照已知值 (3ms)
+  ✓   5 [desktop-chromium] › tests/e2e/a11y.spec.ts:101:1 › U28 颜色单一来源：tokens.css 之外不允许出现颜色字面量 (5ms)
+  ✓   8 [desktop-chromium] › tests/e2e/a11y.spec.ts:239:1 › U28 表单标签在 placeholder 之外持续可见并与控件关联 (383ms)
+  ✓   6 [desktop-chromium] › tests/e2e/a11y.spec.ts:175:1 › U28 键盘 Tab 走完主要操作（跳过链接→主导航→登录→表单→页脚），焦点环可见 (397ms)
+  ✓   1 [desktop-chromium] › tests/e2e/a11y.spec.ts:150:1 › U28 主导航仅「日程 / 我的订阅」两项；登录在页头，帮助与服务状态在页脚；能力型 URL 不出现在页面 (412ms)
+  -  11 [desktop-chromium] › tests/e2e/a11y.spec.ts:281:1 › U28 触控目标：主要按钮、导航、展开入口与输入的有效点击区 ≥ 44px
+  -  12 [desktop-chromium] › tests/e2e/a11y.spec.ts:300:1 › U28 页面缩放（窄视口代理）：关键操作不丢失、无横向溢出
+  ✓   7 [desktop-chromium] › tests/e2e/a11y.spec.ts:213:1 › U28 弹窗：焦点移入、Tab 只在弹窗内循环、背景 inert 不可误操作、Esc 关闭并恢复焦点 (598ms)
+  ✓   9 [desktop-chromium] › tests/e2e/a11y.spec.ts:253:1 › U28 折叠区含错误时自动展开并把焦点定位到错误 (216ms)
+  ✓  15 [desktop-chromium] › tests/e2e/account.spec.ts:40:1 › U27 认证存在性敏感的服务端 message 不进入反馈 (2ms)
+  ✓   3 [desktop-chromium] › tests/e2e/a11y.spec.ts:140:1 › U28 路由骨架：八条路由全部可达并渲染统一布局 (718ms)
+  ✓  10 [desktop-chromium] › tests/e2e/a11y.spec.ts:263:1 › U28 状态播报：加载/保存/失败消息经 role=status 区域可被辅助技术获知 (311ms)
+  ✓  16 [desktop-chromium] › tests/e2e/account.spec.ts:48:1 › U27 pending_activation 指向完成激活，普通失效会话指向登录 (1ms)
+  ✓  14 [desktop-chromium] › tests/e2e/account.spec.ts:11:1 › U27 七类错误码与全部 UnauthorizedReason 都给出可执行下一步 (15ms)
+  ✓  20 [desktop-chromium] › tests/e2e/account.spec.ts:73:1 › U27 额度用尽仍保留停用入口，关闭失败与未知结果均不显示成功 (6ms)
+  ✘  19 [desktop-chromium] › tests/e2e/account.spec.ts:63:1 › U27 超时结果不确定，要求重新读取确认，不能显示成功或未执行 (8ms)
+  ✓  13 [desktop-chromium] › tests/e2e/a11y.spec.ts:337:1 › U28 交付证据截图：桌面与手机两个视口的实际渲染 (271ms)
+  ✓  18 [desktop-chromium] › tests/e2e/account.spec.ts:131:1 › U27 复制失败提供可选文本且不显示复制成功 (144ms)
+  ✓  21 [desktop-chromium] › tests/e2e/schedule.spec.ts:19:1 › U01 游客看到时间、动作与游戏，不创建用户；首屏包含日程 (206ms)
+(node:97023) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✓  17 [desktop-chromium] › tests/e2e/account.spec.ts:86:1 › U27 全站横幅不遮挡恢复、停用、退订、登出、紧急停用入口 (468ms)
+  ✓  22 [desktop-chromium] › tests/e2e/schedule.spec.ts:97:1 › U06 改浏览筛选不改写云配置、草稿或接收方式；URL只含白名单 (404ms)
+  ✓  23 [desktop-chromium] › tests/e2e/schedule.spec.ts:75:1 › U05 四种空态分别表达；平静期有近7天出口，候选只给聚合信息 (493ms)
+  ✓  24 [desktop-chromium] › tests/e2e/schedule.spec.ts:127:1 › U03 六档切换保留今日节点，昨天常驻末尾并采用已验证半透明组合 (502ms)
+  ✓  25 [desktop-chromium] › tests/e2e/schedule.spec.ts:146:1 › U05 三种新鲜度字段分开、陈旧缓存与离线明确标记 (354ms)
+  ✓  27 [desktop-chromium] › tests/e2e/schedule.spec.ts:162:1 › U05 加载失败保留条目并可重试，不假称全部加载完成 (390ms)
+  ✓  26 [desktop-chromium] › tests/e2e/schedule.spec.ts:38:1 › U03 八种时间状态、长标题、日期与未知混排不伪造时刻 (484ms)
+  ✓  28 [desktop-chromium] › tests/e2e/schedule.spec.ts:181:1 › U06 返回列表恢复筛选、已展开日程与合理滚动位置 (462ms)
+  ✓  30 [desktop-chromium] › tests/e2e/schedule.spec.ts:217:1 › U05 筛选改变后丢弃旧加载结果，空态出口保留键盘焦点 (332ms)
+  ✓  29 [desktop-chromium] › tests/e2e/schedule.spec.ts:197:1 › U03 U05 E2 桌面与手机实际截图、窄屏不裁剪关键内容 (410ms)
+  ✓  31 [desktop-chromium] › tests/e2e/schedule.spec.ts:237:1 › U05 来源故障与加载失败都不伪装成筛选无结果 (305ms)
+(node:97037) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:97038) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:97039) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  -  32 [mobile-chromium] › tests/e2e/a11y.spec.ts:59:1 › U28 对比度：token 全部前景/背景组合与半透明合成色逐一达到阈值
+  -  33 [mobile-chromium] › tests/e2e/a11y.spec.ts:101:1 › U28 颜色单一来源：tokens.css 之外不允许出现颜色字面量
+  -  36 [mobile-chromium] › tests/e2e/a11y.spec.ts:127:1 › U28 color.ts 工具函数：contrastRatio / compositeOver 对照已知值
+(node:97040) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:97041) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✓  34 [mobile-chromium] › tests/e2e/a11y.spec.ts:175:1 › U28 键盘 Tab 走完主要操作（跳过链接→主导航→登录→表单→页脚），焦点环可见 (241ms)
+  ✓  37 [mobile-chromium] › tests/e2e/a11y.spec.ts:239:1 › U28 表单标签在 placeholder 之外持续可见并与控件关联 (246ms)
+  ✓  39 [mobile-chromium] › tests/e2e/a11y.spec.ts:150:1 › U28 主导航仅「日程 / 我的订阅」两项；登录在页头，帮助与服务状态在页脚；能力型 URL 不出现在页面 (272ms)
+  ✓  35 [mobile-chromium] › tests/e2e/a11y.spec.ts:213:1 › U28 弹窗：焦点移入、Tab 只在弹窗内循环、背景 inert 不可误操作、Esc 关闭并恢复焦点 (456ms)
+  ✓  40 [mobile-chromium] › tests/e2e/a11y.spec.ts:253:1 › U28 折叠区含错误时自动展开并把焦点定位到错误 (255ms)
+  ✓  41 [mobile-chromium] › tests/e2e/a11y.spec.ts:263:1 › U28 状态播报：加载/保存/失败消息经 role=status 区域可被辅助技术获知 (325ms)
+  ✓  42 [mobile-chromium] › tests/e2e/a11y.spec.ts:281:1 › U28 触控目标：主要按钮、导航、展开入口与输入的有效点击区 ≥ 44px (219ms)
+  ✓  45 [mobile-chromium] › tests/e2e/account.spec.ts:11:1 › U27 七类错误码与全部 UnauthorizedReason 都给出可执行下一步 (16ms)
+  ✓  46 [mobile-chromium] › tests/e2e/account.spec.ts:48:1 › U27 pending_activation 指向完成激活，普通失效会话指向登录 (0ms)
+  ✓  38 [mobile-chromium] › tests/e2e/a11y.spec.ts:140:1 › U28 路由骨架：八条路由全部可达并渲染统一布局 (568ms)
+  ✓  48 [mobile-chromium] › tests/e2e/account.spec.ts:40:1 › U27 认证存在性敏感的服务端 message 不进入反馈 (1ms)
+  ✓  43 [mobile-chromium] › tests/e2e/a11y.spec.ts:300:1 › U28 页面缩放（窄视口代理）：关键操作不丢失、无横向溢出 (311ms)
+  ✘  47 [mobile-chromium] › tests/e2e/account.spec.ts:63:1 › U27 超时结果不确定，要求重新读取确认，不能显示成功或未执行 (2ms)
+  ✓  50 [mobile-chromium] › tests/e2e/account.spec.ts:73:1 › U27 额度用尽仍保留停用入口，关闭失败与未知结果均不显示成功 (3ms)
+  ✓  44 [mobile-chromium] › tests/e2e/a11y.spec.ts:337:1 › U28 交付证据截图：桌面与手机两个视口的实际渲染 (369ms)
+  ✓  52 [mobile-chromium] › tests/e2e/account.spec.ts:131:1 › U27 复制失败提供可选文本且不显示复制成功 (128ms)
+(node:97068) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✓  51 [mobile-chromium] › tests/e2e/schedule.spec.ts:38:1 › U03 八种时间状态、长标题、日期与未知混排不伪造时刻 (340ms)
+  ✓  49 [mobile-chromium] › tests/e2e/account.spec.ts:86:1 › U27 全站横幅不遮挡恢复、停用、退订、登出、紧急停用入口 (462ms)
+  ✓  53 [mobile-chromium] › tests/e2e/schedule.spec.ts:75:1 › U05 四种空态分别表达；平静期有近7天出口，候选只给聚合信息 (430ms)
+  ✓  54 [mobile-chromium] › tests/e2e/schedule.spec.ts:97:1 › U06 改浏览筛选不改写云配置、草稿或接收方式；URL只含白名单 (392ms)
+  ✓  56 [mobile-chromium] › tests/e2e/schedule.spec.ts:19:1 › U01 游客看到时间、动作与游戏，不创建用户；首屏包含日程 (245ms)
+  ✓  57 [mobile-chromium] › tests/e2e/schedule.spec.ts:146:1 › U05 三种新鲜度字段分开、陈旧缓存与离线明确标记 (327ms)
+  ✓  55 [mobile-chromium] › tests/e2e/schedule.spec.ts:127:1 › U03 六档切换保留今日节点，昨天常驻末尾并采用已验证半透明组合 (457ms)
+  ✓  58 [mobile-chromium] › tests/e2e/schedule.spec.ts:162:1 › U05 加载失败保留条目并可重试，不假称全部加载完成 (397ms)
+  ✓  59 [mobile-chromium] › tests/e2e/schedule.spec.ts:181:1 › U06 返回列表恢复筛选、已展开日程与合理滚动位置 (424ms)
+  ✓  61 [mobile-chromium] › tests/e2e/schedule.spec.ts:217:1 › U05 筛选改变后丢弃旧加载结果，空态出口保留键盘焦点 (289ms)
+  ✓  62 [mobile-chromium] › tests/e2e/schedule.spec.ts:237:1 › U05 来源故障与加载失败都不伪装成筛选无结果 (322ms)
+  ✓  60 [mobile-chromium] › tests/e2e/schedule.spec.ts:197:1 › U03 U05 E2 桌面与手机实际截图、窄屏不裁剪关键内容 (482ms)
+
+
+  1) [desktop-chromium] › tests/e2e/account.spec.ts:63:1 › U27 超时结果不确定，要求重新读取确认，不能显示成功或未执行 ─────────
+
+    Error: expect(received).not.toContain(expected) // indexOf
+
+    Expected substring: not "成功"
+    Received string:        "{\"title\":\"请求超时，结果尚不确定\",\"explanation\":\"请求可能已经被服务端执行，也可能尚未完成；目前不能显示成功。\",\"nextStep\":\"请重新读取当前状态或查看操作记录，确认结果后再决定是否重试。\",\"action\":\"confirm_result\",\"outcome\":\"uncertain\",\"preserveInput\":true,\"automaticRetry\":false,\"keepTerminationAccess\":true}"
+
+      67 |   expect(timeout.nextStep).toContain("重新读取当前状态");
+      68 |   expect(JSON.stringify(timeout)).not.toContain("未执行");
+    > 69 |   expect(JSON.stringify(timeout)).not.toContain("成功");
+         |                                       ^
+      70 |   expect(timeout.automaticRetry).toBe(false);
+      71 | });
+      72 |
+        at /private/tmp/hoyo-f1-04/tests/e2e/account.spec.ts:69:39
+
+    Error Context: tests/e2e/test-results/account-U27-超时结果不确定，要求重新读取确认，不能显示成功或未执行-desktop-chromium/error-context.md
+
+    attachment #2: trace (application/zip) ─────────────────────────────────────────────────────────
+    tests/e2e/test-results/account-U27-超时结果不确定，要求重新读取确认，不能显示成功或未执行-desktop-chromium/trace.zip
+    Usage:
+
+        pnpm exec playwright show-trace tests/e2e/test-results/account-U27-超时结果不确定，要求重新读取确认，不能显示成功或未执行-desktop-chromium/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+  2) [mobile-chromium] › tests/e2e/account.spec.ts:63:1 › U27 超时结果不确定，要求重新读取确认，不能显示成功或未执行 ──────────
+
+    Error: expect(received).not.toContain(expected) // indexOf
+
+    Expected substring: not "成功"
+    Received string:        "{\"title\":\"请求超时，结果尚不确定\",\"explanation\":\"请求可能已经被服务端执行，也可能尚未完成；目前不能显示成功。\",\"nextStep\":\"请重新读取当前状态或查看操作记录，确认结果后再决定是否重试。\",\"action\":\"confirm_result\",\"outcome\":\"uncertain\",\"preserveInput\":true,\"automaticRetry\":false,\"keepTerminationAccess\":true}"
+
+      67 |   expect(timeout.nextStep).toContain("重新读取当前状态");
+      68 |   expect(JSON.stringify(timeout)).not.toContain("未执行");
+    > 69 |   expect(JSON.stringify(timeout)).not.toContain("成功");
+         |                                       ^
+      70 |   expect(timeout.automaticRetry).toBe(false);
+      71 | });
+      72 |
+        at /private/tmp/hoyo-f1-04/tests/e2e/account.spec.ts:69:39
+
+    Error Context: tests/e2e/test-results/account-U27-超时结果不确定，要求重新读取确认，不能显示成功或未执行-mobile-chromium/error-context.md
+
+    attachment #2: trace (application/zip) ─────────────────────────────────────────────────────────
+    tests/e2e/test-results/account-U27-超时结果不确定，要求重新读取确认，不能显示成功或未执行-mobile-chromium/trace.zip
+    Usage:
+
+        pnpm exec playwright show-trace tests/e2e/test-results/account-U27-超时结果不确定，要求重新读取确认，不能显示成功或未执行-mobile-chromium/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+  2 failed
+    [desktop-chromium] › tests/e2e/account.spec.ts:63:1 › U27 超时结果不确定，要求重新读取确认，不能显示成功或未执行 ──────────
+    [mobile-chromium] › tests/e2e/account.spec.ts:63:1 › U27 超时结果不确定，要求重新读取确认，不能显示成功或未执行 ───────────
+  5 skipped
+  55 passed (5.2s)
+[ELIFECYCLE] Command failed with exit code 1.

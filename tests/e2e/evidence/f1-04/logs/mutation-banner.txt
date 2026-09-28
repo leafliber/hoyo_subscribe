@@ -1,0 +1,40 @@
+[WebServer] (node:2815) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+[WebServer] (Use `node --trace-warnings ...` to show where the warning was created)
+
+Running 1 test using 1 worker
+
+(node:2822) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✘  1 [desktop-chromium] › tests/e2e/account.spec.ts:88:1 › U27 全站横幅不遮挡恢复、停用、退订、登出、紧急停用入口 (140ms)
+
+
+  1) [desktop-chromium] › tests/e2e/account.spec.ts:88:1 › U27 全站横幅不遮挡恢复、停用、退订、登出、紧急停用入口 ───────────
+
+    Error: 恢复 被横幅遮挡
+
+    expect(received).toBe(expected) // Object.is equality
+
+    Expected: true
+    Received: false
+
+      128 |       );
+      129 |     });
+    > 130 |     expect(uncovered, `${name} 被横幅遮挡`).toBe(true);
+          |                                        ^
+      131 |     await button.click();
+      132 |     await expect(button).toHaveAttribute("data-clicked", "true");
+      133 |   }
+        at /private/tmp/hoyo-f1-04/tests/e2e/account.spec.ts:130:40
+
+    Error Context: tests/e2e/test-results/account-U27-全站横幅不遮挡恢复、停用、退订、登出、紧急停用入口-desktop-chromium/error-context.md
+
+    attachment #2: trace (application/zip) ─────────────────────────────────────────────────────────
+    tests/e2e/test-results/account-U27-全站横幅不遮挡恢复、停用、退订、登出、紧急停用入口-desktop-chromium/trace.zip
+    Usage:
+
+        pnpm exec playwright show-trace tests/e2e/test-results/account-U27-全站横幅不遮挡恢复、停用、退订、登出、紧急停用入口-desktop-chromium/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+  1 failed
+    [desktop-chromium] › tests/e2e/account.spec.ts:88:1 › U27 全站横幅不遮挡恢复、停用、退订、登出、紧急停用入口 ────────────

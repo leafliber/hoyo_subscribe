@@ -1,0 +1,59 @@
+$ biome check .
+apps/web/src/lib/errors/feedback.ts format ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  × Formatter would have printed the following content:
+
+    164 164 │   };
+    165 165 │
+    166     │ - export·function·feedbackForApiError(body:·ApiErrorBody,·context:·FeedbackContext·=·{}):·ErrorFeedback·{
+        166 │ + export·function·feedbackForApiError(
+        167 │ + ··body:·ApiErrorBody,
+        168 │ + ··context:·FeedbackContext·=·{},
+        169 │ + ):·ErrorFeedback·{
+    167 170 │     return API_ERROR_FEEDBACK[body.error.code](body.error.details, context);
+    168 171 │   }
+
+
+tests/e2e/account.spec.ts:1:1 assist/source/organizeImports  FIXABLE  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  × Sort these imports.
+
+  > 1 │ import { API_ERROR_CODES, buildApiErrorBody } from "@hoyo/contracts";
+      │ ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  > 2 │ import type { UnauthorizedReason } from "@hoyo/contracts";
+      │ ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    3 │ import { expect, test } from "@playwright/test";
+    4 │ import {
+
+  i Safe fix: Organize imports and exports (Biome)
+
+      1     │ - import·{·API_ERROR_CODES,·buildApiErrorBody·}·from·"@hoyo/contracts";
+      2     │ - import·type·{·UnauthorizedReason·}·from·"@hoyo/contracts";
+          1 │ + import·type·{·UnauthorizedReason·}·from·"@hoyo/contracts";
+          2 │ + import·{·API_ERROR_CODES,·buildApiErrorBody·}·from·"@hoyo/contracts";
+      3   3 │   import { expect, test } from "@playwright/test";
+      4   4 │   import {
+
+
+tests/e2e/account.spec.ts format ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  × Formatter would have printed the following content:
+
+    119 119 │       const uncovered = await button.evaluate((element) => {
+    120 120 │         const box = element.getBoundingClientRect();
+    121     │ - ······return·document.elementFromPoint(box.left·+·box.width·/·2,·box.top·+·box.height·/·2)·===·element;
+        121 │ + ······return·(
+        122 │ + ········document.elementFromPoint(box.left·+·box.width·/·2,·box.top·+·box.height·/·2)·===·element
+        123 │ + ······);
+    122 124 │       });
+    123 125 │       expect(uncovered, `${name} 被横幅遮挡`).toBe(true);
+
+
+Checked 265 files in 93ms. No fixes applied.
+Found 3 errors.
+check ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  × Some errors were emitted while running checks.
+
+
+[ELIFECYCLE] Command failed with exit code 1.
