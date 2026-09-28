@@ -52,6 +52,7 @@ F1-03 · 事件详情 · 阶段 F1。分支 `f1/F1-03-event-detail`，仓库外 
 | `gh pr create --base main --head f1/F1-03-event-detail --title 'F1-03 · 事件详情' --body-file tests/e2e/evidence/f1-03/REPORT.md` | exit 0，创建 [PR #28](https://github.com/leafliber/hoyo_subscribe/pull/28)。 | 同左 |
 | `gh run watch 36409608150 --exit-status --interval 10`、`gh run view 36409608150 --json conclusion,headSha,jobs,url` | exit 0；PR head `3b51140` 的 `verify` job success，冻结安装、lint、typecheck、test、params:verify、migrate:check、**build**、test:e2e 均 success。 | [CI 原始结果](logs/ci-verify.json)、[Actions run](https://github.com/leafliber/hoyo_subscribe/actions/runs/36409608150) |
 | `gh run view 36410126069 --log-failed` | 提交 `3531ead` 的 CI 在 lint 步骤失败：新归档的 `ci-verify.json` 是单行原始 JSON，Biome 要求格式化。读取失败日志后执行 `node_modules/.bin/biome check --write tests/e2e/evidence/f1-03/logs/ci-verify.json`，exit 0，Fixed 1 file；随后 `CI=1 pnpm lint` exit 0。此前 `pnpm exec biome check --write` 因 pnpm 非 TTY 模块清理报错，未完成格式化。 | [失败的 Actions run](https://github.com/leafliber/hoyo_subscribe/actions/runs/36410126069) |
+| `gh run watch 36410534124 --exit-status --interval 10` | exit 0；提交 `88ae554` 的 `verify` job success，冻结安装、lint、typecheck、test、params:verify、migrate:check、**build**、test:e2e 均 success。 | [修复后的 Actions run](https://github.com/leafliber/hoyo_subscribe/actions/runs/36410534124) |
 
 定向 e2e 的真实失败也留档：沙箱内监听 4173 首次 `EPERM`；获准重跑后 14 passed / 2 failed，原因是测试把折叠证据里的“公告发布时间”误纳入未知精度节点时刻断言。将断言限到 `.milestone-time` 后 16 passed，最终全量亦通过。[沙箱失败](logs/e2e-target-first.txt)、[断言失败](logs/e2e-target-retry.txt)、[修正后](logs/e2e-target-final.txt)。
 
@@ -78,7 +79,7 @@ E2 采集时间：2026-09-28 13:17（Asia/Shanghai）。截图来自 Playwright 
 - [桌面详情](desktop-detail.png)、[桌面改期](desktop-rescheduled.png)、[桌面依据展开](desktop-evidence-expanded.png)：Desktop Chrome，1280×720 CSS px，fullPage。
 - [移动详情](mobile-detail.png)、[移动改期](mobile-rescheduled.png)、[移动依据展开](mobile-evidence-expanded.png)：Pixel 7 浏览器仿真，详情截图收窄至 320×800 CSS px，fullPage。
 - [最终全量 e2e](logs/e2e-final.txt)、[最终变异日志](logs/mutation-final.txt) 与各标准命令日志均位于 `logs/`。
-- [PR #28 的 CI 原始步骤结果](logs/ci-verify.json)：2026-09-28 18:27（Asia/Shanghai）提交 `3b51140` 的 `verify` 成功，`build` 步骤成功。后续提交 `3531ead` 因本证据 JSON 未格式化而 lint 失败，已格式化并在本机复跑 lint 通过。CI 是 Linux 隔离环境，未将其写作本机 `pnpm build` 成功。
+- [PR #28 的 CI 原始步骤结果](logs/ci-verify.json)：2026-09-28 18:27（Asia/Shanghai）提交 `3b51140` 的 `verify` 成功，`build` 步骤成功。后续提交 `3531ead` 因本证据 JSON 未格式化而 lint 失败；修复提交 `88ae554` 的 [CI 全绿](https://github.com/leafliber/hoyo_subscribe/actions/runs/36410534124)，包含独立的 `build` 成功。CI 是 Linux 隔离环境，未将其写作本机 `pnpm build` 成功。
 
 ## 不在本次范围
 
@@ -86,7 +87,7 @@ E2 采集时间：2026-09-28 13:17（Asia/Shanghai）。截图来自 Playwright 
 
 ## 已知问题与回退点
 
-- 本机 `pnpm build` 的 Wrangler dry-run 退出等待与既有 F1-02 报告一致；所有者指定的 `CI=1`、关闭遥测、定向日志路径写法仍复现。两次本地尝试都由人工中断，exit 130。PR #28 在提交 `3b51140` 的 Linux CI 原始 `build` 步骤成功；`3531ead` 的 CI 在 lint 停止，未到 build；本机退出等待仍作为环境差异保留。
+- 本机 `pnpm build` 的 Wrangler dry-run 退出等待与既有 F1-02 报告一致；所有者指定的 `CI=1`、关闭遥测、定向日志路径写法仍复现。两次本地尝试都由人工中断，exit 130。PR #28 在提交 `88ae554` 的 Linux CI `build` 步骤成功，本机退出等待仍作为环境差异保留。
 - 详情页日期在静态构建时生成；首页交互样例按浏览器时钟生成。因此原型在跨日或测试冻结时钟下可有样例日期差异。真实数据与版本绑定需后续接口卡处理。
 - 首页 F1-02 样例场景说明仍写“详情沿用占位页”；`index.astro` 不在本卡允许范围，留给验收方分配后续文案修正。
 - 样例公告外链是 `example.com` 占位，页面明确标记，不能作为官方依据或联调证据。没有访问真实外部发送链。
