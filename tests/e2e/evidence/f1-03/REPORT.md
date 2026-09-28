@@ -44,6 +44,7 @@ F1-03 · 事件详情 · 阶段 F1。分支 `f1/F1-03-event-detail`，仓库外 
 | `pnpm params:verify` | 首次 tsx IPC pipe 受沙箱限制 `EPERM`，exit 1；授权环境复跑 exit 0，25 条成立、0 条不成立。 | [首次](logs/params.txt)、[复跑](logs/params-retry.txt) |
 | `pnpm migrate:check` | 首次 Wrangler 日志与 Miniflare 回环监听受沙箱限制 `EPERM`，exit 1；授权环境复跑 exit 0，15 迁移静态检查与 6 条空库重放测试通过。 | [首次](logs/migrate.txt)、[复跑](logs/migrate-retry.txt) |
 | `pnpm build` | **本地未正常退出**。Web 22 页完成；Worker 打印 `--dry-run: exiting now` 后约 65 秒无后续输出，手动 Ctrl-C，exit 130。不能记作本地通过。 | [本地构建](logs/build.txt) |
+| `CI=1 WRANGLER_SEND_METRICS=false WRANGLER_LOG_PATH=/tmp/hoyo-f1-03-wrangler.log pnpm build` | 按所有者指定写法复跑；Web 22 页完成，Worker 打印 `--dry-run: exiting now`，超过约 90 秒仍未退出；手动 Ctrl-C，**实际 exit 130**，不能记作构建通过。 | [指定环境复跑](logs/build-ci-env.txt) |
 | `pnpm test:e2e` | 最终 exit 0，**59 passed / 5 skipped**。5 条为既有 a11y 设备分工跳过，本卡 18 个设备用例全部执行通过。首次全量运行 57 passed / 5 skipped，后补强 1 条用例并复跑最终结果。 | [首次全量](logs/e2e.txt)、[最终全量](logs/e2e-final.txt) |
 | `python3 tests/e2e/evidence/f1-03/mutate-event-detail.py` | 两次 grep 特征计数均为 1；去除证据转义 → 两视口 XSS 用例失败且 `onerror` 实际执行；虚构缺失节点 → 两视口 U02 用例失败；每次还原后同一测试 2 passed。 | [最终变异日志](logs/mutation-final.txt) |
 | `git diff --check` | exit 0，无输出。 | 命令输出为空 |
@@ -80,7 +81,7 @@ E2 采集时间：2026-09-28 13:17（Asia/Shanghai）。截图来自 Playwright 
 
 ## 已知问题与回退点
 
-- 本机 `pnpm build` 的 Wrangler dry-run 退出等待与既有 F1-02 报告一致；Web 产物和 e2e 构建成功不替代全量构建通过。PR CI 需复核 `pnpm build`，在通过前此项不算本地门禁完成。
+- 本机 `pnpm build` 的 Wrangler dry-run 退出等待与既有 F1-02 报告一致；所有者指定的 `CI=1`、关闭遥测、定向日志路径写法仍复现。两次本地尝试都由人工中断，exit 130。Web 产物和 e2e 构建成功不替代全量构建通过；以 PR CI 的 `pnpm build` 结果复核，在得到结果前此项不算本地门禁完成。
 - 详情页日期在静态构建时生成；首页交互样例按浏览器时钟生成。因此原型在跨日或测试冻结时钟下可有样例日期差异。真实数据与版本绑定需后续接口卡处理。
 - 首页 F1-02 样例场景说明仍写“详情沿用占位页”；`index.astro` 不在本卡允许范围，留给验收方分配后续文案修正。
 - 样例公告外链是 `example.com` 占位，页面明确标记，不能作为官方依据或联调证据。没有访问真实外部发送链。
