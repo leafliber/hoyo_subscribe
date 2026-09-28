@@ -1,0 +1,40 @@
+$ astro build
+13:05:03 [types] Generated 85ms
+13:05:03 [build] output: "static"
+13:05:03 [build] mode: "static"
+13:05:03 [build] directory: /private/tmp/hoyo-f1-03/apps/web/dist/
+13:05:03 [build] Collecting build info...
+13:05:03 [build] ✓ Completed in 92ms.
+13:05:03 [build] Building static entrypoints...
+13:05:06 [vite] ✓ built in 2.76s
+13:05:06 [vite] ✓ built in 37ms
+13:05:06 [build] Rearranging server assets...
+
+ generating static routes
+13:05:06   ├─ /account/index.html (+4ms)
+13:05:06   ├─ /events/sample/index.html (+1ms)
+13:05:06   ├─ /events/morning/index.html (+1ms)
+13:05:06   ├─ /events/reward/index.html (+1ms)
+13:05:06   ├─ /events/end/index.html (+1ms)
+13:05:06   ├─ /events/long/index.html (+1ms)
+13:05:06   ├─ /events/derived/index.html (+0ms)
+13:05:06   ├─ /events/date/index.html (+0ms)
+13:05:06   ├─ /events/estimate/index.html (+1ms)
+13:05:06   ├─ /events/later/index.html (+1ms)
+13:05:06   ├─ /events/month/index.html (+0ms)
+13:05:06   ├─ /events/old/index.html (+0ms)
+13:05:06   ├─ /events/rescheduled/index.html (+0ms)
+13:05:06   ├─ /events/cancel/index.html (+0ms)
+13:05:06   ├─ /events/retract/index.html (+0ms)
+13:05:06   ├─ /events/pending/index.html (+0ms)
+13:05:06   ├─ /help/index.html (+1ms)
+13:05:06   ├─ /login/index.html (+1ms)
+13:05:06   ├─ /recover/index.html (+1ms)
+13:05:06   ├─ /status/index.html (+0ms)
+13:05:06   ├─ /subscription/index.html (+0ms)
+13:05:06   ├─ /index.html (+1ms)
+13:05:06 ✓ Completed in 28ms.
+
+13:05:06 [build] ✓ Completed in 2.84s.
+13:05:06 [build] 22 page(s) built in 2.93s
+13:05:06 [build] Complete!

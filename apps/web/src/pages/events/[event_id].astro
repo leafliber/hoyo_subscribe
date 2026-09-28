@@ -1,15 +1,21 @@
 ---
+import { renderEventDetail } from "../../features/schedule/detail";
+import type { DemoEvent } from "../../features/schedule/fixtures";
+import { demoEvent, demoEventIds } from "../../features/schedule/fixtures";
+import "../../features/schedule/detail.css";
 import Layout from "../_Layout.astro";
 
-// 静态输出下的动态路由需要 getStaticPaths。骨架期只发布一个样例占位 id，
-// 真实事件 id 由 F1-03 起的数据接入决定。
 export function getStaticPaths() {
-  return [{ params: { event_id: "sample" } }];
+  const now = Date.now();
+  return demoEventIds(now).map((id) => {
+    const event = demoEvent(now, id);
+    if (!event) throw new Error(`未知的 synthetic 事件：${id}`);
+    return { params: { event_id: id }, props: { event, now } };
+  });
 }
 
-const { event_id } = Astro.params;
+const { event, now } = Astro.props as { event: DemoEvent; now: number };
 ---
-<Layout title="事件详情" activeNav="schedule">
-  <h1>事件详情</h1>
-  <p class="skeleton-note">页面骨架（样例占位 id：{event_id}）：完整时间线、变更说明与官方依据由 F1-03 交付。</p>
+<Layout title={event.title} activeNav="schedule">
+  <div set:html={renderEventDetail(event, now)} />
 </Layout>
