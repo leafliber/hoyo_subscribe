@@ -293,6 +293,12 @@ AAD 不一致 = 解密认证失败。写入侧与读取侧必须用同一个记�
 
 绝对期限在**创建会话时**取 `SESSION_ABSOLUTE_TTL ± SESSION_ABSOLUTE_JITTER` 内的随机值并固定写入（摊平上线期集中到期）。认证预算按 `min(抖动后绝对期限, SESSION_IDLE_TTL)` 估算，**不按绝对期限**（§9.3）。
 
+**激活窗口 = `min(AUTH_COMPLETION_TTL, SESSION_PENDING_TTL)`（P2-03/P2-04 实现事实，2026-09-28 登记）**：
+激活事务要把完成回执一并清掉，而 `conditionalCommit` 对"守卫命中、依赖写入零行"抛不变量错误，所以激活守卫要求
+回执**仍在且未过期**；回执期限又取 `min(now + AUTH_COMPLETION_TTL, pending 期限)`。当前两值同为 600 秒，窗口与
+pending 期限重合，没有问题。**若把 `AUTH_COMPLETION_TTL` 调得比 `SESSION_PENDING_TTL` 短，pending 后段会出现
+"会话有效却永远激活不了"的死区**——调这两个参数前先改激活设计。
+
 ## 9. 恢复码（§4.6）
 
 | 动作 | 是否消费恢复码 | 之后 |
