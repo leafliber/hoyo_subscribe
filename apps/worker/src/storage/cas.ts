@@ -1,3 +1,4 @@
+// P2-06 跨卡扩展：单行 DELETE 效果；末尾可零行 UPDATE 供尚无 Feed 的订阅保存使用。
 // 条件提交（CAS）原语（任务卡 P1-05，验收 ID A-P1-CAS）。
 //
 // 合同依据：主方案 §3.6（发布一致性）、§8.1 末段（容量判断不能 COUNT → 无条件 INSERT）、[R08]。
@@ -39,6 +40,14 @@ export type GuardedEffect =
       table: string;
       set: Readonly<Record<string, SetAssignment>>;
       /** 谓词：守卫命中时必须必然成立（同批事务内可见，确定性成立），否则是计划编写错误。 */
+      where: { sql: string; params?: readonly SqlParam[] };
+      /** 只允许最后一个效果：目标行可尚不存在；零行不会阻断后续链条。 */
+      allowZeroRowsIfLast?: true;
+    }
+  | {
+      kind: "delete";
+      table: string;
+      /** 必须精确命中一行；可能零行的删除不能作为链中效果。 */
       where: { sql: string; params?: readonly SqlParam[] };
     };
 
@@ -119,6 +128,16 @@ function compileUpdateEffect(effect: Extract<GuardedEffect, { kind: "update" }>)
   };
 }
 
+function compileDeleteEffect(effect: Extract<GuardedEffect, { kind: "delete" }>): {
+  sql: string;
+  params: SqlParam[];
+} {
+  return {
+    sql: `DELETE FROM ${quoteIdentifier(effect.table)} WHERE changes() = 1 AND (${effect.where.sql})`,
+    params: [...(effect.where.params ?? [])],
+  };
+}
+
 /**
  * 统一条件提交：守卫命中 1 行时 preamble、守卫与全部 effects 一起成立；
  * 守卫命中 0 行时整批退化为空操作并返回 condition_missed；
@@ -135,12 +154,24 @@ export async function conditionalCommit(
   }
   const preamble = plan.preamble ?? [];
   const effects = plan.effects ?? [];
+  if (
+    effects.some(
+      (effect, index) =>
+        effect.kind === "update" && effect.allowZeroRowsIfLast && index !== effects.length - 1,
+    )
+  ) {
+    throw new CasInvariantError("可零行 UPDATE 只能放在效果链末尾");
+  }
   const statements = [
     ...preamble.map((statement) => prepare(db, statement.sql, statement.params)),
     prepare(db, plan.guard.sql, plan.guard.params),
     ...effects.map((effect) => {
       const compiled =
-        effect.kind === "insert" ? compileInsertEffect(effect) : compileUpdateEffect(effect);
+        effect.kind === "insert"
+          ? compileInsertEffect(effect)
+          : effect.kind === "update"
+            ? compileUpdateEffect(effect)
+            : compileDeleteEffect(effect);
       return prepare(db, compiled.sql, compiled.params);
     }),
   ];
@@ -172,7 +203,12 @@ export async function conditionalCommit(
       }
       continue;
     }
-    const expected = effect.kind === "insert" ? effect.rows.length : 1;
+    const expected =
+      effect.kind === "insert"
+        ? effect.rows.length
+        : effect.kind === "update" && effect.allowZeroRowsIfLast
+          ? 0
+          : 1;
     if (changed < expected) {
       throw new CasInvariantError(
         `守卫命中但依赖写入 #${index} 只改了 ${changed} 行（期望 ≥ ${expected}）：` +

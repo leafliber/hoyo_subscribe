@@ -1,3 +1,4 @@
+// P2-06 跨卡最小扩展：配置数组需要外壳递归校验元素并拒绝嵌套所有权字段。
 // 写 API 请求体校验：JSON、尺寸上限、未知字段拒绝、所有权字段拒绝（任务卡 P1-08
 // 交付物三；主方案 §8.2 末段、§4.2 检查顺序第一环"请求结构与尺寸"）。
 //
@@ -32,6 +33,7 @@ export type BodyFieldSpec =
     }
   | { readonly type: "number"; readonly optional?: boolean }
   | { readonly type: "boolean"; readonly optional?: boolean }
+  | { readonly type: "array"; readonly optional?: boolean; readonly items: BodyFieldSpec }
   | {
       readonly type: "object";
       readonly optional?: boolean;
@@ -165,6 +167,16 @@ function checkField(spec: BodyFieldSpec, value: unknown, path: string, out: Fiel
         return;
       }
       checkObject({ fields: spec.fields }, value, path, out);
+      return;
+    }
+    case "array": {
+      if (!Array.isArray(value)) {
+        out.push({ path, reason: "type_mismatch" });
+        return;
+      }
+      for (const [index, item] of value.entries()) {
+        checkField(spec.items, item, `${path}.${index}`, out);
+      }
       return;
     }
   }
