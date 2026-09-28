@@ -1,3 +1,4 @@
+// P2-05 获准跨卡接缝：ShellAuth 手写夹具补受限恢复会话标记。
 // A-P2-SUB：真实 Miniflare D1 + 外壳路由，含两设备同时保存、日额原子性与 Feed 版本。
 // 所有账号、会话散列和时间均为合成样本。
 import { env } from "cloudflare:test";
@@ -147,6 +148,7 @@ function shell(userId: string) {
           sessionId: `synthetic:${device}`,
           sessionState: request.headers.get("x-test-pending") === "1" ? "pending" : "active",
           sessionTokenHash: `synthetic-hash:${device}`,
+          recoveryCodeRequired: false,
         };
       },
     },

@@ -1,3 +1,4 @@
+// P2-05 授权跨卡改动：用途守卫改从 contracts 引用，避免恢复入口出现第二份用途定义。
 // POST /api/v2/auth/challenges/verify 的业务逻辑（任务卡 P2-02；主方案 §4.3 全段、A.2）。
 //
 // ★ 关键约束（任务卡「最易错」第 3 条）：Cookie 丢失或响应丢失导致的失败**不得误报为
@@ -20,6 +21,7 @@ import {
   AUTH_COMPLETION_TTL,
   canonicalizeEmail,
   EMAIL_VERIFY_ATTEMPTS_HOUR,
+  isChallengePurpose,
   OTP_ATTEMPTS,
   OTP_DIGITS,
   PREAUTH_MARGIN,
@@ -32,7 +34,6 @@ import { consumeVerifiedOtp } from "../consume/consume";
 import { requireOperationKey } from "../consume/operation";
 import { serializePendingSessionCookie } from "../consume/session";
 import { PREAUTH_COOKIE_NAME, verifyPreauthCookieValue } from "../preauth/cookie";
-import { isChallengePurpose } from "./purposes";
 import { renewPreauthCookieForContext } from "./renewal";
 
 /** 单位换算（注册表秒值的换算，不引入第二份业务常量）。 */

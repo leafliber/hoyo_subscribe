@@ -1,3 +1,4 @@
+// P2-05 授权跨卡改动：unauthorized 闭合原因补恢复码未确认与最近认证要求。
 // API 错误模型（任务卡 P1-08 交付物一；主方案 §8.2 末段、ENGINEERING.md §5.3、前端 v1.0 §11.3）。
 //
 // 合同原文："错误至少区分 validation、unauthorized、conflict、rate_limited、
@@ -77,6 +78,8 @@ export type UnauthorizedReason =
   | "no_session" // 无有效会话
   | "session_expired" // 会话过期，需重新登录
   | "pending_activation" // 会话未激活，需完成激活
+  | "recovery_code_unconfirmed" // 恢复会话须先生成并确认保存新码
+  | "recent_auth_required" // 生成恢复码前须重新验证邮箱；P2-07 危险操作复用
   | "wrong_domain"; // 会话权限域不匹配（普通用户 vs 管理员，§8.3）
 
 /** unauthorized 的结构化细节。 */

@@ -1,3 +1,4 @@
+// P2-05 授权跨卡改动：导出挑战用途唯一枚举及守卫。
 // P2-06 跨卡导出：日历视图语义比较供订阅保存与后续 ICS 组装共用。
 // packages/contracts：Worker 与 Web 共用的唯一业务定义源
 // （枚举、Schema、参数注册表、时间语义、规范化纯函数——docs/ENGINEERING.md §1）。
@@ -14,6 +15,7 @@ export * from "./budget/mutations";
 export * from "./budget/pools";
 export * from "./calendar-nodes";
 export * from "./calendar-view-change";
+export * from "./challenge-purposes";
 export * from "./crypto-types/purposes";
 export * from "./crypto-types/redaction";
 export * from "./crypto-types/storage-policy";

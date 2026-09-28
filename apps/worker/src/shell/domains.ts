@@ -1,3 +1,4 @@
+// P2-05 授权跨卡改动：ShellAuth 加恢复会话能力标记，限制绑定会话而非用户状态。
 // P2-04 跨卡修正：统一 §4.5 的 Cookie 名，并让用户鉴权结果携带会话状态与
 // CSRF 绑定所需的 token 散列；pending 权限由 router 显式限制。
 // 权限域隔离骨架（任务卡 P1-08 交付物六；主方案 §8.3 末段）。
@@ -39,6 +40,8 @@ export type ShellAuth =
       readonly sessionId: string;
       readonly sessionState: "pending" | "active";
       readonly sessionTokenHash: string;
+      /** P2-05：恢复登录会话在新码保存确认前的能力标记。 */
+      readonly recoveryCodeRequired: boolean;
     }
   | { readonly kind: "session"; readonly domain: "admin"; readonly adminId: string }
   | { readonly kind: "capability" }

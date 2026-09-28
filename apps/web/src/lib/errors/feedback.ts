@@ -1,3 +1,4 @@
+// P2-05 获准跨卡接缝：F1-04 穷尽表补恢复码保存与最近认证原因。
 import type {
   ApiErrorBody,
   ApiErrorCode,
@@ -75,6 +76,18 @@ export const UNAUTHORIZED_FEEDBACK: Readonly<Record<UnauthorizedReason, Feedback
     explanation: "当前会话尚未激活，这次写入未完成。",
     nextStep: "请完成激活后核对草稿，再继续操作。",
     action: "complete_activation",
+  },
+  recovery_code_unconfirmed: {
+    title: "先保存新恢复码",
+    explanation: "恢复会话的新码尚未完成保存确认，这次写入未执行。",
+    nextStep: "请先生成、保存并确认新恢复码，再继续操作。",
+    action: "check_status",
+  },
+  recent_auth_required: {
+    title: "需要重新验证邮箱",
+    explanation: "这次生成未执行，当前会话的认证时间已超过有效期。",
+    nextStep: "请重新验证邮箱后再生成恢复码。",
+    action: "login",
   },
   wrong_domain: {
     title: "当前会话不能执行此操作",

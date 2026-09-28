@@ -1,3 +1,4 @@
+// P2-05 授权跨卡改动：受限恢复会话写路由默认拒绝，仅显式 allowRecoveryWrite 放行。
 // P2-04 跨卡修正：普通 user 路由默认只接受 active；仅声明 allowPending 的
 // 激活与脱敏设备列表可使用 pending，避免 pending 继承普通用户权限（§4.5）。
 // API 外壳路由与统一中间件管线（任务卡 P1-08 交付物三；主方案 §8.2、§4.2、§8.3）。
@@ -45,6 +46,8 @@ export interface ShellRoute {
   readonly domain: RouteDomain;
   /** §4.5 唯一例外：pending 可访问设备列表和激活；其他 user 路由默认 active。 */
   readonly allowPending?: true;
+  /** P2-05：受限恢复会话的写路由白名单须显式声明。 */
+  readonly allowRecoveryWrite?: true;
   /** 写 API 走完整校验管线（§8.2）。 */
   readonly write: boolean;
   /** 写路由的请求体 schema（未知字段拒绝 + 认证类小字段约束都由它表达）。 */
@@ -172,11 +175,24 @@ async function dispatch(
     // 路由误配置必须失败关闭；§4.5 只允许这两处 pending 例外。
     throw new Error("allowPending 只能用于设备列表与激活");
   }
+  if (route.allowRecoveryWrite === true && !route.write) {
+    throw new Error("allowRecoveryWrite 只能用于写路由");
+  }
 
   let auth: ShellAuth = { kind: "none" };
   if (route.domain === "user" || route.domain === "admin") {
     auth = await deps.authenticator.authenticate(request, route.domain);
     guardDomain(route.domain, auth, route.allowPending === true);
+    if (
+      route.domain === "user" &&
+      route.write &&
+      auth.kind === "session" &&
+      auth.domain === "user" &&
+      auth.recoveryCodeRequired &&
+      route.allowRecoveryWrite !== true
+    ) {
+      throw unauthorized("recovery_code_unconfirmed");
+    }
   }
 
   let body: Record<string, unknown> | undefined;

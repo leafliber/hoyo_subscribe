@@ -1,3 +1,4 @@
+// P2-05 合并接缝：F1-04 的穷尽期望同步恢复码保存与最近认证两个原因。
 import { mkdirSync } from "node:fs";
 import { resolve } from "node:path";
 import { expect, test } from "@playwright/test";
@@ -38,6 +39,8 @@ test("U27 七类错误码与全部 UnauthorizedReason 都给出可执行下一�
     "no_session",
     "session_expired",
     "pending_activation",
+    "recovery_code_unconfirmed",
+    "recent_auth_required",
     "wrong_domain",
   ];
   expect(Object.keys(UNAUTHORIZED_FEEDBACK).sort()).toEqual([...reasons].sort());
