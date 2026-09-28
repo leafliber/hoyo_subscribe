@@ -1,10 +1,12 @@
 // P3-04 · 一次条件提交发布事实。只有本模块写事实、修订、投影与快照待更新 outbox。
+// P4-01 获准跨卡改动：仅随同一条件提交追加通知发布 outbox，不改变原发布判定和事实写入。
 import {
   API_BODY_MAX_BYTES,
   classifyPublicationChange,
   type EventChange,
   type EventStatus,
   type EventType,
+  NOTIFICATION_PUBLICATION_TOPIC,
   type NodeType,
   PUBLIC_SNAPSHOT_PENDING_STATE_KEY,
   PUBLISH_ACTOR_PATH,
@@ -728,6 +730,44 @@ function appendEventEffects(
             .map((node) => node.id),
         }),
         nowMs,
+      ],
+    ),
+  );
+  effects.push(
+    insert(
+      "outbox",
+      [
+        "id",
+        "topic",
+        "dedupe_key",
+        "payload_json",
+        "dispatch_state",
+        "created_at",
+        "dispatched_at",
+      ],
+      [
+        crypto.randomUUID(),
+        NOTIFICATION_PUBLICATION_TOPIC,
+        `notification:${event.id}:${revision}`,
+        JSON.stringify({
+          event_id: event.id,
+          event_revision: revision,
+          schedule_revision: scheduleRevision,
+          change_kind: changeKind(event),
+          changed_node_ids: event.nodes
+            .filter((node) => event.change.milestones[node.facts.milestone_key]?.schedule_changed)
+            .map((node) => node.id),
+          newly_exact_node_ids: event.nodes
+            .filter(
+              (node) =>
+                node.facts.time.precision === "datetime" &&
+                (node.old === null || node.old.time_precision !== "datetime"),
+            )
+            .map((node) => node.id),
+        }),
+        "pending",
+        nowMs,
+        null,
       ],
     ),
   );

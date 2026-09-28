@@ -1,5 +1,8 @@
 // A-P3-PUBLISH · 合成官方材料，本地 D1 真事务；无网络/真实发信。
+// P4-01 获准跨卡改动：仅验证同一发布事务追加通知 outbox 的用例。
+
 import { env } from "cloudflare:test";
+import { NOTIFICATION_PUBLICATION_TOPIC } from "@hoyo/contracts";
 import { beforeAll, describe, expect, it } from "vitest";
 import { eventIdentity, milestoneIdentity } from "../extraction/identity";
 import { parseAnnouncementExactTime } from "../extraction/time";
@@ -211,6 +214,31 @@ beforeAll(async () => {
 });
 
 describe("A-P3-PUBLISH 原子发布、身份与版本", () => {
+  it("同一次发布条件提交生成逐事件修订通知信号；未提交不留信号", async () => {
+    const article = await seedArticle(id("external"));
+    const candidate = await seedCandidate(article.versionId);
+    expect((await publishApprovedCandidate(env.DB, candidate, T0)).outcome).toBe("published");
+    const eventId = await eventIdentity(
+      "genshin-ann",
+      await externalIdOf(article.articleId),
+      "moon_trial",
+    );
+    const signal = await one<{ topic: string; payload_json: string }>(
+      "SELECT topic,payload_json FROM outbox WHERE dedupe_key = ?",
+      `notification:${eventId}:1`,
+    );
+    expect(signal?.topic).toBe(NOTIFICATION_PUBLICATION_TOPIC);
+    expect(JSON.parse(signal?.payload_json ?? "null")).toMatchObject({
+      event_id: eventId,
+      event_revision: 1,
+      schedule_revision: 1,
+      change_kind: "created",
+    });
+    expect(await publishApprovedCandidate(env.DB, candidate, T0 + 1)).toEqual({
+      outcome: "unchanged",
+    });
+    expect(await count("outbox", "dedupe_key = ?", `notification:${eventId}:1`)).toBe(1);
+  });
   it("同一候选发布两次：第二次零事件写入、零修订、零 outbox", async () => {
     const article = await seedArticle(id("external"));
     const candidate = await seedCandidate(article.versionId);
@@ -282,6 +310,7 @@ describe("A-P3-PUBLISH 原子发布、身份与版本", () => {
     const eventId = await eventIdentity("genshin-ann", external, "moon_trial");
     expect(await count("event_revisions", "event_id = ?", eventId)).toBe(1);
     expect(await count("outbox", "dedupe_key = ?", `publish:${candidate}`)).toBe(0);
+    expect(await count("outbox", "dedupe_key = ?", `notification:${eventId}:1`)).toBe(1);
     expect(await count("evidence", "candidate_id = ? AND event_id IS NULL", candidate)).toBe(1);
   });
 
@@ -442,6 +471,7 @@ describe("A-P3-PUBLISH 原子发布、身份与版本", () => {
     expect(await count("outbox", "dedupe_key = ?", `publish:${candidate}`)).toBe(0);
     const external = await externalIdOf(article.articleId);
     const eventId = await eventIdentity("genshin-ann", external, "moon_trial");
+    expect(await count("outbox", "dedupe_key = ?", `notification:${eventId}:1`)).toBe(0);
     expect(await count("events", "id = ?", eventId)).toBe(0);
     await env.DB.prepare("UPDATE candidates SET review_status = 'approved' WHERE id = ?")
       .bind(candidate)
@@ -461,6 +491,7 @@ describe("A-P3-PUBLISH 原子发布、身份与版本", () => {
     expect(await count("evidence", "candidate_id = ? AND event_id IS NOT NULL", candidate)).toBe(0);
     expect(await count("event_revisions", "event_id = ?", eventId)).toBe(0);
     expect(await count("outbox", "dedupe_key = ?", `publish:${candidate}`)).toBe(0);
+    expect(await count("outbox", "dedupe_key = ?", `notification:${eventId}:1`)).toBe(0);
   });
 
   it("纯日期发布与改期不造午夜，也不更换 Milestone 身份", async () => {
