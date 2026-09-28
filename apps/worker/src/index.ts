@@ -1,3 +1,4 @@
+// P2-04 跨卡修正：把 P1-08 的无身份桩换成逐请求 D1 主状态鉴权，挂载会话路由。
 // Worker 入口（P1-01 骨架 + P1-08 API 外壳挂载；业务路由由 P2+ 按任务卡挂载）。
 //
 // 启动等式校验（任务卡 P1-03；ENGINEERING.md §4）：附录 A.5 / CONTRACTS_BASELINE.md §11
@@ -12,6 +13,8 @@ import { makeCompleteRoute } from "./auth/consume/routes";
 import { InMemoryAuthRateGate } from "./auth/preauth/rate-gate";
 import { makePreauthInitRoute } from "./auth/preauth/routes";
 import { siteverifyTurnstileVerifier } from "./auth/preauth/turnstile";
+import { sessionAuthenticator } from "./auth/sessions/authenticator";
+import { makeSessionRoutes } from "./auth/sessions/routes";
 import { applySecurityHeaders } from "./shell/headers";
 import { createApiShell } from "./shell/router";
 import { fromHex } from "./storage/crypto/bytes";
@@ -79,12 +82,7 @@ function getShell(env: Env): Shell {
   let shell = shellByEnv.get(env);
   if (shell === undefined) {
     shell = createApiShell({
-      // 鉴权器属 P2-04 会话卡；user/admin 域路由暂一律 no_session（失败关闭）。
-      authenticator: {
-        async authenticate() {
-          return { kind: "none" } as const;
-        },
-      },
+      authenticator: sessionAuthenticator(env.DB),
       // 秘密未注入时 getKeyring 抛错 → 写路由折叠为 temporarily_unavailable
       // （失败关闭）；读路径与 Feed 协议校验不受影响。
       csrfKey: () => getKeyring(env as Env & ShellSecrets).then((ring) => ring.csrf()),
@@ -103,6 +101,7 @@ function getShell(env: Env): Shell {
             siteverifyTurnstileVerifier((env as Env & ShellSecrets).TURNSTILE_SECRET_KEY ?? ""),
         }),
         makeCompleteRoute(() => getKeyring(env as Env & ShellSecrets)),
+        ...makeSessionRoutes(() => getKeyring(env as Env & ShellSecrets)),
       ],
     });
     shellByEnv.set(env, shell);

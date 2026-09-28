@@ -1,3 +1,4 @@
+// P2-04 跨卡测试夹具适配：用户会话新增状态、ID 和 token 散列字段。
 // A-P1-SHELL：写 API 统一中间件（§8.2 末段、§4.2 检查顺序；任务卡交付物三）。
 //
 // 覆盖：JSON/尺寸/未知字段/所有权字段校验、Origin 同源、CSRF 双提交 + MAC 绑定、
@@ -100,7 +101,14 @@ async function fullyValidRequest(): Promise<Request> {
 beforeEach(() => {
   handlerCalled = 0;
   lastContext = null;
-  authOverride = { kind: "session", domain: "user", userId: "u_server_derived" };
+  authOverride = {
+    kind: "session",
+    domain: "user",
+    userId: "u_server_derived",
+    sessionId: "s_derived",
+    sessionState: "active",
+    sessionTokenHash: "synthetic_hash",
+  };
 });
 
 describe("A-P1-SHELL 请求结构与尺寸（§4.2 第一环）", () => {

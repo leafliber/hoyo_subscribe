@@ -1,3 +1,4 @@
+// P2-04 跨卡测试夹具适配：真实用户鉴权结果现携带状态、会话 ID 与 CSRF 绑定散列。
 // A-P1-SHELL：权限域隔离骨架（§8.3 末段；任务卡交付物六——骨架，不实现具体鉴权）。
 import { describe, expect, it } from "vitest";
 import { type Authenticator, deriveOwnerUserId, type ShellAuth } from "./domains";
@@ -5,7 +6,14 @@ import { jsonResponse } from "./errors";
 import { createApiShell, type ShellRoute } from "./router";
 import { fakeEnv, fakeExecutionContext, siteUrl } from "./test-support";
 
-const userSession: ShellAuth = { kind: "session", domain: "user", userId: "u_1" };
+const userSession: ShellAuth = {
+  kind: "session",
+  domain: "user",
+  userId: "u_1",
+  sessionId: "s_1",
+  sessionState: "active",
+  sessionTokenHash: "synthetic_hash",
+};
 const adminSession: ShellAuth = { kind: "session", domain: "admin", adminId: "adm_1" };
 
 function makeShell(

@@ -1,3 +1,4 @@
+// P2-04 跨卡修正：Cookie 名改用 shell 唯一常量，确保鉴权器能读取 P2-03 签发值。
 // P2-03 · 创建 pending Session 所需值（主方案 §4.4–§4.5、附录 A.2）。
 // 只存 token 的 SHA-256 hash；唯一可恢复明文是挑战行里的短期加密回执。
 // 绝对期限在创建时从注册表中心值 ± 抖动毫秒范围均匀抽取，触发器禁止改写。
@@ -8,11 +9,11 @@ import {
   SESSION_IDLE_TTL,
   SESSION_PENDING_TTL,
 } from "@hoyo/contracts";
+import { USER_SESSION_COOKIE_NAME } from "../../shell/domains";
 import { toHex, utf8Encode } from "../../storage/crypto/bytes";
 import { generateSecretToken, uniformIntegerInclusive } from "../../storage/crypto/random";
 
 const MS_PER_SECOND = 1_000;
-export const SESSION_COOKIE_NAME = "__Host-session";
 
 export interface PendingSessionValues {
   readonly id: string;
@@ -45,5 +46,5 @@ export async function makePendingSession(now: number): Promise<PendingSessionVal
 
 /** 激活后仍由数据库状态与期限鉴权；浏览器 Cookie 可以活到不活跃期限。 */
 export function serializePendingSessionCookie(value: string): string {
-  return `${SESSION_COOKIE_NAME}=${value}; Secure; HttpOnly; SameSite=Lax; Path=/; Max-Age=${SESSION_IDLE_TTL}`;
+  return `${USER_SESSION_COOKIE_NAME}=${value}; Secure; HttpOnly; SameSite=Lax; Path=/; Max-Age=${SESSION_IDLE_TTL}`;
 }
