@@ -1,0 +1,115 @@
+$ pnpm --filter @hoyo/web run build && playwright test --config tests/e2e/playwright.config.ts
+$ astro build
+13:11:10 [types] Generated 43ms
+13:11:10 [build] output: "static"
+13:11:10 [build] mode: "static"
+13:11:10 [build] directory: /private/tmp/hoyo-f2-01/apps/web/dist/
+13:11:10 [build] Collecting build info...
+13:11:10 [build] ✓ Completed in 51ms.
+13:11:10 [build] Building static entrypoints...
+13:11:10 [vite] ✓ built in 180ms
+13:11:10 [vite] ✓ built in 28ms
+13:11:10 [build] Rearranging server assets...
+
+ generating static routes
+13:11:10   ├─ /account/index.html (+4ms)
+13:11:10   ├─ /events/sample/index.html (+1ms)
+13:11:10   ├─ /help/index.html (+1ms)
+13:11:10   ├─ /login/index.html (+1ms)
+13:11:10   ├─ /recover/index.html (+1ms)
+13:11:10   ├─ /status/index.html (+1ms)
+13:11:10   ├─ /subscription/index.html (+7ms)
+13:11:10   ├─ /index.html (+2ms)
+13:11:10 ✓ Completed in 27ms.
+
+13:11:10 [build] ✓ Completed in 250ms.
+13:11:10 [build] 8 page(s) built in 303ms
+13:11:10 [build] Complete!
+[WebServer] (node:163) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+[WebServer] (Use `node --trace-warnings ...` to show where the warning was created)
+
+Running 60 tests using 5 workers
+
+(node:165) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:166) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:169) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:167) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:168) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✓   1 [desktop-chromium] › tests/e2e/a11y.spec.ts:59:1 › U28 对比度：token 全部前景/背景组合与半透明合成色逐一达到阈值 (2ms)
+  ✓   6 [desktop-chromium] › tests/e2e/a11y.spec.ts:127:1 › U28 color.ts 工具函数：contrastRatio / compositeOver 对照已知值 (5ms)
+  ✓   4 [desktop-chromium] › tests/e2e/a11y.spec.ts:101:1 › U28 颜色单一来源：tokens.css 之外不允许出现颜色字面量 (13ms)
+  ✓   8 [desktop-chromium] › tests/e2e/a11y.spec.ts:239:1 › U28 表单标签在 placeholder 之外持续可见并与控件关联 (484ms)
+  ✓   5 [desktop-chromium] › tests/e2e/a11y.spec.ts:175:1 › U28 键盘 Tab 走完主要操作（跳过链接→主导航→登录→表单→页脚），焦点环可见 (491ms)
+  ✓   3 [desktop-chromium] › tests/e2e/a11y.spec.ts:150:1 › U28 主导航仅「日程 / 我的订阅」两项；登录在页头，帮助与服务状态在页脚；能力型 URL 不出现在页面 (493ms)
+  -  11 [desktop-chromium] › tests/e2e/a11y.spec.ts:281:1 › U28 触控目标：主要按钮、导航、展开入口与输入的有效点击区 ≥ 44px
+  ✓   9 [desktop-chromium] › tests/e2e/a11y.spec.ts:253:1 › U28 折叠区含错误时自动展开并把焦点定位到错误 (222ms)
+  -  12 [desktop-chromium] › tests/e2e/a11y.spec.ts:300:1 › U28 页面缩放（窄视口代理）：关键操作不丢失、无横向溢出
+  ✓   7 [desktop-chromium] › tests/e2e/a11y.spec.ts:213:1 › U28 弹窗：焦点移入、Tab 只在弹窗内循环、背景 inert 不可误操作、Esc 关闭并恢复焦点 (749ms)
+  ✓  10 [desktop-chromium] › tests/e2e/a11y.spec.ts:263:1 › U28 状态播报：加载/保存/失败消息经 role=status 区域可被辅助技术获知 (290ms)
+  ✓   2 [desktop-chromium] › tests/e2e/a11y.spec.ts:140:1 › U28 路由骨架：八条路由全部可达并渲染统一布局 (828ms)
+  ✓  14 [desktop-chromium] › tests/e2e/schedule.spec.ts:19:1 › U01 游客看到时间、动作与游戏，不创建用户；首屏包含日程 (259ms)
+  ✓  13 [desktop-chromium] › tests/e2e/a11y.spec.ts:337:1 › U28 交付证据截图：桌面与手机两个视口的实际渲染 (330ms)
+  ✓  15 [desktop-chromium] › tests/e2e/schedule.spec.ts:38:1 › U03 八种时间状态、长标题、日期与未知混排不伪造时刻 (459ms)
+  ✓  16 [desktop-chromium] › tests/e2e/schedule.spec.ts:75:1 › U05 四种空态分别表达；平静期有近7天出口，候选只给聚合信息 (586ms)
+  ✓  17 [desktop-chromium] › tests/e2e/schedule.spec.ts:97:1 › U06 改浏览筛选不改写云配置、草稿或接收方式；URL只含白名单 (586ms)
+  ✓  19 [desktop-chromium] › tests/e2e/schedule.spec.ts:146:1 › U05 三种新鲜度字段分开、陈旧缓存与离线明确标记 (368ms)
+  ✓  18 [desktop-chromium] › tests/e2e/schedule.spec.ts:127:1 › U03 六档切换保留今日节点，昨天常驻末尾并采用已验证半透明组合 (554ms)
+  ✓  20 [desktop-chromium] › tests/e2e/schedule.spec.ts:162:1 › U05 加载失败保留条目并可重试，不假称全部加载完成 (365ms)
+  ✓  23 [desktop-chromium] › tests/e2e/schedule.spec.ts:217:1 › U05 筛选改变后丢弃旧加载结果，空态出口保留键盘焦点 (328ms)
+  ✓  21 [desktop-chromium] › tests/e2e/schedule.spec.ts:181:1 › U06 返回列表恢复筛选、已展开日程与合理滚动位置 (448ms)
+  ✓  22 [desktop-chromium] › tests/e2e/schedule.spec.ts:197:1 › U03 U05 E2 桌面与手机实际截图、窄屏不裁剪关键内容 (450ms)
+  ✓  25 [desktop-chromium] › tests/e2e/subscription.spec.ts:36:1 › U09 关闭日历提醒只改变日历选择，规则及邮件和 Push 区域保持原样 (226ms)
+  ✓  26 [desktop-chromium] › tests/e2e/subscription.spec.ts:55:1 › U09 初始值来自 DEFAULT_*，只是本机预选；没有 Feed 时不宣称外部提醒已开启 (174ms)
+  ✓  24 [desktop-chromium] › tests/e2e/subscription.spec.ts:14:1 › U09a U10 清空全部提前规则仍可开变更消息；最后一条只提示，不要求确认 (427ms)
+  ✓  28 [desktop-chromium] › tests/e2e/subscription.spec.ts:145:1 › U09a 页面仅维护本机选择，不请求订阅 API；实际预览和三个接收方式均明确状态 (222ms)
+  ✓  30 [desktop-chromium] › tests/e2e/subscription.spec.ts:163:1 › U09 U09a U10 E2 桌面与手机实际截图 (172ms)
+  ✓  27 [desktop-chromium] › tests/e2e/subscription.spec.ts:83:1 › U09a 规则选项与推荐分组来自 contracts；变更范围取 calendar.event_types 与规则事件类型并集 (337ms)
+(node:217) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  -  31 [mobile-chromium] › tests/e2e/a11y.spec.ts:59:1 › U28 对比度：token 全部前景/背景组合与半透明合成色逐一达到阈值
+(node:218) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  -  33 [mobile-chromium] › tests/e2e/a11y.spec.ts:101:1 › U28 颜色单一来源：tokens.css 之外不允许出现颜色字面量
+(node:219) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:220) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  -  35 [mobile-chromium] › tests/e2e/a11y.spec.ts:127:1 › U28 color.ts 工具函数：contrastRatio / compositeOver 对照已知值
+  ✓  29 [desktop-chromium] › tests/e2e/subscription.spec.ts:110:1 › U09 U10 一个主按钮、无自由分钟输入；空游戏和空日历类型错误可聚焦且保存栏不遮挡 (606ms)
+  ✓  32 [mobile-chromium] › tests/e2e/a11y.spec.ts:150:1 › U28 主导航仅「日程 / 我的订阅」两项；登录在页头，帮助与服务状态在页脚；能力型 URL 不出现在页面 (194ms)
+  ✓  34 [mobile-chromium] › tests/e2e/a11y.spec.ts:175:1 › U28 键盘 Tab 走完主要操作（跳过链接→主导航→登录→表单→页脚），焦点环可见 (213ms)
+  ✓  38 [mobile-chromium] › tests/e2e/a11y.spec.ts:253:1 › U28 折叠区含错误时自动展开并把焦点定位到错误 (239ms)
+(node:231) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✓  39 [mobile-chromium] › tests/e2e/a11y.spec.ts:263:1 › U28 状态播报：加载/保存/失败消息经 role=status 区域可被辅助技术获知 (252ms)
+  ✓  36 [mobile-chromium] › tests/e2e/a11y.spec.ts:213:1 › U28 弹窗：焦点移入、Tab 只在弹窗内循环、背景 inert 不可误操作、Esc 关闭并恢复焦点 (409ms)
+  ✓  40 [mobile-chromium] › tests/e2e/a11y.spec.ts:281:1 › U28 触控目标：主要按钮、导航、展开入口与输入的有效点击区 ≥ 44px (200ms)
+  ✓  37 [mobile-chromium] › tests/e2e/a11y.spec.ts:140:1 › U28 路由骨架：八条路由全部可达并渲染统一布局 (449ms)
+  ✓  41 [mobile-chromium] › tests/e2e/a11y.spec.ts:300:1 › U28 页面缩放（窄视口代理）：关键操作不丢失、无横向溢出 (331ms)
+  ✓  44 [mobile-chromium] › tests/e2e/schedule.spec.ts:19:1 › U01 游客看到时间、动作与游戏，不创建用户；首屏包含日程 (231ms)
+  ✓  42 [mobile-chromium] › tests/e2e/a11y.spec.ts:239:1 › U28 表单标签在 placeholder 之外持续可见并与控件关联 (216ms)
+  ✓  43 [mobile-chromium] › tests/e2e/a11y.spec.ts:337:1 › U28 交付证据截图：桌面与手机两个视口的实际渲染 (361ms)
+  ✓  45 [mobile-chromium] › tests/e2e/schedule.spec.ts:38:1 › U03 八种时间状态、长标题、日期与未知混排不伪造时刻 (414ms)
+  ✓  49 [mobile-chromium] › tests/e2e/schedule.spec.ts:146:1 › U05 三种新鲜度字段分开、陈旧缓存与离线明确标记 (298ms)
+  ✓  46 [mobile-chromium] › tests/e2e/schedule.spec.ts:97:1 › U06 改浏览筛选不改写云配置、草稿或接收方式；URL只含白名单 (409ms)
+  ✓  47 [mobile-chromium] › tests/e2e/schedule.spec.ts:75:1 › U05 四种空态分别表达；平静期有近7天出口，候选只给聚合信息 (458ms)
+  ✓  50 [mobile-chromium] › tests/e2e/schedule.spec.ts:162:1 › U05 加载失败保留条目并可重试，不假称全部加载完成 (340ms)
+  ✓  48 [mobile-chromium] › tests/e2e/schedule.spec.ts:127:1 › U03 六档切换保留今日节点，昨天常驻末尾并采用已验证半透明组合 (485ms)
+  ✓  51 [mobile-chromium] › tests/e2e/schedule.spec.ts:181:1 › U06 返回列表恢复筛选、已展开日程与合理滚动位置 (368ms)
+  ✓  53 [mobile-chromium] › tests/e2e/schedule.spec.ts:217:1 › U05 筛选改变后丢弃旧加载结果，空态出口保留键盘焦点 (301ms)
+  ✓  55 [mobile-chromium] › tests/e2e/subscription.spec.ts:36:1 › U09 关闭日历提醒只改变日历选择，规则及邮件和 Push 区域保持原样 (217ms)
+  ✓  52 [mobile-chromium] › tests/e2e/schedule.spec.ts:197:1 › U03 U05 E2 桌面与手机实际截图、窄屏不裁剪关键内容 (502ms)
+  ✓  56 [mobile-chromium] › tests/e2e/subscription.spec.ts:55:1 › U09 初始值来自 DEFAULT_*，只是本机预选；没有 Feed 时不宣称外部提醒已开启 (164ms)
+  ✓  54 [mobile-chromium] › tests/e2e/subscription.spec.ts:14:1 › U09a U10 清空全部提前规则仍可开变更消息；最后一条只提示，不要求确认 (377ms)
+  ✓  59 [mobile-chromium] › tests/e2e/subscription.spec.ts:145:1 › U09a 页面仅维护本机选择，不请求订阅 API；实际预览和三个接收方式均明确状态 (138ms)
+  ✓  57 [mobile-chromium] › tests/e2e/subscription.spec.ts:83:1 › U09a 规则选项与推荐分组来自 contracts；变更范围取 calendar.event_types 与规则事件类型并集 (322ms)
+  ✓  60 [mobile-chromium] › tests/e2e/subscription.spec.ts:163:1 › U09 U09a U10 E2 桌面与手机实际截图 (212ms)
+  ✓  58 [mobile-chromium] › tests/e2e/subscription.spec.ts:110:1 › U09 U10 一个主按钮、无自由分钟输入；空游戏和空日历类型错误可聚焦且保存栏不遮挡 (610ms)
+
+  5 skipped
+  55 passed (5.8s)

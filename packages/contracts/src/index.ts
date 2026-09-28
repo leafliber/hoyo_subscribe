@@ -27,4 +27,5 @@ export * from "./params/verify";
 export * from "./rules";
 export * from "./schedule-browse";
 export * from "./subscription";
+export * from "./subscription-copy";
 export * from "./time";

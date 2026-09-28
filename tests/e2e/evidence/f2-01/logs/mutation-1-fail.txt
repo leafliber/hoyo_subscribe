@@ -1,0 +1,114 @@
+$ pnpm --filter @hoyo/web run build && playwright test --config tests/e2e/playwright.config.ts --grep 'U09a U10 清空全部'
+$ astro build
+13:12:14 [types] Generated 37ms
+13:12:14 [build] output: "static"
+13:12:14 [build] mode: "static"
+13:12:14 [build] directory: /private/tmp/hoyo-f2-01/apps/web/dist/
+13:12:14 [build] Collecting build info...
+13:12:14 [build] ✓ Completed in 47ms.
+13:12:14 [build] Building static entrypoints...
+13:12:15 [vite] ✓ built in 125ms
+13:12:15 [vite] ✓ built in 25ms
+13:12:15 [build] Rearranging server assets...
+
+ generating static routes
+13:12:15   ├─ /account/index.html (+4ms)
+13:12:15   ├─ /events/sample/index.html (+1ms)
+13:12:15   ├─ /help/index.html (+1ms)
+13:12:15   ├─ /login/index.html (+1ms)
+13:12:15   ├─ /recover/index.html (+1ms)
+13:12:15   ├─ /status/index.html (+1ms)
+13:12:15   ├─ /subscription/index.html (+6ms)
+13:12:15   ├─ /index.html (+2ms)
+13:12:15 ✓ Completed in 24ms.
+
+13:12:15 [build] ✓ Completed in 186ms.
+13:12:15 [build] 8 page(s) built in 235ms
+13:12:15 [build] Complete!
+[WebServer] (node:1068) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+[WebServer] (Use `node --trace-warnings ...` to show where the warning was created)
+
+Running 2 tests using 2 workers
+
+(node:1070) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:1069) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✘  2 [desktop-chromium] › tests/e2e/subscription.spec.ts:14:1 › U09a U10 清空全部提前规则仍可开变更消息；最后一条只提示，不要求确认 (5.3s)
+  ✘  1 [mobile-chromium] › tests/e2e/subscription.spec.ts:14:1 › U09a U10 清空全部提前规则仍可开变更消息；最后一条只提示，不要求确认 (5.3s)
+
+
+  1) [desktop-chromium] › tests/e2e/subscription.spec.ts:14:1 › U09a U10 清空全部提前规则仍可开变更消息；最后一条只提示，不要求确认
+
+    Error: expect(locator).toBeEnabled() failed
+
+    Locator:  getByRole('checkbox', { name: '新事件公布' })
+    Expected: enabled
+    Received: disabled
+    Timeout:  5000ms
+
+    Call log:
+      - Expect "toBeEnabled" getByRole('checkbox', { name: '新事件公布' }) with timeout 5000ms
+      - waiting for getByRole('checkbox', { name: '新事件公布' })
+        14 × locator resolved to <input disabled type="checkbox" name="new_event"/>
+           - unexpected value "disabled"
+
+
+      28 |   await page.locator("#change-settings summary").click();
+      29 |   const change = page.getByRole("checkbox", { name: "新事件公布" });
+    > 30 |   await expect(change).toBeEnabled();
+         |                        ^
+      31 |   await change.check();
+      32 |   await expect(change).toBeChecked();
+      33 |   expect(dialogs).toEqual([]);
+        at /private/tmp/hoyo-f2-01/tests/e2e/subscription.spec.ts:30:24
+
+    Error Context: tests/e2e/test-results/subscription-U09a-U10-清空全部提前规则仍可开变更消息；最后一条只提示，不要求确认-desktop-chromium/error-context.md
+
+    attachment #2: trace (application/zip) ─────────────────────────────────────────────────────────
+    tests/e2e/test-results/subscription-U09a-U10-清空全部提前规则仍可开变更消息；最后一条只提示，不要求确认-desktop-chromium/trace.zip
+    Usage:
+
+        pnpm exec playwright show-trace tests/e2e/test-results/subscription-U09a-U10-清空全部提前规则仍可开变更消息；最后一条只提示，不要求确认-desktop-chromium/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+  2) [mobile-chromium] › tests/e2e/subscription.spec.ts:14:1 › U09a U10 清空全部提前规则仍可开变更消息；最后一条只提示，不要求确认
+
+    Error: expect(locator).toBeEnabled() failed
+
+    Locator:  getByRole('checkbox', { name: '新事件公布' })
+    Expected: enabled
+    Received: disabled
+    Timeout:  5000ms
+
+    Call log:
+      - Expect "toBeEnabled" getByRole('checkbox', { name: '新事件公布' }) with timeout 5000ms
+      - waiting for getByRole('checkbox', { name: '新事件公布' })
+        14 × locator resolved to <input disabled type="checkbox" name="new_event"/>
+           - unexpected value "disabled"
+
+
+      28 |   await page.locator("#change-settings summary").click();
+      29 |   const change = page.getByRole("checkbox", { name: "新事件公布" });
+    > 30 |   await expect(change).toBeEnabled();
+         |                        ^
+      31 |   await change.check();
+      32 |   await expect(change).toBeChecked();
+      33 |   expect(dialogs).toEqual([]);
+        at /private/tmp/hoyo-f2-01/tests/e2e/subscription.spec.ts:30:24
+
+    Error Context: tests/e2e/test-results/subscription-U09a-U10-清空全部提前规则仍可开变更消息；最后一条只提示，不要求确认-mobile-chromium/error-context.md
+
+    attachment #2: trace (application/zip) ─────────────────────────────────────────────────────────
+    tests/e2e/test-results/subscription-U09a-U10-清空全部提前规则仍可开变更消息；最后一条只提示，不要求确认-mobile-chromium/trace.zip
+    Usage:
+
+        pnpm exec playwright show-trace tests/e2e/test-results/subscription-U09a-U10-清空全部提前规则仍可开变更消息；最后一条只提示，不要求确认-mobile-chromium/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+  2 failed
+    [desktop-chromium] › tests/e2e/subscription.spec.ts:14:1 › U09a U10 清空全部提前规则仍可开变更消息；最后一条只提示，不要求确认
+    [mobile-chromium] › tests/e2e/subscription.spec.ts:14:1 › U09a U10 清空全部提前规则仍可开变更消息；最后一条只提示，不要求确认
+[ELIFECYCLE] Command failed with exit code 1.

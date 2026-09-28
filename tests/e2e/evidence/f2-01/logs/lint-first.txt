@@ -1,0 +1,86 @@
+$ biome check .
+tests/e2e/subscription.spec.ts:141:68 lint/style/noNonNullAssertion  FIXABLE  ━━━━━━━━━━━━━━━━━━━━━━
+
+  ! Forbidden non-null assertion.
+
+    139 │     const box = await el.boundingBox();
+    140 │     expect(box?.y).toBeGreaterThanOrEqual(0);
+  > 141 │     expect((box?.y ?? 0) + (box?.height ?? 0)).toBeLessThanOrEqual(page.viewportSize()!.height);
+        │                                                                    ^^^^^^^^^^^^^^^^^^^^
+    142 │   }
+    143 │ });
+
+  i Unsafe fix: Replace with optional chain operator ?. This operator includes runtime checks, so it is safer than the compile-only non-null assertion operator
+
+    139 139 │       const box = await el.boundingBox();
+    140 140 │       expect(box?.y).toBeGreaterThanOrEqual(0);
+    141     │ - ····expect((box?.y·??·0)·+·(box?.height·??·0)).toBeLessThanOrEqual(page.viewportSize()!.height);
+        141 │ + ····expect((box?.y·??·0)·+·(box?.height·??·0)).toBeLessThanOrEqual(page.viewportSize()?.height);
+    142 142 │     }
+    143 143 │   });
+
+
+apps/web/src/features/subscription/page.ts format ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  × Formatter would have printed the following content:
+
+     27  27 │
+     28  28 │     function selected(name: string): string[] {
+     29     │ - ····return·choices.filter((choice)·=>·choice.name·===·name·&&·choice.checked).map((choice)·=>·choice.value);
+         29 │ + ····return·choices
+         30 │ + ······.filter((choice)·=>·choice.name·===·name·&&·choice.checked)
+         31 │ + ······.map((choice)·=>·choice.value);
+     30  32 │     }
+     31  33 │
+
+
+packages/contracts/src/subscription-copy.test.ts format ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  × Formatter would have printed the following content:
+
+    16 16 │         REMINDER_RULES.map((rule) => ({ rule_id: rule.rule_id, label: rule.user_copy_zh })),
+    17 17 │       );
+    18    │ - ····expect(SUBSCRIPTION_RULE_COPY.filter((rule)·=>·DEFAULT_RULE_IDS.includes(rule.rule_id))).toHaveLength(
+    19    │ - ······DEFAULT_RULE_IDS.length,
+    20    │ - ····);
+       18 │ + ····expect(
+       19 │ + ······SUBSCRIPTION_RULE_COPY.filter((rule)·=>·DEFAULT_RULE_IDS.includes(rule.rule_id)),
+       20 │ + ····).toHaveLength(DEFAULT_RULE_IDS.length);
+    21 21 │     });
+    22 22 │
+
+
+tests/e2e/subscription.spec.ts format ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  × Formatter would have printed the following content:
+
+     12  12 │   } from "../../packages/contracts/src";
+     13  13 │
+     14     │ - test("U09a·U10·清空全部提前规则仍可开变更消息；最后一条只提示，不要求确认",·async·({
+     15     │ - ··page,
+     16     │ - })·=>·{
+         14 │ + test("U09a·U10·清空全部提前规则仍可开变更消息；最后一条只提示，不要求确认",·async·({·page·})·=>·{
+     17  15 │     const dialogs: string[] = [];
+     18  16 │     page.on("dialog", (dialog) => {
+    ······· │
+    131 129 │     const viewport = info.project.name.startsWith("mobile") ? "mobile" : "desktop";
+    132 130 │     if (viewport === "mobile") await page.setViewportSize({ width: 320, height: 800 });
+    133     │ - ··expect(await·page.evaluate(()·=>·document.documentElement.scrollWidth·-·innerWidth)).toBeLessThanOrEqual(
+    134     │ - ····1,
+    135     │ - ··);
+        131 │ + ··expect(
+        132 │ + ····await·page.evaluate(()·=>·document.documentElement.scrollWidth·-·innerWidth),
+        133 │ + ··).toBeLessThanOrEqual(1);
+    136 134 │     for (const selector of ["#event-type-error", "#push-channel"]) {
+    137 135 │       const el = page.locator(selector);
+
+
+Checked 265 files in 93ms. No fixes applied.
+Found 3 errors.
+Found 1 warning.
+check ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  × Some errors were emitted while running checks.
+
+
+[ELIFECYCLE] Command failed with exit code 1.

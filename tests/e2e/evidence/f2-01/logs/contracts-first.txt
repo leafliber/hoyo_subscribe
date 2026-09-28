@@ -1,0 +1,10 @@
+$ pnpm --filter @hoyo/contracts run test
+$ vitest run
+
+ RUN  v4.1.11 /private/tmp/hoyo-f2-01/packages/contracts
+
+
+ Test Files  19 passed (19)
+      Tests  177 passed (177)
+   Start at  13:08:19
+   Duration  1.14s (transform 1.20s, setup 0ms, import 2.99s, tests 384ms, environment 2ms)

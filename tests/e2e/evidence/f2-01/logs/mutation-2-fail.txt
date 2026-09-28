@@ -1,0 +1,112 @@
+$ pnpm --filter @hoyo/web run build && playwright test --config tests/e2e/playwright.config.ts --grep 'U09 关闭日历提醒'
+$ astro build
+13:13:33 [types] Generated 42ms
+13:13:33 [build] output: "static"
+13:13:33 [build] mode: "static"
+13:13:33 [build] directory: /private/tmp/hoyo-f2-01/apps/web/dist/
+13:13:33 [build] Collecting build info...
+13:13:33 [build] ✓ Completed in 49ms.
+13:13:33 [build] Building static entrypoints...
+13:13:34 [vite] ✓ built in 139ms
+13:13:34 [vite] ✓ built in 26ms
+13:13:34 [build] Rearranging server assets...
+
+ generating static routes
+13:13:34   ├─ /account/index.html (+4ms)
+13:13:34   ├─ /events/sample/index.html (+1ms)
+13:13:34   ├─ /help/index.html (+1ms)
+13:13:34   ├─ /login/index.html (+1ms)
+13:13:34   ├─ /recover/index.html (+1ms)
+13:13:34   ├─ /status/index.html (+1ms)
+13:13:34   ├─ /subscription/index.html (+7ms)
+13:13:34   ├─ /index.html (+2ms)
+13:13:34 ✓ Completed in 25ms.
+
+13:13:34 [build] ✓ Completed in 203ms.
+13:13:34 [build] 8 page(s) built in 254ms
+13:13:34 [build] Complete!
+[WebServer] (node:1583) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+[WebServer] (Use `node --trace-warnings ...` to show where the warning was created)
+
+Running 2 tests using 2 workers
+
+(node:1585) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:1584) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✘  1 [desktop-chromium] › tests/e2e/subscription.spec.ts:36:1 › U09 关闭日历提醒只改变日历选择，规则及邮件和 Push 区域保持原样 (371ms)
+  ✘  2 [mobile-chromium] › tests/e2e/subscription.spec.ts:36:1 › U09 关闭日历提醒只改变日历选择，规则及邮件和 Push 区域保持原样 (371ms)
+
+
+  1) [desktop-chromium] › tests/e2e/subscription.spec.ts:36:1 › U09 关闭日历提醒只改变日历选择，规则及邮件和 Push 区域保持原样
+
+    Error: expect(received).toEqual(expected) // deep equality
+
+    - Expected  - 6
+    + Received  + 1
+
+    - Array [
+    -   "livestream_start_1h",
+    -   "maintenance_start_1h",
+    -   "limited_end_1d",
+    -   "gacha_end_1d",
+    - ]
+    + Array []
+
+      48 |       .locator('input[name="rule_ids"]:checked')
+      49 |       .evaluateAll((items) => items.map((item) => (item as HTMLInputElement).value)),
+    > 50 |   ).toEqual(selectedRules);
+         |     ^
+      51 |   expect(await page.locator("#mail-channel").innerText()).toBe(mailBefore);
+      52 |   expect(await page.locator("#push-channel").innerText()).toBe(pushBefore);
+      53 | });
+        at /private/tmp/hoyo-f2-01/tests/e2e/subscription.spec.ts:50:5
+
+    Error Context: tests/e2e/test-results/subscription-U09-关闭日历提醒只改变日历选择，规则及邮件和-Push-区域保持原样-desktop-chromium/error-context.md
+
+    attachment #2: trace (application/zip) ─────────────────────────────────────────────────────────
+    tests/e2e/test-results/subscription-U09-关闭日历提醒只改变日历选择，规则及邮件和-Push-区域保持原样-desktop-chromium/trace.zip
+    Usage:
+
+        pnpm exec playwright show-trace tests/e2e/test-results/subscription-U09-关闭日历提醒只改变日历选择，规则及邮件和-Push-区域保持原样-desktop-chromium/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+  2) [mobile-chromium] › tests/e2e/subscription.spec.ts:36:1 › U09 关闭日历提醒只改变日历选择，规则及邮件和 Push 区域保持原样
+
+    Error: expect(received).toEqual(expected) // deep equality
+
+    - Expected  - 6
+    + Received  + 1
+
+    - Array [
+    -   "livestream_start_1h",
+    -   "maintenance_start_1h",
+    -   "limited_end_1d",
+    -   "gacha_end_1d",
+    - ]
+    + Array []
+
+      48 |       .locator('input[name="rule_ids"]:checked')
+      49 |       .evaluateAll((items) => items.map((item) => (item as HTMLInputElement).value)),
+    > 50 |   ).toEqual(selectedRules);
+         |     ^
+      51 |   expect(await page.locator("#mail-channel").innerText()).toBe(mailBefore);
+      52 |   expect(await page.locator("#push-channel").innerText()).toBe(pushBefore);
+      53 | });
+        at /private/tmp/hoyo-f2-01/tests/e2e/subscription.spec.ts:50:5
+
+    Error Context: tests/e2e/test-results/subscription-U09-关闭日历提醒只改变日历选择，规则及邮件和-Push-区域保持原样-mobile-chromium/error-context.md
+
+    attachment #2: trace (application/zip) ─────────────────────────────────────────────────────────
+    tests/e2e/test-results/subscription-U09-关闭日历提醒只改变日历选择，规则及邮件和-Push-区域保持原样-mobile-chromium/trace.zip
+    Usage:
+
+        pnpm exec playwright show-trace tests/e2e/test-results/subscription-U09-关闭日历提醒只改变日历选择，规则及邮件和-Push-区域保持原样-mobile-chromium/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+  2 failed
+    [desktop-chromium] › tests/e2e/subscription.spec.ts:36:1 › U09 关闭日历提醒只改变日历选择，规则及邮件和 Push 区域保持原样
+    [mobile-chromium] › tests/e2e/subscription.spec.ts:36:1 › U09 关闭日历提醒只改变日历选择，规则及邮件和 Push 区域保持原样 ─
+[ELIFECYCLE] Command failed with exit code 1.
