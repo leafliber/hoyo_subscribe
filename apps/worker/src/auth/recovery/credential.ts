@@ -1,6 +1,7 @@
 // P2-05 · 离线恢复码的单一散列、生成与保存确认（§4.6，附录 A.2）。
-// 生成端只返回一次明文；未确认码可作废重生，确认后的轮换留给 P2-07 最近认证流程。
-import { API_BODY_MAX_BYTES } from "@hoyo/contracts";
+// 生成端只返回一次明文；普通会话须最近激活，受限恢复会话可随时补领新码。
+// 未确认码可作废重生，确认后的轮换留给 P2-07 最近认证流程。
+import { API_BODY_MAX_BYTES, RECENT_AUTH_TTL } from "@hoyo/contracts";
 import { ApiError } from "../../shell/errors";
 import { conditionalCommit } from "../../storage/cas";
 import { constantTimeEqual, fromHex, toHex, utf8Encode } from "../../storage/crypto/bytes";
@@ -11,6 +12,9 @@ interface CredentialRow {
   generation: number;
   saved_confirmed_at: number | null;
 }
+
+const SECOND = 1_000;
+const GENERATION_ELIGIBILITY = "(s.recovery_code_required = 1 OR s.activated_at BETWEEN ? AND ?)";
 
 function invalidCode(): ApiError {
   return new ApiError("unauthorized", { code: "unauthorized", reason: "no_session" });
@@ -68,41 +72,34 @@ export async function generateRecoveryCode(
   const recoveryId = crypto.randomUUID();
   const secret = generateSecretToken().base64url;
   const secretHash = await hashRecoverySecret(secret);
+  const recentStart = now - RECENT_AUTH_TTL * SECOND;
   const sessionPredicate = `EXISTS (SELECT 1 FROM sessions s JOIN users u ON u.id = s.user_id
       WHERE s.id = ? AND s.user_id = ? AND s.token_hash = ? AND s.state = 'active'
         AND s.expires_at > ? AND s.absolute_expires_at > ? AND u.status = 'active'
-        AND s.auth_epoch = u.auth_epoch AND s.recovery_epoch = u.recovery_epoch)`;
+        AND s.auth_epoch = u.auth_epoch AND s.recovery_epoch = u.recovery_epoch
+        AND ${GENERATION_ELIGIBILITY})`;
+  const sessionParams = [
+    session.sessionId,
+    session.userId,
+    session.sessionTokenHash,
+    now,
+    now,
+    recentStart,
+    now,
+  ];
   const guard =
     current === null
       ? {
           sql: `UPDATE users SET updated_at = ? WHERE id = ? AND status = 'active'
           AND NOT EXISTS (SELECT 1 FROM recovery_credentials c WHERE c.user_id = users.id AND c.consumed_at IS NULL)
           AND ${sessionPredicate}`,
-          params: [
-            now,
-            session.userId,
-            session.sessionId,
-            session.userId,
-            session.sessionTokenHash,
-            now,
-            now,
-          ],
+          params: [now, session.userId, ...sessionParams],
         }
       : {
           sql: `UPDATE recovery_credentials SET consumed_at = ?, updated_at = ?
           WHERE id = ? AND user_id = ? AND consumed_at IS NULL AND saved_confirmed_at IS NULL
           AND ${sessionPredicate}`,
-          params: [
-            now,
-            now,
-            current.id,
-            session.userId,
-            session.sessionId,
-            session.userId,
-            session.sessionTokenHash,
-            now,
-            now,
-          ],
+          params: [now, now, current.id, session.userId, ...sessionParams],
         };
   const outcome = await conditionalCommit(db, {
     guard,
@@ -136,6 +133,24 @@ export async function generateRecoveryCode(
     ],
   });
   if (outcome.outcome !== "committed") {
+    // 守卫已阻止任何码行变化；只在失败后判定是否应提示最近认证。
+    const eligibility = await db
+      .prepare(`SELECT ${GENERATION_ELIGIBILITY} AS allowed FROM sessions s
+        JOIN users u ON u.id = s.user_id
+        WHERE s.id = ? AND s.user_id = ? AND s.token_hash = ? AND s.state = 'active'
+          AND s.expires_at > ? AND s.absolute_expires_at > ? AND u.status = 'active'
+          AND s.auth_epoch = u.auth_epoch AND s.recovery_epoch = u.recovery_epoch`)
+      .bind(recentStart, now, session.sessionId, session.userId, session.sessionTokenHash, now, now)
+      .first<{ allowed: number }>();
+    if (eligibility === null) {
+      throw invalidCode();
+    }
+    if (eligibility.allowed !== 1) {
+      throw new ApiError("unauthorized", {
+        code: "unauthorized",
+        reason: "recent_auth_required",
+      });
+    }
     throw new ApiError("conflict", { code: "conflict" });
   }
   return { recovery_id: recoveryId, secret, saved_confirmed: false };

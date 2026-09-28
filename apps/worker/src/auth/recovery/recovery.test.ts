@@ -7,6 +7,7 @@ import {
   MAIL_AUTH_DAY,
   mutationCounterKeys,
   PREAUTH_MARGIN,
+  RECENT_AUTH_TTL,
   RECOVERY_ATTEMPTS_DAY,
   RECOVERY_ATTEMPTS_HOUR,
   SECRET_BITS,
@@ -649,6 +650,110 @@ describe("A-P2-RECOVERY 离线恢复码", () => {
         )
       )[0]?.secret_hash,
     ).toBe(await hashRecoverySecret(secondCode.secret));
+  });
+
+  it("普通会话超过最近认证时限不能首次生成，且不会写入恢复码", async () => {
+    const userId = await seedUser();
+    const session = await seedSession(userId);
+    const originalNow = now;
+    try {
+      now += RECENT_AUTH_TTL * SECOND + 1;
+      const denied = await sessionRequest("/api/v2/auth/recovery/code", session.token, "POST", {
+        action: "generate",
+      });
+      expect(denied.status).toBe(401);
+      expect(await denied.json()).toMatchObject({
+        error: { details: { reason: "recent_auth_required" } },
+      });
+      expect(
+        await query("SELECT id FROM recovery_credentials WHERE user_id = ?", userId),
+      ).toHaveLength(0);
+    } finally {
+      now = originalNow;
+    }
+  });
+
+  it("刚激活的普通会话可以首次生成恢复码", async () => {
+    const userId = await seedUser();
+    const session = await seedSession(userId);
+    const generated = await sessionRequest("/api/v2/auth/recovery/code", session.token, "POST", {
+      action: "generate",
+    });
+    expect(generated.status).toBe(200);
+    const code = (await generated.json()) as { recovery_id: string; secret: string };
+    expect(await verifyRecoveryCredential(env.DB, code.recovery_id, code.secret)).not.toBeNull();
+  });
+
+  it("受限恢复会话超过最近认证时限仍能生成并确认新码", async () => {
+    const userId = await seedUser();
+    const session = await seedSession(userId, true);
+    const originalNow = now;
+    try {
+      now += RECENT_AUTH_TTL * SECOND + 1;
+      const generated = await sessionRequest("/api/v2/auth/recovery/code", session.token, "POST", {
+        action: "generate",
+      });
+      expect(generated.status).toBe(200);
+      const firstCode = (await generated.json()) as { recovery_id: string; secret: string };
+      const regenerated = await sessionRequest(
+        "/api/v2/auth/recovery/code",
+        session.token,
+        "POST",
+        {
+          action: "generate",
+        },
+      );
+      expect(regenerated.status).toBe(200);
+      const code = (await regenerated.json()) as { recovery_id: string; secret: string };
+      expect(code.recovery_id).not.toBe(firstCode.recovery_id);
+      expect(
+        await verifyRecoveryCredential(env.DB, firstCode.recovery_id, firstCode.secret),
+      ).toBeNull();
+      expect(await currentRecoveryCodeSaved(env.DB, userId)).toBe(false);
+      const confirmed = await sessionRequest("/api/v2/auth/recovery/code", session.token, "POST", {
+        action: "confirm",
+        recovery_id: code.recovery_id,
+        secret: code.secret,
+      });
+      expect(confirmed.status).toBe(200);
+      expect(await currentRecoveryCodeSaved(env.DB, userId)).toBe(true);
+      expect(
+        (
+          await query<{ recovery_code_required: number }>(
+            "SELECT recovery_code_required FROM sessions WHERE id = ?",
+            session.id,
+          )
+        )[0]?.recovery_code_required,
+      ).toBe(0);
+    } finally {
+      now = originalNow;
+    }
+  });
+
+  it("普通会话超过最近认证时限不能作废并重生已有未确认码", async () => {
+    const userId = await seedUser();
+    const session = await seedSession(userId);
+    const code = await seedCode(userId);
+    await run("UPDATE recovery_credentials SET saved_confirmed_at = NULL WHERE id = ?", code.id);
+    const originalNow = now;
+    try {
+      now += RECENT_AUTH_TTL * SECOND + 1;
+      const denied = await sessionRequest("/api/v2/auth/recovery/code", session.token, "POST", {
+        action: "generate",
+      });
+      expect(denied.status).toBe(401);
+      expect(await denied.json()).toMatchObject({
+        error: { details: { reason: "recent_auth_required" } },
+      });
+      expect(
+        await query<{ id: string; consumed_at: number | null; saved_confirmed_at: number | null }>(
+          "SELECT id,consumed_at,saved_confirmed_at FROM recovery_credentials WHERE user_id = ?",
+          userId,
+        ),
+      ).toEqual([{ id: code.id, consumed_at: null, saved_confirmed_at: null }]);
+    } finally {
+      now = originalNow;
+    }
   });
 
   it("只交 ID、错误秘密、已消费码和未知 ID 返回完全同形的 401；交替计时采样", async () => {

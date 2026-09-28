@@ -1,4 +1,4 @@
-// P2-05 授权跨卡改动：验证新 unauthorized 原因仍属闭合枚举。
+// P2-05 授权跨卡改动：验证恢复码与最近认证原因仍属闭合枚举。
 // A-P1-SHELL：七类错误模型的合同测试（§8.2 末段；前端 §11.3）。
 import { describe, expect, it } from "vitest";
 import {
@@ -85,13 +85,14 @@ describe("A-P1-SHELL 七类错误模型（contracts 唯一定义源）", () => {
       "session_expired",
       "pending_activation",
       "recovery_code_unconfirmed",
+      "recent_auth_required",
       "wrong_domain",
     ] as const satisfies readonly UnauthorizedReason[];
     // 类型级穷尽：联合的每个成员都在上面的字面量清单里。
     type AllReasonsCovered = UnauthorizedReason extends (typeof reasons)[number] ? true : never;
     const covered: AllReasonsCovered = true;
     expect(covered).toBe(true);
-    expect(new Set<string>(reasons).size).toBe(9);
+    expect(new Set<string>(reasons).size).toBe(10);
     expect(reasons.some((r) => /exist|unknown_email|registered/.test(r))).toBe(false);
     const body = buildApiErrorBody("unauthorized", {
       code: "unauthorized",
