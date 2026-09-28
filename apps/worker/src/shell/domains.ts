@@ -1,3 +1,5 @@
+// P2-04 跨卡修正：统一 §4.5 的 Cookie 名，并让用户鉴权结果携带会话状态与
+// CSRF 绑定所需的 token 散列；pending 权限由 router 显式限制。
 // 权限域隔离骨架（任务卡 P1-08 交付物六；主方案 §8.3 末段）。
 //
 // 合同原文："普通用户与管理员会话分离。"本卡只交付骨架：会话形状、Cookie 名分离、
@@ -23,14 +25,21 @@ export type RouteDomain =
   | "capability"; // 能力型端点（Feed 等）：自己的窄合同，不吃 Cookie 会话
 
 /** 普通用户会话 Cookie 名（P2 会话签发时使用；__Host-：仅 HTTPS、无 Domain）。 */
-export const USER_SESSION_COOKIE_NAME = "__Host-hoyo_session";
+export const USER_SESSION_COOKIE_NAME = "__Host-session";
 
 /** 管理员会话 Cookie 名——与用户会话物理分离（§8.3）。 */
 export const ADMIN_SESSION_COOKIE_NAME = "__Host-hoyo_admin_session";
 
 /** 请求的鉴权结果（骨架：由 Authenticator 产生；P2 提供真实实现）。 */
 export type ShellAuth =
-  | { readonly kind: "session"; readonly domain: "user"; readonly userId: string }
+  | {
+      readonly kind: "session";
+      readonly domain: "user";
+      readonly userId: string;
+      readonly sessionId: string;
+      readonly sessionState: "pending" | "active";
+      readonly sessionTokenHash: string;
+    }
   | { readonly kind: "session"; readonly domain: "admin"; readonly adminId: string }
   | { readonly kind: "capability" }
   | { readonly kind: "none" };

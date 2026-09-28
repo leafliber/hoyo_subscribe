@@ -1,3 +1,5 @@
+// P2-04 跨卡修正：普通 user 路由默认只接受 active；仅声明 allowPending 的
+// 激活与脱敏设备列表可使用 pending，避免 pending 继承普通用户权限（§4.5）。
 // API 外壳路由与统一中间件管线（任务卡 P1-08 交付物三；主方案 §8.2、§4.2、§8.3）。
 //
 // 管线（§4.2 检查顺序的"结构与尺寸 → 同源/CSRF"两环 + §8.3 权限域）：
@@ -41,6 +43,8 @@ export interface ShellRoute {
   /** 精确路径，或尾通配（如 "/api/v2/x/*"，捕获段进 params.rest）。 */
   readonly pattern: string;
   readonly domain: RouteDomain;
+  /** §4.5 唯一例外：pending 可访问设备列表和激活；其他 user 路由默认 active。 */
+  readonly allowPending?: true;
   /** 写 API 走完整校验管线（§8.2）。 */
   readonly write: boolean;
   /** 写路由的请求体 schema（未知字段拒绝 + 认证类小字段约束都由它表达）。 */
@@ -158,11 +162,21 @@ async function dispatch(
     return methodNotAllowedResponse(matched.allowedMethods);
   }
   const route = matched.route;
+  if (
+    route.allowPending === true &&
+    !(
+      (route.method === "GET" && route.pattern === "/api/v2/me/sessions") ||
+      (route.method === "POST" && route.pattern === "/api/v2/auth/activate")
+    )
+  ) {
+    // 路由误配置必须失败关闭；§4.5 只允许这两处 pending 例外。
+    throw new Error("allowPending 只能用于设备列表与激活");
+  }
 
   let auth: ShellAuth = { kind: "none" };
   if (route.domain === "user" || route.domain === "admin") {
     auth = await deps.authenticator.authenticate(request, route.domain);
-    guardDomain(route.domain, auth);
+    guardDomain(route.domain, auth, route.allowPending === true);
   }
 
   let body: Record<string, unknown> | undefined;
@@ -209,8 +223,16 @@ function unauthorized(reason: UnauthorizedErrorDetail["reason"]): ApiError {
 }
 
 /** 域守卫（§8.3）：user/admin 会话互不通用；能力 token 与无身份都不算会话。 */
-function guardDomain(domain: "user" | "admin", auth: ShellAuth): void {
+function guardDomain(domain: "user" | "admin", auth: ShellAuth, allowPending: boolean): void {
   if (auth.kind === "session" && auth.domain === domain) {
+    if (
+      domain === "user" &&
+      auth.domain === "user" &&
+      auth.sessionState === "pending" &&
+      !allowPending
+    ) {
+      throw unauthorized("pending_activation");
+    }
     return;
   }
   if (auth.kind === "session") {
