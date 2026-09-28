@@ -1,5 +1,6 @@
 // P2-04 · 会话路由（§4.5）。设备列表是 pending 唯一可读的 user 路由，并为
 // 当前会话签发绑定 token hash 的 CSRF；激活本身仍需同源 + 双提交 + MAC 验证。
+// 返工：active 重试幂等成功，409 只表示仍有效的 pending 存在名额或选择冲突。
 
 import {
   API_BODY_MAX_BYTES,
@@ -20,6 +21,7 @@ import type { Keyring } from "../../storage/crypto/keyring";
 import { generateSecretToken } from "../../storage/crypto/random";
 import {
   activateSession,
+  activationState,
   coarsePlatform,
   expiryNotice,
   listSessions,
@@ -75,6 +77,7 @@ function validation(path: string, reason: string): ApiError {
 export function makeSessionRoutes(
   keys: () => Promise<Keyring>,
   now: () => number = Date.now,
+  beforeActivationCommit?: () => Promise<void>,
 ): readonly ShellRoute[] {
   return [
     {
@@ -120,31 +123,39 @@ export function makeSessionRoutes(
       csrfBinding: sessionCsrfBinding,
       handler: async (ctx) => {
         const auth = userAuth(ctx.auth);
-        if (auth.sessionState !== "pending") throw new ApiError("conflict", { code: "conflict" });
-        const rawSelection = ctx.body?.revoke_session_ids;
-        const rawLabel = ctx.body?.label;
-        let selectedIds: string[];
-        try {
-          selectedIds = parseSelectedSessionIds(
-            typeof rawSelection === "string" ? rawSelection : undefined,
-          );
-        } catch {
-          throw validation("revoke_session_ids", "invalid_selection");
-        }
-        const customLabel = typeof rawLabel === "string" ? rawLabel : undefined;
-        if (customLabel !== undefined && customLabel.trim().length === 0) {
-          throw validation("label", "empty_label");
-        }
         const currentTime = now();
-        const outcome = await activateSession({
-          db: ctx.env.DB,
-          userId: auth.userId,
-          sessionId: auth.sessionId,
-          selectedIds,
-          label: customLabel,
-          platform: coarsePlatform(ctx.request.headers.get("user-agent")),
-          now: currentTime,
-        });
+        const state = await activationState(ctx.env.DB, auth.userId, auth.sessionId, currentTime);
+        if (state === "unauthorized")
+          throw new ApiError("unauthorized", { code: "unauthorized", reason: "session_expired" });
+        let outcome: Awaited<ReturnType<typeof activateSession>> = "already_active";
+        if (state === "pending") {
+          const rawSelection = ctx.body?.revoke_session_ids;
+          const rawLabel = ctx.body?.label;
+          let selectedIds: string[];
+          try {
+            selectedIds = parseSelectedSessionIds(
+              typeof rawSelection === "string" ? rawSelection : undefined,
+            );
+          } catch {
+            throw validation("revoke_session_ids", "invalid_selection");
+          }
+          const customLabel = typeof rawLabel === "string" ? rawLabel : undefined;
+          if (customLabel !== undefined && customLabel.trim().length === 0) {
+            throw validation("label", "empty_label");
+          }
+          outcome = await activateSession({
+            db: ctx.env.DB,
+            userId: auth.userId,
+            sessionId: auth.sessionId,
+            selectedIds,
+            label: customLabel,
+            platform: coarsePlatform(ctx.request.headers.get("user-agent")),
+            now: currentTime,
+            beforeCommit: beforeActivationCommit,
+          });
+        }
+        if (outcome === "unauthorized")
+          throw new ApiError("unauthorized", { code: "unauthorized", reason: "session_expired" });
         if (outcome === "conflict") {
           const sessions = await listSessions(ctx.env.DB, auth.userId, auth.sessionId, currentTime);
           const response = jsonResponse(

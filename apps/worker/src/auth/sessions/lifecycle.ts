@@ -1,6 +1,7 @@
 // P2-04 · pending→active、明确续期、本人撤销与 pending 超时清理（主方案 §4.5、§9.5）。
 // 所有写入是显式操作；鉴权器和设备列表不写 D1。active 名额在单条 CAS 守卫中核对，
 // 用户所选撤销与激活、完成回执清密文在同一 D1 batch 中提交。
+// 返工：CAS 失手后重读主状态，区分同一会话已激活、仍待激活和已失效。
 
 import {
   API_BODY_MAX_BYTES,
@@ -41,6 +42,58 @@ interface SessionTimeRow {
   expires_at: number;
   absolute_expires_at: number;
   renewed_at: number;
+}
+
+interface ActivationSessionRow extends SessionTimeRow {
+  auth_epoch: number;
+  recovery_epoch: number;
+  user_status: string;
+  user_auth_epoch: number;
+  user_recovery_epoch: number;
+  receipt_available: number;
+}
+
+async function readActivationSession(
+  db: D1Database,
+  userId: string,
+  sessionId: string,
+  now: number,
+): Promise<{ state: "active" | "pending"; row: ActivationSessionRow } | null> {
+  const row = await db
+    .prepare(`SELECT s.id, s.user_id, s.state, s.created_at, s.expires_at,
+                     s.absolute_expires_at, s.renewed_at, s.auth_epoch, s.recovery_epoch,
+                     u.status AS user_status, u.auth_epoch AS user_auth_epoch,
+                     u.recovery_epoch AS user_recovery_epoch,
+                     EXISTS (SELECT 1 FROM auth_challenges c
+                              WHERE c.pending_session_id = s.id
+                                AND c.receipt_ciphertext IS NOT NULL
+                                AND c.receipt_expires_at > ?) AS receipt_available
+                FROM sessions s JOIN users u ON u.id = s.user_id WHERE s.id = ?`)
+    .bind(now, sessionId)
+    .first<ActivationSessionRow>();
+  if (
+    row === null ||
+    row.user_id !== userId ||
+    (row.state !== "active" && row.state !== "pending") ||
+    row.expires_at <= now ||
+    row.absolute_expires_at <= now ||
+    row.user_status !== "active" ||
+    row.auth_epoch !== row.user_auth_epoch ||
+    row.recovery_epoch !== row.user_recovery_epoch ||
+    (row.state === "pending" && row.receipt_available !== 1)
+  ) {
+    return null;
+  }
+  return { state: row.state, row };
+}
+
+export async function activationState(
+  db: D1Database,
+  userId: string,
+  sessionId: string,
+  now: number,
+): Promise<"active" | "pending" | "unauthorized"> {
+  return (await readActivationSession(db, userId, sessionId, now))?.state ?? "unauthorized";
 }
 
 export async function listSessions(
@@ -138,15 +191,13 @@ export interface ActivationInput {
   beforeCommit?: () => Promise<void>;
 }
 
-export async function activateSession(input: ActivationInput): Promise<"activated" | "conflict"> {
-  const pending = await input.db
-    .prepare(
-      "SELECT id, user_id, state, created_at, expires_at, absolute_expires_at, renewed_at FROM sessions WHERE id = ?",
-    )
-    .bind(input.sessionId)
-    .first<SessionTimeRow>();
-  if (pending === null || pending.user_id !== input.userId || pending.state !== "pending")
-    return "conflict";
+export async function activateSession(
+  input: ActivationInput,
+): Promise<"activated" | "already_active" | "conflict" | "unauthorized"> {
+  const current = await readActivationSession(input.db, input.userId, input.sessionId, input.now);
+  if (current === null) return "unauthorized";
+  if (current.state === "active") return "already_active";
+  const pending = current.row;
   const label = sessionLabel(pending.created_at, input.platform, input.label);
   const expiresAt = Math.min(input.now + SESSION_IDLE_TTL * SECOND, pending.absolute_expires_at);
   const selected = input.selectedIds;
@@ -210,7 +261,10 @@ export async function activateSession(input: ActivationInput): Promise<"activate
       activatedReceiptClearEffect(input.sessionId, input.now),
     ],
   });
-  return outcome.outcome === "committed" ? "activated" : "conflict";
+  if (outcome.outcome === "committed") return "activated";
+  const after = await readActivationSession(input.db, input.userId, input.sessionId, input.now);
+  if (after === null) return "unauthorized";
+  return after.state === "active" ? "already_active" : "conflict";
 }
 
 export async function renewSession(

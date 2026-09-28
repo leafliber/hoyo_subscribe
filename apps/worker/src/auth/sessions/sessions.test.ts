@@ -1,4 +1,5 @@
 // A-P2-SESSION · P2-04 会话生命周期：真实 Miniflare D1、外壳权限与真实并发 CAS。
+// 返工契约测试使用 P2-03 的真实 pending 产物与完成回执，避免两侧散列漂移。
 // 合成身份和 token 只在本文件内生成；没有真实邮箱、Cookie 或恢复码样本。
 
 import { env } from "cloudflare:test";
@@ -22,9 +23,9 @@ import { generateSecretToken } from "../../storage/crypto/random";
 import { splitSqlStatements } from "../../storage/split-sql";
 import { runCompleteAuth } from "../consume/complete";
 import { encryptCompletionReceipt } from "../consume/receipt";
-import { makePendingSession } from "../consume/session";
+import { hashSessionToken, makePendingSession } from "../consume/session";
 import { mintPreauthCookieValue } from "../preauth/cookie";
-import { hashSessionCookie, sessionAuthenticator } from "./authenticator";
+import { sessionAuthenticator } from "./authenticator";
 import {
   activateSession,
   cleanupExpiredPendingSessions,
@@ -146,7 +147,7 @@ async function seedSession(
 ): Promise<SeededSession> {
   const id = crypto.randomUUID();
   const token = generateSecretToken().base64url;
-  const tokenHash = await hashSessionCookie(token);
+  const tokenHash = await hashSessionToken(token);
   const createdAt = options.createdAt ?? now;
   const absoluteExpiresAt = options.absoluteExpiresAt ?? createdAt + SESSION_ABSOLUTE_TTL * SECOND;
   const expiresAt =
@@ -206,7 +207,7 @@ async function seedSession(
   return { id, token, tokenHash, challengeId, preauthCookie: preauth.value, operationKey };
 }
 
-function shell() {
+function shell(beforeActivationCommit?: () => Promise<void>) {
   return createApiShell({
     authenticator: sessionAuthenticator(env.DB, () => now),
     csrfKey: async () => (await testKeyring).csrf(),
@@ -214,6 +215,7 @@ function shell() {
       ...makeSessionRoutes(
         () => testKeyring,
         () => now,
+        beforeActivationCommit,
       ),
       {
         method: "GET",
@@ -234,6 +236,7 @@ async function fetchRoute(
   body?: object,
   csrf?: string,
   userAgent?: string,
+  api: ReturnType<typeof shell> = shell(),
 ): Promise<Response> {
   const headers = new Headers({ cookie: `${USER_SESSION_COOKIE_NAME}=${token}` });
   if (userAgent !== undefined) headers.set("user-agent", userAgent);
@@ -245,7 +248,7 @@ async function fetchRoute(
       headers.set(CSRF_HEADER_NAME, csrf);
     }
   }
-  return shell().fetch(
+  return api.fetch(
     new Request(`${site}${path}`, {
       method,
       headers,
@@ -282,6 +285,84 @@ describe("A-P2-SESSION 会话生命周期", () => {
     }
     expect(Math.max(...deadlines) - Math.min(...deadlines)).toBeGreaterThan(
       SESSION_ABSOLUTE_JITTER * SECOND,
+    );
+  });
+
+  it("A-P2-SESSION P2-03 pending 行与完成回执签发的 Cookie 可由 P2-04 鉴权", async () => {
+    now = T0;
+    const userId = await seedUser();
+    const pending = await makePendingSession(now);
+    const challengeId = crypto.randomUUID();
+    const operationKey = `synthetic-${crypto.randomUUID()}`;
+    const preauth = await mintPreauthCookieValue((await testKeyring).preauthCookie(), now);
+    await run(
+      `INSERT INTO sessions (id,user_id,token_hash,state,label,platform_hint,issued_at,
+        absolute_expires_at,expires_at,renewed_at,auth_epoch,recovery_epoch,activated_at,
+        created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,0,0,?,?,?)`,
+      pending.id,
+      userId,
+      pending.tokenHash,
+      "pending",
+      pending.label,
+      pending.platformHint,
+      pending.issuedAt,
+      pending.absoluteExpiresAt,
+      pending.expiresAt,
+      pending.issuedAt,
+      null,
+      pending.issuedAt,
+      pending.issuedAt,
+    );
+    const ciphertext = await encryptCompletionReceipt(
+      (await testKeyring).fieldEncryption(),
+      challengeId,
+      {
+        preauthId: preauth.context.preauthId,
+        operationKey,
+        pendingSessionId: pending.id,
+        cookieValue: pending.cookieValue,
+      },
+    );
+    await run(
+      `INSERT INTO auth_challenges (id,purpose,email_key,address_version,preauth_id,
+        idempotency_key,mac,generation,attempts,deadline,consumed_at,receipt_ciphertext,
+        receipt_expires_at,pending_session_id,created_at,updated_at)
+        VALUES (?,'login',?,1,?,?,?,0,0,?,?,?,?,?,?,?)`,
+      challengeId,
+      `synthetic:${userId}`,
+      preauth.context.preauthId,
+      operationKey,
+      `synthetic:${challengeId}`,
+      now + SESSION_PENDING_TTL * SECOND,
+      now,
+      ciphertext,
+      now + SESSION_PENDING_TTL * SECOND,
+      pending.id,
+      now,
+      now,
+    );
+    const complete = await runCompleteAuth(
+      { db: env.DB, keys: await testKeyring, now: () => now },
+      new Request(`${site}/api/v2/auth/complete`, {
+        headers: {
+          cookie: `__Host-preauth=${preauth.value}`,
+          "idempotency-key": operationKey,
+        },
+      }),
+    );
+    const sessionCookie = complete.headers.get("set-cookie")?.split(";")[0];
+    expect(sessionCookie).toMatch(/^__Host-session=/);
+    const list = await shell().fetch(
+      new Request(`${site}/api/v2/me/sessions`, {
+        headers: { cookie: sessionCookie ?? "" },
+      }),
+      env as Env,
+      fakeExecutionContext,
+    );
+    expect(list.status).toBe(200);
+    const body = (await list.json()) as { sessions: Array<Record<string, unknown>> };
+    expect(body.sessions).toContainEqual(
+      expect.objectContaining({ id: pending.id, is_current: true, state: "pending" }),
     );
   });
 
@@ -397,6 +478,112 @@ describe("A-P2-SESSION 会话生命周期", () => {
     expect((await sessionRow(current.id)).state).toBe("active");
     expect((await sessionRow(current.id)).label).toBe("我的电脑");
     expect((await sessionRow(orphan.id)).state).toBe("pending");
+  });
+
+  it("A-P2-SESSION 未满额时同一 pending 并发激活均返回 200，active 只增加一次", async () => {
+    now = T0;
+    const userId = await seedUser();
+    const other = await seedSession(userId, "active");
+    const pending = await seedSession(userId, "pending");
+    const csrf = await csrfFor(pending.token);
+    let arrived = 0;
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const api = shell(async () => {
+      arrived += 1;
+      if (arrived === 2) release();
+      await gate;
+    });
+    const responses = await Promise.all([
+      fetchRoute("/api/v2/auth/activate", pending.token, "POST", {}, csrf, undefined, api),
+      fetchRoute("/api/v2/auth/activate", pending.token, "POST", {}, csrf, undefined, api),
+    ]);
+    expect(responses.map((response) => response.status)).toEqual([200, 200]);
+    for (const response of responses) {
+      const body = (await response.json()) as Record<string, unknown>;
+      expect(body).toMatchObject({ activated: true, csrf_token: expect.any(String) });
+      expect(body).not.toHaveProperty("selection_required");
+      expect(response.headers.get("set-cookie")).toContain(`${USER_SESSION_COOKIE_NAME}=`);
+    }
+    expect((await sessionRow(other.id)).state).toBe("active");
+    expect((await sessionRow(pending.id)).state).toBe("active");
+    expect(
+      (
+        await query<{ n: number }>(
+          "SELECT count(*) AS n FROM sessions WHERE user_id = ? AND state = 'active'",
+          userId,
+        )
+      )[0].n,
+    ).toBe(2);
+  });
+
+  it("A-P2-SESSION 已激活会话重试忽略标签与撤销选择，且不写 D1", async () => {
+    now = T0;
+    const userId = await seedUser();
+    const sibling = await seedSession(userId, "active");
+    const pending = await seedSession(userId, "pending");
+    const csrf = await csrfFor(pending.token);
+    expect(
+      (await fetchRoute("/api/v2/auth/activate", pending.token, "POST", {}, csrf)).status,
+    ).toBe(200);
+    const before = await sessionRow(pending.id);
+    const retry = await fetchRoute(
+      "/api/v2/auth/activate",
+      pending.token,
+      "POST",
+      { label: " ", revoke_session_ids: sibling.id },
+      csrf,
+    );
+    expect(retry.status).toBe(200);
+    expect(await retry.json()).toMatchObject({ activated: true, csrf_token: expect.any(String) });
+    expect(retry.headers.get("set-cookie")).toContain(`${USER_SESSION_COOKIE_NAME}=`);
+    expect(await sessionRow(pending.id)).toEqual(before);
+    expect((await sessionRow(sibling.id)).state).toBe("active");
+  });
+
+  it("A-P2-SESSION 激活过程中当前会话失效只返回 401", async () => {
+    now = T0;
+    for (const invalidate of ["expired", "revoked", "epoch", "receipt"] as const) {
+      const userId = await seedUser();
+      const pending = await seedSession(userId, "pending");
+      const csrf = await csrfFor(pending.token);
+      const api = shell(async () => {
+        switch (invalidate) {
+          case "expired":
+            await run("UPDATE sessions SET expires_at = ? WHERE id = ?", now, pending.id);
+            break;
+          case "revoked":
+            await run(
+              "UPDATE sessions SET state = 'revoked', revoked_at = ?, revoke_reason = 'user_revoke' WHERE id = ?",
+              now,
+              pending.id,
+            );
+            break;
+          case "epoch":
+            await run("UPDATE users SET auth_epoch = auth_epoch + 1 WHERE id = ?", userId);
+            break;
+          case "receipt":
+            await run(
+              "UPDATE auth_challenges SET receipt_ciphertext = NULL, receipt_expires_at = NULL WHERE id = ?",
+              pending.challengeId,
+            );
+            break;
+        }
+      });
+      const response = await fetchRoute(
+        "/api/v2/auth/activate",
+        pending.token,
+        "POST",
+        {},
+        csrf,
+        undefined,
+        api,
+      );
+      expect(response.status, invalidate).toBe(401);
+      expect(await response.json()).not.toHaveProperty("selection_required");
+    }
   });
 
   it("A-P2-SESSION 两个 pending 真并发争最后 active 名额，至多一个提交", async () => {
@@ -699,6 +886,7 @@ describe("A-P2-SESSION 会话生命周期", () => {
       csrf,
     );
     expect(conflict.status).toBe(409);
+    expect(await conflict.json()).toHaveProperty("selection_required", true);
     expect((await sessionRow(pending.id)).state).toBe("pending");
     expect((await sessionRow(foreign.id)).state).toBe("active");
   });

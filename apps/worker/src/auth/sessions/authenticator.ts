@@ -1,10 +1,10 @@
 // P2-04 · 会话鉴权（主方案 §4.5）。每个请求只读 D1 主状态，绝不在鉴权时续期。
-// Cookie 的 SHA-256 与 P2-03 makePendingSession 一致；IP/UA 不参与身份判定。
+// Cookie 散列直接调用 P2-03 的唯一实现；IP/UA 不参与身份判定。
 
 import { parseCookieHeader } from "../../shell/csrf";
 import type { Authenticator, ShellAuth } from "../../shell/domains";
 import { USER_SESSION_COOKIE_NAME } from "../../shell/domains";
-import { toHex, utf8Encode } from "../../storage/crypto/bytes";
+import { hashSessionToken } from "../consume/session";
 
 interface SessionIdentityRow {
   id: string;
@@ -20,18 +20,13 @@ interface SessionIdentityRow {
   user_recovery_epoch: number;
 }
 
-export async function hashSessionCookie(value: string): Promise<string> {
-  const digest = await crypto.subtle.digest("SHA-256", utf8Encode(value));
-  return toHex(new Uint8Array(digest));
-}
-
 export function sessionAuthenticator(db: D1Database, now: () => number = Date.now): Authenticator {
   return {
     async authenticate(request, routeDomain): Promise<ShellAuth> {
       if (routeDomain !== "user") return { kind: "none" };
       const token = parseCookieHeader(request.headers.get("cookie"), USER_SESSION_COOKIE_NAME);
       if (token === undefined || token.length === 0) return { kind: "none" };
-      const tokenHash = await hashSessionCookie(token);
+      const tokenHash = await hashSessionToken(token);
       const checkedAt = now();
       const row = await db
         .prepare(`SELECT s.id, s.user_id, s.token_hash, s.state, s.expires_at,

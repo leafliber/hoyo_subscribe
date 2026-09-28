@@ -1,3 +1,4 @@
+// P2-04 返工：导出 P2-03 的唯一 Cookie 散列函数，供鉴权器和契约测试共用。
 // P2-04 跨卡修正：Cookie 名改用 shell 唯一常量，确保鉴权器能读取 P2-03 签发值。
 // P2-03 · 创建 pending Session 所需值（主方案 §4.4–§4.5、附录 A.2）。
 // 只存 token 的 SHA-256 hash；唯一可恢复明文是挑战行里的短期加密回执。
@@ -26,15 +27,19 @@ export interface PendingSessionValues {
   readonly expiresAt: number;
 }
 
+export async function hashSessionToken(value: string): Promise<string> {
+  const digest = await crypto.subtle.digest("SHA-256", utf8Encode(value));
+  return toHex(new Uint8Array(digest));
+}
+
 export async function makePendingSession(now: number): Promise<PendingSessionValues> {
   const token = generateSecretToken();
-  const hash = await crypto.subtle.digest("SHA-256", utf8Encode(token.base64url));
   const jitterMs = SESSION_ABSOLUTE_JITTER * MS_PER_SECOND;
   const offset = uniformIntegerInclusive(-jitterMs, jitterMs);
   const absoluteExpiresAt = now + SESSION_ABSOLUTE_TTL * MS_PER_SECOND + offset;
   return {
     id: crypto.randomUUID(),
-    tokenHash: toHex(new Uint8Array(hash)),
+    tokenHash: await hashSessionToken(token.base64url),
     cookieValue: token.base64url,
     label: `${new Date(now).toISOString()} · unknown`,
     platformHint: "unknown",
