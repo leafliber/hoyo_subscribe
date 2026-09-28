@@ -3,6 +3,7 @@
 import { env } from "cloudflare:test";
 import {
   API_BODY_MAX_BYTES,
+  API_ERROR_STATUS,
   CONFIG_MAX_BYTES,
   changeNotificationScope,
   effectiveCalendarNodes,
@@ -370,7 +371,14 @@ describe("A-P2-SUB 云端订阅读写", () => {
       keys.userKey,
     );
     const before = await readSubscription(env.DB, userId);
-    expect((await request(userId, "PATCH", changed, 1)).status).toBe(429);
+    const userQuotaResponse = await request(userId, "PATCH", changed, 1);
+    expect(userQuotaResponse.status).toBe(API_ERROR_STATUS.quota_paused);
+    expect(await userQuotaResponse.json()).toMatchObject({
+      error: {
+        code: "quota_paused",
+        details: { code: "quota_paused", scope: "user_mutations_day" },
+      },
+    });
     expect((await request(userId, "PATCH", base, 1)).status).toBe(200);
     expect((await request(userId, "PATCH", changed, 0)).status).toBe(409);
     expect(await readSubscription(env.DB, userId)).toEqual(before);
@@ -384,7 +392,14 @@ describe("A-P2-SUB 云端订阅读写", () => {
       GLOBAL_MUTATIONS_DAY,
       keys.globalKey,
     );
-    expect((await request(userId, "PATCH", changed, 1)).status).toBe(429);
+    const globalQuotaResponse = await request(userId, "PATCH", changed, 1);
+    expect(globalQuotaResponse.status).toBe(API_ERROR_STATUS.quota_paused);
+    expect(await globalQuotaResponse.json()).toMatchObject({
+      error: {
+        code: "quota_paused",
+        details: { code: "quota_paused", scope: "global_mutations_day" },
+      },
+    });
     expect(await readSubscription(env.DB, userId)).toEqual(before);
     expect(await counter(userId)).toEqual({ user: 1, global: GLOBAL_MUTATIONS_DAY });
     await run(

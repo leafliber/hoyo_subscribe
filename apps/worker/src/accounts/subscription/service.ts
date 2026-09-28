@@ -110,7 +110,10 @@ function sameConfig(before: SubscriptionConfig, after: SubscriptionConfig): bool
 export type SaveSubscriptionResult =
   | { readonly kind: "saved" | "unchanged"; readonly snapshot: SubscriptionSnapshot }
   | { readonly kind: "conflict"; readonly current: SubscriptionSnapshot }
-  | { readonly kind: "rate_limited" };
+  | {
+      readonly kind: "quota_paused";
+      readonly scope: "user_mutations_day" | "global_mutations_day";
+    };
 
 /** PATCH 的 config 不含服务端维护的 revision；expected_revision 是唯一写入条件。 */
 export async function saveSubscription(
@@ -246,5 +249,18 @@ export async function saveSubscription(
   }
   const current = await readSubscription(db, userId);
   if (current.revision !== expectedRevision) return { kind: "conflict", current };
-  return { kind: "rate_limited" };
+  const counters =
+    (
+      await db
+        .prepare("SELECT key, value FROM capacity_state WHERE key IN (?, ?)")
+        .bind(userKey, globalKey)
+        .all<{ key: string; value: number }>()
+    ).results ?? [];
+  if ((counters.find((row) => row.key === userKey)?.value ?? 0) >= USER_MUTATIONS_DAY) {
+    return { kind: "quota_paused", scope: "user_mutations_day" };
+  }
+  if ((counters.find((row) => row.key === globalKey)?.value ?? 0) >= GLOBAL_MUTATIONS_DAY) {
+    return { kind: "quota_paused", scope: "global_mutations_day" };
+  }
+  throw new Error("subscription_cas_missed_without_conflict_or_quota");
 }

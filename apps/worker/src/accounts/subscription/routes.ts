@@ -80,8 +80,8 @@ export function makeSubscriptionRoutes(now: () => number = Date.now): readonly S
           ctx.body?.config,
           now(),
         );
-        if (result.kind === "rate_limited") {
-          throw new ApiError("rate_limited");
+        if (result.kind === "quota_paused") {
+          throw new ApiError("quota_paused", { code: "quota_paused", scope: result.scope });
         }
         const response =
           result.kind === "conflict"
