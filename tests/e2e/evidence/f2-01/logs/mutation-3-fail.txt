@@ -1,0 +1,114 @@
+$ pnpm --filter @hoyo/web run build && playwright test --config tests/e2e/playwright.config.ts --grep 'U09 初始值'
+$ astro build
+13:14:40 [types] Generated 17ms
+13:14:40 [build] output: "static"
+13:14:40 [build] mode: "static"
+13:14:40 [build] directory: /private/tmp/hoyo-f2-01/apps/web/dist/
+13:14:40 [build] Collecting build info...
+13:14:40 [build] ✓ Completed in 24ms.
+13:14:40 [build] Building static entrypoints...
+13:14:40 [vite] ✓ built in 98ms
+13:14:40 [vite] ✓ built in 26ms
+13:14:40 [build] Rearranging server assets...
+
+ generating static routes
+13:14:40   ├─ /account/index.html (+4ms)
+13:14:40   ├─ /events/sample/index.html (+1ms)
+13:14:40   ├─ /help/index.html (+1ms)
+13:14:40   ├─ /login/index.html (+1ms)
+13:14:40   ├─ /recover/index.html (+1ms)
+13:14:40   ├─ /status/index.html (+1ms)
+13:14:40   ├─ /subscription/index.html (+6ms)
+13:14:40   ├─ /index.html (+2ms)
+13:14:40 ✓ Completed in 23ms.
+
+13:14:40 [build] ✓ Completed in 159ms.
+13:14:40 [build] 8 page(s) built in 185ms
+13:14:40 [build] Complete!
+[WebServer] (node:2561) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+[WebServer] (Use `node --trace-warnings ...` to show where the warning was created)
+
+Running 2 tests using 2 workers
+
+(node:2562) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:2563) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✘  1 [desktop-chromium] › tests/e2e/subscription.spec.ts:55:1 › U09 初始值来自 DEFAULT_*，只是本机预选；没有 Feed 时不宣称外部提醒已开启 (5.2s)
+  ✘  2 [mobile-chromium] › tests/e2e/subscription.spec.ts:55:1 › U09 初始值来自 DEFAULT_*，只是本机预选；没有 Feed 时不宣称外部提醒已开启 (5.2s)
+
+
+  1) [desktop-chromium] › tests/e2e/subscription.spec.ts:55:1 › U09 初始值来自 DEFAULT_*，只是本机预选；没有 Feed 时不宣称外部提醒已开启
+
+    Error: expect(locator).toContainText(expected) failed
+
+    Locator: locator('#cloud-state')
+    Expected substring: "尚无已保存订阅"
+    Received string:    "云端已保存订阅"
+    Timeout: 5000ms
+
+    Call log:
+      - Expect "toContainText" locator('#cloud-state') with timeout 5000ms
+      - waiting for locator('#cloud-state')
+        14 × locator resolved to <p id="cloud-state">云端已保存订阅</p>
+           - unexpected value "云端已保存订阅"
+
+
+      74 |     CALENDAR_ALARMS_DEFAULT,
+      75 |   );
+    > 76 |   await expect(page.locator("#cloud-state")).toContainText("尚无已保存订阅");
+         |                                              ^
+      77 |   await expect(page.locator("#draft-state")).toContainText("本机预选");
+      78 |   await expect(page.locator("#alarm-status")).toContainText("已选择日历提醒");
+      79 |   await expect(page.locator("#alarm-status")).not.toContainText("已在外部日历开启");
+        at /private/tmp/hoyo-f2-01/tests/e2e/subscription.spec.ts:76:46
+
+    Error Context: tests/e2e/test-results/subscription-U09-初始值来自-DEFAULT-，只是本机预选；没有-Feed-时不宣称外部提醒已开启-desktop-chromium/error-context.md
+
+    attachment #2: trace (application/zip) ─────────────────────────────────────────────────────────
+    tests/e2e/test-results/subscription-U09-初始值来自-DEFAULT-，只是本机预选；没有-Feed-时不宣称外部提醒已开启-desktop-chromium/trace.zip
+    Usage:
+
+        pnpm exec playwright show-trace tests/e2e/test-results/subscription-U09-初始值来自-DEFAULT-，只是本机预选；没有-Feed-时不宣称外部提醒已开启-desktop-chromium/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+  2) [mobile-chromium] › tests/e2e/subscription.spec.ts:55:1 › U09 初始值来自 DEFAULT_*，只是本机预选；没有 Feed 时不宣称外部提醒已开启
+
+    Error: expect(locator).toContainText(expected) failed
+
+    Locator: locator('#cloud-state')
+    Expected substring: "尚无已保存订阅"
+    Received string:    "云端已保存订阅"
+    Timeout: 5000ms
+
+    Call log:
+      - Expect "toContainText" locator('#cloud-state') with timeout 5000ms
+      - waiting for locator('#cloud-state')
+        14 × locator resolved to <p id="cloud-state">云端已保存订阅</p>
+           - unexpected value "云端已保存订阅"
+
+
+      74 |     CALENDAR_ALARMS_DEFAULT,
+      75 |   );
+    > 76 |   await expect(page.locator("#cloud-state")).toContainText("尚无已保存订阅");
+         |                                              ^
+      77 |   await expect(page.locator("#draft-state")).toContainText("本机预选");
+      78 |   await expect(page.locator("#alarm-status")).toContainText("已选择日历提醒");
+      79 |   await expect(page.locator("#alarm-status")).not.toContainText("已在外部日历开启");
+        at /private/tmp/hoyo-f2-01/tests/e2e/subscription.spec.ts:76:46
+
+    Error Context: tests/e2e/test-results/subscription-U09-初始值来自-DEFAULT-，只是本机预选；没有-Feed-时不宣称外部提醒已开启-mobile-chromium/error-context.md
+
+    attachment #2: trace (application/zip) ─────────────────────────────────────────────────────────
+    tests/e2e/test-results/subscription-U09-初始值来自-DEFAULT-，只是本机预选；没有-Feed-时不宣称外部提醒已开启-mobile-chromium/trace.zip
+    Usage:
+
+        pnpm exec playwright show-trace tests/e2e/test-results/subscription-U09-初始值来自-DEFAULT-，只是本机预选；没有-Feed-时不宣称外部提醒已开启-mobile-chromium/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+  2 failed
+    [desktop-chromium] › tests/e2e/subscription.spec.ts:55:1 › U09 初始值来自 DEFAULT_*，只是本机预选；没有 Feed 时不宣称外部提醒已开启
+    [mobile-chromium] › tests/e2e/subscription.spec.ts:55:1 › U09 初始值来自 DEFAULT_*，只是本机预选；没有 Feed 时不宣称外部提醒已开启
+[ELIFECYCLE] Command failed with exit code 1.

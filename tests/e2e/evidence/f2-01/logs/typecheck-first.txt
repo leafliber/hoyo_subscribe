@@ -1,0 +1,10 @@
+$ pnpm -r --if-present run typecheck && tsc --project tests/e2e
+Scope: 3 of 4 workspace projects
+packages/contracts typecheck$ tsc --noEmit
+packages/contracts typecheck: src/subscription-copy.test.ts(18,78): error TS2345: Argument of type '"gacha_end_1d" | "gacha_start_1h" | "limited_end_1d" | "limited_start_1h" | "livestream_start_1h" | "maintenance_start_1h" | "phase_unlock_1h" | "reward_deadline_1d"' is not assignable to parameter of type '"gacha_end_1d" | "limited_end_1d" | "livestream_start_1h" | "maintenance_start_1h"'.
+packages/contracts typecheck:   Type '"gacha_start_1h"' is not assignable to type '"gacha_end_1d" | "limited_end_1d" | "livestream_start_1h" | "maintenance_start_1h"'.
+packages/contracts typecheck: Failed
+/private/tmp/hoyo-f2-01/packages/contracts:
+[ERR_PNPM_RECURSIVE_RUN_FIRST_FAIL] @hoyo/contracts@ typecheck: `tsc --noEmit`
+Exit status 1
+[ELIFECYCLE] Command failed with exit code 1.

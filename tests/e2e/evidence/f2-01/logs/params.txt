@@ -1,0 +1,22 @@
+$ tsx scripts/params/verify.ts
+node:net:2306
+      const error = new UVExceptionWithHostPort(rval, 'listen', address, port);
+                    ^
+
+Error: listen EPERM: operation not permitted /var/folders/vr/xq2gyj_j1w5f2rbw5h06rtqw0000gn/T/tsx-501/99220.pipe
+    at Server.setupListenHandle [as _listen2] (node:net:2306:21)
+    at listenInCluster (node:net:2437:12)
+    at Server.listen (node:net:2579:5)
+    at file:///private/tmp/hoyo-f2-01/node_modules/.pnpm/tsx@4.23.15/node_modules/tsx/dist/cli.mjs:53:32174
+    at new Promise (<anonymous>)
+    at createIpcServer (file:///private/tmp/hoyo-f2-01/node_modules/.pnpm/tsx@4.23.15/node_modules/tsx/dist/cli.mjs:53:32152)
+    at async file:///private/tmp/hoyo-f2-01/node_modules/.pnpm/tsx@4.23.15/node_modules/tsx/dist/cli.mjs:55:542 {
+  code: 'EPERM',
+  errno: -1,
+  syscall: 'listen',
+  address: '/var/folders/vr/xq2gyj_j1w5f2rbw5h06rtqw0000gn/T/tsx-501/99220.pipe',
+  port: -1
+}
+
+Node.js v26.8.1
+[ELIFECYCLE] Command failed with exit code 1.

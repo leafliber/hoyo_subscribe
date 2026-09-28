@@ -1,7 +1,182 @@
 ---
+import {
+  CALENDAR_ALARMS_DEFAULT,
+  CHANGE_DEFAULTS,
+  DEFAULT_CALENDAR_EVENT_TYPES,
+  DEFAULT_CALENDAR_NODE_TYPES,
+  DEFAULT_RULE_IDS,
+  DEFAULT_SCOPE_GAMES,
+  EVENT_TYPES,
+  NODE_TYPES,
+  SUBSCRIPTION_CHANGE_COPY,
+  SUBSCRIPTION_EVENT_TYPE_LABELS,
+  SUBSCRIPTION_GAME_LABELS,
+  SUBSCRIPTION_NODE_TYPE_LABELS,
+  SUBSCRIPTION_RULE_COPY,
+  SUPPORTED_SCOPE_GAMES,
+} from "@hoyo/contracts";
 import Layout from "./_Layout.astro";
+import "../features/subscription/subscription.css";
+
+const recommendedIds = new Set<string>(DEFAULT_RULE_IDS);
+const recommendedRules = SUBSCRIPTION_RULE_COPY.filter((rule) => recommendedIds.has(rule.rule_id));
+const moreRules = SUBSCRIPTION_RULE_COPY.filter((rule) => !recommendedIds.has(rule.rule_id));
 ---
+
 <Layout title="我的订阅" activeNav="subscription">
-  <h1>我的订阅</h1>
-  <p class="skeleton-note">页面骨架：四类设置的语义分离与实际日历预览由 F2 轮交付。游客可编辑本机草稿，保存云端或开启长期通道时才要求登录。</p>
+  <div class="subscription-page">
+    <header class="subscription-intro">
+      <h1>我的订阅</h1>
+      <p id="cloud-state">尚无已保存订阅</p>
+      <p id="draft-state" role="status">本机预选 · 尚未保存</p>
+      <p class="subscription-hint">已保存摘要：暂无。下方选项只在本页临时生效；接收方式需要分别开通。</p>
+    </header>
+
+    <form id="subscription-form" novalidate>
+      <section class="subscription-step" aria-labelledby="games-heading">
+        <h2 id="games-heading">1. 关注的游戏</h2>
+        <p class="subscription-hint">所选游戏同时约束日历与变更消息。</p>
+        <fieldset class="choice-fieldset" aria-describedby="game-error">
+          <legend class="visually-hidden">关注的游戏</legend>
+          <div class="choice-grid">
+            {SUPPORTED_SCOPE_GAMES.map((game) => (
+              <label class="subscription-choice">
+                <input type="checkbox" name="games" value={game} checked={DEFAULT_SCOPE_GAMES.includes(game)} />
+                <span>{SUBSCRIPTION_GAME_LABELS[game]}</span>
+              </label>
+            ))}
+          </div>
+        </fieldset>
+        <p id="game-error" class="field-error" role="alert" tabindex="-1" hidden>至少选择一个关注的游戏。</p>
+      </section>
+
+      <section class="subscription-step" aria-labelledby="rules-heading">
+        <h2 id="rules-heading">2. 提前提醒</h2>
+        <p class="subscription-hint">固定规则适用于所有关注的游戏；可以一条都不选。</p>
+        <fieldset id="recommended-rules" class="choice-fieldset">
+          <legend>推荐提醒</legend>
+          <div class="choice-grid">
+            {recommendedRules.map((rule) => (
+              <label class="subscription-choice">
+                <input type="checkbox" name="rule_ids" value={rule.rule_id} checked={true} />
+                <span>{rule.label}</span>
+              </label>
+            ))}
+          </div>
+        </fieldset>
+        <details id="more-rules" class="subscription-details">
+          <summary>更多提醒</summary>
+          <fieldset class="choice-fieldset details-fieldset">
+            <legend class="visually-hidden">更多提醒</legend>
+            <div class="choice-grid">
+              {moreRules.map((rule) => (
+                <label class="subscription-choice">
+                  <input type="checkbox" name="rule_ids" value={rule.rule_id} />
+                  <span>{rule.label}</span>
+                </label>
+              ))}
+            </div>
+          </fieldset>
+        </details>
+        <p id="rule-empty-note" class="subscription-note" role="status" hidden>将不再收到提前提醒，变更消息仍按所选游戏与日历显示范围发送。</p>
+      </section>
+
+      <section class="subscription-step" aria-labelledby="calendar-heading">
+        <h2 id="calendar-heading">3. 日历显示</h2>
+        <details id="calendar-settings" class="subscription-details">
+          <summary>调整显示内容 <span id="calendar-summary" class="details-summary">当前选择摘要</span></summary>
+          <div class="details-content">
+            <fieldset class="choice-fieldset" aria-describedby="event-type-error">
+              <legend>显示的事件类型</legend>
+              <div class="choice-grid">
+                {EVENT_TYPES.map((type) => (
+                  <label class="subscription-choice">
+                    <input type="checkbox" name="event_types" value={type} checked={DEFAULT_CALENDAR_EVENT_TYPES.includes(type)} />
+                    <span>{SUBSCRIPTION_EVENT_TYPE_LABELS[type]}</span>
+                  </label>
+                ))}
+              </div>
+            </fieldset>
+            <p id="event-type-error" class="field-error" role="alert" tabindex="-1" hidden>至少选择一种日历事件类型。</p>
+            <fieldset class="choice-fieldset">
+              <legend>基础显示的节点</legend>
+              <div class="choice-grid">
+                {NODE_TYPES.map((type) => (
+                  <label class="subscription-choice">
+                    <input type="checkbox" name="node_types" value={type} checked={DEFAULT_CALENDAR_NODE_TYPES.includes(type)} />
+                    <span>{SUBSCRIPTION_NODE_TYPE_LABELS[type]}</span>
+                  </label>
+                ))}
+              </div>
+            </fieldset>
+            <label class="subscription-choice alarm-choice">
+              <input type="checkbox" name="alarms_enabled" checked={CALENDAR_ALARMS_DEFAULT} />
+              <span>日历提醒</span>
+            </label>
+            <p id="alarm-status" class="subscription-hint" role="status"></p>
+            <p class="subscription-hint">关闭后只影响日历闹钟和提醒关联节点；提前提醒规则仍保留，邮件与浏览器通知分别管理。</p>
+          </div>
+        </details>
+      </section>
+
+      <section class="subscription-step" aria-labelledby="change-heading">
+        <h2 id="change-heading">4. 变更消息</h2>
+        <p>日历里看得见的、或设了提醒的事件，出了变化就会通知。</p>
+        <p id="change-scope" class="subscription-hint"></p>
+        <details id="change-settings" class="subscription-details">
+          <summary>调整变更消息 <span id="change-summary" class="details-summary">当前选择摘要</span></summary>
+          <div class="details-content">
+            <fieldset class="choice-fieldset">
+              <legend class="visually-hidden">变更消息类型</legend>
+              <div class="choice-grid">
+                {SUBSCRIPTION_CHANGE_COPY.map((item) => (
+                  <label class="subscription-choice">
+                    <input type="checkbox" name={item.key} checked={CHANGE_DEFAULTS[item.key]} />
+                    <span>{item.label}</span>
+                  </label>
+                ))}
+              </div>
+            </fieldset>
+            <p class="subscription-hint">晚收录补充提醒只在本站较晚收录或确认、常规提前点已过且仍符合条件时尝试；不会补发所有历史消息。</p>
+            <p class="subscription-hint">邮件与浏览器通知尚未开启；这里的选项不授予发送权限。</p>
+          </div>
+        </details>
+      </section>
+
+      <section id="actual-preview" class="subscription-step" aria-labelledby="preview-heading">
+        <h2 id="preview-heading">5. 实际日历预览</h2>
+        <p class="preview-empty">尚无实际日历预览。当前选项只是本机预选，尚未连接个人日历。</p>
+      </section>
+
+      <div class="subscription-save-bar">
+        <p id="save-result" role="status">当前选择尚未保存。</p>
+        <div class="save-actions">
+          <button id="discard-changes" class="secondary-button" type="button">放弃修改</button>
+          <button class="button" type="submit">保存订阅</button>
+        </div>
+      </div>
+    </form>
+
+    <section class="receive-section" aria-labelledby="receive-heading">
+      <h2 id="receive-heading">接收方式</h2>
+      <p class="subscription-hint">接收方式与上方内容设置分别管理。</p>
+      <div class="receive-grid">
+        <section id="calendar-channel" class="receive-item" aria-labelledby="calendar-channel-heading">
+          <h3 id="calendar-channel-heading">日历订阅</h3>
+          <p>尚未启用个人日历。选中日历提醒不表示外部日历已经开启。</p>
+        </section>
+        <section id="mail-channel" class="receive-item" aria-labelledby="mail-channel-heading">
+          <h3 id="mail-channel-heading">邮件提醒</h3>
+          <p>尚未开启。邮件同意与投递状态将在这里单独管理。</p>
+        </section>
+        <section id="push-channel" class="receive-item" aria-labelledby="push-channel-heading">
+          <h3 id="push-channel-heading">本浏览器通知</h3>
+          <p>当前尚未开放。开放后需在本浏览器单独启用。</p>
+        </section>
+      </div>
+    </section>
+  </div>
+  <script>
+    import "../features/subscription/page";
+  </script>
 </Layout>
