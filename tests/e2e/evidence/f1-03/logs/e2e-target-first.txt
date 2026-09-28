@@ -1,0 +1,14 @@
+[WebServer] (node:96259) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+[WebServer] (Use `node --trace-warnings ...` to show where the warning was created)
+[WebServer] E2E 静态服务启动失败： Error: listen EPERM: operation not permitted 127.0.0.1:4173
+[WebServer]     at Server.setupListenHandle [as _listen2] (node:net:2306:21)
+[WebServer]     at listenInCluster (node:net:2437:12)
+[WebServer]     at node:net:2666:7
+[WebServer]     at process.processTicksAndRejections (node:internal/process/task_queues:90:21) {
+[WebServer]   code: 'EPERM',
+[WebServer]   errno: -1,
+[WebServer]   syscall: 'listen',
+[WebServer]   address: '127.0.0.1',
+[WebServer]   port: 4173
+[WebServer] }
+Error: Process from config.webServer was not able to start. Exit code: 1

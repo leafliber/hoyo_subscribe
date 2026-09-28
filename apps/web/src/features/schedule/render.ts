@@ -32,7 +32,7 @@ export function renderNode(node: ScheduleNode, now: number): string {
   return `<li class="schedule-node" data-node="${escapeHtml(node.id)}" data-precision="${node.time.precision}">
     <div class="node-time">${time}</div>
     <div class="node-content"><p class="node-action">${escapeHtml(nodeAction(node))}</p>
-    <a class="event-title" href="/events/sample">${escapeHtml(node.title)}</a>
+    <a class="event-title" href="/events/${escapeHtml(node.id === "later" ? "sample" : encodeURIComponent(node.id))}">${escapeHtml(node.title)}</a>
     <p class="node-meta"><span>${GAME_NAMES[node.game]}</span>${statuses.map((status) => `<span class="node-status">${escapeHtml(status)}</span>`).join("")}</p>
     ${statuses.length || node.time.precision !== "datetime" ? `<details class="node-evidence"><summary>时间依据与说明</summary><p>${escapeHtml(node.evidence)}</p><p>原始表述：${escapeHtml(node.time.raw_expression)}</p><p>公告发布时间：${browseTimestamp(node.noticePublishedAt)} · UTC+8</p></details>` : ""}</div>
   </li>`;

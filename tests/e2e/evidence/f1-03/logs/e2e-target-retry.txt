@@ -1,0 +1,131 @@
+[WebServer] (node:96380) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+[WebServer] (Use `node --trace-warnings ...` to show where the warning was created)
+
+Running 16 tests using 5 workers
+
+(node:96387) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:96386) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:96385) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:96384) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:96388) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✓   4 [desktop-chromium] › tests/e2e/event-detail.spec.ts:5:1 › U02 玩法结束与奖励领取截止在实际节点时间线中分别出现 (341ms)
+  ✓   5 [desktop-chromium] › tests/e2e/event-detail.spec.ts:35:1 › U04 改期的历史原时间与当前时间并列，旧时间不作当前安排 (407ms)
+  ✓   3 [desktop-chromium] › tests/e2e/event-detail.spec.ts:14:1 › U02 只有奖励截止时不补玩法结束 (350ms)
+  ✓   1 [desktop-chromium] › tests/e2e/event-detail.spec.ts:49:1 › U04 官方取消和本站撤回分开呈现，不宣称撤回旧副本 (479ms)
+  ✓   6 [desktop-chromium] › tests/e2e/event-detail.spec.ts:63:1 › U04 公告与证据的 img onerror 只显示文字，不执行 (152ms)
+  ✓   7 [desktop-chromium] › tests/e2e/event-detail.spec.ts:83:1 › U04 官方依据逐级展开，三项主要操作可用且设置订阅只跳整份草稿 (323ms)
+  ✓   8 [desktop-chromium] › tests/e2e/event-detail.spec.ts:108:1 › U02 U04 桌面与手机截图、窄屏和键盘展开留证 (339ms)
+(node:96420) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:96421) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:96422) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:96423) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✓   9 [mobile-chromium] › tests/e2e/event-detail.spec.ts:5:1 › U02 玩法结束与奖励领取截止在实际节点时间线中分别出现 (186ms)
+  ✓  10 [mobile-chromium] › tests/e2e/event-detail.spec.ts:14:1 › U02 只有奖励截止时不补玩法结束 (172ms)
+  ✓  14 [mobile-chromium] › tests/e2e/event-detail.spec.ts:63:1 › U04 公告与证据的 img onerror 只显示文字，不执行 (192ms)
+  ✓  13 [mobile-chromium] › tests/e2e/event-detail.spec.ts:49:1 › U04 官方取消和本站撤回分开呈现，不宣称撤回旧副本 (235ms)
+  ✓  12 [mobile-chromium] › tests/e2e/event-detail.spec.ts:35:1 › U04 改期的历史原时间与当前时间并列，旧时间不作当前安排 (262ms)
+  ✓  15 [mobile-chromium] › tests/e2e/event-detail.spec.ts:83:1 › U04 官方依据逐级展开，三项主要操作可用且设置订阅只跳整份草稿 (298ms)
+  ✓  16 [mobile-chromium] › tests/e2e/event-detail.spec.ts:108:1 › U02 U04 桌面与手机截图、窄屏和键盘展开留证 (416ms)
+  ✘   2 [desktop-chromium] › tests/e2e/event-detail.spec.ts:22:1 › U02 纯日期与未知精度只展示已知信息，不猜午夜或时刻 (5.4s)
+  ✘  11 [mobile-chromium] › tests/e2e/event-detail.spec.ts:22:1 › U02 纯日期与未知精度只展示已知信息，不猜午夜或时刻 (5.4s)
+
+
+  1) [desktop-chromium] › tests/e2e/event-detail.spec.ts:22:1 › U02 纯日期与未知精度只展示已知信息，不猜午夜或时刻 ────────
+
+    Error: expect(locator).not.toContainText(expected) failed
+
+    Locator: locator('[data-section="timeline"]')
+    Expected pattern: not /\d{2}:\d{2}/
+    Received string: "完整节点时间线仅列出已发布样例中实际存在的节点。日期和时刻均按原有精度展示。
+        前瞻开始时间待公布
+        已延期，新时间待公布
+        时间依据与证据原始时间表述：样例：延期，时间另行公布证据片段：synthetic 样例依据：演示公告中的已核验时间。源时区：UTC+8公告发布时间：2026-09-27 10:00 · UTC+8
+      "
+    Timeout: 5000ms
+
+    Call log:
+      - Expect "not toContainText" locator('[data-section="timeline"]') with timeout 5000ms
+      - waiting for locator('[data-section="timeline"]')
+        14 × locator resolved to <section class="detail-section" data-section="timeline" aria-labelledby="detail-timeline-title">…</section>
+           - unexpected value "完整节点时间线仅列出已发布样例中实际存在的节点。日期和时刻均按原有精度展示。
+        前瞻开始时间待公布
+        已延期，新时间待公布
+        时间依据与证据原始时间表述：样例：延期，时间另行公布证据片段：synthetic 样例依据：演示公告中的已核验时间。源时区：UTC+8公告发布时间：2026-09-27 10:00 · UTC+8
+      "
+
+
+      30 |   await expect(unknown).toContainText("时间待公布");
+      31 |   await expect(unknown.locator("time")).toHaveCount(0);
+    > 32 |   await expect(unknown).not.toContainText(/\d{2}:\d{2}/);
+         |                             ^
+      33 | });
+      34 |
+      35 | test("U04 改期的历史原时间与当前时间并列，旧时间不作当前安排", async ({ page }) => {
+        at /private/tmp/hoyo-f1-03/tests/e2e/event-detail.spec.ts:32:29
+
+    Error Context: tests/e2e/test-results/event-detail-U02-纯日期与未知精度只展示已知信息，不猜午夜或时刻-desktop-chromium/error-context.md
+
+    attachment #2: trace (application/zip) ─────────────────────────────────────────────────────────
+    tests/e2e/test-results/event-detail-U02-纯日期与未知精度只展示已知信息，不猜午夜或时刻-desktop-chromium/trace.zip
+    Usage:
+
+        pnpm exec playwright show-trace tests/e2e/test-results/event-detail-U02-纯日期与未知精度只展示已知信息，不猜午夜或时刻-desktop-chromium/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+  2) [mobile-chromium] › tests/e2e/event-detail.spec.ts:22:1 › U02 纯日期与未知精度只展示已知信息，不猜午夜或时刻 ─────────
+
+    Error: expect(locator).not.toContainText(expected) failed
+
+    Locator: locator('[data-section="timeline"]')
+    Expected pattern: not /\d{2}:\d{2}/
+    Received string: "完整节点时间线仅列出已发布样例中实际存在的节点。日期和时刻均按原有精度展示。
+        前瞻开始时间待公布
+        已延期，新时间待公布
+        时间依据与证据原始时间表述：样例：延期，时间另行公布证据片段：synthetic 样例依据：演示公告中的已核验时间。源时区：UTC+8公告发布时间：2026-09-27 10:00 · UTC+8
+      "
+    Timeout: 5000ms
+
+    Call log:
+      - Expect "not toContainText" locator('[data-section="timeline"]') with timeout 5000ms
+      - waiting for locator('[data-section="timeline"]')
+        14 × locator resolved to <section class="detail-section" data-section="timeline" aria-labelledby="detail-timeline-title">…</section>
+           - unexpected value "完整节点时间线仅列出已发布样例中实际存在的节点。日期和时刻均按原有精度展示。
+        前瞻开始时间待公布
+        已延期，新时间待公布
+        时间依据与证据原始时间表述：样例：延期，时间另行公布证据片段：synthetic 样例依据：演示公告中的已核验时间。源时区：UTC+8公告发布时间：2026-09-27 10:00 · UTC+8
+      "
+
+
+      30 |   await expect(unknown).toContainText("时间待公布");
+      31 |   await expect(unknown.locator("time")).toHaveCount(0);
+    > 32 |   await expect(unknown).not.toContainText(/\d{2}:\d{2}/);
+         |                             ^
+      33 | });
+      34 |
+      35 | test("U04 改期的历史原时间与当前时间并列，旧时间不作当前安排", async ({ page }) => {
+        at /private/tmp/hoyo-f1-03/tests/e2e/event-detail.spec.ts:32:29
+
+    Error Context: tests/e2e/test-results/event-detail-U02-纯日期与未知精度只展示已知信息，不猜午夜或时刻-mobile-chromium/error-context.md
+
+    attachment #2: trace (application/zip) ─────────────────────────────────────────────────────────
+    tests/e2e/test-results/event-detail-U02-纯日期与未知精度只展示已知信息，不猜午夜或时刻-mobile-chromium/trace.zip
+    Usage:
+
+        pnpm exec playwright show-trace tests/e2e/test-results/event-detail-U02-纯日期与未知精度只展示已知信息，不猜午夜或时刻-mobile-chromium/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+  2 failed
+    [desktop-chromium] › tests/e2e/event-detail.spec.ts:22:1 › U02 纯日期与未知精度只展示已知信息，不猜午夜或时刻 ─────────
+    [mobile-chromium] › tests/e2e/event-detail.spec.ts:22:1 › U02 纯日期与未知精度只展示已知信息，不猜午夜或时刻 ──────────
+  14 passed (7.9s)

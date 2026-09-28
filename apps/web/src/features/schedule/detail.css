@@ -1,0 +1,201 @@
+/* F1-03：详情页沿用全站 token，以分区和文字层级呈现事实。 */
+.event-detail {
+  max-width: var(--width-form-max);
+  margin-inline: auto;
+}
+
+.detail-intro {
+  padding-bottom: var(--space-5);
+  border-bottom: var(--border-thin) solid var(--color-border);
+}
+
+.detail-intro h1 {
+  overflow-wrap: anywhere;
+  margin-bottom: var(--space-3);
+}
+
+.event-detail .page-kicker,
+.event-detail .section-note,
+.event-detail .timezone-note {
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-aux);
+}
+
+.event-detail .sample-notice {
+  display: block;
+  padding: var(--space-3) var(--space-4);
+  border-left: var(--space-1) solid var(--color-warning);
+  background: var(--color-bg-surface);
+  color: var(--color-text-primary);
+}
+
+.detail-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin-top: var(--space-5);
+}
+
+.detail-actions .button,
+.official-primary .button {
+  text-decoration: none;
+}
+
+.detail-section {
+  padding-block: var(--space-5);
+  border-bottom: var(--border-thin) solid var(--color-border);
+}
+
+.detail-section h2 {
+  margin-bottom: var(--space-3);
+}
+
+.important-fact {
+  display: grid;
+  gap: var(--space-2);
+  padding: var(--space-4);
+  background: var(--color-bg-surface);
+  border: var(--border-thin) solid var(--color-border);
+  border-radius: var(--radius-control);
+}
+
+.important-fact strong {
+  font-size: var(--font-size-section);
+}
+
+.important-status,
+.milestone-status {
+  color: var(--color-warning);
+  font-weight: 600;
+}
+
+.detail-timeline {
+  list-style: none;
+  padding: 0;
+  margin: var(--space-5) 0 0;
+  border-left: var(--border-thin) solid var(--color-border);
+}
+
+.detail-milestone {
+  padding: 0 0 var(--space-5) var(--space-5);
+  position: relative;
+}
+
+.detail-milestone:last-child {
+  padding-bottom: 0;
+}
+
+.detail-milestone::before {
+  content: "";
+  position: absolute;
+  top: var(--space-2);
+  left: calc(-1 * var(--space-1));
+  width: var(--space-2);
+  height: var(--space-2);
+  border-radius: 50%;
+  background: var(--color-accent);
+}
+
+.milestone-main {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-2) var(--space-4);
+}
+
+.milestone-time {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.historical-label {
+  color: var(--color-text-secondary);
+}
+
+.milestone-status {
+  margin-block: var(--space-1);
+  font-size: var(--font-size-aux);
+}
+
+.milestone-evidence,
+.official-details {
+  margin-top: var(--space-2);
+}
+
+.milestone-evidence summary,
+.official-details summary {
+  min-height: var(--tap-target-min);
+  display: flex;
+  align-items: center;
+  cursor: pointer;
+  color: var(--color-accent);
+}
+
+.milestone-evidence p,
+.official-details-body p {
+  overflow-wrap: anywhere;
+  margin: var(--space-2) 0;
+}
+
+.change-times {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-3);
+  margin-bottom: var(--space-4);
+}
+
+.change-times > div {
+  min-width: 0;
+  display: grid;
+  gap: var(--space-2);
+  padding: var(--space-4);
+  background: var(--color-bg-surface);
+  border: var(--border-thin) solid var(--color-border);
+  border-radius: var(--radius-control);
+}
+
+.historical-time {
+  color: var(--color-text-secondary);
+}
+
+.change-times span:first-child {
+  font-size: var(--font-size-aux);
+  font-weight: 600;
+}
+
+.official-primary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+}
+
+.official-primary p {
+  margin-bottom: 0;
+}
+
+.official-details {
+  border-top: var(--border-thin) solid var(--color-border);
+}
+
+.official-details-body {
+  padding: var(--space-2) var(--space-4) var(--space-3);
+  background: var(--color-bg-surface);
+}
+
+.official-details-body details {
+  border-top: var(--border-thin) solid var(--color-border);
+}
+
+@media (max-width: 960px) {
+  .change-times {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .detail-actions .button {
+    flex: 1 1 auto;
+  }
+}

@@ -1,0 +1,154 @@
+{
+  "conclusion": "success",
+  "headSha": "3b51140aecdc9462f4be3555c7f5d70dce20b277",
+  "jobs": [
+    {
+      "completedAt": "2026-09-28T10:27:15Z",
+      "conclusion": "success",
+      "databaseId": 108886439329,
+      "name": "verify",
+      "startedAt": "2026-09-28T10:25:26Z",
+      "status": "completed",
+      "steps": [
+        {
+          "completedAt": "2026-09-28T10:25:28Z",
+          "conclusion": "success",
+          "name": "Set up job",
+          "number": 1,
+          "startedAt": "2026-09-28T10:25:27Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-09-28T10:25:29Z",
+          "conclusion": "success",
+          "name": "Run actions/checkout@v5",
+          "number": 2,
+          "startedAt": "2026-09-28T10:25:28Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-09-28T10:25:31Z",
+          "conclusion": "success",
+          "name": "Run pnpm/action-setup@v4",
+          "number": 3,
+          "startedAt": "2026-09-28T10:25:29Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-09-28T10:25:40Z",
+          "conclusion": "success",
+          "name": "Run actions/setup-node@v5",
+          "number": 4,
+          "startedAt": "2026-09-28T10:25:31Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-09-28T10:25:48Z",
+          "conclusion": "success",
+          "name": "安装依赖（锁文件冻结）",
+          "number": 5,
+          "startedAt": "2026-09-28T10:25:40Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-09-28T10:25:49Z",
+          "conclusion": "success",
+          "name": "lint",
+          "number": 6,
+          "startedAt": "2026-09-28T10:25:48Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-09-28T10:25:51Z",
+          "conclusion": "success",
+          "name": "typecheck",
+          "number": 7,
+          "startedAt": "2026-09-28T10:25:49Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-09-28T10:26:21Z",
+          "conclusion": "success",
+          "name": "test",
+          "number": 8,
+          "startedAt": "2026-09-28T10:25:51Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-09-28T10:26:21Z",
+          "conclusion": "success",
+          "name": "params:verify（附录 A.5 启动等式）",
+          "number": 9,
+          "startedAt": "2026-09-28T10:26:21Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-09-28T10:26:26Z",
+          "conclusion": "success",
+          "name": "migrate:check（空库重放与索引检查）",
+          "number": 10,
+          "startedAt": "2026-09-28T10:26:21Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-09-28T10:26:29Z",
+          "conclusion": "success",
+          "name": "build",
+          "number": 11,
+          "startedAt": "2026-09-28T10:26:26Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-09-28T10:26:51Z",
+          "conclusion": "success",
+          "name": "安装 Playwright 浏览器（chromium）",
+          "number": 12,
+          "startedAt": "2026-09-28T10:26:29Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-09-28T10:27:11Z",
+          "conclusion": "success",
+          "name": "test:e2e（U28 可访问性基线）",
+          "number": 13,
+          "startedAt": "2026-09-28T10:26:51Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-09-28T10:27:11Z",
+          "conclusion": "success",
+          "name": "Post Run actions/setup-node@v5",
+          "number": 24,
+          "startedAt": "2026-09-28T10:27:11Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-09-28T10:27:12Z",
+          "conclusion": "success",
+          "name": "Post Run pnpm/action-setup@v4",
+          "number": 25,
+          "startedAt": "2026-09-28T10:27:11Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-09-28T10:27:12Z",
+          "conclusion": "success",
+          "name": "Post Run actions/checkout@v5",
+          "number": 26,
+          "startedAt": "2026-09-28T10:27:12Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-09-28T10:27:12Z",
+          "conclusion": "success",
+          "name": "Complete job",
+          "number": 27,
+          "startedAt": "2026-09-28T10:27:12Z",
+          "status": "completed"
+        }
+      ],
+      "url": "https://github.com/leafliber/hoyo_subscribe/actions/runs/36409608150/job/108886439329"
+    }
+  ],
+  "url": "https://github.com/leafliber/hoyo_subscribe/actions/runs/36409608150"
+}
