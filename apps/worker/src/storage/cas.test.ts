@@ -1,3 +1,4 @@
+// P2-06 跨卡测试：单行 DELETE 与末尾可零行 Feed 更新不破坏现有串链语义。
 // A-P1-CAS · 条件提交（CAS）原语与并发测试（任务卡 P1-05）。
 // 验收定义（docs/ACCEPTANCE.md）：
 //   1) CAS 零行后续写入不生效（含★回归对：先证明朴素 batch 确实会漏，再证明原语拦住）；
@@ -907,5 +908,97 @@ describe("A-P1-CAS Feed 换 token 与退订（§8.1 末段场景的同一条件�
     expect(
       await countRows("consent_events", "user_id = ? AND action = 'unsubscribe-synthetic'", userId),
     ).toBe(1);
+  });
+});
+
+describe("A-P2-SUB CAS 通用效果扩展", () => {
+  it("DELETE 依赖守卫，陈旧版本不删除兴趣", async () => {
+    const userId = "u_p206_delete";
+    await insertUser(userId);
+    await insertSubscription(userId, 1);
+    await run(
+      "INSERT INTO subscription_interests (id,user_id,game,region,interest_kind,interest_id,enabled_at) VALUES (?,?,'genshin','CN','rule','livestream_start_1h',?)",
+      "interest_p206",
+      userId,
+      T0,
+    );
+    const plan = (revision: number) =>
+      conditionalCommit(env.DB, {
+        guard: {
+          sql: "UPDATE user_subscriptions SET revision = revision + 1 WHERE user_id = ? AND revision = ?",
+          params: [userId, revision],
+        },
+        effects: [
+          {
+            kind: "delete",
+            table: "subscription_interests",
+            where: { sql: "id = ?", params: ["interest_p206"] },
+          },
+        ],
+      });
+    expect(await plan(0)).toEqual({ outcome: "condition_missed" });
+    expect(await countRows("subscription_interests", "id = ?", "interest_p206")).toBe(1);
+    expect(await plan(1)).toEqual({ outcome: "committed" });
+    expect(await countRows("subscription_interests", "id = ?", "interest_p206")).toBe(0);
+  });
+
+  it("末尾可零行 Feed 更新：未建 Feed 时提交成功，建好后才递增", async () => {
+    const userId = "u_p206_optional";
+    await insertUser(userId);
+    await insertSubscription(userId, 1);
+    const plan = (revision: number) =>
+      conditionalCommit(env.DB, {
+        guard: {
+          sql: "UPDATE user_subscriptions SET revision = revision + 1 WHERE user_id = ? AND revision = ?",
+          params: [userId, revision],
+        },
+        effects: [
+          {
+            kind: "update",
+            table: "calendar_feeds",
+            set: { view_revision: { sql: "view_revision + 1" } },
+            where: { sql: "user_id = ?", params: [userId] },
+            allowZeroRowsIfLast: true,
+          },
+        ],
+      });
+    expect(await plan(1)).toEqual({ outcome: "committed" });
+    await insertFeed(userId);
+    expect(await plan(2)).toEqual({ outcome: "committed" });
+    expect(
+      (
+        await scalar<{ view_revision: number }>(
+          "SELECT view_revision FROM calendar_feeds WHERE user_id = ?",
+          userId,
+        )
+      )?.view_revision,
+    ).toBe(6);
+    expect(await plan(2)).toEqual({ outcome: "condition_missed" });
+  });
+
+  it("可零行效果放中间拒绝计划，防止断开 changes() 链", async () => {
+    await expect(
+      conditionalCommit(env.DB, {
+        guard: {
+          sql: "UPDATE user_subscriptions SET revision = revision + 1 WHERE user_id = ?",
+          params: ["absent"],
+        },
+        effects: [
+          {
+            kind: "update",
+            table: "calendar_feeds",
+            set: { view_revision: { sql: "view_revision + 1" } },
+            where: { sql: "user_id = ?", params: ["absent"] },
+            allowZeroRowsIfLast: true,
+          },
+          {
+            kind: "update",
+            table: "capacity_state",
+            set: { value: { sql: "value + 1" } },
+            where: { sql: "key = ?", params: ["absent"] },
+          },
+        ],
+      }),
+    ).rejects.toThrow("只能放在效果链末尾");
   });
 });
