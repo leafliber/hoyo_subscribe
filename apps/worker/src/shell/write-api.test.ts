@@ -1,3 +1,4 @@
+// P2-05 授权跨卡测试夹具适配：补恢复会话标记的正常会话值。
 // P2-04 跨卡测试夹具适配：用户会话新增状态、ID 和 token 散列字段。
 // A-P1-SHELL：写 API 统一中间件（§8.2 末段、§4.2 检查顺序；任务卡交付物三）。
 //
@@ -108,6 +109,7 @@ beforeEach(() => {
     sessionId: "s_derived",
     sessionState: "active",
     sessionTokenHash: "synthetic_hash",
+    recoveryCodeRequired: false,
   };
 });
 

@@ -1,3 +1,4 @@
+// P2-05 授权跨卡改动：登记恢复会话标记、停用幂等水位与尝试双窗表。
 // 预期 schema 注册表（任务卡 P1-04，验收 ID A-P1-DB）。
 // 这不是第二份业务定义：列与索引清单是 migrations/ 的机器可读投影，
 // 由 apps/worker/src/storage/schema.test.ts 与真实 sqlite_master 逐项比对。
@@ -167,6 +168,7 @@ export const EXPECTED_TABLES: Record<string, readonly string[]> = {
     "email_version",
     "auth_epoch",
     "recovery_epoch",
+    "last_recovery_stop_epoch", // P2-05：安全暂停的幂等水位，与灾备 epoch 无关。
     "last_interactive_at",
     "last_feed_poll_at",
     "last_push_processed_at",
@@ -210,6 +212,7 @@ export const EXPECTED_TABLES: Record<string, readonly string[]> = {
     "renewed_at",
     "auth_epoch",
     "recovery_epoch",
+    "recovery_code_required", // P2-05：受限能力绑定会话，不由用户当前码状态推导。
     "activated_at",
     "revoked_at",
     "revoke_reason",
@@ -224,6 +227,14 @@ export const EXPECTED_TABLES: Record<string, readonly string[]> = {
     "consumed_at",
     "saved_confirmed_at",
     "created_at",
+    "updated_at",
+  ],
+  recovery_attempt_windows: [
+    "subject_hash",
+    "period_kind",
+    "period_start",
+    "attempts",
+    "expires_at",
     "updated_at",
   ],
   // 数据组 7：云配置
@@ -532,6 +543,10 @@ export const EXPECTED_INDEXES: Record<string, ExpectedIndex> = {
   idx_recovery_credentials_user: {
     table: "recovery_credentials",
     columns: ["user_id", "generation"],
+  },
+  idx_recovery_attempt_windows_expiry: {
+    table: "recovery_attempt_windows",
+    columns: ["expires_at"],
   },
   idx_user_subscriptions_state: { table: "user_subscriptions", columns: ["state"] },
   idx_subscription_interests_user: { table: "subscription_interests", columns: ["user_id"] },

@@ -1,3 +1,4 @@
+// P2-05 授权跨卡测试夹具适配：补恢复会话标记的正常会话值。
 // P2-04 跨卡测试夹具适配：真实用户鉴权结果现携带状态、会话 ID 与 CSRF 绑定散列。
 // A-P1-SHELL：权限域隔离骨架（§8.3 末段；任务卡交付物六——骨架，不实现具体鉴权）。
 import { describe, expect, it } from "vitest";
@@ -13,6 +14,7 @@ const userSession: ShellAuth = {
   sessionId: "s_1",
   sessionState: "active",
   sessionTokenHash: "synthetic_hash",
+  recoveryCodeRequired: false,
 };
 const adminSession: ShellAuth = { kind: "session", domain: "admin", adminId: "adm_1" };
 

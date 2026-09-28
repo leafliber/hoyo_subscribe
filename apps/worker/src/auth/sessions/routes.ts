@@ -1,3 +1,4 @@
+// P2-05 授权跨卡改动：激活与登出显式放行受限恢复会话，不改变通用激活语义。
 // P2-04 · 会话路由（§4.5）。设备列表是 pending 唯一可读的 user 路由，并为
 // 当前会话签发绑定 token hash 的 CSRF；激活本身仍需同源 + 双提交 + MAC 验证。
 // 返工：active 重试幂等成功，409 只表示仍有效的 pending 存在名额或选择冲突。
@@ -114,6 +115,7 @@ export function makeSessionRoutes(
       domain: "user",
       allowPending: true,
       write: true,
+      allowRecoveryWrite: true,
       bodySchema: {
         fields: {
           label: { type: "string", optional: true, maxLength: API_BODY_MAX_BYTES },
@@ -240,6 +242,7 @@ export function makeSessionRoutes(
       pattern: "/api/v2/auth/logout",
       domain: "user",
       write: true,
+      allowRecoveryWrite: true,
       bodySchema: { fields: {} },
       csrfBinding: sessionCsrfBinding,
       handler: async (ctx) => {

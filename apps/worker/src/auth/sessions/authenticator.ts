@@ -1,3 +1,4 @@
+// P2-05 授权跨卡改动：读出 sessions.recovery_code_required 交给外壳限权。
 // P2-04 · 会话鉴权（主方案 §4.5）。每个请求只读 D1 主状态，绝不在鉴权时续期。
 // Cookie 散列直接调用 P2-03 的唯一实现；IP/UA 不参与身份判定。
 
@@ -18,6 +19,7 @@ interface SessionIdentityRow {
   user_status: string;
   user_auth_epoch: number;
   user_recovery_epoch: number;
+  recovery_code_required: number;
 }
 
 export function sessionAuthenticator(db: D1Database, now: () => number = Date.now): Authenticator {
@@ -31,6 +33,7 @@ export function sessionAuthenticator(db: D1Database, now: () => number = Date.no
       const row = await db
         .prepare(`SELECT s.id, s.user_id, s.token_hash, s.state, s.expires_at,
                          s.absolute_expires_at, s.auth_epoch, s.recovery_epoch,
+                         s.recovery_code_required,
                          u.status AS user_status, u.auth_epoch AS user_auth_epoch,
                          u.recovery_epoch AS user_recovery_epoch
                     FROM sessions s JOIN users u ON u.id = s.user_id
@@ -55,6 +58,7 @@ export function sessionAuthenticator(db: D1Database, now: () => number = Date.no
         sessionId: row.id,
         sessionState: row.state,
         sessionTokenHash: row.token_hash,
+        recoveryCodeRequired: row.recovery_code_required === 1,
       };
     },
   };
