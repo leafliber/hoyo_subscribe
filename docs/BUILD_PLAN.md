@@ -49,11 +49,11 @@
 | 门禁 | 状态 | 依据 / 还差什么 |
 | --- | --- | --- |
 | **G-P0-CAL** | ✅ **全开** | Apple Calendar / macOS 七步全过、503 保留旧结果、**VALARM 确认弹出**（`docs/evidence/p0/calendar-clients.md`）。§1.2 门槛满足，"日历提醒可用"**可对该客户端说**。Google / Outlook 仍为未测，不得外推 |
-| **G-P0-SOURCE** | 🟡 **部分开** | 三个公告来源 `verified-working`，样本与 `SOURCE_LIMIT_PROFILE` 齐，**已于 `a24be68` 合入 main**（`fixtures/sources/registry.draft.json` 可取）→ **P3-01/P3-02 可对这三个来源开工**。米游社按 `maintenance-required-list-only` 降级登记（正文 403）。P3-01（`4e25427`）与 P3-02（`217e12f`）均已合入。待补：跨年样本（12 月窗口）、目标 Cloudflare 环境 E3 复测；**`maxResponseBytes` 零余量问题见 P3-08** |
+| **G-P0-SOURCE** | 🟡 **部分开** | 三个公告来源 `verified-working`，样本与 `SOURCE_LIMIT_PROFILE` 齐，**已于 `a24be68` 合入 main**（`fixtures/sources/registry.draft.json` 可取）→ **P3-01/P3-02 可对这三个来源开工**。米游社按 `maintenance-required-list-only` 降级登记（正文 403）。P3-01（`4e25427`）与 P3-02（`217e12f`）均已合入。待补：跨年样本（12 月窗口）、目标 Cloudflare 环境 E3 复测；`maxResponseBytes` 零余量问题见 P3-08。P3-08 已合入（`aac8dfa`，含返工 `1579bfe`：降级结果不再覆盖已有真实内容，验收方以原失败场景复核通过）。**P3-03 验收通过但尚未推送开 PR**（本地提交 `13eff6c`） |
 | **G-P1** | ✅ **全开**（2026-09-22，`560fe56`） | P1-01…P1-08 八张卡全部验收合入。main 全绿：lint 0、typecheck 0、test 161+163、params:verify 24/24、migrate:check 通过 → **P2、P3 同时解锁** |
 | **G-P0-MODEL** | ⬜ 未开（**卡点已缩小**） | ~~Workers AI 可用性未证实~~ **已排除（2026-09-22）**：Free/Paid 均含 10,000 Neurons/日，`@cf/qwen/qwen3-30b-a3b-fp8` 在目录中，`AI_HARD_DAY = 8,000 < 10,000` → **硬线守住即零费用**。剩余卡点只有两项：① 该模型 `reasoning = true`，**思考 token 计入计费输出**且输出单价是输入的 6.58 倍，完整计费输出上界未测（**Agent 可做，但需所有者先提供带 Workers AI 推理权限的 API token**——本机 wrangler 未登录；约 30–50 次真实调用，落在单日免费额度内）；② `EXTRACTION_EVAL_MIN = 120` 篇标注集的 ground truth（**只有所有者能做**）。①② 可拆开推进，详见 `docs/evidence/p0/platform-facts.md`。模型路径的实现已从 P3-03 拆为 **P3-09**，前置本门禁 |
 | **G-P0-MAIL** | 🟡 **计量已定，链路未验** | 所有者确认：**平台侧只有日限额 1,000 封，无周期包含量，其他应用零占用**。预算模型按 **ADR-0003** 改为纯日额度，`MAIL_SEATS_MAX` 50→100、`MAIL_ROUTINE_SEATS_MAX` 20→40、`MAIL_BASE_DAY` 25→50、`MAIL_URGENT_DAY` 60→120、`MAIL_TOTAL_DAY` 175→**260**，A.5 全部成立（以 `packages/contracts/src/params/registry.ts` 为准）。仍缺：发件域 DNS、真实收件人 messageId 与反馈 Queue 关联 |
-| **G-P2** | 🟡 **进行中** | P2-01（`a1eff61`）、P2-02（`64c66ec`，含返工 `78a77932`：重发地址解析 login 失败关闭、续期推导改按 A.5 不等式）已合入。还差 P2-03…P2-07 → 阻断 P3-07、F3 |
+| **G-P2** | 🟡 **进行中** | P2-01（`a1eff61`）、P2-02（`64c66ec`，含返工 `78a77932`：重发地址解析 login 失败关闭、续期推导改按 A.5 不等式）已合入。P2-03（`7ebba78`）与 P2-08（`38a91d4`）2026-09-27 验收并合入。还差 P2-04…P2-07 → 阻断 P3-07、F3 |
 | **G-D1′** | ✅ **已定案（2026-09-22）** | 浏览时间范围预设：今天 / **近 3 天（默认，= 今天 + 未来 2 天）** / 近 7 天 / 近 30 天 / 未来 90 天 / 全部，起点一律今日 00:00（UTC+8 日对齐），**含今天**；列表底部常驻半透明"昨天"带。纯浏览态参数，不进云端订阅。详见 `docs/tasks/F1-F2.md` 的 F1-02 卡。F1-02 已按此实现并合入（`45e4d98`） |
 | **G-D2 / G-D3** | ⬜ 未定案 | 见前端 v1.0 §13；分别阻断 F2-02 正式预览、F3 正式联调 |
 
@@ -109,7 +109,7 @@ ID 规则：`<阶段>-<两位序号>`。每张卡一个分支、一个 PR、一�
 | P3-01 | 来源适配器与采集（游标、重叠窗口、复查） | G-P1,G-P0-SOURCE | A-P3-FETCH |
 | P3-02 | 文章版本、证据与完整性状态 | P3-01 | A-P3-ARTICLE |
 | P3-03 | 三路抽取（规则/模型/人工）与候选审核队列 | P3-02，模型路径另需 G-P0-MODEL | A-P3-EXTRACT |
-| P3-04 | 原子发布与三类版本（event/schedule/public_ical） | P3-03,P1-05 | A-P3-PUBLISH |
+| P3-04 | 原子发布与三类版本（event/schedule/public_ical） | P3-03,P1-05,P3-08 | A-P3-PUBLISH |
 | P3-05 | 公共快照与共享更正层 | P3-04 | A-P3-PATCH |
 | P3-06 | 个人 ICS 组装、缩水守卫与读路径缓存 | P3-05,G-P2 | A-P3-ICS |
 | P3-07 | Feed 管理 API 与活动水位合并写入 | P3-06 | A-P3-FEEDAPI |

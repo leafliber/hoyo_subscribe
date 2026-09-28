@@ -65,6 +65,10 @@
 - **提交**：一个逻辑改动一个提交，信息首行用中文祈使句说明做了什么。
 - **PR**：一张任务卡一个 PR，标题以任务卡 ID 开头。PR 描述即交付报告。
 - **门禁**：前置任务卡未验收通过时，不得开始依赖它的任务卡；阶段门禁见 `docs/BUILD_PLAN.md` 第 2 节。
+- **文档**：不改其他任务卡与验收方维护的文档（`docs/tasks/`、`BUILD_PLAN`、`ACCEPTANCE`、`CONTRACTS_BASELINE` 等）。
+  给后续卡的交接写进交付报告的「已知问题」，由验收方转入对应的卡。例外只有两种，且都要在报告里申报：
+  生成物（如 `docs/APPENDIX_A.generated.md`）按生成命令重建；新增 `params:verify` 等式时同步
+  `CONTRACTS_BASELINE.md` §11。
 
 ## 5. 交付报告模板（PR 描述必须包含全部小节）
 

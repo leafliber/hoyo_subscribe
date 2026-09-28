@@ -276,9 +276,14 @@ SESSION_IDLE_TTL > SESSION_EXPIRY_NOTICE
 | `delivery-email-address` | `users.id` | P2-02（读取侧） | P2-03（建号写入）、P2-07（换邮箱） |
 | `otp-mail-payload` | `mail_outbox` 行 id | P2-02 | P4 发送阶段 |
 | `delivery-email-address`（挑战绑定的投递地址） | `auth_challenges.id` | P2-03 | P2-03 消费建号、P2-02 重发 |
-| `auth-completion-receipt` | 由 P2-03 选定并在交付报告中登记，验收时补入本表 | P2-03 | P2-04 激活时清除 |
+| `auth-completion-receipt` | `auth_challenges.id` | P2-03 | P2-04 激活时清除 |
 
 AAD 不一致 = 解密认证失败。写入侧与读取侧必须用同一个记录 ID，不得各自约定。
+
+**只存校验值的秘密用什么算（2026-09-27 验收更正）**：高熵随机 token（会话、Feed，≥ `SECRET_BITS`）
+存 **SHA-256**；带密钥的 MAC/pepper **只用于低熵输入**（验证码、邮箱 lookup），因为只有那里能被穷举。
+此前登记表把会话与 Feed token 写成 HMAC 是过度规定——主方案 §4.5、§6.1 只要求"只存 hash"，
+九个密钥用途里也没有给它们的一项。单一来源：`packages/contracts/src/crypto-types/storage-policy.ts`。
 
 ### 8.3 其余
 

@@ -19,12 +19,18 @@ export interface HashOnlySecretEntry {
   readonly note: string;
 }
 
-/** 只存 hash/MAC 的秘密类别（id 即类别名，供后续任务卡与 schema 对照）。 */
+/**
+ * 只存 hash/MAC 的秘密类别（id 即类别名，供后续任务卡与 schema 对照）。
+ *
+ * 口径（2026-09-27 验收更正）：**高熵随机 token（≥ SECRET_BITS）的校验值用 SHA-256**——
+ * 输入本身不可猜，带密钥不增加安全性，也不需要额外的密钥用途；**带密钥的 MAC/pepper 只用于
+ * 低熵输入**（验证码、邮箱 lookup），因为那里攻击者可以穷举。主方案 §4.5 / §6.1 只要求"只存 hash"。
+ */
 export const HASH_ONLY_SECRET_STORAGE = [
   {
     id: "session-token",
     citation: "§4.5",
-    stores: "token_hash（HMAC）",
+    stores: "token_hash（SHA-256；高熵随机 token，P2-03 已按此实现）",
     note: "会话 token 常态只存 hash，不放 URL、localStorage 或配置导出；唯一的短期交付例外是完成回执密文（见 auth-completion-receipt）",
   },
   {
@@ -36,7 +42,7 @@ export const HASH_ONLY_SECRET_STORAGE = [
   {
     id: "feed-token-verification",
     citation: "§6.1",
-    stores: "token_hash（HMAC）",
+    stores: "token_hash（SHA-256；高熵随机 token）",
     note: "Feed token 的校验值；token_ciphertext 仅是供所有者再次复制的受控密文例外（见 feed-token-owner-copy）",
   },
   {
