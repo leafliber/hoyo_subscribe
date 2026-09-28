@@ -1,0 +1,40 @@
+$ pnpm --filter @hoyo/web run build && playwright test --config tests/e2e/playwright.config.ts --grep 'U09a U10 清空全部'
+$ astro build
+13:13:05 [types] Generated 16ms
+13:13:05 [build] output: "static"
+13:13:05 [build] mode: "static"
+13:13:05 [build] directory: /private/tmp/hoyo-f2-01/apps/web/dist/
+13:13:05 [build] Collecting build info...
+13:13:05 [build] ✓ Completed in 23ms.
+13:13:05 [build] Building static entrypoints...
+13:13:05 [vite] ✓ built in 89ms
+13:13:05 [vite] ✓ built in 24ms
+13:13:05 [build] Rearranging server assets...
+
+ generating static routes
+13:13:05   ├─ /account/index.html (+4ms)
+13:13:05   ├─ /events/sample/index.html (+1ms)
+13:13:05   ├─ /help/index.html (+1ms)
+13:13:05   ├─ /login/index.html (+1ms)
+13:13:05   ├─ /recover/index.html (+1ms)
+13:13:05   ├─ /status/index.html (+1ms)
+13:13:05   ├─ /subscription/index.html (+7ms)
+13:13:05   ├─ /index.html (+3ms)
+13:13:05 ✓ Completed in 24ms.
+
+13:13:05 [build] ✓ Completed in 149ms.
+13:13:05 [build] 8 page(s) built in 173ms
+13:13:05 [build] Complete!
+[WebServer] (node:1310) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+[WebServer] (Use `node --trace-warnings ...` to show where the warning was created)
+
+Running 2 tests using 2 workers
+
+(node:1311) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:1312) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✓  1 [desktop-chromium] › tests/e2e/subscription.spec.ts:14:1 › U09a U10 清空全部提前规则仍可开变更消息；最后一条只提示，不要求确认 (316ms)
+  ✓  2 [mobile-chromium] › tests/e2e/subscription.spec.ts:14:1 › U09a U10 清空全部提前规则仍可开变更消息；最后一条只提示，不要求确认 (311ms)
+
+  2 passed (818ms)

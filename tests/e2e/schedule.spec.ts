@@ -233,3 +233,18 @@ test("U05 筛选改变后丢弃旧加载结果，空态出口保留键盘焦点"
   await page.keyboard.press("Enter");
   await expect(page.getByRole("radio", { name: "近7天", exact: true })).toBeFocused();
 });
+
+test("U05 来源故障与加载失败都不伪装成筛选无结果", async ({ page }) => {
+  await page.goto("/");
+  await scenario(page, "source");
+  await expect(page.locator('[data-empty="source"]')).toContainText("来源暂不可用");
+  await expect(page.locator('[data-empty="filtered"]')).toHaveCount(0);
+  await expect(page.locator('[data-empty="range"]')).toHaveCount(0);
+
+  await scenario(page, "load");
+  await page.getByRole("button", { name: "继续查看日程 ↓" }).click();
+  await expect(page.locator(".load-row")).toContainText("加载失败");
+  await expect(page.locator('[data-empty="filtered"]')).toHaveCount(0);
+  await expect(page.locator('[data-empty="range"]')).toHaveCount(0);
+  await expect(page.locator('[data-node="morning"]')).toBeVisible();
+});

@@ -1,0 +1,40 @@
+$ pnpm --filter @hoyo/web run build && playwright test --config tests/e2e/playwright.config.ts --grep 'U09 关闭日历提醒'
+$ astro build
+13:14:12 [types] Generated 38ms
+13:14:12 [build] output: "static"
+13:14:12 [build] mode: "static"
+13:14:12 [build] directory: /private/tmp/hoyo-f2-01/apps/web/dist/
+13:14:12 [build] Collecting build info...
+13:14:12 [build] ✓ Completed in 46ms.
+13:14:12 [build] Building static entrypoints...
+13:14:12 [vite] ✓ built in 125ms
+13:14:12 [vite] ✓ built in 25ms
+13:14:12 [build] Rearranging server assets...
+
+ generating static routes
+13:14:12   ├─ /account/index.html (+4ms)
+13:14:12   ├─ /events/sample/index.html (+1ms)
+13:14:12   ├─ /help/index.html (+1ms)
+13:14:12   ├─ /login/index.html (+1ms)
+13:14:12   ├─ /recover/index.html (+1ms)
+13:14:12   ├─ /status/index.html (+1ms)
+13:14:12   ├─ /subscription/index.html (+7ms)
+13:14:12   ├─ /index.html (+2ms)
+13:14:12 ✓ Completed in 24ms.
+
+13:14:12 [build] ✓ Completed in 187ms.
+13:14:12 [build] 8 page(s) built in 234ms
+13:14:12 [build] Complete!
+[WebServer] (node:2117) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+[WebServer] (Use `node --trace-warnings ...` to show where the warning was created)
+
+Running 2 tests using 2 workers
+
+(node:2118) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:2119) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✓  1 [mobile-chromium] › tests/e2e/subscription.spec.ts:36:1 › U09 关闭日历提醒只改变日历选择，规则及邮件和 Push 区域保持原样 (212ms)
+  ✓  2 [desktop-chromium] › tests/e2e/subscription.spec.ts:36:1 › U09 关闭日历提醒只改变日历选择，规则及邮件和 Push 区域保持原样 (213ms)
+
+  2 passed (687ms)

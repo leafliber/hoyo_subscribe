@@ -1,0 +1,16 @@
+Scope: all 4 workspace projects
+✓ Lockfile passes supply-chain policies (verified 5d ago)
+Lockfile is up to date, resolution step is skipped
+Progress: resolved 1, reused 0, downloaded 0, added 0
+Packages: +258
+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+Progress: resolved 258, reused 257, downloaded 0, added 258, done
+
+devDependencies:
++ @biomejs/biome 2.5.14
++ @playwright/test 1.63.0
++ @types/node 26.6.2
++ tsx 4.23.15
++ typescript 7.0.2
+
+Done in 4.5s using pnpm v11.11.0

@@ -1,0 +1,12 @@
+$ pnpm -r --if-present run typecheck && tsc --project tests/e2e
+Scope: 3 of 4 workspace projects
+packages/contracts typecheck$ tsc --noEmit
+packages/contracts typecheck: Done
+apps/web typecheck$ tsc --noEmit
+apps/worker typecheck$ tsc --noEmit
+apps/web typecheck: src/lib/errors/feedback.ts(36,14): error TS2741: Property 'pending_activation' is missing in type '{ origin_missing: { title: string; explanation: string; nextStep: string; action: "refresh"; }; origin_mismatch: { title: string; explanation: string; nextStep: string; action: "refresh"; }; csrf_missing: { title: string; explanation: string; nextStep: string; action: "refresh"; }; csrf_mismatch: { ...; }; no_sessio...' but required in type 'Readonly<Record<UnauthorizedReason, FeedbackCore>>'.
+apps/web typecheck: Failed
+/private/tmp/hoyo-f1-04/apps/web:
+[ERR_PNPM_RECURSIVE_RUN_FIRST_FAIL] @hoyo/web@ typecheck: `tsc --noEmit`
+Exit status 1
+[ELIFECYCLE] Command failed with exit code 1.

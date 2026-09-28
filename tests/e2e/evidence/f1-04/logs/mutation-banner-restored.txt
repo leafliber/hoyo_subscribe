@@ -1,0 +1,10 @@
+[WebServer] (node:3065) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+[WebServer] (Use `node --trace-warnings ...` to show where the warning was created)
+
+Running 1 test using 1 worker
+
+(node:3066) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✓  1 [desktop-chromium] › tests/e2e/account.spec.ts:88:1 › U27 全站横幅不遮挡恢复、停用、退订、登出、紧急停用入口 (444ms)
+
+  1 passed (927ms)

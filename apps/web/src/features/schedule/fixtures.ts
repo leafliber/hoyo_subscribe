@@ -1,6 +1,13 @@
 /** 隔离 synthetic 数据。所有名称、时间、来源状态仅为交互验收样例，不代表官方安排。 */
 
-import type { ScheduleNode, ScheduleSnapshot } from "@hoyo/contracts";
+import type {
+  EventStatus,
+  EventType,
+  GameId,
+  ScheduleNode,
+  ScheduleSnapshot,
+  TimeValue,
+} from "@hoyo/contracts";
 import {
   browseDate,
   browseWindow,
@@ -17,6 +24,108 @@ export const DEMO_SCENARIOS = [
   ["load", "加载失败"],
 ] as const;
 export type DemoScenario = (typeof DEMO_SCENARIOS)[number][0];
+
+/** F1-03 详情也只使用隔离样例；节点沿用 F1-02 的公开样例快照。 */
+export interface DemoEvent {
+  id: string;
+  title: string;
+  game: GameId;
+  eventType: EventType;
+  status: EventStatus;
+  milestones: ScheduleNode[];
+  importantNodeId: string;
+  change?: ScheduleNode["change"];
+  historicalTime?: TimeValue;
+  official: {
+    url: string;
+    publisher: string;
+    noticeText: string;
+    publishedAt: number;
+    updatedAt: number;
+  };
+}
+
+export function demoEventIds(now: number): string[] {
+  return ["sample", ...demoSnapshot(now, "normal").nodes.map((node) => node.id)];
+}
+
+export function demoEvent(now: number, id: string): DemoEvent | null {
+  const snapshot = demoSnapshot(now, "normal");
+  const node = snapshot.nodes.find((item) => item.id === (id === "sample" ? "later" : id));
+  if (!node) return null;
+  const { start } = browseWindow("today", now);
+  const hour = 3_600_000;
+  const milestones: ScheduleNode[] =
+    id === "morning"
+      ? [
+          node,
+          {
+            ...node,
+            id: "morning-end",
+            nodeType: "end",
+            time: {
+              precision: "datetime",
+              utc_ms: ExactTimeSchema.parse(start + 18 * hour),
+              source_timezone: "UTC+8",
+              raw_expression: "样例公告：当日18:00玩法结束",
+              time_basis: "official_explicit",
+            },
+            evidence:
+              'synthetic 证据片段：玩法于18:00结束。<img src=x onerror="window.__evidenceExecuted=1">',
+          },
+          {
+            ...node,
+            id: "morning-reward",
+            nodeType: "reward_deadline",
+            time: {
+              precision: "datetime",
+              utc_ms: ExactTimeSchema.parse(start + 36 * hour),
+              source_timezone: "UTC+8",
+              raw_expression: "样例公告：次日12:00奖励领取截止",
+              time_basis: "official_explicit",
+            },
+            evidence: "synthetic 证据片段：玩法结束后仍可领取奖励，至次日12:00。",
+          },
+        ]
+      : [node];
+  const historicalTime: TimeValue | undefined =
+    id === "rescheduled"
+      ? {
+          precision: "datetime",
+          utc_ms: ExactTimeSchema.parse(start + 10 * hour),
+          source_timezone: "UTC+8",
+          raw_expression: "样例原定当日10:00",
+          time_basis: "official_explicit",
+        }
+      : undefined;
+  const noticeText =
+    id === "morning"
+      ? 'synthetic 公告原文样例：当日18:00玩法结束，次日12:00奖励领取截止。<img src=x onerror="window.__evidenceExecuted=1">'
+      : id === "reward"
+        ? "synthetic 公告原文样例：仅公布奖励领取截止，未公布玩法结束时间。"
+        : id === "retract"
+          ? "synthetic 原始公告样例：旧版维护安排。"
+          : `synthetic 公告原文样例：${node.change?.explanation ?? node.time.raw_expression}`;
+  return {
+    id,
+    title: node.title,
+    game: node.game,
+    eventType: node.eventType,
+    status: node.status,
+    milestones,
+    importantNodeId: id === "morning" ? "morning-end" : node.id,
+    change: node.change,
+    historicalTime,
+    official: {
+      // 示例域名仅用于展示外链位置；与虚构日程不构成真实官方来源对应关系。
+      url: "https://example.com/",
+      publisher: "synthetic 演示公告",
+      noticeText,
+      publishedAt: node.noticePublishedAt,
+      updatedAt: snapshot.publishedAt,
+    },
+  };
+}
 export function demoSnapshot(now: number, scenario: DemoScenario): ScheduleSnapshot {
   const { start, yesterday } = browseWindow("today", now);
   const hour = 3_600_000;

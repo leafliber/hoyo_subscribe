@@ -1,0 +1,8 @@
+$ pnpm -r --if-present run typecheck && tsc --project tests/e2e
+Scope: 3 of 4 workspace projects
+packages/contracts typecheck$ tsc --noEmit
+packages/contracts typecheck: Done
+apps/worker typecheck$ tsc --noEmit
+apps/web typecheck$ tsc --noEmit
+apps/web typecheck: Done
+apps/worker typecheck: Done

@@ -1,0 +1,12 @@
+$ node scripts/migrate/check.mjs
+静态检查通过：15 个迁移（0001–0015），无禁止对象
+
+ RUN  v4.1.11 /private/tmp/hoyo-f1-04/apps/worker
+
+
+ Test Files  1 passed (1)
+      Tests  6 passed (6)
+   Start at  13:17:41
+   Duration  2.13s (transform 351ms, setup 0ms, import 697ms, tests 145ms, environment 1ms)
+
+migrate:check 通过：空库顺序重放全部迁移，schema 与索引符合预期，rows_read 基准见上方输出

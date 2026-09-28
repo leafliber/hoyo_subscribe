@@ -1,0 +1,43 @@
+[WebServer] (node:97124) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+[WebServer] (Use `node --trace-warnings ...` to show where the warning was created)
+
+Running 16 tests using 5 workers
+
+(node:97128) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:97125) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:97127) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:97129) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:97126) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✓   3 [desktop-chromium] › tests/e2e/event-detail.spec.ts:14:1 › U02 只有奖励截止时不补玩法结束 (239ms)
+  ✓   4 [desktop-chromium] › tests/e2e/event-detail.spec.ts:5:1 › U02 玩法结束与奖励领取截止在实际节点时间线中分别出现 (237ms)
+  ✓   5 [desktop-chromium] › tests/e2e/event-detail.spec.ts:35:1 › U04 改期的历史原时间与当前时间并列，旧时间不作当前安排 (246ms)
+  ✓   2 [desktop-chromium] › tests/e2e/event-detail.spec.ts:22:1 › U02 纯日期与未知精度只展示已知信息，不猜午夜或时刻 (275ms)
+  ✓   1 [desktop-chromium] › tests/e2e/event-detail.spec.ts:49:1 › U04 官方取消和本站撤回分开呈现，不宣称撤回旧副本 (294ms)
+  ✓   6 [desktop-chromium] › tests/e2e/event-detail.spec.ts:63:1 › U04 公告与证据的 img onerror 只显示文字，不执行 (133ms)
+  ✓   7 [desktop-chromium] › tests/e2e/event-detail.spec.ts:83:1 › U04 官方依据逐级展开，三项主要操作可用且设置订阅只跳整份草稿 (288ms)
+(node:97162) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:97163) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✓   8 [desktop-chromium] › tests/e2e/event-detail.spec.ts:108:1 › U02 U04 桌面与手机截图、窄屏和键盘展开留证 (369ms)
+(node:97164) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:97167) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✓  10 [mobile-chromium] › tests/e2e/event-detail.spec.ts:14:1 › U02 只有奖励截止时不补玩法结束 (144ms)
+  ✓   9 [mobile-chromium] › tests/e2e/event-detail.spec.ts:5:1 › U02 玩法结束与奖励领取截止在实际节点时间线中分别出现 (162ms)
+  ✓  11 [mobile-chromium] › tests/e2e/event-detail.spec.ts:22:1 › U02 纯日期与未知精度只展示已知信息，不猜午夜或时刻 (210ms)
+(node:97175) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✓  12 [mobile-chromium] › tests/e2e/event-detail.spec.ts:63:1 › U04 公告与证据的 img onerror 只显示文字，不执行 (132ms)
+  ✓  13 [mobile-chromium] › tests/e2e/event-detail.spec.ts:35:1 › U04 改期的历史原时间与当前时间并列，旧时间不作当前安排 (154ms)
+  ✓  14 [mobile-chromium] › tests/e2e/event-detail.spec.ts:83:1 › U04 官方依据逐级展开，三项主要操作可用且设置订阅只跳整份草稿 (306ms)
+  ✓  16 [mobile-chromium] › tests/e2e/event-detail.spec.ts:49:1 › U04 官方取消和本站撤回分开呈现，不宣称撤回旧副本 (153ms)
+  ✓  15 [mobile-chromium] › tests/e2e/event-detail.spec.ts:108:1 › U02 U04 桌面与手机截图、窄屏和键盘展开留证 (448ms)
+
+  16 passed (2.0s)

@@ -1,4 +1,5 @@
 // P2-05 授权跨卡改动：挂载 public 恢复动作及本人新码交付路径。
+// P2-06 跨卡接线：挂载云端订阅 GET/PATCH；沿用 P2-04 的 active 会话鉴权。
 // P2-04 跨卡修正：把 P1-08 的无身份桩换成逐请求 D1 主状态鉴权，挂载会话路由。
 // Worker 入口（P1-01 骨架 + P1-08 API 外壳挂载；业务路由由 P2+ 按任务卡挂载）。
 //
@@ -9,6 +10,7 @@
 // P2-03 裁定授权注入：挂载原 preauth + 操作幂等键领取 pending Cookie 的完成端点。
 import { verifyParams } from "@hoyo/contracts";
 import { statusRoute } from "./accounts/admission/status";
+import { makeSubscriptionRoutes } from "./accounts/subscription/routes";
 import { makeChallengeRoutes } from "./auth/challenges/routes";
 import { makeCompleteRoute } from "./auth/consume/routes";
 import { InMemoryAuthRateGate } from "./auth/preauth/rate-gate";
@@ -106,6 +108,7 @@ function getShell(env: Env): Shell {
         ...makeSessionRoutes(() => getKeyring(env as Env & ShellSecrets)),
         // P2-05：public 恢复动作与 active 会话的新码交付；通道暂停效果由各通道卡挂入。
         ...makeRecoveryRoutes({ keys: () => getKeyring(env as Env & ShellSecrets) }),
+        ...makeSubscriptionRoutes(),
       ],
     });
     shellByEnv.set(env, shell);

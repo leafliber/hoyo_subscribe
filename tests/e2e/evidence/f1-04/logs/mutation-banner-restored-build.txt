@@ -1,0 +1,26 @@
+$ astro build
+13:15:21 [types] Generated 37ms
+13:15:21 [build] output: "static"
+13:15:21 [build] mode: "static"
+13:15:21 [build] directory: /private/tmp/hoyo-f1-04/apps/web/dist/
+13:15:21 [build] Collecting build info...
+13:15:21 [build] ✓ Completed in 46ms.
+13:15:21 [build] Building static entrypoints...
+13:15:21 [vite] ✓ built in 132ms
+13:15:21 [vite] ✓ built in 27ms
+13:15:21 [build] Rearranging server assets...
+
+ generating static routes
+13:15:21   ├─ /account/index.html (+5ms)
+13:15:21   ├─ /events/sample/index.html (+1ms)
+13:15:21   ├─ /help/index.html (+1ms)
+13:15:21   ├─ /login/index.html (+1ms)
+13:15:21   ├─ /recover/index.html (+1ms)
+13:15:21   ├─ /status/index.html (+1ms)
+13:15:21   ├─ /subscription/index.html (+1ms)
+13:15:21   ├─ /index.html (+8ms)
+13:15:21 ✓ Completed in 29ms.
+
+13:15:21 [build] ✓ Completed in 200ms.
+13:15:21 [build] 8 page(s) built in 248ms
+13:15:21 [build] Complete!

@@ -1,0 +1,369 @@
+证据转义: grep -c 替换后特征 = 1
+$ pnpm --filter @hoyo/web build
+13:18:07 [types] Generated 39ms
+13:18:07 [build] output: "static"
+13:18:07 [build] mode: "static"
+13:18:07 [build] directory: /private/tmp/hoyo-f1-03/apps/web/dist/
+13:18:07 [build] Collecting build info...
+13:18:07 [build] ✓ Completed in 44ms.
+13:18:07 [build] Building static entrypoints...
+13:18:07 [vite] ✓ built in 126ms
+13:18:07 [vite] ✓ built in 25ms
+13:18:07 [build] Rearranging server assets...
+
+ generating static routes
+13:18:07   ├─ /account/index.html (+4ms)
+13:18:08   ├─ /events/sample/index.html (+1ms)
+13:18:08   ├─ /events/morning/index.html (+1ms)
+13:18:08   ├─ /events/reward/index.html (+0ms)
+13:18:08   ├─ /events/end/index.html (+0ms)
+13:18:08   ├─ /events/long/index.html (+4ms)
+13:18:08   ├─ /events/derived/index.html (+1ms)
+13:18:08   ├─ /events/date/index.html (+0ms)
+13:18:08   ├─ /events/estimate/index.html (+1ms)
+13:18:08   ├─ /events/later/index.html (+0ms)
+13:18:08   ├─ /events/month/index.html (+0ms)
+13:18:08   ├─ /events/old/index.html (+0ms)
+13:18:08   ├─ /events/rescheduled/index.html (+0ms)
+13:18:08   ├─ /events/cancel/index.html (+0ms)
+13:18:08   ├─ /events/retract/index.html (+0ms)
+13:18:08   ├─ /events/pending/index.html (+0ms)
+13:18:08   ├─ /help/index.html (+1ms)
+13:18:08   ├─ /login/index.html (+1ms)
+13:18:08   ├─ /recover/index.html (+1ms)
+13:18:08   ├─ /status/index.html (+1ms)
+13:18:08   ├─ /subscription/index.html (+0ms)
+13:18:08   ├─ /index.html (+1ms)
+13:18:08 ✓ Completed in 28ms.
+
+13:18:08 [build] ✓ Completed in 191ms.
+13:18:08 [build] 22 page(s) built in 239ms
+13:18:08 [build] Complete!
+$ astro build
+
+exit 0
+$ pnpm exec playwright test --config tests/e2e/playwright.config.ts tests/e2e/event-detail.spec.ts --grep 公告与证据的 img onerror 只显示文字，不执行
+
+Running 2 tests using 2 workers
+
+  ✘  1 [mobile-chromium] › tests/e2e/event-detail.spec.ts:77:1 › U04 公告与证据的 img onerror 只显示文字，不执行 (129ms)
+  ✘  2 [desktop-chromium] › tests/e2e/event-detail.spec.ts:77:1 › U04 公告与证据的 img onerror 只显示文字，不执行 (130ms)
+
+
+  1) [desktop-chromium] › tests/e2e/event-detail.spec.ts:77:1 › U04 公告与证据的 img onerror 只显示文字，不执行 ───
+
+    Error: expect(received).toBe(expected) // Object.is equality
+
+    Expected: 0
+    Received: 1
+
+      85 |       () => (window as Window & { __evidenceExecuted?: number }).__evidenceExecuted,
+      86 |     ),
+    > 87 |   ).toBe(0);
+         |     ^
+      88 |   await expect(
+      89 |     page.locator('[data-section="timeline"] img, [data-section="official"] img'),
+      90 |   ).toHaveCount(0);
+        at /private/tmp/hoyo-f1-03/tests/e2e/event-detail.spec.ts:87:5
+
+    Error Context: tests/e2e/test-results/event-detail-U04-公告与证据的-img-onerror-只显示文字，不执行-desktop-chromium/error-context.md
+
+    attachment #2: trace (application/zip) ─────────────────────────────────────────────────────────
+    tests/e2e/test-results/event-detail-U04-公告与证据的-img-onerror-只显示文字，不执行-desktop-chromium/trace.zip
+    Usage:
+
+        pnpm exec playwright show-trace tests/e2e/test-results/event-detail-U04-公告与证据的-img-onerror-只显示文字，不执行-desktop-chromium/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+  2) [mobile-chromium] › tests/e2e/event-detail.spec.ts:77:1 › U04 公告与证据的 img onerror 只显示文字，不执行 ────
+
+    Error: expect(received).toBe(expected) // Object.is equality
+
+    Expected: 0
+    Received: 1
+
+      85 |       () => (window as Window & { __evidenceExecuted?: number }).__evidenceExecuted,
+      86 |     ),
+    > 87 |   ).toBe(0);
+         |     ^
+      88 |   await expect(
+      89 |     page.locator('[data-section="timeline"] img, [data-section="official"] img'),
+      90 |   ).toHaveCount(0);
+        at /private/tmp/hoyo-f1-03/tests/e2e/event-detail.spec.ts:87:5
+
+    Error Context: tests/e2e/test-results/event-detail-U04-公告与证据的-img-onerror-只显示文字，不执行-mobile-chromium/error-context.md
+
+    attachment #2: trace (application/zip) ─────────────────────────────────────────────────────────
+    tests/e2e/test-results/event-detail-U04-公告与证据的-img-onerror-只显示文字，不执行-mobile-chromium/trace.zip
+    Usage:
+
+        pnpm exec playwright show-trace tests/e2e/test-results/event-detail-U04-公告与证据的-img-onerror-只显示文字，不执行-mobile-chromium/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+  2 failed
+    [desktop-chromium] › tests/e2e/event-detail.spec.ts:77:1 › U04 公告与证据的 img onerror 只显示文字，不执行 ────
+    [mobile-chromium] › tests/e2e/event-detail.spec.ts:77:1 › U04 公告与证据的 img onerror 只显示文字，不执行 ─────
+[WebServer] (node:5580) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+[WebServer] (Use `node --trace-warnings ...` to show where the warning was created)
+(node:5581) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:5582) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+
+exit 1
+证据转义: 源码已还原，特征计数 0
+$ pnpm --filter @hoyo/web build
+13:18:09 [types] Generated 22ms
+13:18:09 [build] output: "static"
+13:18:09 [build] mode: "static"
+13:18:09 [build] directory: /private/tmp/hoyo-f1-03/apps/web/dist/
+13:18:09 [build] Collecting build info...
+13:18:09 [build] ✓ Completed in 54ms.
+13:18:09 [build] Building static entrypoints...
+13:18:09 [vite] ✓ built in 106ms
+13:18:09 [vite] ✓ built in 28ms
+13:18:09 [build] Rearranging server assets...
+
+ generating static routes
+13:18:09   ├─ /account/index.html (+4ms)
+13:18:09   ├─ /events/sample/index.html (+1ms)
+13:18:09   ├─ /events/morning/index.html (+1ms)
+13:18:09   ├─ /events/reward/index.html (+1ms)
+13:18:09   ├─ /events/end/index.html (+1ms)
+13:18:09   ├─ /events/long/index.html (+0ms)
+13:18:09   ├─ /events/derived/index.html (+5ms)
+13:18:09   ├─ /events/date/index.html (+1ms)
+13:18:09   ├─ /events/estimate/index.html (+1ms)
+13:18:09   ├─ /events/later/index.html (+1ms)
+13:18:09   ├─ /events/month/index.html (+0ms)
+13:18:09   ├─ /events/old/index.html (+0ms)
+13:18:09   ├─ /events/rescheduled/index.html (+0ms)
+13:18:09   ├─ /events/cancel/index.html (+0ms)
+13:18:09   ├─ /events/retract/index.html (+0ms)
+13:18:09   ├─ /events/pending/index.html (+0ms)
+13:18:09   ├─ /help/index.html (+1ms)
+13:18:09   ├─ /login/index.html (+1ms)
+13:18:09   ├─ /recover/index.html (+1ms)
+13:18:09   ├─ /status/index.html (+0ms)
+13:18:09   ├─ /subscription/index.html (+0ms)
+13:18:09   ├─ /index.html (+1ms)
+13:18:09 ✓ Completed in 30ms.
+
+13:18:09 [build] ✓ Completed in 180ms.
+13:18:09 [build] 22 page(s) built in 238ms
+13:18:09 [build] Complete!
+$ astro build
+
+exit 0
+$ pnpm exec playwright test --config tests/e2e/playwright.config.ts tests/e2e/event-detail.spec.ts --grep 公告与证据的 img onerror 只显示文字，不执行
+
+Running 2 tests using 2 workers
+
+  ✓  2 [desktop-chromium] › tests/e2e/event-detail.spec.ts:77:1 › U04 公告与证据的 img onerror 只显示文字，不执行 (141ms)
+  ✓  1 [mobile-chromium] › tests/e2e/event-detail.spec.ts:77:1 › U04 公告与证据的 img onerror 只显示文字，不执行 (139ms)
+
+  2 passed (729ms)
+[WebServer] (node:5695) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+[WebServer] (Use `node --trace-warnings ...` to show where the warning was created)
+(node:5698) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:5697) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+
+exit 0
+虚构缺失节点: grep -c 替换后特征 = 1
+$ pnpm --filter @hoyo/web build
+13:18:11 [types] Generated 21ms
+13:18:11 [build] output: "static"
+13:18:11 [build] mode: "static"
+13:18:11 [build] directory: /private/tmp/hoyo-f1-03/apps/web/dist/
+13:18:11 [build] Collecting build info...
+13:18:11 [build] ✓ Completed in 28ms.
+13:18:11 [build] Building static entrypoints...
+13:18:11 [vite] ✓ built in 109ms
+13:18:11 [vite] ✓ built in 35ms
+13:18:11 [build] Rearranging server assets...
+
+ generating static routes
+13:18:11   ├─ /account/index.html (+4ms)
+13:18:11   ├─ /events/sample/index.html (+2ms)
+13:18:11   ├─ /events/morning/index.html (+1ms)
+13:18:11   ├─ /events/reward/index.html (+1ms)
+13:18:11   ├─ /events/end/index.html (+1ms)
+13:18:11   ├─ /events/long/index.html (+8ms)
+13:18:11   ├─ /events/derived/index.html (+1ms)
+13:18:11   ├─ /events/date/index.html (+1ms)
+13:18:11   ├─ /events/estimate/index.html (+1ms)
+13:18:11   ├─ /events/later/index.html (+1ms)
+13:18:11   ├─ /events/month/index.html (+0ms)
+13:18:11   ├─ /events/old/index.html (+1ms)
+13:18:11   ├─ /events/rescheduled/index.html (+1ms)
+13:18:11   ├─ /events/cancel/index.html (+2ms)
+13:18:11   ├─ /events/retract/index.html (+2ms)
+13:18:11   ├─ /events/pending/index.html (+3ms)
+13:18:11   ├─ /help/index.html (+1ms)
+13:18:11   ├─ /login/index.html (+1ms)
+13:18:11   ├─ /recover/index.html (+1ms)
+13:18:11   ├─ /status/index.html (+1ms)
+13:18:11   ├─ /subscription/index.html (+1ms)
+13:18:11   ├─ /index.html (+1ms)
+13:18:11 ✓ Completed in 47ms.
+
+13:18:11 [build] ✓ Completed in 206ms.
+13:18:11 [build] 22 page(s) built in 241ms
+13:18:11 [build] Complete!
+$ astro build
+
+exit 0
+$ pnpm exec playwright test --config tests/e2e/playwright.config.ts tests/e2e/event-detail.spec.ts --grep 只有奖励截止时不补玩法结束
+
+Running 2 tests using 2 workers
+
+  ✘  1 [mobile-chromium] › tests/e2e/event-detail.spec.ts:26:1 › U02 只有奖励截止时不补玩法结束 (5.2s)
+  ✘  2 [desktop-chromium] › tests/e2e/event-detail.spec.ts:26:1 › U02 只有奖励截止时不补玩法结束 (5.2s)
+
+
+  1) [desktop-chromium] › tests/e2e/event-detail.spec.ts:26:1 › U02 只有奖励截止时不补玩法结束 ──────────────────
+
+    Error: expect(locator).toHaveCount(expected) failed
+
+    Locator:  locator('[data-section="timeline"]').locator('[data-milestone]')
+    Expected: 1
+    Received: 2
+    Timeout:  5000ms
+
+    Call log:
+      - Expect "toHaveCount" locator('[data-section="timeline"]').locator('[data-milestone]') with timeout 5000ms
+      - waiting for locator('[data-section="timeline"]').locator('[data-milestone]')
+        14 × locator resolved to 2 elements
+           - unexpected value "2"
+
+
+      27 |   await page.goto("/events/reward");
+      28 |   const timeline = page.locator('[data-section="timeline"]');
+    > 29 |   await expect(timeline.locator("[data-milestone]")).toHaveCount(1);
+         |                                                      ^
+      30 |   await expect(timeline).toContainText("奖励领取截止");
+      31 |   await expect(timeline).not.toContainText("玩法结束");
+      32 | });
+        at /private/tmp/hoyo-f1-03/tests/e2e/event-detail.spec.ts:29:54
+
+    Error Context: tests/e2e/test-results/event-detail-U02-只有奖励截止时不补玩法结束-desktop-chromium/error-context.md
+
+    attachment #2: trace (application/zip) ─────────────────────────────────────────────────────────
+    tests/e2e/test-results/event-detail-U02-只有奖励截止时不补玩法结束-desktop-chromium/trace.zip
+    Usage:
+
+        pnpm exec playwright show-trace tests/e2e/test-results/event-detail-U02-只有奖励截止时不补玩法结束-desktop-chromium/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+  2) [mobile-chromium] › tests/e2e/event-detail.spec.ts:26:1 › U02 只有奖励截止时不补玩法结束 ───────────────────
+
+    Error: expect(locator).toHaveCount(expected) failed
+
+    Locator:  locator('[data-section="timeline"]').locator('[data-milestone]')
+    Expected: 1
+    Received: 2
+    Timeout:  5000ms
+
+    Call log:
+      - Expect "toHaveCount" locator('[data-section="timeline"]').locator('[data-milestone]') with timeout 5000ms
+      - waiting for locator('[data-section="timeline"]').locator('[data-milestone]')
+        14 × locator resolved to 2 elements
+           - unexpected value "2"
+
+
+      27 |   await page.goto("/events/reward");
+      28 |   const timeline = page.locator('[data-section="timeline"]');
+    > 29 |   await expect(timeline.locator("[data-milestone]")).toHaveCount(1);
+         |                                                      ^
+      30 |   await expect(timeline).toContainText("奖励领取截止");
+      31 |   await expect(timeline).not.toContainText("玩法结束");
+      32 | });
+        at /private/tmp/hoyo-f1-03/tests/e2e/event-detail.spec.ts:29:54
+
+    Error Context: tests/e2e/test-results/event-detail-U02-只有奖励截止时不补玩法结束-mobile-chromium/error-context.md
+
+    attachment #2: trace (application/zip) ─────────────────────────────────────────────────────────
+    tests/e2e/test-results/event-detail-U02-只有奖励截止时不补玩法结束-mobile-chromium/trace.zip
+    Usage:
+
+        pnpm exec playwright show-trace tests/e2e/test-results/event-detail-U02-只有奖励截止时不补玩法结束-mobile-chromium/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+  2 failed
+    [desktop-chromium] › tests/e2e/event-detail.spec.ts:26:1 › U02 只有奖励截止时不补玩法结束 ───────────────────
+    [mobile-chromium] › tests/e2e/event-detail.spec.ts:26:1 › U02 只有奖励截止时不补玩法结束 ────────────────────
+[WebServer] (node:5759) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+[WebServer] (Use `node --trace-warnings ...` to show where the warning was created)
+(node:5760) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:5761) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+
+exit 1
+虚构缺失节点: 源码已还原，特征计数 0
+$ pnpm --filter @hoyo/web build
+13:18:18 [types] Generated 17ms
+13:18:18 [build] output: "static"
+13:18:18 [build] mode: "static"
+13:18:18 [build] directory: /private/tmp/hoyo-f1-03/apps/web/dist/
+13:18:18 [build] Collecting build info...
+13:18:18 [build] ✓ Completed in 23ms.
+13:18:18 [build] Building static entrypoints...
+13:18:18 [vite] ✓ built in 87ms
+13:18:18 [vite] ✓ built in 25ms
+13:18:18 [build] Rearranging server assets...
+
+ generating static routes
+13:18:18   ├─ /account/index.html (+4ms)
+13:18:18   ├─ /events/sample/index.html (+1ms)
+13:18:18   ├─ /events/morning/index.html (+1ms)
+13:18:18   ├─ /events/reward/index.html (+1ms)
+13:18:18   ├─ /events/end/index.html (+0ms)
+13:18:18   ├─ /events/long/index.html (+0ms)
+13:18:18   ├─ /events/derived/index.html (+4ms)
+13:18:18   ├─ /events/date/index.html (+1ms)
+13:18:18   ├─ /events/estimate/index.html (+1ms)
+13:18:18   ├─ /events/later/index.html (+0ms)
+13:18:18   ├─ /events/month/index.html (+0ms)
+13:18:18   ├─ /events/old/index.html (+0ms)
+13:18:18   ├─ /events/rescheduled/index.html (+0ms)
+13:18:18   ├─ /events/cancel/index.html (+0ms)
+13:18:18   ├─ /events/retract/index.html (+0ms)
+13:18:18   ├─ /events/pending/index.html (+0ms)
+13:18:18   ├─ /help/index.html (+1ms)
+13:18:18   ├─ /login/index.html (+1ms)
+13:18:18   ├─ /recover/index.html (+1ms)
+13:18:18   ├─ /status/index.html (+0ms)
+13:18:18   ├─ /subscription/index.html (+0ms)
+13:18:18   ├─ /index.html (+1ms)
+13:18:18 ✓ Completed in 27ms.
+
+13:18:18 [build] ✓ Completed in 152ms.
+13:18:18 [build] 22 page(s) built in 178ms
+13:18:18 [build] Complete!
+$ astro build
+
+exit 0
+$ pnpm exec playwright test --config tests/e2e/playwright.config.ts tests/e2e/event-detail.spec.ts --grep 只有奖励截止时不补玩法结束
+
+Running 2 tests using 2 workers
+
+  ✓  2 [desktop-chromium] › tests/e2e/event-detail.spec.ts:26:1 › U02 只有奖励截止时不补玩法结束 (110ms)
+  ✓  1 [mobile-chromium] › tests/e2e/event-detail.spec.ts:26:1 › U02 只有奖励截止时不补玩法结束 (109ms)
+
+  2 passed (533ms)
+[WebServer] (node:5838) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+[WebServer] (Use `node --trace-warnings ...` to show where the warning was created)
+(node:5840) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:5839) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+
+exit 0
+两项变异均被定向用例检出，且还原后复跑通过。

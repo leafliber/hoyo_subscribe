@@ -1,0 +1,58 @@
+$ pnpm -r --if-present run build
+Scope: 3 of 4 workspace projects
+apps/web build$ astro build
+apps/worker build$ wrangler deploy --dry-run --outdir=dist
+apps/worker build: [31m✘ [41;31m[[41;97mERROR[41;31m][0m [1mFailed to write to log file Error: EPERM: operation not permitted, open '/Users/cassia/Library/Preferences/.wrangler/logs/wrangler-2026-09-28_05-17-47_638.log'[0m
+apps/worker build:       at async open (node:internal/fs/promises:1387:25)
+apps/worker build:       at async writeFile (node:internal/fs/promises:2116:14)
+apps/worker build:       at async /private/tmp/hoyo-f1-04/node_modules/.pnpm/wrangler@4.136.0_@types+node@26.6.2/node_modules/wrangler/wrangler-dist/cli.js:64212:7
+apps/worker build:       at async Mutex.runWith (/private/tmp/hoyo-f1-04/node_modules/.pnpm/miniflare@5.20260921.0-alpha_@types+node@26.6.2/node_modules/miniflare/dist/src/index.js:55561:16)
+apps/worker build:       at async appendToDebugLogFile (/private/tmp/hoyo-f1-04/node_modules/.pnpm/wrangler@4.136.0_@types+node@26.6.2/node_modules/wrangler/wrangler-dist/cli.js:64209:3) {
+apps/worker build:     errno: -1,
+apps/worker build:     code: 'EPERM',
+apps/worker build:     syscall: 'open',
+apps/worker build:     path: '/Users/cassia/Library/Preferences/.wrangler/logs/wrangler-2026-09-28_05-17-47_638.log'
+apps/worker build:   }
+apps/worker build: [31m✘ [41;31m[[41;97mERROR[41;31m][0m [1mWould have written: [0m
+apps/worker build:   --- 2026-09-28T05:17:47.721Z debug
+apps/worker build:   🪵  Writing logs to "/Users/cassia/Library/Preferences/.wrangler/logs/wrangler-2026-09-28_05-17-47_638.log"
+apps/worker build:   ---
+apps/worker build:
+apps/worker build:  ⛅️ wrangler 4.136.0
+apps/worker build: ────────────────────
+apps/worker build: Total Upload: 943.83 KiB / gzip: 160.85 KiB
+apps/worker build: Your Worker has access to the following bindings:
+apps/worker build: Binding                                          Resource
+apps/worker build: env.PIPELINE_DO (PipelineDO)                     Durable Object
+apps/worker build: env.DELIVERY_DO (DeliveryDO)                     Durable Object
+apps/worker build: env.AUTH_MAILER (unrestricted)                   Send Email
+apps/worker build: env.BIZ_MAILER (unrestricted)                    Send Email
+apps/worker build: env.MAIL_FEEDBACK_QUEUE (mail-feedback)          Queue
+apps/worker build: env.DB (hoyo-subscribe-db)                       D1 Database
+apps/worker build: --dry-run: exiting now.
+apps/worker build: 🪵  Logs were written to "/Users/cassia/Library/Preferences/.wrangler/logs/wrangler-2026-09-28_05-17-47_638.log"
+apps/worker build: Done
+apps/web build: 13:17:47 [types] Generated 27ms
+apps/web build: 13:17:47 [build] output: "static"
+apps/web build: 13:17:47 [build] mode: "static"
+apps/web build: 13:17:47 [build] directory: /private/tmp/hoyo-f1-04/apps/web/dist/
+apps/web build: 13:17:47 [build] Collecting build info...
+apps/web build: 13:17:47 [build] ✓ Completed in 37ms.
+apps/web build: 13:17:47 [build] Building static entrypoints...
+apps/web build: 13:17:48 [vite] ✓ built in 107ms
+apps/web build: 13:17:48 [vite] ✓ built in 25ms
+apps/web build: 13:17:48 [build] Rearranging server assets...
+apps/web build:  generating static routes
+apps/web build: 13:17:48   ├─ /account/index.html (+4ms)
+apps/web build: 13:17:48   ├─ /events/sample/index.html (+1ms)
+apps/web build: 13:17:48   ├─ /help/index.html (+1ms)
+apps/web build: 13:17:48   ├─ /login/index.html (+1ms)
+apps/web build: 13:17:48   ├─ /recover/index.html (+1ms)
+apps/web build: 13:17:48   ├─ /status/index.html (+1ms)
+apps/web build: 13:17:48   ├─ /subscription/index.html (+1ms)
+apps/web build: 13:17:48   ├─ /index.html (+7ms)
+apps/web build: 13:17:48 ✓ Completed in 23ms.
+apps/web build: 13:17:48 [build] ✓ Completed in 167ms.
+apps/web build: 13:17:48 [build] 8 page(s) built in 206ms
+apps/web build: 13:17:48 [build] Complete!
+apps/web build: Done
