@@ -48,6 +48,9 @@ F1-03 · 事件详情 · 阶段 F1。分支 `f1/F1-03-event-detail`，仓库外 
 | `pnpm test:e2e` | 最终 exit 0，**59 passed / 5 skipped**。5 条为既有 a11y 设备分工跳过，本卡 18 个设备用例全部执行通过。首次全量运行 57 passed / 5 skipped，后补强 1 条用例并复跑最终结果。 | [首次全量](logs/e2e.txt)、[最终全量](logs/e2e-final.txt) |
 | `python3 tests/e2e/evidence/f1-03/mutate-event-detail.py` | 两次 grep 特征计数均为 1；去除证据转义 → 两视口 XSS 用例失败且 `onerror` 实际执行；虚构缺失节点 → 两视口 U02 用例失败；每次还原后同一测试 2 passed。 | [最终变异日志](logs/mutation-final.txt) |
 | `git diff --check` | exit 0，无输出。 | 命令输出为空 |
+| `git push -u origin f1/F1-03-event-detail` | 所有者明确确认目标仓库归属后 exit 0；仅推送本卡分支，无 force push 或 remote 修改。此前两次自动审批因目的地归属未由可信用户明确确认而拒绝，未发生上传。 | [PR #28](https://github.com/leafliber/hoyo_subscribe/pull/28) |
+| `gh pr create --base main --head f1/F1-03-event-detail --title 'F1-03 · 事件详情' --body-file tests/e2e/evidence/f1-03/REPORT.md` | exit 0，创建 [PR #28](https://github.com/leafliber/hoyo_subscribe/pull/28)。 | 同左 |
+| `gh run watch 36409608150 --exit-status --interval 10`、`gh run view 36409608150 --json conclusion,headSha,jobs,url` | exit 0；PR head `3b51140` 的 `verify` job success，冻结安装、lint、typecheck、test、params:verify、migrate:check、**build**、test:e2e 均 success。 | [CI 原始结果](logs/ci-verify.json)、[Actions run](https://github.com/leafliber/hoyo_subscribe/actions/runs/36409608150) |
 
 定向 e2e 的真实失败也留档：沙箱内监听 4173 首次 `EPERM`；获准重跑后 14 passed / 2 failed，原因是测试把折叠证据里的“公告发布时间”误纳入未知精度节点时刻断言。将断言限到 `.milestone-time` 后 16 passed，最终全量亦通过。[沙箱失败](logs/e2e-target-first.txt)、[断言失败](logs/e2e-target-retry.txt)、[修正后](logs/e2e-target-final.txt)。
 
@@ -74,6 +77,7 @@ E2 采集时间：2026-09-28 13:17（Asia/Shanghai）。截图来自 Playwright 
 - [桌面详情](desktop-detail.png)、[桌面改期](desktop-rescheduled.png)、[桌面依据展开](desktop-evidence-expanded.png)：Desktop Chrome，1280×720 CSS px，fullPage。
 - [移动详情](mobile-detail.png)、[移动改期](mobile-rescheduled.png)、[移动依据展开](mobile-evidence-expanded.png)：Pixel 7 浏览器仿真，详情截图收窄至 320×800 CSS px，fullPage。
 - [最终全量 e2e](logs/e2e-final.txt)、[最终变异日志](logs/mutation-final.txt) 与各标准命令日志均位于 `logs/`。
+- [PR #28 的 CI 原始步骤结果](logs/ci-verify.json)：2026-09-28 18:27（Asia/Shanghai）`verify` 成功，`build` 步骤成功。CI 是 Linux 隔离环境，未将其写作本机 `pnpm build` 成功。
 
 ## 不在本次范围
 
@@ -81,7 +85,7 @@ E2 采集时间：2026-09-28 13:17（Asia/Shanghai）。截图来自 Playwright 
 
 ## 已知问题与回退点
 
-- 本机 `pnpm build` 的 Wrangler dry-run 退出等待与既有 F1-02 报告一致；所有者指定的 `CI=1`、关闭遥测、定向日志路径写法仍复现。两次本地尝试都由人工中断，exit 130。Web 产物和 e2e 构建成功不替代全量构建通过；以 PR CI 的 `pnpm build` 结果复核，在得到结果前此项不算本地门禁完成。
+- 本机 `pnpm build` 的 Wrangler dry-run 退出等待与既有 F1-02 报告一致；所有者指定的 `CI=1`、关闭遥测、定向日志路径写法仍复现。两次本地尝试都由人工中断，exit 130。PR #28 在提交 `3b51140` 的 Linux CI 原始 `build` 步骤成功，构建门禁以该独立结果通过；本机退出等待仍作为环境差异保留。
 - 详情页日期在静态构建时生成；首页交互样例按浏览器时钟生成。因此原型在跨日或测试冻结时钟下可有样例日期差异。真实数据与版本绑定需后续接口卡处理。
 - 首页 F1-02 样例场景说明仍写“详情沿用占位页”；`index.astro` 不在本卡允许范围，留给验收方分配后续文案修正。
 - 样例公告外链是 `example.com` 占位，页面明确标记，不能作为官方依据或联调证据。没有访问真实外部发送链。
