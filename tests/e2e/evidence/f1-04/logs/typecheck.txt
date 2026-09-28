@@ -1,0 +1,11 @@
+$ pnpm -r --if-present run typecheck && tsc --project tests/e2e
+Scope: 3 of 4 workspace projects
+packages/contracts typecheck$ tsc --noEmit
+packages/contracts typecheck: Done
+apps/worker typecheck$ tsc --noEmit
+apps/web typecheck$ tsc --noEmit
+apps/worker typecheck: Done
+apps/web typecheck: Done
+tests/e2e/account.spec.ts(1,52): error TS2307: Cannot find module '@hoyo/contracts' or its corresponding type declarations.
+tests/e2e/account.spec.ts(2,41): error TS2307: Cannot find module '@hoyo/contracts' or its corresponding type declarations.
+[ELIFECYCLE] Command failed with exit code 1.

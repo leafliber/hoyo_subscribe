@@ -1,0 +1,38 @@
+[WebServer] (node:942) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+[WebServer] (Use `node --trace-warnings ...` to show where the warning was created)
+
+Running 1 test using 1 worker
+
+(node:943) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✘  1 [desktop-chromium] › tests/e2e/account.spec.ts:65:1 › U27 超时结果不确定，要求重新读取确认，不能显示成功或未执行 (3ms)
+
+
+  1) [desktop-chromium] › tests/e2e/account.spec.ts:65:1 › U27 超时结果不确定，要求重新读取确认，不能显示成功或未执行 ─────────
+
+    Error: expect(received).not.toContain(expected) // indexOf
+
+    Expected substring: not "未执行"
+    Received string:        "{\"title\":\"请求超时，结果尚不确定\",\"explanation\":\"服务端未执行。\",\"nextStep\":\"请重新读取当前状态或查看操作记录，确认结果后再决定是否重试。\",\"action\":\"confirm_result\",\"outcome\":\"uncertain\",\"preserveInput\":true,\"automaticRetry\":false,\"keepTerminationAccess\":true}"
+
+      68 |   expect(timeout.action).toBe("confirm_result");
+      69 |   expect(timeout.nextStep).toContain("重新读取当前状态");
+    > 70 |   expect(JSON.stringify(timeout)).not.toContain("未执行");
+         |                                       ^
+      71 |   expect(JSON.stringify(timeout)).not.toContain("成功");
+      72 |   expect(timeout.automaticRetry).toBe(false);
+      73 | });
+        at /private/tmp/hoyo-f1-04/tests/e2e/account.spec.ts:70:39
+
+    Error Context: tests/e2e/test-results/account-U27-超时结果不确定，要求重新读取确认，不能显示成功或未执行-desktop-chromium/error-context.md
+
+    attachment #2: trace (application/zip) ─────────────────────────────────────────────────────────
+    tests/e2e/test-results/account-U27-超时结果不确定，要求重新读取确认，不能显示成功或未执行-desktop-chromium/trace.zip
+    Usage:
+
+        pnpm exec playwright show-trace tests/e2e/test-results/account-U27-超时结果不确定，要求重新读取确认，不能显示成功或未执行-desktop-chromium/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+  1 failed
+    [desktop-chromium] › tests/e2e/account.spec.ts:65:1 › U27 超时结果不确定，要求重新读取确认，不能显示成功或未执行 ──────────

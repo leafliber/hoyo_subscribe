@@ -1,0 +1,52 @@
+$ node scripts/migrate/check.mjs
+静态检查通过：15 个迁移（0001–0015），无禁止对象
+
+ RUN  v4.1.11 /private/tmp/hoyo-f1-04/apps/worker
+
+[31m✘ [41;31m[[41;97mERROR[41;31m][0m [1mFailed to write to log file Error: EPERM: operation not permitted, open '/Users/cassia/Library/Preferences/.wrangler/logs/wrangler-2026-09-28_05-05-48_800.log'[0m
+
+      at open (node:internal/fs/promises:1387:25)
+      at writeFile (node:internal/fs/promises:2116:14)
+      at /private/tmp/hoyo-f1-04/node_modules/.pnpm/wrangler@4.124.0/node_modules/wrangler/wrangler-dist/cli.js:61259:7
+      at Mutex.runWith (/private/tmp/hoyo-f1-04/node_modules/.pnpm/miniflare@5.20260815.0-alpha/node_modules/miniflare/dist/src/index.js:85487:48)
+      at appendToDebugLogFile (/private/tmp/hoyo-f1-04/node_modules/.pnpm/wrangler@4.124.0/node_modules/wrangler/wrangler-dist/cli.js:61256:3) {
+    errno: -1,
+    code: 'EPERM',
+    syscall: 'open',
+    path: '/Users/cassia/Library/Preferences/.wrangler/logs/wrangler-2026-09-28_05-05-48_800.log'
+  }
+
+
+[31m✘ [41;31m[[41;97mERROR[41;31m][0m [1mWould have written: [0m
+
+  --- 2026-09-28T05:05:48.965Z debug
+  🪵  Writing logs to "/Users/cassia/Library/Preferences/.wrangler/logs/wrangler-2026-09-28_05-05-48_800.log"
+  ---
+
+
+
+🪵  Logs were written to "/Users/cassia/Library/Preferences/.wrangler/logs/wrangler-2026-09-28_05-05-48_800.log"
+node:events:505
+    throw er; // Unhandled 'error' event
+    ^
+
+Error: listen EPERM: operation not permitted 127.0.0.1
+    at Server.setupListenHandle [as _listen2] (node:net:2306:21)
+    at listenInCluster (node:net:2437:12)
+    at node:net:2666:7
+    at processTicksAndRejections (node:internal/process/task_queues:90:21)
+Emitted 'error' event on Server instance at:
+    at emitErrorNT (node:net:2416:8)
+    at processTicksAndRejections (node:internal/process/task_queues:90:21) {
+  code: 'EPERM',
+  errno: -1,
+  syscall: 'listen',
+  address: '127.0.0.1'
+}
+
+Node.js v26.8.1
+undefined
+/private/tmp/hoyo-f1-04/apps/worker:
+[ERR_PNPM_RECURSIVE_EXEC_FIRST_FAIL] Command failed with exit code 1: vitest run src/storage/schema.test.ts
+migrate:check: 空库重放 / schema / 索引 / rows_read 校验失败（见上方 vitest 输出）
+[ELIFECYCLE] Command failed with exit code 1.

@@ -1,0 +1,52 @@
+<aside id="service-fault-banner" class="service-fault-banner" role="alert" hidden>
+  <div class="service-fault-inner">
+    <strong data-fault-title></strong>
+    <p data-fault-explanation></p>
+    <p data-fault-next-step></p>
+    <nav aria-label="故障时可用入口">
+      <a href="/status">查看服务状态</a>
+      <a href="/recover">账号恢复与紧急停用入口</a>
+    </nav>
+  </div>
+</aside>
+
+<style>
+  .service-fault-banner {
+    border-block: var(--border-thin) solid var(--color-border);
+    background: var(--color-bg-surface);
+  }
+
+  .service-fault-inner {
+    max-width: var(--width-page-max);
+    margin: 0 auto;
+    padding: var(--space-3) var(--space-4);
+  }
+
+  .service-fault-inner strong {
+    color: var(--color-danger);
+  }
+
+  .service-fault-inner p {
+    margin: var(--space-1) 0;
+  }
+
+  .service-fault-inner nav {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-4);
+  }
+
+  .service-fault-inner a {
+    display: inline-flex;
+    align-items: center;
+    min-height: var(--tap-target-min);
+  }
+</style>
+
+<script>
+  import { initCopyFallback } from "./CopyFallback";
+  import { initServiceFaultBanner } from "./service-fault";
+
+  initServiceFaultBanner();
+  initCopyFallback();
+</script>
