@@ -88,6 +88,16 @@ pnpm params:verify   # 附录 A.5 等式校验，等式不成立时非零退出
 pnpm build
 ```
 
+**本机 `pnpm build` 不退出的已知现象（2026-09-28 登记）**：Worker 的 Wrangler dry-run 打印 `--dry-run: exiting now` 后，
+进程可能很久不退出（沙箱无网络时尤甚）；沙箱里还会因写默认日志目录报 `EPERM`。下面的写法能消掉日志 `EPERM`：
+
+```bash
+CI=1 WRANGLER_SEND_METRICS=false WRANGLER_LOG_PATH=/tmp/<卡号>-wrangler.log pnpm build
+```
+
+它**不保证**进程立刻退出：P2-04、P3-03 用它拿到了干净退出码，P2-06 等了几分钟后自行退出 0，F1-03 等约 90 秒仍未退出。
+**等满 5 分钟**仍不退出就如实写进报告，以 PR CI 的 build 结果为准；**不要把手动中断当成构建成功**。
+
 ## 4. 参数与配置
 
 - **唯一来源**：`packages/contracts/src/params/` 导出附录 A 的全部参数。运行参数、文档表格、前端文案里的数值全部从这里取。
@@ -215,6 +225,8 @@ F1-05 已合入（`861c4c2`）：e2e 改由 `scripts/e2e/serve.mjs` 前台服务
 上面的清理命令仍适用于手动跑 `astro preview` 之后。
 
 **并发与竞态必须真测**：验证码并发消费、两设备同时保存、会话名额争用、预算并发预占，都要写成真实并发用例，不用"逻辑上不可能"代替。
+
+**e2e 不得覆盖已提交的证据（2026-09-28 登记）**：普通 `pnpm test:e2e` 只把截图写进 `test-results/`；需要更新 `tests/e2e/evidence/**` 时显式设环境变量再跑。F1-02 的 `schedule.spec.ts` 目前每跑一次就改写 4 张证据截图，已登记由 F2-03 顺手修正。2026-09-29 复查：F1-03 的 `event-detail.spec.ts` 同样每次改写 `tests/e2e/evidence/f1-03/` 的 6 张截图，一并交 F2-03 修。
 
 ## 8. Git 与 PR
 
