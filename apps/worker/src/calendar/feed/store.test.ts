@@ -71,8 +71,8 @@ beforeEach(async () => {
   await run("UPDATE public_snapshots SET generation = 1");
   await run(
     `INSERT INTO calendar_feeds (user_id,namespace,state,token_hash,token_ciphertext,
-    token_generation,view_revision,changed_at,created_at,updated_at,auth_epoch,recovery_epoch)
-    VALUES ('synthetic','public-random-namespace','enabled',?,X'00',0,0,?,?,?,0,0)`,
+    token_generation,view_revision,changed_at,created_at,updated_at,recovery_epoch)
+    VALUES ('synthetic','public-random-namespace','enabled',?,X'00',0,0,?,?,?,0)`,
     hash,
     now,
     now,
@@ -102,13 +102,18 @@ describe("A-P3-ICS 主状态授权与输出事实", () => {
     "UPDATE calendar_feeds SET state = 'disabled'",
     "UPDATE calendar_feeds SET token_hash = 'rotated', token_generation = token_generation + 1",
     "UPDATE users SET status = 'deleting'",
-    "UPDATE users SET auth_epoch = auth_epoch + 1",
     "UPDATE users SET recovery_epoch = recovery_epoch + 1",
   ])("撤销与 epoch 变化立即阻止后续输出：%s", async (sql) => {
     const state = await requiredState();
     await run(sql);
     expect(await readFeedState(env.DB, hash)).toBeNull();
     expect(await recordFeedOutput(env.DB, hash, state, 1, 10, now, false)).toBe(false);
+  });
+  it("普通 auth_epoch 变化不撤销 Feed，也不改变 namespace 与 view_revision", async () => {
+    const state = await requiredState();
+    await run("UPDATE users SET auth_epoch = auth_epoch + 1");
+    expect(await readFeedState(env.DB, hash)).toEqual(state);
+    expect(await recordFeedOutput(env.DB, hash, state, 1, 10, now, false)).toBe(true);
   });
   it("成功和守卫拦截时间分别保存，拦截不覆盖成功基线", async () => {
     const state = await requiredState();

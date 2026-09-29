@@ -1,4 +1,4 @@
-// P3-06 · 主状态授权与版本核对；P3-07 管理入口签发时须保存当前 auth/recovery epoch。
+// P3-06 · 主状态授权与版本核对；P3-07 管理入口签发时须保存当前 recovery_epoch（灾备代次）。
 import { SECRET_BITS, type SubscriptionConfig, subscriptionConfigSchemaFor } from "@hoyo/contracts";
 import { fromBase64Url, toBase64Url, toHex, utf8Encode } from "../../storage/crypto/bytes";
 
@@ -8,7 +8,6 @@ export interface FeedState {
   token_generation: number;
   view_revision: number;
   changed_at: number;
-  auth_epoch: number;
   recovery_epoch: number;
   last_served_node_count: number | null;
   last_served_view_revision: number | null;
@@ -32,12 +31,12 @@ export async function hashFeedToken(token: string): Promise<string | null> {
 export async function readFeedState(db: D1Database, hash: string): Promise<FeedState | null> {
   return db
     .prepare(`SELECT f.user_id, f.namespace, f.token_generation, f.view_revision, f.changed_at,
-    f.auth_epoch, f.recovery_epoch, f.last_served_node_count, f.last_served_view_revision,
+    f.recovery_epoch, f.last_served_node_count, f.last_served_view_revision,
     f.last_served_generation, f.last_served_at, f.last_guard_blocked_at,
     s.revision, s.schema_version, s.scope_json, s.calendar_json, s.notifications_json
     FROM calendar_feeds f JOIN users u ON u.id = f.user_id JOIN user_subscriptions s ON s.user_id = f.user_id
     WHERE f.token_hash = ? AND f.state = 'enabled' AND u.status = 'active'
-      AND f.auth_epoch = u.auth_epoch AND f.recovery_epoch = u.recovery_epoch AND s.state = 'initialized'`)
+      AND f.recovery_epoch = u.recovery_epoch AND s.state = 'initialized'`)
     .bind(hash)
     .first<FeedState>();
 }
@@ -68,7 +67,7 @@ export async function recordFeedOutput(
     WHERE token_hash = ? AND state = 'enabled' AND token_generation = ? AND view_revision = ?
       AND last_served_at IS ? AND last_served_node_count IS ? AND last_served_generation IS ?
       AND EXISTS (SELECT 1 FROM users u WHERE u.id = calendar_feeds.user_id AND u.status = 'active'
-        AND u.auth_epoch = calendar_feeds.auth_epoch AND u.recovery_epoch = calendar_feeds.recovery_epoch)
+        AND u.recovery_epoch = calendar_feeds.recovery_epoch)
       AND EXISTS (SELECT 1 FROM user_subscriptions s WHERE s.user_id = calendar_feeds.user_id
         AND s.state = 'initialized' AND s.revision = ?)
       AND EXISTS (SELECT 1 FROM public_snapshots WHERE state = 'current' AND generation = ?)`)
