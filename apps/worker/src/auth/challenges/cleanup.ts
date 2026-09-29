@@ -8,7 +8,13 @@
 // 最迟时间——**过期即不能授权**，本原语只负责密文与预算的兜底回收，不延长任何授权。
 // 挂接点（Cron/队列）属 P4/P5 任务卡；本卡交付原语并以测试钉住行为。
 
-import { type MailPool, OUTBOX_UNRESERVED_PERIOD_KEY } from "@hoyo/contracts";
+import {
+  type MailPool,
+  OTP_COOLDOWN,
+  OTP_TTL,
+  OUTBOX_UNRESERVED_PERIOD_KEY,
+  utcDayPeriod,
+} from "@hoyo/contracts";
 import { transitionMailReservation } from "../../storage/ledger/mail-ledger";
 
 /** 一条待回收的过期发送行（及其预算归属）。 */
@@ -33,6 +39,10 @@ export async function clearExpiredOtpPayloads(
   db: D1Database,
   now: number,
 ): Promise<ExpiredPayloadCleanupResult> {
+  await db
+    .prepare("DELETE FROM auth_resend_intents WHERE created_at < ?")
+    .bind(Math.min(utcDayPeriod(now).startMs, now - Math.max(OTP_TTL, OTP_COOLDOWN) * 1_000))
+    .run();
   const expired = await db
     .prepare(
       `SELECT o.id, o.purpose AS pool, o.period_key AS periodKey FROM mail_outbox o

@@ -34,11 +34,11 @@ import { consumeVerifiedOtp } from "../consume/consume";
 import { requireOperationKey } from "../consume/operation";
 import { serializePendingSessionCookie } from "../consume/session";
 import { PREAUTH_COOKIE_NAME, verifyPreauthCookieValue } from "../preauth/cookie";
+import { authQuotaGuard, readAuthQuotaSnapshot } from "../preauth/quota";
 import { renewPreauthCookieForContext } from "./renewal";
 
 /** 单位换算（注册表秒值的换算，不引入第二份业务常量）。 */
 const MS_PER_SECOND = 1_000;
-const SECONDS_PER_HOUR = 3_600;
 
 export interface VerifyOtpDeps {
   readonly db: D1Database;
@@ -67,21 +67,6 @@ function otpCodeShapeOk(code: string): boolean {
   return new RegExp(`^\\d{${OTP_DIGITS}}$`).test(code);
 }
 
-/** 最近一小时内同邮箱持久化的错误尝试合计（含已到期挑战的行——防猜测边界不因过期豁免）。 */
-async function recentVerifyAttempts(
-  db: D1Database,
-  emailKey: string,
-  now: number,
-): Promise<number> {
-  const row = await db
-    .prepare(
-      "SELECT coalesce(sum(attempts), 0) AS total FROM auth_challenges WHERE email_key = ? AND updated_at >= ?",
-    )
-    .bind(emailKey, now - EMAIL_VERIFY_ATTEMPTS_HOUR * SECONDS_PER_HOUR * MS_PER_SECOND)
-    .first<{ total: number }>();
-  return row?.total ?? 0;
-}
-
 async function loadOpenChallenges(
   db: D1Database,
   preauthId: string,
@@ -104,13 +89,15 @@ async function loadOpenChallenges(
 async function persistWrongAttempt(
   db: D1Database,
   challengeId: string,
+  emailKey: string,
   now: number,
 ): Promise<void> {
+  const quota = authQuotaGuard(emailKey, now, "verify");
   await db
     .prepare(
-      "UPDATE auth_challenges SET attempts = attempts + 1, updated_at = ? WHERE id = ? AND consumed_at IS NULL AND aborted_at IS NULL",
+      `UPDATE auth_challenges SET attempts = attempts + 1, updated_at = ? WHERE id = ? AND consumed_at IS NULL AND aborted_at IS NULL AND attempts < ? AND ${quota.sql}`,
     )
-    .bind(now, challengeId)
+    .bind(now, challengeId, OTP_ATTEMPTS, ...quota.params)
     .run();
 }
 
@@ -143,7 +130,7 @@ export async function runVerifyOtp(deps: VerifyOtpDeps, input: VerifyOtpInput): 
   const emailKey = await computeEmailKey(deps.keys.emailLookup(), canonical.canonical);
 
   // —— 邮箱级防猜测边界（A.2：读侧门控，先于 MAC 校验以真正约束猜测） ——
-  const recentAttempts = await recentVerifyAttempts(deps.db, emailKey, now);
+  const recentAttempts = (await readAuthQuotaSnapshot(deps.db, emailKey, now)).verifyAttempts;
   if (recentAttempts >= EMAIL_VERIFY_ATTEMPTS_HOUR) {
     throw new ApiError("rate_limited", { code: "rate_limited" });
   }
@@ -248,7 +235,7 @@ export async function runVerifyOtp(deps: VerifyOtpDeps, input: VerifyOtpInput): 
       fields: [{ path: "code", reason: "attempts_exhausted" }],
     });
   }
-  await persistWrongAttempt(deps.db, chargeable.id, now);
+  await persistWrongAttempt(deps.db, chargeable.id, emailKey, now);
   throw new ApiError("validation", {
     code: "validation",
     fields: [{ path: "code", reason: "mismatch" }],

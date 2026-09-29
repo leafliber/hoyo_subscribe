@@ -16,7 +16,7 @@ import { PREAUTH_COOKIE_NAME } from "../preauth/cookie";
 import { runPreauthAdmission } from "../preauth/pipeline";
 import type { ApproximateRateGate } from "../preauth/rate-gate";
 import type { TurnstileVerifier } from "../preauth/turnstile";
-import { createChallengeAndMailTask } from "./create-challenge";
+import { createAdmittedChallengeAndMailTask } from "./create-challenge";
 import { runResendOtp } from "./resend";
 import { runVerifyOtp } from "./verify";
 
@@ -70,7 +70,7 @@ export function makeChallengeRoutes(deps: ChallengeRouteDeps): readonly ShellRou
             keys: await deps.keys(),
             rateGate: deps.rateGate,
             turnstile: deps.turnstile(),
-            effect: createChallengeAndMailTask,
+            effect: createAdmittedChallengeAndMailTask,
             now: () => Date.now(),
           },
           {

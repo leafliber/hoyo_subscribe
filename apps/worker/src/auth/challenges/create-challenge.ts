@@ -17,11 +17,14 @@
 //   即时清除验证码密文——不留下「永远不会发送的挑战」。
 
 import { OUTBOX_UNRESERVED_PERIOD_KEY, poolOfMailIntent, utcDayPeriod } from "@hoyo/contracts";
+import { ACCOUNTS_TOTAL_CAPACITY_KEY } from "../../accounts/admission/registration";
+import { ApiError } from "../../shell";
 import { encryptField } from "../../storage/crypto/aead";
 import { macOtpVerification } from "../../storage/crypto/mac";
 import { generateOtpCode } from "../../storage/crypto/random";
 import { reserveMailBudget } from "../../storage/ledger/mail-ledger";
-import type { CreateChallengeAndMailTask } from "../preauth/pipeline";
+import type { ChallengeAndMailTaskContext, CreateChallengeAndMailTask } from "../preauth/pipeline";
+import { authQuotaGuard, decideAuthQuota, readAuthQuotaSnapshot } from "../preauth/quota";
 import {
   DELIVERY_ADDRESS_RECORD_TYPE,
   decryptDeliveryAddress,
@@ -59,7 +62,18 @@ function isIdempotencyUniqueError(error: unknown): boolean {
  * 创建挑战及发信任务（第 7 步真实效果）。成功创建或幂等重放均正常返回；
  * 挑战终止（预算竞争失配）由落库状态承载，不向管线抛错——申请响应仍走折叠 202。
  */
-export const createChallengeAndMailTask: CreateChallengeAndMailTask = async (ctx) => {
+/** HTTP 准入效果：共享读侧口径的守卫必须与挑战、意图一起原子提交。 */
+export const createAdmittedChallengeAndMailTask: CreateChallengeAndMailTask = (ctx) =>
+  createChallenge(ctx, authQuotaGuard(ctx.emailKey, ctx.now));
+
+/** 底层构造原语（既有消费测试的夹具接缝，不挂路由）；HTTP 只使用上面的准入效果。 */
+export const createChallengeAndMailTask: CreateChallengeAndMailTask = (ctx) =>
+  createChallenge(ctx, { sql: "1", params: [] });
+
+async function createChallenge(
+  ctx: ChallengeAndMailTaskContext,
+  quota: ReturnType<typeof authQuotaGuard>,
+): Promise<void> {
   // —— 网络重试幂等（§4.3）：同一 (preauth_id, idempotency_key) 已受理则不再创建 ——
   if (ctx.idempotencyKey !== null) {
     const existing = await ctx.db
@@ -71,21 +85,18 @@ export const createChallengeAndMailTask: CreateChallengeAndMailTask = async (ctx
     }
   }
 
-  const purpose = purposeOfAdmissionIntent(ctx.intent);
-
-  // —— 投递地址解析（§4.1）：login 锁定已验证地址；signup 绑定请求投递形态 ——
-  let address: string;
-  let addressVersion: number;
+  const eligible = ctx.sendEligible !== false;
+  const purpose = eligible ? purposeOfAdmissionIntent(ctx.intent) : "equalization";
+  // 每条路径执行同形状的身份读取；占位挑战不保存地址、可校验 MAC 或发信载荷。
+  const user = await ctx.db
+    .prepare("SELECT id, email_ciphertext, email_version FROM users WHERE email_key = ?")
+    .bind(ctx.emailKey)
+    .first<{ id: string; email_ciphertext: Uint8Array; email_version: number }>();
+  let address = deliveryAddressForm(ctx.rawEmail);
+  let addressVersion = INITIAL_ADDRESS_VERSION;
   let recipientUserId: string | null = null;
   if (purpose === "login") {
-    const user = await ctx.db
-      .prepare("SELECT id, email_ciphertext, email_version FROM users WHERE email_key = ?")
-      .bind(ctx.emailKey)
-      .first<{ id: string; email_ciphertext: Uint8Array; email_version: number }>();
-    if (user === null) {
-      // 准入第 5 步已确认存在；此处消失只可能是并发删除——失败关闭，不按请求地址改投。
-      throw new Error("login 用途未找到已验证投递地址（并发状态变化，失败关闭）");
-    }
+    if (user === null) throw new Error("login 用途未找到已验证投递地址（失败关闭）");
     address = await decryptDeliveryAddress(
       ctx.keys.fieldEncryption(),
       user.id,
@@ -93,9 +104,6 @@ export const createChallengeAndMailTask: CreateChallengeAndMailTask = async (ctx
     );
     addressVersion = user.email_version;
     recipientUserId = user.id;
-  } else {
-    address = deliveryAddressForm(ctx.rawEmail);
-    addressVersion = INITIAL_ADDRESS_VERSION;
   }
 
   // —— 验证码与 MAC（§4.3：均匀随机 + 独立 pepper 六元组，generation=0） ——
@@ -124,14 +132,17 @@ export const createChallengeAndMailTask: CreateChallengeAndMailTask = async (ctx
 
   // —— 挑战与发信任务同批落库（D1 batch 事务：任一 SQL 失败整批回滚） ——
   try {
-    await ctx.db.batch([
+    const results = await ctx.db.batch([
+      ctx.db
+        .prepare(`UPDATE capacity_state SET updated_at = ? WHERE key = ? AND ${quota.sql}`)
+        .bind(ctx.now, ACCOUNTS_TOTAL_CAPACITY_KEY, ...quota.params),
       ctx.db
         .prepare(
           `INSERT INTO auth_challenges
              (id, purpose, email_key, address_version, preauth_id, idempotency_key, mac,
               generation, attempts, deadline, reservation_id, delivery_address_ciphertext,
               created_at, updated_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+           SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ? WHERE changes() = 1`,
         )
         .bind(
           challengeId,
@@ -140,12 +151,12 @@ export const createChallengeAndMailTask: CreateChallengeAndMailTask = async (ctx
           addressVersion,
           ctx.preauthId,
           ctx.idempotencyKey,
-          mac,
+          eligible ? mac : "never-authorize",
           INITIAL_GENERATION,
           INITIAL_ATTEMPTS,
           ctx.challengeDeadline,
           ctx.reservationId,
-          deliveryAddressCiphertext,
+          eligible ? deliveryAddressCiphertext : null,
           ctx.now,
           ctx.now,
         ),
@@ -154,7 +165,7 @@ export const createChallengeAndMailTask: CreateChallengeAndMailTask = async (ctx
           `INSERT INTO mail_outbox
              (id, purpose, priority, period_key, recipient_user_id, address_version,
               payload_kind, payload_ref, payload_ciphertext, status, created_at, updated_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?)`,
+           SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ? WHERE changes() = 1 AND ?`,
         )
         .bind(
           outboxId,
@@ -168,8 +179,27 @@ export const createChallengeAndMailTask: CreateChallengeAndMailTask = async (ctx
           payload,
           ctx.now,
           ctx.now,
+          eligible ? 1 : 0,
         ),
+      // 同邮箱的新挑战共享预占，预占必须覆盖最新挑战截止；只随成功插入一起提交。
+      ctx.db
+        .prepare(`UPDATE admission_reservations SET expires_at = max(expires_at, ?), updated_at = ?
+        WHERE id = ? AND state = 'reserved' AND EXISTS (SELECT 1 FROM auth_challenges WHERE id = ?)`)
+        .bind(ctx.challengeDeadline, ctx.now, ctx.reservationId, challengeId),
     ]);
+    if (results[1]?.meta.changes !== 1) {
+      const decision = decideAuthQuota(
+        await readAuthQuotaSnapshot(ctx.db, ctx.emailKey, ctx.now),
+        ctx.now,
+      );
+      if (!decision.ok && decision.rejection.reason === "challenges_max") return;
+      throw new ApiError("rate_limited", {
+        code: "rate_limited",
+        ...(!decision.ok && decision.rejection.reason === "cooldown"
+          ? { retry_after_ms: decision.rejection.retryAfterMs }
+          : {}),
+      });
+    }
   } catch (error) {
     if (isIdempotencyUniqueError(error)) {
       // 并发网络重试的输家：赢家已创建挑战与发送意图，此处按已受理返回（§4.3）。
@@ -185,20 +215,28 @@ export const createChallengeAndMailTask: CreateChallengeAndMailTask = async (ctx
     now: ctx.now,
     outboxId,
   });
-  if (reservation.outcome === "condition_missed") {
-    // 读侧判定被并发写入竞争掉：终止挑战、跳过任务并即时清除验证码密文（§4.3 清除条款）。
-    await ctx.db.batch([
-      ctx.db
-        .prepare(
-          `UPDATE mail_outbox SET status = 'skipped', payload_ciphertext = NULL, payload_ref = NULL,
-             updated_at = ? WHERE id = ? AND status = 'pending' AND period_key = ?`,
-        )
-        .bind(ctx.now, outboxId, OUTBOX_UNRESERVED_PERIOD_KEY),
-      ctx.db
-        .prepare(
-          "UPDATE auth_challenges SET aborted_at = ?, delivery_address_ciphertext = NULL, updated_at = ? WHERE id = ? AND consumed_at IS NULL AND aborted_at IS NULL",
-        )
-        .bind(ctx.now, ctx.now, challengeId),
-    ]);
-  }
-};
+  // 读侧判定被并发写入竞争掉：终止挑战、跳过任务并即时清除验证码密文（§4.3 清除条款）。
+  await ctx.db.batch([
+    ctx.db
+      .prepare(
+        `UPDATE mail_outbox SET status = 'skipped', payload_ciphertext = NULL, payload_ref = NULL,
+             updated_at = ? WHERE id = ? AND status = 'pending' AND period_key = ? AND ?`,
+      )
+      .bind(
+        ctx.now,
+        outboxId,
+        OUTBOX_UNRESERVED_PERIOD_KEY,
+        eligible && reservation.outcome === "condition_missed" ? 1 : 0,
+      ),
+    ctx.db
+      .prepare(
+        "UPDATE auth_challenges SET aborted_at = ?, delivery_address_ciphertext = NULL, updated_at = ? WHERE id = ? AND consumed_at IS NULL AND aborted_at IS NULL AND ?",
+      )
+      .bind(
+        ctx.now,
+        ctx.now,
+        challengeId,
+        eligible && reservation.outcome === "condition_missed" ? 1 : 0,
+      ),
+  ]);
+}

@@ -14,8 +14,8 @@
 //   并发重发都不会产生第二份有效码（CAS 输家幂等返回）。
 //
 // 配额与预算：重发是认证意图（A.2「登录、重发及重新验证合计」），发送间隔 OTP_COOLDOWN
-// 与当日合计 EMAIL_AUTH_INTENTS_DAY 以 mail_outbox 的真实发送行为计数（申请创建挑战行
-// 与首次发送一一对应，重发只加 outbox 行——以此口径把两类意图都计入同邮箱上限）。
+// 与当日合计 EMAIL_AUTH_INTENTS_DAY 共用 preauth/quota 快照：两表首发 + 独立重发意图。
+// 占位挑战参与冷却、日限与错码扣次，永远不生成 outbox、不占用预算。
 // 预算走 P1-07 认证日池 existing_auth（auth_resend 意图）；当日剩余 <= MAIL_AUTH_FLOOR
 // 时 decideMailIntent 拒绝——认证降级期间**全部重发暂停**（§7.2），仅既有账号首次登录
 // 仍放行（其判定在准入管线，不经本模块）。
@@ -25,13 +25,10 @@
 // 发送载荷清除后仍可重发，列缺失/损坏一律失败关闭，login 失败关闭语义保留。
 
 import {
-  AUTH_MAIL_POOLS,
   canonicalizeEmail,
   decideMailIntent,
-  EMAIL_AUTH_INTENTS_DAY,
   type MailPool,
   OTP_ATTEMPTS,
-  OTP_COOLDOWN,
   OUTBOX_UNRESERVED_PERIOD_KEY,
   utcDayPeriod,
 } from "@hoyo/contracts";
@@ -47,12 +44,10 @@ import {
 } from "../../storage/ledger/mail-ledger";
 import type { PreauthContext } from "../preauth/cookie";
 import { PREAUTH_COOKIE_NAME, verifyPreauthCookieValue } from "../preauth/cookie";
+import { authQuotaGuard, decideAuthQuota, readAuthQuotaSnapshot } from "../preauth/quota";
 import { decryptDeliveryAddress } from "./delivery";
 import { asEnvelopeBytes, encryptOtpPayload, OTP_PAYLOAD_KIND } from "./payload";
 import { renewPreauthCookieForContext } from "./renewal";
-
-/** 秒→毫秒（注册表秒值的换算，不引入第二份常量）。 */
-const MS_PER_SECOND = 1_000;
 
 /** mail_outbox.priority：同 create-challenge（认证邮件最高优先级，阶梯语义属 P4-03）。 */
 const AUTH_MAIL_PRIORITY = 0;
@@ -80,31 +75,6 @@ interface ChallengeRow {
   readonly address_version: number;
   readonly recipient_user_id: string | null;
   readonly delivery_address_ciphertext: ArrayBuffer | Uint8Array | null;
-}
-
-/** 重发侧的发送行为快照（mail_outbox 真实行；排除从未外发的 skipped）。 */
-interface SendIntentsSnapshot {
-  readonly lastSendAt: number | null;
-  readonly sendsToday: number;
-}
-
-async function readSendIntents(
-  db: D1Database,
-  emailKey: string,
-  now: number,
-): Promise<SendIntentsSnapshot> {
-  const dayStart = utcDayPeriod(now).startMs;
-  const row = await db
-    .prepare(
-      `SELECT max(created_at) AS last, sum(CASE WHEN created_at >= ? THEN 1 ELSE 0 END) AS today
-         FROM mail_outbox
-        WHERE payload_ref IN (SELECT id FROM auth_challenges WHERE email_key = ?)
-          AND purpose IN (${AUTH_MAIL_POOLS.map((pool) => `'${pool}'`).join(", ")})
-          AND status <> 'skipped'`,
-    )
-    .bind(dayStart, emailKey)
-    .first<{ last: number | null; today: number | null }>();
-  return { lastSendAt: row?.last ?? null, sendsToday: row?.today ?? 0 };
 }
 
 async function loadLatestOpenChallenge(
@@ -232,17 +202,23 @@ export async function runResendOtp(deps: ResendOtpDeps, input: ResendOtpInput): 
 
   const emailKey = await computeEmailKey(deps.keys.emailLookup(), canonical.canonical);
 
-  // —— 重发侧配额（同邮箱发送间隔与当日合计；口径见文件头） ——
-  const intents = await readSendIntents(deps.db, emailKey, now);
-  if (intents.lastSendAt !== null && intents.lastSendAt + OTP_COOLDOWN * MS_PER_SECOND > now) {
+  const replay = await deps.db
+    .prepare("SELECT id FROM auth_resend_intents WHERE preauth_id = ? AND idempotency_key = ?")
+    .bind(preauth.context.preauthId, input.idempotencyKey)
+    .first();
+  if (replay !== null) return finalizeResend(deps, preauth.context, now);
+  const snapshot = await readAuthQuotaSnapshot(deps.db, emailKey, now);
+  const quota = decideAuthQuota(
+    { ...snapshot, emailOpenChallenges: 0, globalOpenChallenges: 0 },
+    now,
+  );
+  if (!quota.ok)
     throw new ApiError("rate_limited", {
       code: "rate_limited",
-      retry_after_ms: intents.lastSendAt + OTP_COOLDOWN * MS_PER_SECOND - now,
+      ...(quota.rejection.reason === "cooldown"
+        ? { retry_after_ms: quota.rejection.retryAfterMs }
+        : {}),
     });
-  }
-  if (intents.sendsToday >= EMAIL_AUTH_INTENTS_DAY) {
-    throw new ApiError("rate_limited", { code: "rate_limited" });
-  }
 
   // —— 目标挑战（本上下文、本邮箱最新一条开放挑战；不是码错类失败） ——
   const challenge = await loadLatestOpenChallenge(
@@ -278,11 +254,24 @@ export async function runResendOtp(deps: ResendOtpDeps, input: ResendOtpInput): 
 
   // —— 网络重试幂等：同一 (preauth_id, idempotency_key) 的重发只旋转一次 ——
   const scopedKey = scopedOutboxIdempotencyKey(preauth.context.preauthId, input.idempotencyKey);
-  const replay = await deps.db
-    .prepare("SELECT id FROM mail_outbox WHERE idempotency_key = ?")
-    .bind(scopedKey)
-    .first();
-  if (replay !== null) {
+  const quotaGuard = authQuotaGuard(emailKey, now, "resend");
+  const intentId = crypto.randomUUID();
+  const intentEffect = {
+    kind: "insert" as const,
+    table: "auth_resend_intents",
+    columns: ["id", "email_key", "preauth_id", "idempotency_key", "created_at"],
+    rows: [[intentId, emailKey, preauth.context.preauthId, input.idempotencyKey, now]],
+  };
+  if (challenge.purpose === "equalization") {
+    await conditionalCommit(deps.db, {
+      guard: {
+        sql: `UPDATE auth_challenges SET generation = generation + 1, updated_at = ?
+          WHERE id = ? AND generation = ? AND consumed_at IS NULL AND aborted_at IS NULL
+          AND deadline > ? AND attempts < ? AND ${quotaGuard.sql}`,
+        params: [now, challenge.id, challenge.generation, now, OTP_ATTEMPTS, ...quotaGuard.params],
+      },
+      effects: [intentEffect],
+    });
     return finalizeResend(deps, preauth.context, now);
   }
 
@@ -328,7 +317,7 @@ export async function runResendOtp(deps: ResendOtpDeps, input: ResendOtpInput): 
                AND (purpose <> 'login' OR EXISTS (
                  SELECT 1 FROM users u WHERE u.id = ? AND u.email_key = auth_challenges.email_key
                    AND u.email_version = auth_challenges.address_version AND u.status = 'active'
-               ))`,
+               )) AND attempts < ? AND ${quotaGuard.sql}`,
       params: [
         newGeneration,
         mac,
@@ -337,9 +326,12 @@ export async function runResendOtp(deps: ResendOtpDeps, input: ResendOtpInput): 
         challenge.generation,
         now,
         challenge.recipient_user_id,
+        OTP_ATTEMPTS,
+        ...quotaGuard.params,
       ],
     },
     effects: [
+      intentEffect,
       {
         kind: "insert",
         table: "mail_outbox",

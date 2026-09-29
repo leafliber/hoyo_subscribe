@@ -19,6 +19,7 @@ import {
 
 /** 各表列全集（与 CREATE TABLE 逐列一致；不含系统 rowid）。 */
 export const EXPECTED_TABLES: Record<string, readonly string[]> = {
+  auth_resend_intents: ["id", "email_key", "preauth_id", "idempotency_key", "created_at"],
   // 数据组 1：来源与正文
   sources: [
     "source_id",
@@ -531,6 +532,11 @@ export interface ExpectedIndex {
 
 /** 显式 CREATE INDEX（不含 UNIQUE 约束产生的 sqlite_autoindex_*）。 */
 export const EXPECTED_INDEXES: Record<string, ExpectedIndex> = {
+  idx_auth_resend_intents_email: {
+    table: "auth_resend_intents",
+    columns: ["email_key", "created_at"],
+  },
+  idx_auth_resend_intents_cleanup: { table: "auth_resend_intents", columns: ["created_at"] },
   idx_sources_game_region: { table: "sources", columns: ["game", "region"] },
   idx_articles_source_last_checked: {
     table: "articles",

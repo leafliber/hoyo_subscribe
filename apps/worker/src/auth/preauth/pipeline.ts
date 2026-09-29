@@ -19,8 +19,9 @@
 // publicAuthIntentResponse（202，"符合条件的请求将发送验证码"）——已注册、未注册、
 // 满额、关闭注册四条路径字节相同。
 //
-// 本卡到第 7 步的接缝为止：验证码本身的生成、存储与校验不在范围（P2-02/P2-03）。
-// POST /api/v2/auth/challenges（§8.2 申请端点）由 P2-02 挂载并注入第 7 步真实效果。
+// P2-09：所有受理路径都调用同一效果；未获发信资格时只建不可授权的占位挑战。
+// 首发、重发和最近认证共用持久配额，后续请求不能从配额响应推断身份是否存在。
+// 真实效果的 SQL 形状由 challenges.test.ts 的四路径代理测试钉住。
 //
 // —— P2-02 获准的注入点改动（理由逐条，见任务卡范围条款） ——
 // 1. ChallengeAndMailTaskContext 增补 keys / rawEmail / idempotencyKey：真实效果
@@ -45,11 +46,9 @@ import {
   decideMailIntent,
   type MailIntentKind,
   OTP_TTL,
-  OUTBOX_UNRESERVED_PERIOD_KEY,
   utcDayPeriod,
 } from "@hoyo/contracts";
 import {
-  ACCOUNTS_TOTAL_CAPACITY_KEY,
   admissionMailIntent,
   readRegistrationCapacity,
   registrationGatesOpen,
@@ -62,13 +61,12 @@ import {
   publicAuthIntentResponse,
   runExistenceFold,
 } from "../../shell";
-import { conditionalCommit } from "../../storage/cas";
 import type { Keyring } from "../../storage/crypto/keyring";
 import { computeEmailKey } from "../../storage/crypto/mac";
 import { readMailDayLedger } from "../../storage/ledger/mail-ledger";
 import { renewPreauthCookieForContext } from "../challenges/renewal";
 import { PREAUTH_COOKIE_NAME, verifyPreauthCookieValue } from "./cookie";
-import { type AuthQuotaSnapshot, decideAuthQuota, intentsDayStartMs } from "./quota";
+import { decideAuthQuota, readAuthQuotaSnapshot } from "./quota";
 import type { ApproximateRateGate } from "./rate-gate";
 import type { TurnstileVerifier } from "./turnstile";
 
@@ -81,6 +79,8 @@ export interface ChallengeAndMailTaskContext {
   /** 密钥环（P2-02：真实效果计算验证码 MAC 与受控密文所需）。 */
   readonly keys: Keyring;
   readonly intent: MailIntentKind;
+  /** false 时只创建不可授权、永不外发的占位挑战。 */
+  readonly sendEligible?: boolean;
   readonly canonicalEmail: string;
   /** 请求原文邮箱（P2-02：新地址挑战按原文投递形态取实际投递串，§4.1）。 */
   readonly rawEmail: string;
@@ -127,114 +127,6 @@ interface AdmissionDecision {
   readonly mailApproved: boolean;
   /** 注册三条件（开放 + 账号容量 + 当日完成数）读侧是否全开；登录路径恒为 true。 */
   readonly registrationGatesPassed: boolean;
-}
-
-/**
- * 等成本空操作效果：与「挑战 + 发信任务」同语句形状的必败条件提交（守卫
- * value < 0 恒不命中，两条 INSERT 被 changes() 谓词空操作，零写入）。用于一切
- * 未获发信资格的路径，使第 7 步在四条路径上的数据库工作保持同形状（时序配平）。
- * P2-02 实装真实效果时应保持同数量级的语句形状，本函数形状已在测试中钉住。
- */
-async function runEqualizingNoopEffect(db: D1Database, now: number): Promise<void> {
-  await conditionalCommit(db, {
-    guard: {
-      sql: `UPDATE capacity_state SET updated_at = ? WHERE key = ? AND value < 0`,
-      params: [now, ACCOUNTS_TOTAL_CAPACITY_KEY],
-    },
-    effects: [
-      {
-        kind: "insert",
-        table: "auth_challenges",
-        columns: [
-          "id",
-          "purpose",
-          "email_key",
-          "address_version",
-          "preauth_id",
-          "mac",
-          "deadline",
-          "created_at",
-          "updated_at",
-        ],
-        rows: [
-          [
-            "equalization-noop",
-            "equalization",
-            "equalization",
-            0,
-            "equalization",
-            "equalization",
-            now,
-            now,
-            now,
-          ],
-        ],
-      },
-      {
-        kind: "insert",
-        table: "mail_outbox",
-        columns: [
-          "id",
-          "purpose",
-          "priority",
-          "period_key",
-          "address_version",
-          "payload_kind",
-          "status",
-          "created_at",
-          "updated_at",
-        ],
-        rows: [
-          [
-            "equalization-noop",
-            "equalization",
-            0,
-            OUTBOX_UNRESERVED_PERIOD_KEY,
-            0,
-            "equalization",
-            "pending",
-            now,
-            now,
-          ],
-        ],
-      },
-    ],
-  });
-}
-
-/** 第 5 步的邮箱/全局挑战配额读（同形状三条语句，路径间等成本）。 */
-async function readAuthQuotaSnapshot(
-  db: D1Database,
-  emailKey: string,
-  now: number,
-): Promise<AuthQuotaSnapshot> {
-  const dayStart = intentsDayStartMs(now);
-  const [emailRows, openRows, globalRows] = await Promise.all([
-    db
-      .prepare(
-        "SELECT count(*) AS intents, max(created_at) AS last FROM auth_challenges WHERE email_key = ? AND created_at >= ?",
-      )
-      .bind(emailKey, dayStart)
-      .first<{ intents: number; last: number | null }>(),
-    db
-      .prepare(
-        "SELECT count(*) AS c FROM auth_challenges WHERE email_key = ? AND consumed_at IS NULL AND aborted_at IS NULL AND deadline > ?",
-      )
-      .bind(emailKey, now)
-      .first<{ c: number }>(),
-    db
-      .prepare(
-        "SELECT count(*) AS c FROM auth_challenges WHERE consumed_at IS NULL AND aborted_at IS NULL AND deadline > ?",
-      )
-      .bind(now)
-      .first<{ c: number }>(),
-  ]);
-  return {
-    emailIntentsToday: emailRows?.intents ?? 0,
-    emailLastIntentAt: emailRows?.last ?? null,
-    emailOpenChallenges: openRows?.c ?? 0,
-    globalOpenChallenges: globalRows?.c ?? 0,
-  };
 }
 
 /** 用户存在性读（唯一一次；结果只喂给 runExistenceFold，不外泄）。 */
@@ -328,67 +220,45 @@ export async function runPreauthAdmission(
 
   // —— 第 6/7 步（存在性折叠内执行）：原子预占 + 创建挑战及发信任务 ——
   await runExistenceFold(decision.exists, {
-    // 已注册分支：真实单元工作 = 对真实 preauth Cookie 再做一次完整 MAC 验证。
     real: async () => {
       const recheck = await verifyPreauthCookieValue(deps.keys.preauthCookie(), cookieValue, now);
-      if (!recheck.ok) {
+      if (!recheck.ok)
         throw new ApiError("unauthorized", { code: "unauthorized", reason: "no_session" });
-      }
-      // 登录路径不占新注册槽：同形状必败预占（attempt=false → 容量上限 0，零写入）。
-      await reserveRegistrationSlot(deps.db, {
-        reservationId: crypto.randomUUID(),
-        emailKey: decision.emailKey,
-        now,
-        challengeDeadline,
-        attempt: false,
-      });
-      if (decision.mailApproved) {
-        await deps.effect({
-          db: deps.db,
-          keys: deps.keys,
-          intent: decision.intent,
-          canonicalEmail: decision.canonicalEmail,
-          rawEmail: input.email,
-          emailKey: decision.emailKey,
-          preauthId: preauth.context.preauthId,
-          idempotencyKey: input.idempotencyKey ?? null,
-          reservationId: null,
-          challengeDeadline,
-          now,
-        });
-      } else {
-        await runEqualizingNoopEffect(deps.db, now);
-      }
     },
-    // 未注册分支：等成本必败验证（P1-08）+ 注册路径的真实预占（三条件读侧全开才真占）。
     dummy: async () => {
       await dummyOtpMacVerify(deps.keys.otpMac());
-      const reservationId = crypto.randomUUID();
-      const slot = await reserveRegistrationSlot(deps.db, {
-        reservationId,
-        emailKey: decision.emailKey,
-        now,
-        challengeDeadline,
-        attempt: decision.registrationGatesPassed && decision.mailApproved,
-      });
-      if (decision.registrationGatesPassed && decision.mailApproved && slot === "reserved") {
-        await deps.effect({
-          db: deps.db,
-          keys: deps.keys,
-          intent: decision.intent,
-          canonicalEmail: decision.canonicalEmail,
-          rawEmail: input.email,
-          emailKey: decision.emailKey,
-          preauthId: preauth.context.preauthId,
-          idempotencyKey: input.idempotencyKey ?? null,
-          reservationId,
-          challengeDeadline,
-          now,
-        });
-      } else {
-        await runEqualizingNoopEffect(deps.db, now);
-      }
     },
+  });
+  const reservationId = crypto.randomUUID();
+  await reserveRegistrationSlot(deps.db, {
+    reservationId,
+    emailKey,
+    now,
+    challengeDeadline,
+    attempt: !exists && decision.registrationGatesPassed && decision.mailApproved,
+  });
+  // 同规范邮箱共享有效注册预占；并发输家不能用占位挑战抢走赢家的幂等键。
+  // 登录及折叠路径也执行同形查询，结果不改变它们的准入资格。
+  const sharedSlot = await deps.db
+    .prepare(`SELECT id FROM admission_reservations
+    WHERE email_key = ? AND state = 'reserved' AND expires_at > ?`)
+    .bind(emailKey, now)
+    .first<{ id: string }>();
+  const sendEligible =
+    decision.mailApproved && (exists || (decision.registrationGatesPassed && sharedSlot !== null));
+  await deps.effect({
+    db: deps.db,
+    keys: deps.keys,
+    intent: decision.intent,
+    sendEligible,
+    canonicalEmail: decision.canonicalEmail,
+    rawEmail: input.email,
+    emailKey,
+    preauthId: preauth.context.preauthId,
+    idempotencyKey: input.idempotencyKey ?? null,
+    reservationId: !exists && sendEligible ? (sharedSlot?.id ?? null) : null,
+    challengeDeadline,
+    now,
   });
 
   // 公开响应唯一出口：四条路径同形（202 + 固定模板）+ 统一同值续期（§4.3，见文件头
