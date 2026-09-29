@@ -153,6 +153,10 @@ CI=1 WRANGLER_SEND_METRICS=false WRANGLER_LOG_PATH=/tmp/<卡号>-wrangler.log pn
 
 对外错误至少区分：`validation`、`unauthorized`、`conflict`、`rate_limited`、`capacity_reached`、`quota_paused`、`temporarily_unavailable`。认证存在性敏感的结果一律折叠为统一响应，不得通过错误文案泄露某邮箱是否注册。
 
+**折叠不只看第一次响应**（2026-09-29，P2-07 验收发现，见 P2-09）：同一邮箱的后续请求——冷却、当日次数、重发、错码校验——也不能分出已注册与未注册。
+配额要按"受理的意图"计，不能按"实际发出的信"或"建了的挑战"计：关闭注册时未知邮箱不发信，按发信计数，第二次申请就只对已注册邮箱回 429。
+近似限速门按 isolate 各记各的，挡不住换 isolate 的请求，不能当折叠的依据。测试时把近似门换成全放行替身，模拟请求落到另一个 isolate。
+
 错误对象形状在 `packages/contracts` 定义一次，Worker 与前端共用；前端按 `docs/HOYO_SUBSCRIPTION_FRONTEND_DESIGN_v1.0.md` §11.3 映射到用户可执行的下一步。
 
 ### 5.4 数据访问

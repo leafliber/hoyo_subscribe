@@ -1,3 +1,4 @@
+// P2-07 获准跨卡接线：挂载账号最近认证、换绑、轮换、删除、导出及摘要。
 // P2-05 授权跨卡改动：挂载 public 恢复动作及本人新码交付路径。
 // P2-06 跨卡接线：挂载云端订阅 GET/PATCH；沿用 P2-04 的 active 会话鉴权。
 // P2-04 跨卡修正：把 P1-08 的无身份桩换成逐请求 D1 主状态鉴权，挂载会话路由。
@@ -10,6 +11,7 @@
 // P2-03 裁定授权注入：挂载原 preauth + 操作幂等键领取 pending Cookie 的完成端点。
 import { verifyParams } from "@hoyo/contracts";
 import { statusRoute } from "./accounts/admission/status";
+import { makeLifecycleRoutes } from "./accounts/lifecycle/routes";
 import { makeSubscriptionRoutes } from "./accounts/subscription/routes";
 import { makeChallengeRoutes } from "./auth/challenges/routes";
 import { makeCompleteRoute } from "./auth/consume/routes";
@@ -85,6 +87,9 @@ const shellByEnv = new WeakMap<Env, Shell>();
 function getShell(env: Env): Shell {
   let shell = shellByEnv.get(env);
   if (shell === undefined) {
+    const authRateGate = new InMemoryAuthRateGate();
+    const authTurnstile = () =>
+      siteverifyTurnstileVerifier((env as Env & ShellSecrets).TURNSTILE_SECRET_KEY ?? "");
     shell = createApiShell({
       authenticator: sessionAuthenticator(env.DB),
       // 秘密未注入时 getKeyring 抛错 → 写路由折叠为 temporarily_unavailable
@@ -100,15 +105,19 @@ function getShell(env: Env): Shell {
         // 申请端点失败关闭（503），不影响预认证初始化与其余路由。
         ...makeChallengeRoutes({
           keys: () => getKeyring(env as Env & ShellSecrets),
-          rateGate: new InMemoryAuthRateGate(),
-          turnstile: () =>
-            siteverifyTurnstileVerifier((env as Env & ShellSecrets).TURNSTILE_SECRET_KEY ?? ""),
+          rateGate: authRateGate,
+          turnstile: authTurnstile,
         }),
         makeCompleteRoute(() => getKeyring(env as Env & ShellSecrets)),
         ...makeSessionRoutes(() => getKeyring(env as Env & ShellSecrets)),
         // P2-05：public 恢复动作与 active 会话的新码交付；通道暂停效果由各通道卡挂入。
         ...makeRecoveryRoutes({ keys: () => getKeyring(env as Env & ShellSecrets) }),
         ...makeSubscriptionRoutes(),
+        ...makeLifecycleRoutes({
+          keys: () => getKeyring(env as Env & ShellSecrets),
+          rateGate: authRateGate,
+          turnstile: authTurnstile,
+        }),
       ],
     });
     shellByEnv.set(env, shell);

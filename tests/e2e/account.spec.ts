@@ -1,3 +1,4 @@
+// P2-07 获准跨卡接缝：最近认证原因的文案覆盖换邮箱、轮换和删除。
 // P2-05 合并接缝：F1-04 的穷尽期望同步恢复码保存与最近认证两个原因。
 import { mkdirSync } from "node:fs";
 import { resolve } from "node:path";
@@ -51,6 +52,12 @@ test("U27 七类错误码与全部 UnauthorizedReason 都给出可执行下一�
     expect(feedback.nextStep).toBeTruthy();
     expect(feedback.outcome).toBe("failed");
   }
+  const recent = feedbackForApiError(
+    buildApiErrorBody("unauthorized", { code: "unauthorized", reason: "recent_auth_required" }),
+  );
+  expect(recent.title).toBe("需要最近认证");
+  expect(recent.nextStep).toContain("邮箱或恢复码验证");
+  expect(recent.nextStep).not.toContain("生成恢复码");
 });
 
 test("U27 validation 定位首个字段，rate_limited 使用可公开等待信息", () => {

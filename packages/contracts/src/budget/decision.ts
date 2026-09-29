@@ -1,3 +1,4 @@
+// P2-07 获准跨卡改动：账号换绑验证邮件复用既有认证日池与 floor，不另设额度。
 // 邮件意图的当日判定与预占计划（任务卡 P1-07，验收 ID A-P1-BUDGET）——纯函数，L1 可测。
 //
 // 合同依据：CONTRACTS_BASELINE.md §7.1—§7.2、ADR-0003（纯日额度模型）；主方案 §9.1。
@@ -34,6 +35,7 @@ export type MailIntentKind =
   | "signup_auth" // 新注册验证码（含其重发）——占新注册子额度
   | "existing_auth_first_login" // 既有账号的首次登录验证码（认证降级期间唯一放行的认证意图）
   | "auth_resend" // 既有账号验证码重发（认证降级期间全部暂停）
+  | "account_change_auth" // 危险操作的邮箱证明；认证降级时与重发一同暂停
   | "base_routine_or_announce" // 常规提前提醒 / 新事件公布（基础池，无 floor）
   | "urgent_cancelled_or_retracted" // 紧急最高档（紧急 floor 收紧后唯一可发档）
   | "urgent_important_change"
@@ -46,6 +48,7 @@ export function poolOfMailIntent(kind: MailIntentKind): MailPool {
       return "new_registration";
     case "existing_auth_first_login":
     case "auth_resend":
+    case "account_change_auth":
       return "existing_auth";
     case "base_routine_or_announce":
       return "base_business";
@@ -147,7 +150,8 @@ export function decideMailIntent(
       }
       return { decision: "approve", pool: "existing_auth" };
     }
-    case "auth_resend": {
+    case "auth_resend":
+    case "account_change_auth": {
       const authRemaining = dayRemaining(authDayTotalLimit(), authTotalOccupancy(snapshot.pools));
       if (authRemaining <= 0) {
         return { decision: "reject", reason: "auth_day_exhausted" };
@@ -193,6 +197,7 @@ export function planMailReservation(kind: MailIntentKind): MailReservationPlan {
         authTotalLimit: authDayTotalLimit(),
       };
     case "auth_resend":
+    case "account_change_auth":
       return {
         pool: "existing_auth",
         rowOccupancyLimit: authDayTotalLimit(),

@@ -2,7 +2,7 @@
 // P4-01 获准跨卡改动：仅验证同一发布事务追加通知 outbox 的用例。
 
 import { env } from "cloudflare:test";
-import { NOTIFICATION_PUBLICATION_TOPIC } from "@hoyo/contracts";
+import { API_BODY_MAX_BYTES, NOTIFICATION_PUBLICATION_TOPIC } from "@hoyo/contracts";
 import { beforeAll, describe, expect, it } from "vitest";
 import { eventIdentity, milestoneIdentity } from "../extraction/identity";
 import { parseAnnouncementExactTime } from "../extraction/time";
@@ -50,6 +50,23 @@ async function count(table: string, where = "1=1", ...params: unknown[]): Promis
     ...params,
   );
   return row?.n ?? 0;
+}
+
+async function publicationState() {
+  return Promise.all(
+    [
+      "events",
+      "milestones",
+      "evidence",
+      "event_revisions",
+      "calendar_projections",
+      "outbox",
+      "system_state",
+    ].map(
+      async (table) =>
+        (await env.DB.prepare(`SELECT * FROM ${table} ORDER BY rowid`).all()).results,
+    ),
+  );
 }
 
 let next = 0;
@@ -239,6 +256,170 @@ describe("A-P3-PUBLISH 原子发布、身份与版本", () => {
     });
     expect(await count("outbox", "dedupe_key = ?", `notification:${eventId}:1`)).toBe(1);
   });
+
+  it.each([
+    { eventCount: 12, nodeCount: 1 },
+    { eventCount: 4, nodeCount: 4 },
+  ])("$eventCount 个事件各 $nodeCount 个节点的更新重发", async ({ eventCount, nodeCount }) => {
+    const external = id("external");
+    const first = await seedArticle(external);
+    const data = proposal();
+    const event = data.events[0];
+    const node = event?.milestones[0];
+    if (event === undefined || node === undefined) throw new Error("测试事件缺失");
+    data.events = Array.from({ length: eventCount }, (_, eventIndex) => ({
+      ...event,
+      event_key: `event${eventIndex}`,
+      milestones: Array.from({ length: nodeCount }, (_, nodeIndex) => ({
+        ...node,
+        milestone_key: `node${nodeIndex}`,
+      })),
+    }));
+    expect(new TextEncoder().encode(JSON.stringify(data)).byteLength).toBeLessThanOrEqual(
+      API_BODY_MAX_BYTES,
+    );
+    const initial = await publishApprovedCandidate(
+      env.DB,
+      await seedCandidate(first.versionId, data),
+      T0,
+    );
+    expect(initial.outcome).toBe("published");
+    const second = await seedArticle(external, 2, first.articleId);
+    data.events = data.events.map((item) => ({ ...item, title: "更正标题" }));
+    expect(new TextEncoder().encode(JSON.stringify(data)).byteLength).toBeLessThanOrEqual(
+      API_BODY_MAX_BYTES,
+    );
+    const candidate = await seedCandidate(second.versionId, data);
+    const guardBindings: number[] = [];
+    const batchSizes: number[] = [];
+    const db = {
+      prepare: (sql: string) => {
+        const statement = env.DB.prepare(sql);
+        if (!sql.startsWith("UPDATE candidates SET updated_at = updated_at")) return statement;
+        return {
+          bind: (...values: unknown[]) => {
+            guardBindings.push(values.length);
+            return statement.bind(...values);
+          },
+        } as D1PreparedStatement;
+      },
+      batch: (statements: D1PreparedStatement[]) => {
+        batchSizes.push(statements.length);
+        return env.DB.batch(statements);
+      },
+    } as D1Database;
+    expect(await publishApprovedCandidate(db, candidate, T0 + 1)).toEqual(initial);
+    // 结构断言：两个形状都只有 11 个守卫参数；不是新增平台可调阈值。
+    expect(guardBindings).toEqual([11]);
+    expect(batchSizes).toEqual([3 + eventCount * (4 + nodeCount * 3)]);
+    for (const item of data.events) {
+      const eventId = await eventIdentity("genshin-ann", external, item.event_key);
+      expect(
+        await one(
+          "SELECT title, event_revision, schedule_revision FROM events WHERE id = ?",
+          eventId,
+        ),
+      ).toEqual({ title: "更正标题", event_revision: 2, schedule_revision: 1 });
+      expect(await count("event_revisions", "event_id = ?", eventId)).toBe(2);
+      expect(await count("milestones", "event_id = ? AND public_ical_revision = 2", eventId)).toBe(
+        nodeCount,
+      );
+      expect(
+        await count("calendar_projections", "event_id = ? AND public_ical_revision = 2", eventId),
+      ).toBe(nodeCount);
+      expect(await count("evidence", "candidate_id = ? AND event_id = ?", candidate, eventId)).toBe(
+        nodeCount + 1,
+      );
+    }
+    expect(await count("outbox", "dedupe_key = ?", `publish:${candidate}`)).toBe(1);
+    expect(
+      await one("SELECT updated_at FROM system_state WHERE key = 'public_snapshot_pending'"),
+    ).toEqual({ updated_at: T0 + 1 });
+  });
+
+  it.each([
+    "event_revision",
+    "event_lock",
+    "node_revision",
+    "node_lock",
+    "projection_revision",
+    "missing_projection",
+    "article_link",
+    "new_event_exists",
+    "new_node_exists",
+  ])("JSON 守卫在提交前发生 %s 时整批未命中", async (race) => {
+    const external = id("external");
+    const first = await seedArticle(external);
+    await publishApprovedCandidate(env.DB, await seedCandidate(first.versionId), T0);
+    const eventId = await eventIdentity("genshin-ann", external, "moon_trial");
+    const nodeId = await milestoneIdentity(eventId, "start");
+    const second = await seedArticle(external, 2, first.articleId);
+    const data = proposal({ title: "更正标题" });
+    const event = data.events[0];
+    const node = event?.milestones[0];
+    if (event === undefined || node === undefined) throw new Error("测试事件缺失");
+    event.milestones.push({ ...node, milestone_key: "extra" });
+    data.events = [...data.events, { ...event, event_key: "extra_event" }];
+    const candidate = await seedCandidate(second.versionId, data);
+    let before: Awaited<ReturnType<typeof publicationState>> | undefined;
+    const db = {
+      prepare: (sql: string) => env.DB.prepare(sql),
+      batch: async (statements: D1PreparedStatement[]) => {
+        const mutations: Record<string, { sql: string; params: unknown[] }> = {
+          event_revision: {
+            sql: "UPDATE events SET event_revision = event_revision + 1 WHERE id = ?",
+            params: [eventId],
+          },
+          event_lock: { sql: "UPDATE events SET human_locked = 1 WHERE id = ?", params: [eventId] },
+          node_revision: {
+            sql: "UPDATE milestones SET public_ical_revision = public_ical_revision + 1 WHERE id = ?",
+            params: [nodeId],
+          },
+          node_lock: {
+            sql: "UPDATE milestones SET human_locked = 1 WHERE id = ?",
+            params: [nodeId],
+          },
+          projection_revision: {
+            sql: "UPDATE calendar_projections SET public_ical_revision = public_ical_revision + 1 WHERE milestone_id = ?",
+            params: [nodeId],
+          },
+          missing_projection: {
+            sql: "DELETE FROM calendar_projections WHERE milestone_id = ?",
+            params: [nodeId],
+          },
+          article_link: {
+            sql: `INSERT INTO evidence (id, event_id, article_version_id, block_ref, created_at)
+              VALUES (?, ?, ?, 'blocks/0', ?)`,
+            params: [id("race_evidence"), eventId, second.versionId, T0],
+          },
+          new_event_exists: {
+            sql: `INSERT INTO events (id, game, region, event_type, status, title, created_at, updated_at)
+              SELECT ?, game, region, event_type, status, title, created_at, updated_at FROM events WHERE id = ?`,
+            params: [await eventIdentity("genshin-ann", external, "extra_event"), eventId],
+          },
+          new_node_exists: {
+            sql: `INSERT INTO milestones (id, event_id, milestone_key, node_type, title, source_timezone,
+              raw_expression, time_basis, time_precision, created_at, updated_at)
+              VALUES (?, ?, 'extra', 'start', '合成并发节点', 'UTC+08:00', '待定', 'unresolved', 'unknown', ?, ?)`,
+            params: [await milestoneIdentity(eventId, "extra"), eventId, T0, T0],
+          },
+        };
+        const mutation = mutations[race];
+        if (mutation === undefined) throw new Error("未知并发场景");
+        await env.DB.prepare(mutation.sql)
+          .bind(...mutation.params)
+          .run();
+        before = await publicationState();
+        return env.DB.batch(statements);
+      },
+    } as D1Database;
+    expect(await publishApprovedCandidate(db, candidate, T0 + 1)).toEqual({
+      outcome: "condition_missed",
+    });
+    expect(before).toBeDefined();
+    expect(await publicationState()).toEqual(before);
+  });
+
   it("同一候选发布两次：第二次零事件写入、零修订、零 outbox", async () => {
     const article = await seedArticle(id("external"));
     const candidate = await seedCandidate(article.versionId);
