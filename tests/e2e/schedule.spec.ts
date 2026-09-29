@@ -196,7 +196,11 @@ test("U06 返回列表恢复筛选、已展开日程与合理滚动位置", asyn
 
 test("U03 U05 E2 桌面与手机实际截图、窄屏不裁剪关键内容", async ({ page }, info) => {
   await page.goto("/");
-  const folder = resolve("tests/e2e/evidence/f1-02");
+  const folder = resolve(
+    process.env.HOYO_E2E_WRITE_EVIDENCE === "1"
+      ? "tests/e2e/evidence/f1-02"
+      : "tests/e2e/test-results/f1-02",
+  );
   mkdirSync(folder, { recursive: true });
   const viewport = info.project.name.startsWith("mobile") ? "mobile" : "desktop";
   await page.screenshot({ path: `${folder}/${viewport}-home.png`, fullPage: true });
