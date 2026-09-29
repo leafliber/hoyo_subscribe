@@ -14,9 +14,10 @@ import { conditionalCommit } from "../../storage/cas";
 import { splitSqlStatements } from "../../storage/split-sql";
 import { expandOccurrencePage, startDueOccurrenceExpansion } from "../occurrences/expand";
 import { expandDispatchBatchPage, startDispatchBatch } from "./batch";
-import { CONTEXT_SQL, contextParams } from "./context";
+import { CONTEXT_SQL, contextParams, readDispatchContext } from "./context";
 import { planDispatchAttempt, selectDispatchCandidate } from "./dispatch";
 import { expireDispatchCandidates, pruneExpiredDispatchBatch } from "./expiry";
+import { stageDigestCandidates } from "./future";
 import type { DispatchProposal } from "./types";
 
 const migrations = import.meta.glob("../../../../../migrations/*.sql", {
@@ -331,6 +332,57 @@ describe("A-P4-FAIR 合并、去重与未来候选", () => {
     const b = await batch();
     expect(await selectDispatchCandidate(env.DB, b.id, T)).toEqual({ outcome: "empty" });
     expect(await rows("SELECT * FROM dispatch_cursors")).toHaveLength(0);
+  });
+  it("高档预算 deferred 后低档到期项被覆盖，剩余未来候选不能单独发信", async () => {
+    const uid = await user(1);
+    const correction = await fact("important_change");
+    const announcement = await fact("new_event", T, correction);
+    const future = await fact("new_event", T + MAIL_DIGEST_WINDOW * 1000);
+    const b = await batch();
+    const high = await select(b.id);
+    expect(high.intent).toBe("urgent_important_change");
+    const low = (
+      await rows<{ id: string; priority: number }>(
+        "SELECT id,priority FROM deliveries WHERE occurrence_id = ? AND user_id = ?",
+        announcement.oid,
+        uid,
+      )
+    )[0];
+    if (!low) throw new Error("缺少合成低档到期候选");
+    expect(high.supersededIds).toEqual([low.id]);
+    // 用 deferred 模拟预算推迟，不批准高档；覆盖关系仍应阻止低档到期项抢先发送。
+    const deferred = [{ userId: uid, priority: high.priority }];
+    expect(await selectDispatchCandidate(env.DB, b.id, T, deferred)).toEqual({ outcome: "empty" });
+    const cursors = await rows("SELECT * FROM dispatch_cursors");
+
+    // 模拟此前调度轮已经暂存的未来 Delivery，必须让 digest 真正看到未来候选。
+    const { context } = await readDispatchContext(env.DB, uid, b.occurrenceIds, T);
+    expect(await stageDigestCandidates(env.DB, b, context, low.priority, T)).toBe(true);
+    const staged = (
+      await rows<{ id: string; priority: number; due_at: number }>(
+        `SELECT d.id,d.priority,o.due_at FROM deliveries d JOIN occurrences o ON o.id = d.occurrence_id
+       WHERE d.occurrence_id = ? AND d.user_id = ?`,
+        future.oid,
+        uid,
+      )
+    )[0];
+    if (!staged) throw new Error("缺少合成未来候选");
+    expect(staged.priority).toBe(low.priority);
+    expect(staged.due_at).toBeGreaterThan(T);
+    expect(staged.due_at).toBeLessThanOrEqual(T + MAIL_DIGEST_WINDOW * 1000);
+
+    const selection = await selectDispatchCandidate(env.DB, b.id, T, deferred);
+    expect(selection.outcome).toBe("empty");
+    expect(await rows("SELECT id FROM mail_outbox")).toHaveLength(0);
+    expect(await rows("SELECT * FROM dispatch_cursors")).toEqual(cursors);
+    expect(
+      await rows("SELECT id FROM deliveries WHERE status = 'pending' AND mail_outbox_ref IS NULL"),
+    ).toHaveLength(3);
+
+    // 到了该未来项自己的 due_at 才能独立成为候选；不是因为资格缺失才得到上面的 empty。
+    const atDue = await selectDispatchCandidate(env.DB, b.id, future.due, deferred);
+    expect(atDue.outcome).toBe("candidate");
+    if (atDue.outcome === "candidate") expect(atDue.proposal.deliveryIds).toEqual([staged.id]);
   });
   it("同节点更正覆盖晚发现和公布，普通提醒仍独立；低优先级不进入更正邮件", async () => {
     await user(1);
