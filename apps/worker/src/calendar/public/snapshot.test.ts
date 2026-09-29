@@ -310,6 +310,46 @@ describe("A-P3-PATCH 公共快照与共享更正层", () => {
     expect(await readNoncriticalPublicationPause(env.DB)).toBe(true);
   }, 30_000);
 
+  it("容量仍在告警线时构建与 unchanged 路径均保持暂停", async () => {
+    const now = T0 + 7 * day + 2;
+    expect(
+      await one<{ n: number }>(
+        "SELECT COUNT(*) AS n FROM calendar_patches WHERE retain_until > ?",
+        now,
+      ),
+    ).toEqual({ n: CAL_PATCH_GLOBAL_MAX - 1 });
+    await queue(now);
+    expect(await buildPublicSnapshot(env.DB, now + 1)).toMatchObject({
+      outcome: "built",
+      capacity_alert: true,
+    });
+    expect(await readNoncriticalPublicationPause(env.DB)).toBe(true);
+    expect(await buildPublicSnapshot(env.DB, now + 2)).toEqual({ outcome: "unchanged" });
+    expect(await readNoncriticalPublicationPause(env.DB)).toBe(true);
+  });
+
+  it("他源已暂停时触发容量告警仍保留他源原因", async () => {
+    const now = T0 + 7 * day + 5;
+    await writeNoncriticalPublicationPause(env.DB, true, "other_source", now);
+    try {
+      await queue(now);
+      expect(await buildPublicSnapshot(env.DB, now + 1)).toMatchObject({
+        outcome: "built",
+        capacity_alert: true,
+      });
+      expect(await readNoncriticalPublicationPause(env.DB)).toBe(true);
+      expect(
+        await one<{ reason: string }>(
+          "SELECT json_extract(value_json, '$.reason') AS reason FROM system_state WHERE key = ?",
+          NONCRITICAL_PUBLICATION_PAUSE_STATE_KEY,
+        ),
+      ).toEqual({ reason: "other_source" });
+    } finally {
+      // 恢复后续容量回落用例需要的本卡暂停原因。
+      await writeNoncriticalPublicationPause(env.DB, true, "calendar_patch_capacity", now + 2);
+    }
+  });
+
   it("容量回落后仅解除本卡暂停标记，保留其他来源的暂停", async () => {
     const recoveredAt = T0 + (CAL_PATCH_MIN_DAYS + CAL_PATCH_TAIL_DAYS + 1) * day;
     await queue(recoveredAt);
