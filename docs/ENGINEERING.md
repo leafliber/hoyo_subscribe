@@ -160,6 +160,10 @@ CI=1 WRANGLER_SEND_METRICS=false WRANGLER_LOG_PATH=/tmp/<卡号>-wrangler.log pn
 - 容量与并发一律走条件提交：**禁止 `COUNT` 后无条件 `INSERT`**。账号注册、验证码消费、会话激活、配置 CAS、Feed 换 token、退订、名额释放都必须在同一条件边界内完成。
 - D1 `batch` 的 SQL 失败回滚**不等于** CAS 更新零行会自动失败；必须用统一条件守卫或约束让整批写入一起成立或一起失败，并为"数据库报错"与"条件未命中"分别写测试。
 - `conditionalCommit`（`apps/worker/src/storage/cas.ts`）的依赖效果靠 `changes() = 1` 串链：前一条恰好改 1 行，后一条才执行。所以**除最后一条外，每条效果都必须恰好命中 1 行**（多行 insert 只能放最后），最后一条至少 1 行；守卫命中而效果不满足时，整批已经落库，调用方却收到 `CasInvariantError`。可能零行的写入——按 user_id 撤销"全部会话"、给可能还不存在的 Feed 行递增版本——不能直接写成效果：改用必然命中的守卫（如递增 `users.auth_epoch`），或先扩展原语再用（2026-09-28 验收登记）。
+- **D1 的语句上限（2026-09-29 验收登记）**：单条语句最多 **100 个绑定参数**（本地 D1 同样执行，报 `too many SQL variables`）；
+  每次 Worker 调用最多 **1,000 条查询**，`batch` 里的语句逐条计。所以守卫与效果的参数个数**不能随数据量增长**——需要核对一组行时，
+  把它们打包成一个 JSON 参数用 `json_each(?)` 核对；一次调用要写的行数也要有上界，写不完就分批推进（进度落库）。
+  P3-04 的发布守卫就栽在这里（见 P3-12）。只用"一两个事件"的小样本测不出来，用例要覆盖合同允许的最大形状。
 - 索引至少覆盖：邮箱键、token hash、所有者、endpoint hash、任务到期、发送状态/优先级、反馈 ID、清理时间、分页 order。测量真实 `rows_read`，不假定位图过滤会命中普通索引。
 
 ### 5.5 日志与遥测
@@ -226,7 +230,7 @@ F1-05 已合入（`861c4c2`）：e2e 改由 `scripts/e2e/serve.mjs` 前台服务
 
 **并发与竞态必须真测**：验证码并发消费、两设备同时保存、会话名额争用、预算并发预占，都要写成真实并发用例，不用"逻辑上不可能"代替。
 
-**e2e 不得覆盖已提交的证据（2026-09-28 登记）**：普通 `pnpm test:e2e` 只把截图写进 `test-results/`；需要更新 `tests/e2e/evidence/**` 时显式设环境变量再跑。F1-02 的 `schedule.spec.ts` 目前每跑一次就改写 4 张证据截图，已登记由 F2-03 顺手修正。2026-09-29 复查：F1-03 的 `event-detail.spec.ts` 同样每次改写 `tests/e2e/evidence/f1-03/` 的 6 张截图，一并交 F2-03 修。
+**e2e 不得覆盖已提交的证据（2026-09-28 登记）**：普通 `pnpm test:e2e` 只把截图写进 `test-results/`；需要更新 `tests/e2e/evidence/**` 时显式设环境变量再跑。F1-02 的 `schedule.spec.ts` 目前每跑一次就改写 4 张证据截图，已登记由 F2-03 顺手修正。2026-09-29 复查：F1-03 的 `event-detail.spec.ts` 同样每次改写 `tests/e2e/evidence/f1-03/` 的 6 张截图，一并交 F2-03 修。F2-03 已修好这两处（环境变量 `HOYO_E2E_WRITE_EVIDENCE=1` 才写已提交证据，否则写进忽略的 `tests/e2e/test-results/`）；F1-04 的 `account.spec.ts` 与 F2-01 的 `subscription.spec.ts` 还会改写，交 F2-04 照同样写法修。
 
 ## 8. Git 与 PR
 

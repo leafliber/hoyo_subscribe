@@ -1,4 +1,5 @@
 ---
+// F2-03 获准跨卡改动：只挂保存状态机的比较区、核对入口与已保存摘要。
 import {
   CALENDAR_ALARMS_DEFAULT,
   CHANGE_DEFAULTS,
@@ -151,15 +152,26 @@ const moreRules = SUBSCRIPTION_RULE_COPY.filter((rule) => !recommendedIds.has(ru
       <div class="subscription-save-bar">
         <p id="save-result" role="status">当前选择尚未保存。</p>
         <div class="save-actions">
+          <button id="recheck-save" class="secondary-button" type="button" hidden>重新读取云端</button>
           <button id="discard-changes" class="secondary-button" type="button">放弃修改</button>
-          <button class="button" type="submit">保存订阅</button>
+          <button id="save-subscription" class="button" type="submit">保存订阅</button>
         </div>
       </div>
+      <section id="save-comparison" class="subscription-step" aria-labelledby="save-comparison-heading" hidden>
+        <h2 id="save-comparison-heading">比较云端与本机草稿</h2>
+        <p>云端设置已有变化。请逐组核对；这里不会自动合并或覆盖。</p>
+        <div id="save-differences"></div>
+        <div class="save-actions">
+          <button id="adopt-cloud" class="secondary-button" type="button">采用云端设置</button>
+          <button id="keep-draft" class="secondary-button" type="button">保留草稿，返回编辑</button>
+        </div>
+      </section>
     </form>
 
     <section class="receive-section" aria-labelledby="receive-heading">
       <h2 id="receive-heading">接收方式</h2>
       <p class="subscription-hint">接收方式与上方内容设置分别管理。</p>
+      <p id="channel-saved-summary" class="subscription-hint">尚无已保存配置可用于开通接收方式。</p>
       <div class="receive-grid">
         <section id="calendar-channel" class="receive-item" aria-labelledby="calendar-channel-heading">
           <h3 id="calendar-channel-heading">日历订阅</h3>

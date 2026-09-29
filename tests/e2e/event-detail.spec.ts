@@ -122,7 +122,11 @@ test("U04 官方依据逐级展开，三项主要操作可用且设置订阅只�
 test("U02 U04 桌面与手机截图、窄屏和键盘展开留证", async ({ page }, info) => {
   await page.goto("/events/morning");
   const viewport = info.project.name.startsWith("mobile") ? "mobile" : "desktop";
-  const folder = resolve("tests/e2e/evidence/f1-03");
+  const folder = resolve(
+    process.env.HOYO_E2E_WRITE_EVIDENCE === "1"
+      ? "tests/e2e/evidence/f1-03"
+      : "tests/e2e/test-results/f1-03",
+  );
   mkdirSync(folder, { recursive: true });
   if (viewport === "mobile") {
     await page.setViewportSize({ width: 320, height: 800 });
