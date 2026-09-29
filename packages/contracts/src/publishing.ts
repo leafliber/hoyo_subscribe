@@ -18,6 +18,8 @@ export const PUBLISH_ACTOR_PATH = { RULE: "rule", MODEL: "model", MANUAL: "manua
 export type PublishActorPath = (typeof PUBLISH_ACTOR_PATH)[keyof typeof PUBLISH_ACTOR_PATH];
 
 export const SNAPSHOT_REBUILD_TOPIC = "snapshot_rebuild";
+// P4-01 获准跨卡改动：发布与通知发生项之间使用持久 outbox 信号，不以提交前取得的时间作游标。
+export const NOTIFICATION_PUBLICATION_TOPIC = "notification_publication";
 export const PUBLIC_SNAPSHOT_PENDING_STATE_KEY = "public_snapshot_pending";
 
 /**
