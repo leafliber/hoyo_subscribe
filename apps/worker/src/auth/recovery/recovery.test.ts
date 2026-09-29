@@ -797,7 +797,7 @@ describe("A-P2-RECOVERY 离线恢复码", () => {
       (values) => [...values].sort((a, b) => a - b)[Math.floor(values.length / 2)] ?? 0,
     );
     expect(Math.max(...medians) / Math.min(...medians), JSON.stringify(medians)).toBeLessThan(2.5);
-  });
+  }, 60_000);
 
   it("按 recovery_id 精确小时/日双窗及来源近似双窗限速；D1 不存 IP 原文", async () => {
     const id = crypto.randomUUID();

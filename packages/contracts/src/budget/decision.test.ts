@@ -1,3 +1,4 @@
+// P2-07 获准跨卡改动：验证账号换绑 OTP 使用认证池且遵守当日降级。
 // A-P1-BUDGET · 邮件意图当日判定（任务卡 P1-07）——L1 纯函数测试。
 // 合同依据：CONTRACTS_BASELINE.md §7.1—§7.3、ADR-0003、主方案 §9.1。
 // 重点钉死（任务卡明示）：
@@ -198,6 +199,12 @@ describe("A-P1-BUDGET 认证降级（§7.2：只接受既有账号首次登录�
       decision: "reject",
       reason: "auth_floor_degraded",
     });
+    // P2-07 的危险操作 OTP 也不能吃掉保留给首次登录的 floor。
+    expect(decideMailIntent("account_change_auth", snap)).toEqual({
+      decision: "reject",
+      reason: "auth_floor_degraded",
+    });
+    expect(planMailReservation("account_change_auth").authTotalLimit).toBe(AUTH_TOTAL - AUTH_FLOOR);
     expect(decideMailIntent("existing_auth_first_login", snap)).toEqual({
       decision: "approve",
       pool: "existing_auth",
