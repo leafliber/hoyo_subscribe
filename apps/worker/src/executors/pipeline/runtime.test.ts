@@ -83,6 +83,7 @@ beforeAll(async () => {
     for (const sql of splitSqlStatements(migrations[path])) await env.DB.prepare(sql).run();
 });
 beforeEach(async () => {
+  vi.restoreAllMocks();
   const tables = (
     await env.DB.prepare(
       "SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' AND name NOT LIKE '_cf_%'",
@@ -185,7 +186,7 @@ describe("A-P3-PIPELINE 持久编排与定时接线", () => {
       await env.DB.prepare("SELECT status,last_error FROM jobs WHERE kind = ?")
         .bind(PUBLICATION_JOB)
         .first(),
-    ).toEqual({ status: "failed", last_error: "pipeline_step_failed" });
+    ).toEqual({ status: "failed", last_error: "sql_binding_limit" });
     expect(log.mock.calls.flat().some((line) => String(line).includes("pipeline_job_failed"))).toBe(
       true,
     );
@@ -646,4 +647,301 @@ describe("A-P3-PIPELINE 持久编排与定时接线", () => {
       }),
     ).toBe(false);
   });
+  it("返工 R1：Cron 在墙钟内循环回收到 done，六个千节点旧代不积压", async () => {
+    await runtime().watchdog();
+    await drain();
+    const event = await env.DB.prepare("SELECT id FROM events LIMIT 1").first<{ id: string }>();
+    await env.DB.prepare(`INSERT INTO milestones (id,event_id,milestone_key,node_type,title,time_exact_ms,source_timezone,raw_expression,time_basis,time_precision,created_at,updated_at)
+      SELECT 'load-'||value,?,'load-'||value,'start','synthetic',?,'UTC','synthetic','official_explicit','datetime',?,? FROM json_each(?)`)
+      .bind(event?.id, now, now, now, JSON.stringify(Array.from({ length: 1000 }, (_, i) => i)))
+      .run();
+    await env.DB.prepare("UPDATE public_snapshots SET generation = 8").run();
+    for (let generation = 1; generation <= 7; generation++) {
+      await env.DB.prepare(
+        "INSERT INTO public_snapshots (id,generation,state,created_at) VALUES (?,?,'superseded',?)",
+      )
+        .bind(`load-snapshot-${generation}`, generation, now)
+        .run();
+      await env.DB.prepare(
+        "INSERT INTO public_snapshot_nodes (snapshot_id,milestone_id,node_json) SELECT ?,id,'{}' FROM milestones WHERE id LIKE 'load-%'",
+      )
+        .bind(`load-snapshot-${generation}`)
+        .run();
+    }
+    let pages = 0,
+      removed = 0;
+    const started = performance.now();
+    const reclaim: typeof reclaimSupersededPublicSnapshotPage = async (db, size) => {
+      const result = await reclaimSupersededPublicSnapshotPage(db, size);
+      pages++;
+      removed += result.nodes_deleted;
+      return result;
+    };
+    await runtime({ reclaim }).watchdog();
+    expect(removed).toBe(6000);
+    expect(pages).toBe(301);
+    expect(await count("public_snapshots")).toBe(2);
+    expect(await count("public_snapshot_nodes")).toBe(1002);
+    console.log(
+      "P3-11 R1 reclaim local",
+      JSON.stringify({ removed, pages, elapsedMs: performance.now() - started }),
+    );
+  });
+  it("返工 R1：墙钟耗尽停止回收，下一 Cron 从剩余节点恢复", async () => {
+    await runtime().watchdog();
+    await drain();
+    await env.DB.prepare(
+      "INSERT INTO public_snapshots (id,generation,state,created_at) VALUES ('wall-old',0,'building',?)",
+    )
+      .bind(now)
+      .run();
+    await env.DB.prepare(
+      "INSERT INTO public_snapshot_nodes (snapshot_id,milestone_id,node_json) SELECT 'wall-old',milestone_id,node_json FROM public_snapshot_nodes",
+    ).run();
+    let pages = 0;
+    const reclaim: typeof reclaimSupersededPublicSnapshotPage = async (db) => {
+      pages++;
+      const page = await reclaimSupersededPublicSnapshotPage(db, 1);
+      now += EXECUTOR_BATCH_WALL_LIMIT * 1000;
+      return page;
+    };
+    await runtime({ reclaim }).watchdog();
+    expect(pages).toBe(1);
+    expect(await count("public_snapshots")).toBe(2);
+    await runtime().watchdog();
+    expect(await count("public_snapshots")).toBe(1);
+  });
+  it("返工 R3：旧租约在来源页结束时不能写回 sources.cursor_json 或成功水位", async () => {
+    await runtime().watchdog();
+    await runtime().tick();
+    const before = await env.DB.prepare(
+      "SELECT cursor_json,last_success_at,updated_at FROM sources WHERE source_id = 'zzz-ann'",
+    ).first();
+    const payload = (
+      await env.DB.prepare("SELECT payload_json FROM jobs WHERE kind = ?")
+        .bind(SOURCE_JOB)
+        .first<{ payload_json: string }>()
+    )?.payload_json;
+    let stolen = false;
+    const db = new Proxy(env.DB, {
+      get(target, key) {
+        if (key === "batch")
+          return async (statements: D1PreparedStatement[]) => {
+            const result = await target.batch(statements);
+            // 在保存当前页最后一篇后抢走租约，确保运行真正走到来源游标 UPDATE。
+            await target
+              .prepare(
+                "UPDATE jobs SET lease_version = lease_version + 1,lease_owner = 'new-owner' WHERE kind = ?",
+              )
+              .bind(SOURCE_JOB)
+              .run();
+            stolen = true;
+            return result;
+          };
+        const value = Reflect.get(target, key, target);
+        return typeof value === "function" ? value.bind(target) : value;
+      },
+    });
+    now++;
+    await runtime({ db }).tick();
+    expect(stolen).toBe(true);
+    expect(await count("article_versions")).toBe(1);
+    expect(
+      await env.DB.prepare(
+        "SELECT cursor_json,last_success_at,updated_at FROM sources WHERE source_id = 'zzz-ann'",
+      ).first(),
+    ).toEqual(before);
+    expect(
+      (
+        await env.DB.prepare("SELECT payload_json FROM jobs WHERE kind = ?")
+          .bind(SOURCE_JOB)
+          .first<{ payload_json: string }>()
+      )?.payload_json,
+    ).toBe(payload);
+  });
+  async function prepareFailureLane(
+    lane: "source" | "publication" | "notification",
+    fail: () => void,
+  ) {
+    await runtime().watchdog();
+    await runtime().tick();
+    if (lane !== "source") await runtime().tick();
+    const deps: Partial<ConstructorParameters<typeof PipelineRuntime>[0]> = {};
+    let kind = SOURCE_JOB;
+    if (lane === "source") {
+      deps.db = new Proxy(env.DB, {
+        get(target, key) {
+          if (key === "batch")
+            return async (statements: D1PreparedStatement[]) => {
+              fail();
+              return target.batch(statements);
+            };
+          const value = Reflect.get(target, key, target);
+          return typeof value === "function" ? value.bind(target) : value;
+        },
+      });
+    } else if (lane === "publication") {
+      kind = PUBLICATION_JOB;
+      const { publishApprovedCandidate } = await import("../../publishing/publish");
+      deps.publish = async (...args) => {
+        fail();
+        return publishApprovedCandidate(...args);
+      };
+    } else {
+      await drain();
+      kind = "pipeline_notification";
+      await env.DB.prepare("DELETE FROM jobs WHERE kind = ?").bind(kind).run();
+      await env.DB.prepare("UPDATE outbox SET dispatch_state = 'pending' WHERE topic = ?")
+        .bind(NOTIFICATION_PUBLICATION_TOPIC)
+        .run();
+      const { generatePublicationOccurrences } = await import("../../mail/occurrences/generate");
+      deps.notify = async (...args) => {
+        fail();
+        return generatePublicationOccurrences(...args);
+      };
+    }
+    const before =
+      (
+        await env.DB.prepare("SELECT attempts FROM jobs WHERE kind = ?")
+          .bind(kind)
+          .first<{ attempts: number }>()
+      )?.attempts ?? 0;
+    return { deps, kind, before };
+  }
+  it("返工 R2：通知已提交但确认中断，下一 watchdog 只修复任务状态", async () => {
+    const { kind } = await prepareFailureLane("notification", () => undefined);
+    const { generatePublicationOccurrences } = await import("../../mail/occurrences/generate");
+    const notify = vi.fn(async (...args: Parameters<typeof generatePublicationOccurrences>) => {
+      await generatePublicationOccurrences(...args);
+      throw new Error("synthetic acknowledgement interrupted");
+    });
+    await runtime({ notify }).tick();
+    expect(
+      await env.DB.prepare("SELECT dispatch_state FROM outbox WHERE topic = ?")
+        .bind(NOTIFICATION_PUBLICATION_TOPIC)
+        .first(),
+    ).toEqual({ dispatch_state: "dispatched" });
+    expect(
+      await env.DB.prepare("SELECT status FROM jobs WHERE kind = ?").bind(kind).first(),
+    ).toEqual({ status: "pending" });
+    expect(await runtime().nextAlarm()).toBe(now + WATCHDOG_INTERVAL * 1000);
+    now += WATCHDOG_INTERVAL * 1000;
+    await runtime().watchdog();
+    await runtime({ notify }).tick();
+    expect(notify).toHaveBeenCalledTimes(1);
+    expect(
+      await env.DB.prepare("SELECT status FROM jobs WHERE kind = ?").bind(kind).first(),
+    ).toEqual({ status: "done" });
+  });
+  for (const lane of ["source", "publication", "notification"] as const) {
+    it(`返工 R2 malformed ${lane}：真实坏载荷进入 failed 而不是永久重试`, async () => {
+      const { kind } = await prepareFailureLane(lane, () => undefined);
+      if (lane === "notification")
+        await env.DB.prepare("UPDATE outbox SET payload_json = '{}' WHERE topic = ?")
+          .bind(NOTIFICATION_PUBLICATION_TOPIC)
+          .run();
+      else
+        await env.DB.prepare("UPDATE jobs SET payload_json = '{}' WHERE kind = ?").bind(kind).run();
+      await runtime().tick();
+      expect(
+        await env.DB.prepare("SELECT status,last_error FROM jobs WHERE kind = ?")
+          .bind(kind)
+          .first(),
+      ).toEqual({ status: "failed", last_error: "invalid_data" });
+    });
+
+    it(`返工 R2 transient ${lane}：跨 watchdog 重试、同批不重试、逐次持久次数原因并告警`, async () => {
+      let calls = 0;
+      const { deps, kind, before } = await prepareFailureLane(lane, () => {
+        calls++;
+        if (calls <= 2) throw new Error("D1_ERROR: temporary overload synthetic");
+      });
+      const log = vi.spyOn(console, "log");
+      for (let attempt = 1; attempt <= 2; attempt++) {
+        await runtime(deps).tick();
+        expect(calls).toBe(attempt);
+        expect(
+          await env.DB.prepare("SELECT status,attempts,last_error,due_at FROM jobs WHERE kind = ?")
+            .bind(kind)
+            .first(),
+        ).toEqual({
+          status: "pending",
+          attempts: before + attempt,
+          last_error: "transient_or_unknown",
+          due_at: now + WATCHDOG_INTERVAL * 1000,
+        });
+        await runtime(deps).tick();
+        expect(calls).toBe(attempt);
+        now += WATCHDOG_INTERVAL * 1000 - 1;
+        await runtime(deps).tick();
+        expect(calls).toBe(attempt);
+        now++;
+        await runtime().watchdog();
+      }
+      await runtime(deps).tick();
+      expect(calls).toBe(3);
+      expect(
+        (
+          await env.DB.prepare("SELECT status FROM jobs WHERE kind = ?")
+            .bind(kind)
+            .first<{ status: string }>()
+        )?.status,
+      ).not.toBe("failed");
+      const alerts = log.mock.calls
+        .flat()
+        .filter((line) => String(line).includes('"reason_code":"transient_or_unknown"'))
+        .map((line) => JSON.parse(String(line)) as { count: number });
+      expect(alerts.map((alert) => alert.count)).toEqual([before + 1, before + 2]);
+      log.mockRestore();
+      if (lane === "notification")
+        expect(
+          (
+            await env.DB.prepare("SELECT dispatch_state FROM outbox WHERE topic = ?")
+              .bind(NOTIFICATION_PUBLICATION_TOPIC)
+              .first<{ dispatch_state: string }>()
+          )?.dispatch_state,
+        ).toBe("dispatched");
+    });
+    for (const [message, reason] of [
+      ["D1_ERROR: too many SQL variables", "sql_binding_limit"],
+      ["D1_ERROR: Exceeded maximum number of queries", "sql_statement_limit"],
+      ["D1_TYPE_ERROR: invalid synthetic shape", "invalid_data"],
+    ]) {
+      it(`返工 R2 terminal ${lane} ${reason}：确定性错误保留 failed，不再自动重试`, async () => {
+        const fail = vi.fn(() => {
+          throw new Error(message);
+        });
+        const { deps, kind, before } = await prepareFailureLane(lane, fail);
+        const log = vi.spyOn(console, "log");
+        await runtime(deps).tick();
+        now += WATCHDOG_INTERVAL * 1000;
+        await runtime().watchdog();
+        await runtime(deps).tick();
+        expect(fail).toHaveBeenCalledTimes(1);
+        expect(
+          await env.DB.prepare("SELECT status,attempts,last_error FROM jobs WHERE kind = ?")
+            .bind(kind)
+            .first(),
+        ).toEqual({ status: "failed", attempts: before + 1, last_error: reason });
+        expect(
+          log.mock.calls
+            .flat()
+            .some(
+              (line) =>
+                String(line).includes(`"reason_code":"${reason}"`) &&
+                String(line).includes(`"count":${before + 1}`),
+            ),
+        ).toBe(true);
+        log.mockRestore();
+        if (lane === "notification")
+          expect(
+            (
+              await env.DB.prepare("SELECT dispatch_state FROM outbox WHERE topic = ?")
+                .bind(NOTIFICATION_PUBLICATION_TOPIC)
+                .first<{ dispatch_state: string }>()
+            )?.dispatch_state,
+          ).toBe("failed");
+      });
+    }
+  }
 });
