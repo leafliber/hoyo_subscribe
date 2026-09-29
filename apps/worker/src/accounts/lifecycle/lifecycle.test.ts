@@ -2,8 +2,14 @@
 // 邮箱与秘密全部是测试随机样本；不调用真实发信服务。
 import { env } from "cloudflare:test";
 import {
+  AUTH_CHALLENGES_PER_EMAIL,
+  EMAIL_AUTH_INTENTS_DAY,
+  EMAIL_VERIFY_ATTEMPTS_HOUR,
   GLOBAL_MUTATIONS_DAY,
   mutationCounterKeys,
+  OTP_ATTEMPTS,
+  OTP_COOLDOWN,
+  OTP_TTL,
   OUTBOX_UNRESERVED_PERIOD_KEY,
   RECENT_AUTH_TTL,
   SECRET_BITS,
@@ -15,6 +21,8 @@ import { beforeAll, describe, expect, it } from "vitest";
 import { asEnvelopeBytes, decryptOtpPayload } from "../../auth/challenges/payload";
 import { startRecentOtp, verifyRecentOtp } from "../../auth/challenges/recent-auth";
 import { makePendingSession } from "../../auth/consume/session";
+import type { ApproximateRateGate } from "../../auth/preauth/rate-gate";
+import type { TurnstileVerifier } from "../../auth/preauth/turnstile";
 import { proveWithRecoveryCode } from "../../auth/recent-auth/proof";
 import { targetForAction } from "../../auth/recent-auth/target";
 import { hashRecoverySecret } from "../../auth/recovery/credential";
@@ -52,6 +60,16 @@ const SECOND = 1_000;
 const now = utcDayPeriod(1_900_000_000_000).startMs + SECOND;
 let sequence = 0;
 const keysPromise = testKeyring;
+const testRateGate: ApproximateRateGate = {
+  check: () => ({ allowed: true }),
+  recordIntent: () => {},
+};
+const testTurnstile: TurnstileVerifier = { verify: async () => "passed" };
+const testAdmission = {
+  rateGate: testRateGate,
+  turnstile: testTurnstile,
+  turnstileToken: "test-token",
+};
 
 async function resetDatabase(): Promise<void> {
   const objects =
@@ -192,7 +210,12 @@ describe("A-P2-ACCOUNT", () => {
     const shell = createApiShell({
       authenticator: sessionAuthenticator(env.DB, () => now),
       csrfKey: () => keys.csrf(),
-      routes: makeLifecycleRoutes({ keys: async () => keys, now: () => now }),
+      routes: makeLifecycleRoutes({
+        keys: async () => keys,
+        rateGate: testRateGate,
+        turnstile: () => testTurnstile,
+        now: () => now,
+      }),
     });
     const cookie = `${USER_SESSION_COOKIE_NAME}=${fixture.token}`;
     const exported = await shell.fetch(
@@ -221,6 +244,13 @@ describe("A-P2-ACCOUNT", () => {
       fixture.session.sessionTokenHash,
       randomBytes(SECRET_BITS / 8),
     );
+    await expect(
+      markAccountDeleting(env.DB, fixture.session, undefined, now + RECENT_AUTH_TTL * SECOND + 1),
+    ).rejects.toMatchObject({ code: "unauthorized", details: { reason: "recent_auth_required" } });
+    expect(
+      (await first<{ status: string }>("SELECT status FROM users WHERE id = ?", fixture.userId))
+        ?.status,
+    ).toBe("active");
     const stopped = await shell.fetch(
       new Request("https://app.test/api/v2/me/delete", {
         method: "POST",
@@ -243,6 +273,328 @@ describe("A-P2-ACCOUNT", () => {
     );
     expect(after.status).toBe(401);
   });
+  it("伪造证明时已注册地址与未知地址的换绑响应同形", async () => {
+    const owner = await seed();
+    const occupied = await seed();
+    const keys = await keysPromise;
+    const csrf = await mintCsrfToken(
+      keys.csrf(),
+      owner.session.sessionTokenHash,
+      randomBytes(SECRET_BITS / 8),
+    );
+    const shell = createApiShell({
+      authenticator: sessionAuthenticator(env.DB, () => now),
+      csrfKey: () => keys.csrf(),
+      routes: makeLifecycleRoutes({
+        keys: async () => keys,
+        rateGate: testRateGate,
+        turnstile: () => testTurnstile,
+        now: () => now,
+      }),
+    });
+    const requestFor = (targetEmail: string) =>
+      new Request("https://app.test/api/v2/me/email-change", {
+        method: "POST",
+        headers: {
+          cookie: `${USER_SESSION_COOKIE_NAME}=${owner.token}; ${CSRF_COOKIE_NAME}=${csrf}`,
+          origin: "https://app.test",
+          "content-type": "application/json",
+          [CSRF_HEADER_NAME]: csrf,
+        },
+        body: JSON.stringify({
+          target_email: targetEmail,
+          current_proof_id: crypto.randomUUID(),
+          new_proof_id: crypto.randomUUID(),
+        }),
+      });
+    const registered = await shell.fetch(requestFor(occupied.email), env, fakeExecutionContext);
+    const unknown = await shell.fetch(
+      requestFor(`Unknown${sequence}@example.test`),
+      env,
+      fakeExecutionContext,
+    );
+    expect(registered.status).toBe(401);
+    expect(unknown.status).toBe(401);
+    expect(await registered.text()).toBe(await unknown.text());
+
+    const target = await targetForAction("email_change", occupied.email);
+    const current = await proveWithRecoveryCode(
+      env.DB,
+      owner.session,
+      "email_change",
+      occupied.email,
+      owner.recoveryId,
+      owner.recoverySecret,
+      now,
+    );
+    const newProof = crypto.randomUUID();
+    await env.DB.prepare(`INSERT INTO recent_auth_proofs
+      (id,user_id,session_id,action,role,target_digest,method,expires_at,created_at)
+      VALUES (?,?,?,'email_change','new_address',?,'otp',?,?)`)
+      .bind(
+        newProof,
+        owner.userId,
+        owner.session.sessionId,
+        target.digest,
+        now + RECENT_AUTH_TTL * SECOND,
+        now,
+      )
+      .run();
+    await expect(
+      changeEmail(env.DB, keys, owner.session, occupied.email, current, newProof, now),
+    ).rejects.toMatchObject({ code: "conflict" });
+    expect(
+      (
+        await first<{ consumed_at: number | null }>(
+          "SELECT consumed_at FROM recent_auth_proofs WHERE id = ?",
+          current,
+        )
+      )?.consumed_at,
+    ).toBeNull();
+  });
+
+  it("最近认证证明不能从同账号另一会话消费", async () => {
+    const owner = await seed();
+    const other = await seed();
+    const keys = await keysPromise;
+    await env.DB.prepare("UPDATE sessions SET user_id = ? WHERE id = ?")
+      .bind(owner.userId, other.session.sessionId)
+      .run();
+    const alternate = { ...other.session, userId: owner.userId };
+    const targetEmail = `Session${sequence}@example.test`;
+    const target = await targetForAction("email_change", targetEmail);
+    const current = await proveWithRecoveryCode(
+      env.DB,
+      owner.session,
+      "email_change",
+      targetEmail,
+      owner.recoveryId,
+      owner.recoverySecret,
+      now,
+    );
+    const newProof = crypto.randomUUID();
+    await env.DB.prepare(`INSERT INTO recent_auth_proofs
+      (id,user_id,session_id,action,role,target_digest,method,expires_at,created_at)
+      VALUES (?,?,?,'email_change','new_address',?,'otp',?,?)`)
+      .bind(
+        newProof,
+        owner.userId,
+        owner.session.sessionId,
+        target.digest,
+        now + RECENT_AUTH_TTL * SECOND,
+        now,
+      )
+      .run();
+    await expect(
+      changeEmail(env.DB, keys, alternate, targetEmail, current, newProof, now),
+    ).rejects.toMatchObject({ code: "unauthorized", details: { reason: "recent_auth_required" } });
+    expect(
+      (
+        await first<{ email_version: number }>(
+          "SELECT email_version FROM users WHERE id = ?",
+          owner.userId,
+        )
+      )?.email_version,
+    ).toBe(1);
+  });
+
+  it("当前和新地址发码都经限速门与 Turnstile；两张挑战表合计邮箱配额", async () => {
+    const owner = await seed();
+    const keys = await keysPromise;
+    const passed: string[] = [];
+    const rateGate: ApproximateRateGate = {
+      check: ({ canonicalEmail }) => {
+        passed.push(`gate:${canonicalEmail}`);
+        return { allowed: true };
+      },
+      recordIntent: (email) => {
+        passed.push(`record:${email}`);
+      },
+    };
+    const turnstile: TurnstileVerifier = {
+      verify: async ({ token }) => {
+        passed.push(`turnstile:${token}`);
+        return "passed";
+      },
+    };
+    const admission = { rateGate, turnstile, turnstileToken: "once" };
+    const target = `Role${sequence}@example.test`;
+    await startRecentOtp(
+      env.DB,
+      keys,
+      owner.session,
+      "email_change",
+      "current",
+      target,
+      crypto.randomUUID(),
+      now,
+      admission,
+    );
+    await startRecentOtp(
+      env.DB,
+      keys,
+      owner.session,
+      "email_change",
+      "new_address",
+      target,
+      crypto.randomUUID(),
+      now,
+      admission,
+    );
+    expect(passed.filter((entry) => entry.startsWith("gate:"))).toHaveLength(2);
+    expect(passed.filter((entry) => entry.startsWith("turnstile:"))).toHaveLength(2);
+    const deniedGate: ApproximateRateGate = {
+      check: () => ({ allowed: false, reason: "cooldown_mirror", retryAfterMs: SECOND }),
+      recordIntent: () => {
+        throw new Error("unexpected record");
+      },
+    };
+    await expect(
+      startRecentOtp(
+        env.DB,
+        keys,
+        owner.session,
+        "email_change",
+        "new_address",
+        `Blocked${sequence}@example.test`,
+        crypto.randomUUID(),
+        now,
+        { rateGate: deniedGate, turnstile, turnstileToken: "blocked" },
+      ),
+    ).rejects.toMatchObject({ code: "rate_limited" });
+    expect(passed).not.toContain("turnstile:blocked");
+
+    const quotaTarget = `Quota${sequence}@example.test`;
+    const quotaKey = await computeEmailKey(keys.emailLookup(), quotaTarget.toLowerCase());
+    for (let index = 0; index < AUTH_CHALLENGES_PER_EMAIL; index++) {
+      await env.DB.prepare(`INSERT INTO auth_challenges
+        (id,purpose,email_key,address_version,preauth_id,mac,deadline,created_at,updated_at)
+        VALUES (?,'login',?,1,?,'seed',?,?,?)`)
+        .bind(
+          crypto.randomUUID(),
+          quotaKey,
+          crypto.randomUUID(),
+          now + OTP_TTL * SECOND,
+          now - OTP_COOLDOWN * SECOND - 1,
+          now - OTP_COOLDOWN * SECOND - 1,
+        )
+        .run();
+    }
+    await expect(
+      startRecentOtp(
+        env.DB,
+        keys,
+        owner.session,
+        "email_change",
+        "new_address",
+        quotaTarget,
+        crypto.randomUUID(),
+        now,
+        testAdmission,
+      ),
+    ).rejects.toMatchObject({ code: "rate_limited" });
+    expect(
+      (
+        await first<{ c: number }>(
+          "SELECT count(*) AS c FROM recent_auth_challenges WHERE email_key = ?",
+          quotaKey,
+        )
+      )?.c,
+    ).toBe(0);
+
+    const intentsTarget = `Intents${sequence}@example.test`;
+    const intentsKey = await computeEmailKey(keys.emailLookup(), intentsTarget.toLowerCase());
+    for (let index = 0; index < EMAIL_AUTH_INTENTS_DAY; index++) {
+      await env.DB.prepare(`INSERT INTO auth_challenges
+        (id,purpose,email_key,address_version,preauth_id,mac,deadline,consumed_at,created_at,updated_at)
+        VALUES (?,'login',?,1,?,'seed',?,?,?,?)`)
+        .bind(
+          crypto.randomUUID(),
+          intentsKey,
+          crypto.randomUUID(),
+          now + OTP_TTL * SECOND,
+          now,
+          now,
+          now,
+        )
+        .run();
+    }
+    await expect(
+      startRecentOtp(
+        env.DB,
+        keys,
+        owner.session,
+        "email_change",
+        "new_address",
+        intentsTarget,
+        crypto.randomUUID(),
+        now + OTP_COOLDOWN * SECOND + 1,
+        testAdmission,
+      ),
+    ).rejects.toMatchObject({ code: "rate_limited" });
+  });
+
+  it("邮箱维度一小时失败次数覆盖普通与最近认证挑战", async () => {
+    const owner = await seed();
+    const keys = await keysPromise;
+    const target = `Attempts${sequence}@example.test`;
+    const challenge = await startRecentOtp(
+      env.DB,
+      keys,
+      owner.session,
+      "email_change",
+      "new_address",
+      target,
+      crypto.randomUUID(),
+      now,
+      testAdmission,
+    );
+    const row = await first<{ email_key: string; outbox_id: string }>(
+      "SELECT email_key,outbox_id FROM recent_auth_challenges WHERE id = ?",
+      challenge,
+    );
+    if (row === null) throw new Error("missing recent challenge");
+    const outbox = await first<{ payload_ciphertext: ArrayBuffer | Uint8Array }>(
+      "SELECT payload_ciphertext FROM mail_outbox WHERE id = ?",
+      row.outbox_id,
+    );
+    if (outbox === null) throw new Error("missing test payload");
+    const payload = await decryptOtpPayload(
+      keys.fieldEncryption(),
+      row.outbox_id,
+      asEnvelopeBytes(outbox.payload_ciphertext),
+    );
+    let remaining = EMAIL_VERIFY_ATTEMPTS_HOUR;
+    while (remaining > 0) {
+      const attempts = Math.min(remaining, OTP_ATTEMPTS);
+      await env.DB.prepare(`INSERT INTO auth_challenges
+        (id,purpose,email_key,address_version,preauth_id,mac,attempts,deadline,created_at,updated_at)
+        VALUES (?,'login',?,1,?,'seed',?,?,?,?)`)
+        .bind(
+          crypto.randomUUID(),
+          row.email_key,
+          crypto.randomUUID(),
+          attempts,
+          now + OTP_TTL * SECOND,
+          now,
+          now,
+        )
+        .run();
+      remaining -= attempts;
+    }
+    await expect(
+      verifyRecentOtp(env.DB, keys, owner.session, challenge, payload.code, now),
+    ).rejects.toMatchObject({ code: "rate_limited" });
+    expect(
+      (
+        await first<{ consumed_at: number | null }>(
+          "SELECT consumed_at FROM recent_auth_challenges WHERE id = ?",
+          challenge,
+        )
+      )?.consumed_at,
+    ).toBeNull();
+  });
+
   it("当前恢复码证明与新地址 OTP 均绑定同一会话和目标；换绑撤销旧权限且不改订阅", async () => {
     const fixture = await seed();
     const keys = await keysPromise;
@@ -277,6 +629,7 @@ describe("A-P2-ACCOUNT", () => {
       target,
       requestKey,
       now,
+      testAdmission,
     );
     expect(
       await startRecentOtp(
@@ -288,6 +641,7 @@ describe("A-P2-ACCOUNT", () => {
         target,
         requestKey,
         now,
+        testAdmission,
       ),
     ).toBe(challenge);
     await expect(
@@ -300,6 +654,7 @@ describe("A-P2-ACCOUNT", () => {
         target,
         crypto.randomUUID(),
         now,
+        testAdmission,
       ),
     ).rejects.toMatchObject({ code: "rate_limited" });
     const outbox = await first<{ id: string; payload_ciphertext: ArrayBuffer | Uint8Array }>(

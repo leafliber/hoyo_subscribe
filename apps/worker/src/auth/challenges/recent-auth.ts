@@ -2,6 +2,10 @@
 // 当前地址从 users 受控密文读取；新地址取用户本次明确提交的投递形态。两者的 MAC
 // 都绑定挑战 ID、用途、email_key、地址版本和代次，成功后只产生会话绑定的一次性证明。
 import {
+  AUTH_CHALLENGES_MAX,
+  AUTH_CHALLENGES_PER_EMAIL,
+  canonicalizeEmail,
+  EMAIL_AUTH_INTENTS_DAY,
   EMAIL_VERIFY_ATTEMPTS_HOUR,
   OTP_ATTEMPTS,
   OTP_COOLDOWN,
@@ -21,6 +25,9 @@ import type { Keyring } from "../../storage/crypto/keyring";
 import { computeEmailKey, macOtpVerification, verifyOtpMac } from "../../storage/crypto/mac";
 import { generateOtpCode } from "../../storage/crypto/random";
 import { reserveMailBudget } from "../../storage/ledger/mail-ledger";
+import { type AuthQuotaSnapshot, decideAuthQuota, intentsDayStartMs } from "../preauth/quota";
+import type { ApproximateRateGate } from "../preauth/rate-gate";
+import type { TurnstileVerifier } from "../preauth/turnstile";
 import { targetForAction } from "../recent-auth/target";
 import { decryptDeliveryAddress } from "./delivery";
 import { asEnvelopeBytes, encryptOtpPayload, OTP_PAYLOAD_KIND } from "./payload";
@@ -34,6 +41,12 @@ export interface RecentSession {
   readonly userId: string;
   readonly sessionId: string;
   readonly sessionTokenHash: string;
+}
+
+export interface RecentOtpAdmission {
+  readonly rateGate: ApproximateRateGate;
+  readonly turnstile: TurnstileVerifier;
+  readonly turnstileToken: string;
 }
 
 interface UserAddressRow {
@@ -60,6 +73,59 @@ function invalidProof(): ApiError {
   return new ApiError("unauthorized", { code: "unauthorized", reason: "recent_auth_required" });
 }
 
+/** P2-01 的配额形状，统计原登录/注册和本卡最近认证两张挑战表。 */
+async function readCombinedQuota(
+  db: D1Database,
+  emailKey: string,
+  now: number,
+): Promise<AuthQuotaSnapshot> {
+  const dayStart = intentsDayStartMs(now);
+  const [email, openEmail, openGlobal] = await Promise.all([
+    db
+      .prepare(`SELECT sum(intents) AS intents, max(last) AS last FROM (
+      SELECT count(*) AS intents,max(created_at) AS last FROM auth_challenges
+        WHERE email_key = ? AND created_at >= ?
+      UNION ALL
+      SELECT count(*) AS intents,max(created_at) AS last FROM recent_auth_challenges
+        WHERE email_key = ? AND created_at >= ?)`)
+      .bind(emailKey, dayStart, emailKey, dayStart)
+      .first<{ intents: number; last: number | null }>(),
+    db
+      .prepare(`SELECT sum(c) AS c FROM (
+      SELECT count(*) AS c FROM auth_challenges WHERE email_key = ?
+        AND consumed_at IS NULL AND aborted_at IS NULL AND deadline > ?
+      UNION ALL
+      SELECT count(*) AS c FROM recent_auth_challenges WHERE email_key = ?
+        AND consumed_at IS NULL AND aborted_at IS NULL AND deadline > ?)`)
+      .bind(emailKey, now, emailKey, now)
+      .first<{ c: number }>(),
+    db
+      .prepare(`SELECT sum(c) AS c FROM (
+      SELECT count(*) AS c FROM auth_challenges WHERE consumed_at IS NULL
+        AND aborted_at IS NULL AND deadline > ?
+      UNION ALL
+      SELECT count(*) AS c FROM recent_auth_challenges WHERE consumed_at IS NULL
+        AND aborted_at IS NULL AND deadline > ?)`)
+      .bind(now, now)
+      .first<{ c: number }>(),
+  ]);
+  return {
+    emailIntentsToday: email?.intents ?? 0,
+    emailLastIntentAt: email?.last ?? null,
+    emailOpenChallenges: openEmail?.c ?? 0,
+    globalOpenChallenges: openGlobal?.c ?? 0,
+  };
+}
+
+function quotaError(decision: ReturnType<typeof decideAuthQuota>): ApiError {
+  return new ApiError("rate_limited", {
+    code: "rate_limited",
+    ...(!decision.ok && decision.rejection.reason === "cooldown"
+      ? { retry_after_ms: decision.rejection.retryAfterMs }
+      : {}),
+  });
+}
+
 /** 发信任务仅入 outbox；P4 发送器负责外发。没有预算时挑战和载荷立即作废。 */
 export async function startRecentOtp(
   db: D1Database,
@@ -70,6 +136,7 @@ export async function startRecentOtp(
   rawTargetEmail: string | undefined,
   idempotencyKey: string,
   now: number,
+  admission: RecentOtpAdmission,
 ): Promise<string> {
   if (idempotencyKey.length === 0) {
     throw new ApiError("validation", {
@@ -97,17 +164,6 @@ export async function startRecentOtp(
       throw new ApiError("quota_paused", { code: "quota_paused", scope: "auth_mail" });
     return replay.id;
   }
-  const previous = await db
-    .prepare(`SELECT created_at FROM recent_auth_challenges
-    WHERE session_id = ? AND action = ? AND role = ? AND target_digest = ?
-    ORDER BY created_at DESC LIMIT 1`)
-    .bind(session.sessionId, action, role, target.digest)
-    .first<{ created_at: number }>();
-  if (previous !== null && previous.created_at + OTP_COOLDOWN * SECOND > now)
-    throw new ApiError("rate_limited", {
-      code: "rate_limited",
-      retry_after_ms: previous.created_at + OTP_COOLDOWN * SECOND - now,
-    });
   const user = await db
     .prepare(
       `SELECT u.email_key, u.email_ciphertext, u.email_version FROM users u
@@ -132,6 +188,23 @@ export async function startRecentOtp(
     role === "current"
       ? user.email_key
       : await computeEmailKey(keys.emailLookup(), target.canonicalEmail ?? "");
+  const canonical = canonicalizeEmail(address);
+  if (!canonical.ok) throw invalidProof();
+  const gate = admission.rateGate.check({ canonicalEmail: canonical.canonical, now });
+  if (!gate.allowed)
+    throw new ApiError("rate_limited", {
+      code: "rate_limited",
+      retry_after_ms: gate.retryAfterMs,
+    });
+  if ((await admission.turnstile.verify({ token: admission.turnstileToken })) !== "passed") {
+    throw new ApiError("validation", {
+      code: "validation",
+      fields: [{ path: "turnstile_token", reason: "verification_failed" }],
+    });
+  }
+  admission.rateGate.recordIntent(canonical.canonical, now);
+  const quota = decideAuthQuota(await readCombinedQuota(db, emailKey, now), now);
+  if (!quota.ok) throw quotaError(quota);
   const challengeId = crypto.randomUUID();
   const outboxId = crypto.randomUUID();
   const code = generateOtpCode();
@@ -150,46 +223,134 @@ export async function startRecentOtp(
     address,
   });
   try {
-    await db.batch([
-      db
-        .prepare(`INSERT INTO mail_outbox
-      (id,purpose,priority,period_key,recipient_user_id,address_version,payload_kind,payload_ref,
-       payload_ciphertext,status,created_at,updated_at)
-       VALUES (?,?,?,?,?,?,?,?,?,'pending',?,?)`)
-        .bind(
-          outboxId,
-          poolOfMailIntent("account_change_auth"),
-          AUTH_MAIL_PRIORITY,
-          OUTBOX_UNRESERVED_PERIOD_KEY,
-          session.userId,
-          user.email_version,
-          OTP_PAYLOAD_KIND,
-          challengeId,
-          payload,
+    const inserted = await conditionalCommit(db, {
+      guard: {
+        sql: `UPDATE sessions SET updated_at = ? WHERE id = ? AND user_id = ?
+          AND token_hash = ? AND state = 'active' AND expires_at > ?
+          AND absolute_expires_at > ? AND EXISTS (SELECT 1 FROM users u
+            WHERE u.id = sessions.user_id AND u.status = 'active'
+            AND u.email_version = ? AND u.auth_epoch = sessions.auth_epoch
+            AND u.recovery_epoch = sessions.recovery_epoch)
+          AND (SELECT count(*) FROM auth_challenges WHERE email_key = ? AND created_at >= ?)
+            + (SELECT count(*) FROM recent_auth_challenges WHERE email_key = ? AND created_at >= ?) < ?
+          AND max(coalesce((SELECT max(created_at) FROM auth_challenges WHERE email_key = ?),0),
+            coalesce((SELECT max(created_at) FROM recent_auth_challenges WHERE email_key = ?),0))
+            + ? <= ?
+          AND (SELECT count(*) FROM auth_challenges WHERE email_key = ? AND consumed_at IS NULL
+            AND aborted_at IS NULL AND deadline > ?)
+            + (SELECT count(*) FROM recent_auth_challenges WHERE email_key = ?
+              AND consumed_at IS NULL AND aborted_at IS NULL AND deadline > ?) < ?
+          AND (SELECT count(*) FROM auth_challenges WHERE consumed_at IS NULL
+            AND aborted_at IS NULL AND deadline > ?)
+            + (SELECT count(*) FROM recent_auth_challenges WHERE consumed_at IS NULL
+              AND aborted_at IS NULL AND deadline > ?) < ?`,
+        params: [
           now,
-          now,
-        ),
-      db
-        .prepare(`INSERT INTO recent_auth_challenges
-      (id,user_id,session_id,idempotency_key,action,role,target_digest,email_key,address_version,mac,attempts,
-       deadline,outbox_id,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,0,?,?,?,?)`)
-        .bind(
-          challengeId,
-          session.userId,
           session.sessionId,
-          idempotencyKey,
-          action,
-          role,
-          target.digest,
-          emailKey,
+          session.userId,
+          session.sessionTokenHash,
+          now,
+          now,
           user.email_version,
-          mac,
-          now + OTP_TTL * SECOND,
-          outboxId,
+          emailKey,
+          intentsDayStartMs(now),
+          emailKey,
+          intentsDayStartMs(now),
+          EMAIL_AUTH_INTENTS_DAY,
+          emailKey,
+          emailKey,
+          OTP_COOLDOWN * SECOND,
+          now,
+          emailKey,
+          now,
+          emailKey,
+          now,
+          AUTH_CHALLENGES_PER_EMAIL,
           now,
           now,
-        ),
-    ]);
+          AUTH_CHALLENGES_MAX,
+        ],
+      },
+      effects: [
+        {
+          kind: "insert",
+          table: "mail_outbox",
+          columns: [
+            "id",
+            "purpose",
+            "priority",
+            "period_key",
+            "recipient_user_id",
+            "address_version",
+            "payload_kind",
+            "payload_ref",
+            "payload_ciphertext",
+            "status",
+            "created_at",
+            "updated_at",
+          ],
+          rows: [
+            [
+              outboxId,
+              poolOfMailIntent("account_change_auth"),
+              AUTH_MAIL_PRIORITY,
+              OUTBOX_UNRESERVED_PERIOD_KEY,
+              session.userId,
+              user.email_version,
+              OTP_PAYLOAD_KIND,
+              challengeId,
+              payload,
+              "pending",
+              now,
+              now,
+            ],
+          ],
+        },
+        {
+          kind: "insert",
+          table: "recent_auth_challenges",
+          columns: [
+            "id",
+            "user_id",
+            "session_id",
+            "idempotency_key",
+            "action",
+            "role",
+            "target_digest",
+            "email_key",
+            "address_version",
+            "mac",
+            "attempts",
+            "deadline",
+            "outbox_id",
+            "created_at",
+            "updated_at",
+          ],
+          rows: [
+            [
+              challengeId,
+              session.userId,
+              session.sessionId,
+              idempotencyKey,
+              action,
+              role,
+              target.digest,
+              emailKey,
+              user.email_version,
+              mac,
+              INITIAL_GENERATION,
+              now + OTP_TTL * SECOND,
+              outboxId,
+              now,
+              now,
+            ],
+          ],
+        },
+      ],
+    });
+    if (inserted.outcome !== "committed") {
+      throw quotaError(decideAuthQuota(await readCombinedQuota(db, emailKey, now), now));
+    }
   } catch (error) {
     if (
       error instanceof Error &&
@@ -259,9 +420,12 @@ export async function verifyRecentOtp(
     .first<ChallengeRow>();
   if (row === null || row.deadline <= now || row.attempts >= OTP_ATTEMPTS) throw invalidProof();
   const recent = await db
-    .prepare(`SELECT coalesce(sum(attempts),0) AS total
-    FROM recent_auth_challenges WHERE email_key = ? AND updated_at >= ?`)
-    .bind(row.email_key, now - HOUR)
+    .prepare(`SELECT
+      coalesce((SELECT sum(attempts) FROM auth_challenges
+        WHERE email_key = ? AND updated_at >= ?),0)
+      + coalesce((SELECT sum(attempts) FROM recent_auth_challenges
+        WHERE email_key = ? AND updated_at >= ?),0) AS total`)
+    .bind(row.email_key, now - HOUR, row.email_key, now - HOUR)
     .first<{ total: number }>();
   if ((recent?.total ?? 0) >= EMAIL_VERIFY_ATTEMPTS_HOUR)
     throw new ApiError("rate_limited", { code: "rate_limited" });

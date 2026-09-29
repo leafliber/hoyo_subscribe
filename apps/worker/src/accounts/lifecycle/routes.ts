@@ -7,6 +7,8 @@ import {
   verifyRecentOtp,
 } from "../../auth/challenges/recent-auth";
 import { serializePendingSessionCookie } from "../../auth/consume/session";
+import type { ApproximateRateGate } from "../../auth/preauth/rate-gate";
+import type { TurnstileVerifier } from "../../auth/preauth/turnstile";
 import { proveWithRecoveryCode } from "../../auth/recent-auth/proof";
 import type { ShellAuth } from "../../shell/domains";
 import { ApiError, jsonResponse } from "../../shell/errors";
@@ -60,6 +62,8 @@ function noStore(body: unknown, status = 200): Response {
 
 export interface LifecycleRouteDeps {
   readonly keys: () => Promise<Keyring>;
+  readonly rateGate: ApproximateRateGate;
+  readonly turnstile: () => TurnstileVerifier;
   readonly now?: () => number;
   readonly hooks?: readonly LifecycleEffectHook[];
 }
@@ -79,6 +83,7 @@ export function makeLifecycleRoutes(deps: LifecycleRouteDeps): readonly ShellRou
           role: { type: "string" },
           target_email: { type: "string", optional: true, maxLength: API_BODY_MAX_BYTES },
           idempotency_key: { type: "string", maxLength: API_BODY_MAX_BYTES },
+          turnstile_token: { type: "string", maxLength: API_BODY_MAX_BYTES },
         },
       },
       handler: async (ctx) => {
@@ -98,6 +103,11 @@ export function makeLifecycleRoutes(deps: LifecycleRouteDeps): readonly ShellRou
           typeof ctx.body?.target_email === "string" ? ctx.body.target_email : undefined,
           stringField(ctx.body, "idempotency_key"),
           now(),
+          {
+            rateGate: deps.rateGate,
+            turnstile: deps.turnstile(),
+            turnstileToken: stringField(ctx.body, "turnstile_token"),
+          },
         );
         return noStore({ challenge_id: challengeId }, 202);
       },

@@ -23,7 +23,6 @@ import { collectLifecycleEffects, type LifecycleEffectHook } from "./effects";
 const SECOND = 1_000;
 
 interface UserVersionRow {
-  email_key: string;
   email_version: number;
   auth_epoch: number;
   recovery_epoch: number;
@@ -54,7 +53,7 @@ function consumeProof(id: string, userId: string, sessionId: string, now: number
 
 async function readUser(db: D1Database, userId: string): Promise<UserVersionRow> {
   const row = await db
-    .prepare(`SELECT email_key,email_version,auth_epoch,recovery_epoch,status
+    .prepare(`SELECT email_version,auth_epoch,recovery_epoch,status
     FROM users WHERE id = ?`)
     .bind(userId)
     .first<UserVersionRow>();
@@ -79,13 +78,6 @@ export async function changeEmail(
   const target = await targetForAction("email_change", rawEmail);
   const user = await readUser(db, session.userId);
   const emailKey = await computeEmailKey(keys.emailLookup(), target.canonicalEmail ?? "");
-  const existing = await db
-    .prepare("SELECT id FROM users WHERE email_key = ?")
-    .bind(emailKey)
-    .first<{ id: string }>();
-  if (existing !== null && existing.id !== session.userId) {
-    throw new ApiError("conflict", { code: "conflict" });
-  }
   const ciphertext = await encryptField(
     keys.fieldEncryption(),
     { type: "delivery-email-address", id: session.userId },

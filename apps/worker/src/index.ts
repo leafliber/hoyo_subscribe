@@ -87,6 +87,9 @@ const shellByEnv = new WeakMap<Env, Shell>();
 function getShell(env: Env): Shell {
   let shell = shellByEnv.get(env);
   if (shell === undefined) {
+    const authRateGate = new InMemoryAuthRateGate();
+    const authTurnstile = () =>
+      siteverifyTurnstileVerifier((env as Env & ShellSecrets).TURNSTILE_SECRET_KEY ?? "");
     shell = createApiShell({
       authenticator: sessionAuthenticator(env.DB),
       // 秘密未注入时 getKeyring 抛错 → 写路由折叠为 temporarily_unavailable
@@ -102,16 +105,19 @@ function getShell(env: Env): Shell {
         // 申请端点失败关闭（503），不影响预认证初始化与其余路由。
         ...makeChallengeRoutes({
           keys: () => getKeyring(env as Env & ShellSecrets),
-          rateGate: new InMemoryAuthRateGate(),
-          turnstile: () =>
-            siteverifyTurnstileVerifier((env as Env & ShellSecrets).TURNSTILE_SECRET_KEY ?? ""),
+          rateGate: authRateGate,
+          turnstile: authTurnstile,
         }),
         makeCompleteRoute(() => getKeyring(env as Env & ShellSecrets)),
         ...makeSessionRoutes(() => getKeyring(env as Env & ShellSecrets)),
         // P2-05：public 恢复动作与 active 会话的新码交付；通道暂停效果由各通道卡挂入。
         ...makeRecoveryRoutes({ keys: () => getKeyring(env as Env & ShellSecrets) }),
         ...makeSubscriptionRoutes(),
-        ...makeLifecycleRoutes({ keys: () => getKeyring(env as Env & ShellSecrets) }),
+        ...makeLifecycleRoutes({
+          keys: () => getKeyring(env as Env & ShellSecrets),
+          rateGate: authRateGate,
+          turnstile: authTurnstile,
+        }),
       ],
     });
     shellByEnv.set(env, shell);
