@@ -473,40 +473,53 @@ async function publishCandidate(
     checks.push("EXISTS (SELECT 1 FROM system_state WHERE key = ? AND updated_at = ?)");
     params.push(PUBLIC_SNAPSHOT_PENDING_STATE_KEY, snapshotPending.updated_at);
   }
-  for (const event of planned) {
-    if (candidate.run_id !== null) {
-      checks.push(
-        "NOT EXISTS (SELECT 1 FROM evidence WHERE article_version_id = ? AND event_id = ?)",
-      );
-      params.push(article.articleVersionId, event.id);
-    }
-    if (event.old === null) {
-      checks.push("NOT EXISTS (SELECT 1 FROM events WHERE id = ?)");
-      params.push(event.id);
-    } else {
-      checks.push(
-        "EXISTS (SELECT 1 FROM events WHERE id = ? AND event_revision = ? AND human_locked = ?)",
-      );
-      params.push(event.id, event.old.event_revision, event.old.human_locked);
-    }
-    for (const node of event.nodes) {
-      if (node.old === null) {
-        checks.push("NOT EXISTS (SELECT 1 FROM milestones WHERE id = ?)");
-        params.push(node.id);
-      } else {
-        checks.push(
-          "EXISTS (SELECT 1 FROM milestones WHERE id = ? AND public_ical_revision = ? AND human_locked = ?)",
-        );
-        params.push(node.id, node.old.public_ical_revision, node.old.human_locked);
-      }
-      if (node.old !== null) {
-        checks.push(
-          "EXISTS (SELECT 1 FROM calendar_projections WHERE milestone_id = ? AND public_ical_revision = ?)",
-        );
-        params.push(node.id, node.old.public_ical_revision);
-      }
-    }
-  }
+  // P3-12：预期状态只占一个 JSON 参数；以“没有任何不匹配项”核对整组，
+  // 包括未变化的事件与保留的旧节点。缺行也算不匹配，不能用内连接漏掉。
+  // 基础条件至多 9 个参数，JSON 1 个，规则/模型的文章去重 1 个：总计至多 11 个。
+  params.push(
+    JSON.stringify(
+      planned.map((event) => ({
+        id: event.id,
+        revision: event.old?.event_revision ?? null,
+        human_locked: event.old?.human_locked ?? null,
+        nodes: event.nodes.map((node) => ({
+          id: node.id,
+          revision: node.old?.public_ical_revision ?? null,
+          human_locked: node.old?.human_locked ?? null,
+        })),
+      })),
+    ),
+  );
+  const extractionCheck =
+    candidate.run_id === null
+      ? ""
+      : `EXISTS (SELECT 1 FROM evidence
+          WHERE article_version_id = ? AND event_id = json_extract(expected.value, '$.id')) OR`;
+  if (candidate.run_id !== null) params.push(article.articleVersionId);
+  checks.push(`NOT EXISTS (
+    SELECT 1 FROM json_each(?) AS expected
+    WHERE ${extractionCheck}
+      CASE WHEN json_extract(expected.value, '$.revision') IS NULL
+        THEN EXISTS (SELECT 1 FROM events WHERE id = json_extract(expected.value, '$.id'))
+        ELSE NOT EXISTS (SELECT 1 FROM events
+          WHERE id = json_extract(expected.value, '$.id')
+            AND event_revision = json_extract(expected.value, '$.revision')
+            AND human_locked = json_extract(expected.value, '$.human_locked'))
+      END
+      OR EXISTS (
+        SELECT 1 FROM json_each(expected.value, '$.nodes') AS node
+        WHERE CASE WHEN json_extract(node.value, '$.revision') IS NULL
+          THEN EXISTS (SELECT 1 FROM milestones WHERE id = json_extract(node.value, '$.id'))
+          ELSE NOT EXISTS (SELECT 1 FROM milestones
+            WHERE id = json_extract(node.value, '$.id')
+              AND public_ical_revision = json_extract(node.value, '$.revision')
+              AND human_locked = json_extract(node.value, '$.human_locked'))
+            OR NOT EXISTS (SELECT 1 FROM calendar_projections
+              WHERE milestone_id = json_extract(node.value, '$.id')
+                AND public_ical_revision = json_extract(node.value, '$.revision'))
+        END
+      )
+  )`);
   const result = await conditionalCommit(db, {
     guard: {
       sql: `UPDATE candidates SET updated_at = updated_at WHERE id = ? AND updated_at = ?

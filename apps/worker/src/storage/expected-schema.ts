@@ -1,3 +1,4 @@
+// P2-07 获准跨卡改动：登记 0017 最近认证表及账号终止触发器。
 // P2-05 授权跨卡改动：登记恢复会话标记、停用幂等水位与尝试双窗表。
 // 预期 schema 注册表（任务卡 P1-04，验收 ID A-P1-DB）。
 // 这不是第二份业务定义：列与索引清单是 migrations/ 的机器可读投影，
@@ -169,6 +170,7 @@ export const EXPECTED_TABLES: Record<string, readonly string[]> = {
     "auth_epoch",
     "recovery_epoch",
     "last_recovery_stop_epoch", // P2-05：安全暂停的幂等水位，与灾备 epoch 无关。
+    "deletion_completed_at", // P2-07：分页清理完成后才释放账号存量的幂等水位。
     "last_interactive_at",
     "last_feed_poll_at",
     "last_push_processed_at",
@@ -195,6 +197,52 @@ export const EXPECTED_TABLES: Record<string, readonly string[]> = {
     "receipt_expires_at",
     "pending_session_id",
     "delivery_address_ciphertext", // P2-03 裁定：迁移 0015 增列，空库回放期望同步。
+    "created_at",
+    "updated_at",
+  ],
+  recent_auth_challenges: [
+    "id",
+    "user_id",
+    "session_id",
+    "idempotency_key",
+    "action",
+    "role",
+    "target_digest",
+    "email_key",
+    "address_version",
+    "mac",
+    "attempts",
+    "deadline",
+    "outbox_id",
+    "consumed_at",
+    "aborted_at",
+    "created_at",
+    "updated_at",
+  ],
+  recent_auth_proofs: [
+    "id",
+    "user_id",
+    "session_id",
+    "action",
+    "role",
+    "target_digest",
+    "method",
+    "expires_at",
+    "consumed_at",
+    "created_at",
+  ],
+  recovery_rotations: [
+    "id",
+    "user_id",
+    "session_id",
+    "operation_key",
+    "proof_id",
+    "old_credential_id",
+    "new_credential_id",
+    "new_secret_hash",
+    "new_generation",
+    "expires_at",
+    "confirmed_at",
     "created_at",
     "updated_at",
   ],
@@ -532,6 +580,22 @@ export const EXPECTED_INDEXES: Record<string, ExpectedIndex> = {
     unique: true,
     partial: true,
   },
+  idx_recent_auth_challenges_session: {
+    table: "recent_auth_challenges",
+    columns: ["session_id", "action", "role", "created_at"],
+  },
+  idx_recent_auth_challenges_expiry: { table: "recent_auth_challenges", columns: ["deadline"] },
+  idx_recent_auth_challenges_idem: {
+    table: "recent_auth_challenges",
+    columns: ["session_id", "idempotency_key"],
+    unique: true,
+  },
+  idx_recent_auth_proofs_session: {
+    table: "recent_auth_proofs",
+    columns: ["session_id", "action", "role", "expires_at"],
+  },
+  idx_recent_auth_proofs_expiry: { table: "recent_auth_proofs", columns: ["expires_at"] },
+  idx_recovery_rotations_expiry: { table: "recovery_rotations", columns: ["expires_at"] },
   idx_sessions_owner_state: { table: "sessions", columns: ["user_id", "state"] },
   idx_sessions_expiry_cleanup: { table: "sessions", columns: ["state", "expires_at"] },
   idx_recovery_credentials_current: {
@@ -615,6 +679,7 @@ export const EXPECTED_UNIQUE_CONSTRAINTS: Record<string, readonly string[][]> = 
   public_snapshots: [["generation"]],
   users: [["email_key"], ["email_binding_id"], ["order"]],
   sessions: [["token_hash"]],
+  recovery_rotations: [["session_id", "operation_key"]],
   subscription_interests: [["user_id", "game", "region", "interest_kind", "interest_id"]],
   suppressions: [["address_key"]],
   calendar_feeds: [["namespace"], ["token_hash"]],
@@ -629,6 +694,8 @@ export const EXPECTED_UNIQUE_CONSTRAINTS: Record<string, readonly string[][]> = 
 /** 不变式触发器（合同显式不变式的数据库层落点）。 */
 export const EXPECTED_TRIGGERS: readonly string[] = [
   "trg_article_versions_immutable",
+  "trg_account_email_change_invalidate",
+  "trg_account_delete_invalidate",
   "trg_sessions_absolute_expires_immutable",
   "trg_user_subscriptions_state_oneway",
   "trg_calendar_feeds_namespace_immutable",
