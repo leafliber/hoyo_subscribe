@@ -81,9 +81,10 @@ function plannedOccurrences(
   const newlyExact = new Set(signal.newly_exact_node_ids);
   const confirmedEnded = valid.some((node) => isEndNode(node) && node.time_exact_ms <= publishedAt);
 
-  if (active) {
+  // 同一事件的 schedule_revision 整体变化会令旧发生项全部失效，故按新计划重建所有有效节点。
+  // 纯内容修订的 changed_node_ids 为空，不重建提前提醒；晚发现仍限于 newly_exact_node_ids。
+  if (active && changed.size > 0) {
     for (const node of valid) {
-      if (!changed.has(node.id)) continue;
       for (const rule of REMINDER_RULES) {
         if (rule.event_type !== event.event_type || rule.node_type !== node.node_type) continue;
         const dueAt = node.time_exact_ms - rule.lead_time_seconds * 1000;

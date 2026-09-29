@@ -7,7 +7,7 @@ import { generatePublicationOccurrences } from "../../mail/occurrences/generate"
 export async function runOccurrencePass(
   db: D1Database,
   nowMs: number,
-  limits: { signalLimit: number; occurrenceLimit: number; pageLimit: number; pageSize: number },
+  limits: { signalLimit: number; occurrenceLimit: number; pageLimit: number },
 ): Promise<{ signals: number; started: number; pages: number }> {
   const signals =
     (
@@ -32,7 +32,7 @@ export async function runOccurrencePass(
   for (const job of jobs) {
     const payload = JSON.parse(job.payload_json) as { occurrence_id?: string };
     if (payload.occurrence_id === undefined) throw new Error("发生项展开 Job 缺少 occurrence_id");
-    await expandOccurrencePage(db, payload.occurrence_id, nowMs, limits.pageSize);
+    await expandOccurrencePage(db, payload.occurrence_id, nowMs);
     pages++;
   }
   return { signals: signals.length, started, pages };

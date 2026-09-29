@@ -1,4 +1,5 @@
 // P4-01 · 主方案 §7.3：冻结 order 上界；每页候选 Delivery 与 keyset 游标同一条件提交。
+import { MATCH_PAGE } from "@hoyo/contracts";
 import { conditionalCommit, type GuardedEffect } from "../../storage/cas";
 import {
   AUDIENCE_SELECT,
@@ -109,7 +110,6 @@ export async function expandOccurrencePage(
   db: D1Database,
   occurrenceId: string,
   nowMs: number,
-  pageSize: number,
 ): Promise<"advanced" | "done" | "expired" | "unchanged"> {
   const jobId = `occurrence:${occurrenceId}:email`;
   const job = await db
@@ -133,11 +133,11 @@ export async function expandOccurrencePage(
         await db
           .prepare(`${AUDIENCE_SELECT}
     WHERE u."order" > ? AND u."order" <= ? ORDER BY u."order" LIMIT ?`)
-          .bind(nowMs, cursor, upper, pageSize)
+          .bind(nowMs, cursor, upper, MATCH_PAGE)
           .all<AudienceRow>()
       ).results ?? []);
   const last = users.at(-1)?.user_order ?? upper;
-  const done = stale || users.length < pageSize || last >= upper;
+  const done = stale || users.length < MATCH_PAGE || last >= upper;
   const nextPayload = JSON.stringify({ occurrence_id: occurrenceId, cursor: last, upper });
   const deliveryKind = occurrenceDeliveryKind(occurrence.kind);
   const ruleId = occurrenceRuleId(occurrence.kind);
