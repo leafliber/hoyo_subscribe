@@ -532,6 +532,25 @@ export interface ExpectedIndex {
 
 /** 显式 CREATE INDEX（不含 UNIQUE 约束产生的 sqlite_autoindex_*）。 */
 export const EXPECTED_INDEXES: Record<string, ExpectedIndex> = {
+  idx_recent_auth_challenges_email: {
+    table: "recent_auth_challenges",
+    columns: ["email_key", "created_at"],
+  },
+  idx_recent_auth_challenges_open: {
+    table: "recent_auth_challenges",
+    columns: ["email_key", "deadline"],
+    partial: true,
+  },
+  idx_recent_auth_challenges_open_deadline: {
+    table: "recent_auth_challenges",
+    columns: ["deadline"],
+    partial: true,
+  },
+  idx_auth_challenges_open_deadline: {
+    table: "auth_challenges",
+    columns: ["deadline"],
+    partial: true,
+  },
   idx_auth_resend_intents_email: {
     table: "auth_resend_intents",
     columns: ["email_key", "created_at"],
@@ -635,6 +654,11 @@ export const EXPECTED_INDEXES: Record<string, ExpectedIndex> = {
   idx_occurrences_due: { table: "occurrences", columns: ["due_at"], partial: true },
   idx_occurrences_expiry: { table: "occurrences", columns: ["expires_at"] },
   idx_occurrences_event: { table: "occurrences", columns: ["event_id", "schedule_revision"] },
+  idx_mail_outbox_pending_payload: {
+    table: "mail_outbox",
+    columns: ["payload_ref", "period_key", "purpose"],
+    partial: true,
+  },
   idx_mail_outbox_claim: { table: "mail_outbox", columns: ["status", "priority", "created_at"] },
   idx_mail_outbox_lease: { table: "mail_outbox", columns: ["lease_expires_at"] },
   idx_mail_outbox_message_id: {

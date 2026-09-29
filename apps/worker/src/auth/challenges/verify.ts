@@ -26,7 +26,7 @@ import {
   OTP_DIGITS,
   PREAUTH_MARGIN,
 } from "@hoyo/contracts";
-import { ApiError, jsonResponse, parseCookieHeader } from "../../shell";
+import { ApiError, dummyOtpMacVerify, jsonResponse, parseCookieHeader } from "../../shell";
 import type { Keyring } from "../../storage/crypto/keyring";
 import { computeEmailKey, verifyOtpMac } from "../../storage/crypto/mac";
 import { clearTerminalOtpPayloads } from "../consume/cleanup";
@@ -158,6 +158,7 @@ export async function runVerifyOtp(deps: VerifyOtpDeps, input: VerifyOtpInput): 
       continue;
     }
     if (!isChallengePurpose(row.purpose)) {
+      await dummyOtpMacVerify(deps.keys.otpMac());
       continue;
     }
     const matched = await verifyOtpMac(

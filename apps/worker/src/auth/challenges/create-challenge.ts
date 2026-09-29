@@ -66,7 +66,7 @@ function isIdempotencyUniqueError(error: unknown): boolean {
 export const createAdmittedChallengeAndMailTask: CreateChallengeAndMailTask = (ctx) =>
   createChallenge(ctx, authQuotaGuard(ctx.emailKey, ctx.now));
 
-/** 底层构造原语（既有消费测试的夹具接缝，不挂路由）；HTTP 只使用上面的准入效果。 */
+/** 仅供测试：底层构造原语（既有消费测试的夹具接缝，不挂路由）；HTTP 只使用上面的准入效果。 */
 export const createChallengeAndMailTask: CreateChallengeAndMailTask = (ctx) =>
   createChallenge(ctx, { sql: "1", params: [] });
 

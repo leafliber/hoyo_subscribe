@@ -1494,6 +1494,84 @@ describe("A-P1-DB D1 schema、索引与迁移框架", () => {
         params: ["arek_1"],
         bound: 5,
       },
+      {
+        access: "P2-09 重发旧预留关联周期",
+        sql: "SELECT period_key, purpose FROM mail_outbox WHERE payload_ref = ? AND status IN ('pending','leased')",
+        params: ["tpl_1"],
+        bound: 12,
+      },
+      {
+        access: "P2-09 auth_challenges 当日意图",
+        sql: "SELECT count(*) FROM auth_challenges WHERE email_key = ? AND created_at >= ?",
+        params: ["ek_100", T0],
+        bound: 6,
+      },
+      {
+        access: "P2-09 auth_challenges 最近意图",
+        sql: "SELECT max(created_at) FROM auth_challenges WHERE email_key = ?",
+        params: ["ek_100"],
+        bound: 6,
+      },
+      {
+        access: "P2-09 auth_challenges 邮箱开放挑战",
+        sql: "SELECT count(*) FROM auth_challenges WHERE email_key = ? AND consumed_at IS NULL AND aborted_at IS NULL AND deadline > ?",
+        params: ["ek_100", T0],
+        bound: 6,
+      },
+      {
+        access: "P2-09 auth_challenges 全站开放挑战",
+        sql: "SELECT count(*) FROM auth_challenges WHERE consumed_at IS NULL AND aborted_at IS NULL AND deadline > ?",
+        params: [T0],
+        bound: 30,
+      },
+      {
+        access: "P2-09 auth_challenges 小时错误",
+        sql: "SELECT coalesce(sum(attempts),0) FROM auth_challenges WHERE email_key = ? AND updated_at >= ?",
+        params: ["ek_100", T0 - 3_600_000],
+        bound: 6,
+      },
+      {
+        access: "P2-09 recent_auth_challenges 当日意图",
+        sql: "SELECT count(*) FROM recent_auth_challenges WHERE email_key = ? AND created_at >= ?",
+        params: ["ek_100", T0],
+        bound: 6,
+      },
+      {
+        access: "P2-09 recent_auth_challenges 最近意图",
+        sql: "SELECT max(created_at) FROM recent_auth_challenges WHERE email_key = ?",
+        params: ["ek_100"],
+        bound: 6,
+      },
+      {
+        access: "P2-09 recent_auth_challenges 邮箱开放挑战",
+        sql: "SELECT count(*) FROM recent_auth_challenges WHERE email_key = ? AND consumed_at IS NULL AND aborted_at IS NULL AND deadline > ?",
+        params: ["ek_100", T0],
+        bound: 6,
+      },
+      {
+        access: "P2-09 recent_auth_challenges 全站开放挑战",
+        sql: "SELECT count(*) FROM recent_auth_challenges WHERE consumed_at IS NULL AND aborted_at IS NULL AND deadline > ?",
+        params: [T0],
+        bound: 30,
+      },
+      {
+        access: "P2-09 recent_auth_challenges 小时错误",
+        sql: "SELECT coalesce(sum(attempts),0) FROM recent_auth_challenges WHERE email_key = ? AND updated_at >= ?",
+        params: ["ek_100", T0 - 3_600_000],
+        bound: 6,
+      },
+      {
+        access: "P2-09 auth_resend_intents 当日意图",
+        sql: "SELECT count(*) FROM auth_resend_intents WHERE email_key = ? AND created_at >= ?",
+        params: ["ek_100", T0],
+        bound: 6,
+      },
+      {
+        access: "P2-09 auth_resend_intents 最近意图",
+        sql: "SELECT max(created_at) FROM auth_resend_intents WHERE email_key = ?",
+        params: ["ek_100"],
+        bound: 6,
+      },
     ];
 
     for (const benchmark of benchmarks) {

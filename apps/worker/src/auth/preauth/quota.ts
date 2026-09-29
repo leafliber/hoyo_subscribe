@@ -75,22 +75,50 @@ export function intentsDayStartMs(now: number): number {
 
 /** 同一个 SQL 快照供读侧与条件提交复核；参数数目不随挑战数增长。 */
 export function authQuotaSql(emailKey: string, now: number) {
+  const params: (string | number)[] = [];
+  // 每个标量子查询先用本表的索引过滤；只合并计数结果，不物化两表历史。
+  const challengeTables = ["auth_challenges", "recent_auth_challenges"] as const;
+  const intentTables = [...challengeTables, "auth_resend_intents"] as const;
+  function scalar(table: string, aggregate: string, where: string, bindings: (string | number)[]) {
+    params.push(...bindings);
+    return `(SELECT ${aggregate} FROM ${table} WHERE ${where})`;
+  }
+  const today = intentTables
+    .map((table) =>
+      scalar(table, "count(*)", "email_key = ? AND created_at >= ?", [
+        emailKey,
+        intentsDayStartMs(now),
+      ]),
+    )
+    .join(" + ");
+  // UNION 的每个输入已经是按邮箱索引聚合的一行，绝不 UNION 原始挑战表。
+  const last = intentTables
+    .map((table) => {
+      params.push(emailKey);
+      return `SELECT max(created_at) AS last FROM ${table} WHERE email_key = ?`;
+    })
+    .join(" UNION ALL ");
+  const open = "consumed_at IS NULL AND aborted_at IS NULL AND deadline > ?";
+  const emailOpen = challengeTables
+    .map((table) => scalar(table, "count(*)", `email_key = ? AND ${open}`, [emailKey, now]))
+    .join(" + ");
+  const globalOpen = challengeTables
+    .map((table) => scalar(table, "count(*)", open, [now]))
+    .join(" + ");
+  const attempts = challengeTables
+    .map((table) =>
+      scalar(table, "coalesce(sum(attempts),0)", "email_key = ? AND updated_at >= ?", [
+        emailKey,
+        now - 3_600 * MS_PER_SECOND,
+      ]),
+    )
+    .join(" + ");
   return {
-    sql: `WITH context AS (SELECT ? AS email_key, ? AS now, ? AS day_start),
-      challenges AS (
-        SELECT email_key,created_at,updated_at,attempts,deadline,consumed_at,aborted_at FROM auth_challenges
-        UNION ALL
-        SELECT email_key,created_at,updated_at,attempts,deadline,consumed_at,aborted_at FROM recent_auth_challenges
-      ), intents AS (
-        SELECT email_key,created_at FROM challenges
-        UNION ALL SELECT email_key,created_at FROM auth_resend_intents
-      ) SELECT
-        (SELECT count(*) FROM intents,context c WHERE intents.email_key=c.email_key AND created_at>=c.day_start) AS emailIntentsToday,
-        (SELECT max(created_at) FROM intents,context c WHERE intents.email_key=c.email_key) AS emailLastIntentAt,
-        (SELECT count(*) FROM challenges,context c WHERE challenges.email_key=c.email_key AND consumed_at IS NULL AND aborted_at IS NULL AND deadline>c.now) AS emailOpenChallenges,
-        (SELECT count(*) FROM challenges,context c WHERE consumed_at IS NULL AND aborted_at IS NULL AND deadline>c.now) AS globalOpenChallenges,
-        (SELECT coalesce(sum(attempts),0) FROM challenges,context c WHERE challenges.email_key=c.email_key AND updated_at>=c.now-?) AS verifyAttempts`,
-    params: [emailKey, now, intentsDayStartMs(now), 3_600 * MS_PER_SECOND],
+    sql: `SELECT ${today} AS emailIntentsToday,
+      (SELECT max(last) FROM (${last})) AS emailLastIntentAt,
+      ${emailOpen} AS emailOpenChallenges, ${globalOpen} AS globalOpenChallenges,
+      ${attempts} AS verifyAttempts`,
+    params,
   };
 }
 

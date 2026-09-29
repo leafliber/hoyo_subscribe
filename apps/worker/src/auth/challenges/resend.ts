@@ -25,23 +25,20 @@
 // 发送载荷清除后仍可重发，列缺失/损坏一律失败关闭，login 失败关闭语义保留。
 
 import {
+  AUTH_MAIL_POOLS,
+  BUDGET_PERIOD_KIND,
   canonicalizeEmail,
   decideMailIntent,
-  type MailPool,
   OTP_ATTEMPTS,
   OUTBOX_UNRESERVED_PERIOD_KEY,
+  planMailReservation,
   utcDayPeriod,
 } from "@hoyo/contracts";
 import { ApiError, jsonResponse, parseCookieHeader } from "../../shell";
-import { conditionalCommit } from "../../storage/cas";
 import type { Keyring } from "../../storage/crypto/keyring";
 import { computeEmailKey, macOtpVerification } from "../../storage/crypto/mac";
 import { generateOtpCode } from "../../storage/crypto/random";
-import {
-  readMailDayLedger,
-  reserveMailBudget,
-  transitionMailReservation,
-} from "../../storage/ledger/mail-ledger";
+import { readMailDayLedger } from "../../storage/ledger/mail-ledger";
 import type { PreauthContext } from "../preauth/cookie";
 import { PREAUTH_COOKIE_NAME, verifyPreauthCookieValue } from "../preauth/cookie";
 import { authQuotaGuard, decideAuthQuota, readAuthQuotaSnapshot } from "../preauth/quota";
@@ -99,31 +96,6 @@ async function loadLatestOpenChallenge(
   );
 }
 
-/** 终止前的旧发送任务（持有当日预留、尚未外发；重发成功后逐条归还预算）。 */
-interface PriorReservationRow {
-  readonly id: string;
-  readonly pool: MailPool;
-  readonly periodKey: string;
-}
-
-async function readPriorReservations(
-  db: D1Database,
-  challengeId: string,
-): Promise<PriorReservationRow[]> {
-  const rows = await db
-    .prepare(
-      `SELECT id, purpose, period_key FROM mail_outbox
-        WHERE payload_ref = ? AND status IN ('pending', 'leased') AND period_key <> ?`,
-    )
-    .bind(challengeId, OUTBOX_UNRESERVED_PERIOD_KEY)
-    .all<{ id: string; purpose: MailPool; period_key: string }>();
-  return (rows.results ?? []).map((row) => ({
-    id: row.id,
-    pool: row.purpose,
-    periodKey: row.period_key,
-  }));
-}
-
 /**
  * 重发只认挑战创建时独立加密的实际投递串。login 与 signup 均不能从请求地址
  * 或发送载荷回退；发送后载荷按 §4.3 清空仍须可重发。失败发生在预算预占前。
@@ -133,14 +105,16 @@ async function resolveResendAddress(
   keys: Keyring,
   challenge: ChallengeRow,
 ): Promise<string> {
+  // 所有用途均做同形查询；占位只参与折叠，永不解析为可投递地址。
+  const user = await db
+    .prepare("SELECT email_version, status FROM users WHERE id = ?")
+    .bind(challenge.recipient_user_id)
+    .first<{ email_version: number; status: string }>();
+  if (challenge.purpose === "equalization") return "";
   if (challenge.purpose === "login") {
     if (challenge.recipient_user_id === null) {
       throw new Error("login 用途重发未找到已验证账号（失败关闭）");
     }
-    const user = await db
-      .prepare("SELECT email_version, status FROM users WHERE id = ?")
-      .bind(challenge.recipient_user_id)
-      .first<{ email_version: number; status: string }>();
     if (
       user === null ||
       user.email_version !== challenge.address_version ||
@@ -256,38 +230,9 @@ export async function runResendOtp(deps: ResendOtpDeps, input: ResendOtpInput): 
   const scopedKey = scopedOutboxIdempotencyKey(preauth.context.preauthId, input.idempotencyKey);
   const quotaGuard = authQuotaGuard(emailKey, now, "resend");
   const intentId = crypto.randomUUID();
-  const intentEffect = {
-    kind: "insert" as const,
-    table: "auth_resend_intents",
-    columns: ["id", "email_key", "preauth_id", "idempotency_key", "created_at"],
-    rows: [[intentId, emailKey, preauth.context.preauthId, input.idempotencyKey, now]],
-  };
-  if (challenge.purpose === "equalization") {
-    await conditionalCommit(deps.db, {
-      guard: {
-        sql: `UPDATE auth_challenges SET generation = generation + 1, updated_at = ?
-          WHERE id = ? AND generation = ? AND consumed_at IS NULL AND aborted_at IS NULL
-          AND deadline > ? AND attempts < ? AND ${quotaGuard.sql}`,
-        params: [now, challenge.id, challenge.generation, now, OTP_ATTEMPTS, ...quotaGuard.params],
-      },
-      effects: [intentEffect],
-    });
-    return finalizeResend(deps, preauth.context, now);
-  }
-
-  // —— 投递地址解析（§4.1：login 失败关闭，绝不按请求地址改投）。
-  //    在预算预占**之前**：失败关闭路径零写入、零预算占用（无挂靠预占无泄漏）。 ——
+  const eligible = challenge.purpose !== "equalization";
+  // 投递地址不可用仍在任何写入之前失败关闭；占位的空地址只用于丢弃的加密工作。
   const address = await resolveResendAddress(deps.db, deps.keys, challenge);
-
-  // —— 预算预占（先无挂靠预占；旋转失配即归还，账面不丢） ——
-  const reservation = await reserveMailBudget(deps.db, {
-    intent: "auth_resend",
-    period,
-    now,
-  });
-  if (reservation.outcome === "condition_missed") {
-    throw new ApiError("rate_limited", { code: "rate_limited" });
-  }
 
   // —— 新码 + 新 MAC（六元组以旋转后的 generation 计算）+ 新载荷 ——
   const newGeneration = challenge.generation + 1;
@@ -307,103 +252,129 @@ export async function runResendOtp(deps: ResendOtpDeps, input: ResendOtpInput): 
     code,
     address,
   });
-  const priorReservations = await readPriorReservations(deps.db, challenge.id);
-
-  // —— 原子旋转：CAS on generation（并发重发输家不产生第二份有效码） ——
-  const rotation = await conditionalCommit(deps.db, {
-    guard: {
-      sql: `UPDATE auth_challenges SET generation = ?, mac = ?, updated_at = ?
-             WHERE id = ? AND generation = ? AND consumed_at IS NULL AND aborted_at IS NULL AND deadline > ?
-               AND (purpose <> 'login' OR EXISTS (
-                 SELECT 1 FROM users u WHERE u.id = ? AND u.email_key = auth_challenges.email_key
-                   AND u.email_version = auth_challenges.address_version AND u.status = 'active'
-               )) AND attempts < ? AND ${quotaGuard.sql}`,
-      params: [
+  // 预算阈值仍由 contracts 的唯一规则源提供；将预占、旋转、意图、outbox 和旧预留
+  // 归还放进一个 D1 batch，避免占位路径另开短路，也不让它短暂占用预算。
+  const plan = planMailReservation("auth_resend");
+  if (plan.authTotalLimit === undefined) throw new Error("认证重发缺少预算计划");
+  const authPoolsSql = AUTH_MAIL_POOLS.map((pool) => `'${pool}'`).join(", ");
+  const accepted = "EXISTS (SELECT 1 FROM auth_resend_intents WHERE id = ?)";
+  const oldReserved = `SELECT count(*) FROM mail_outbox o WHERE o.payload_ref = ?
+    AND o.id <> ? AND o.status IN ('pending','leased') AND o.period_key <> ?
+    AND o.period_key = usage_periods.period_key AND o.purpose = usage_periods.pool`;
+  const rotation = await deps.db.batch([
+    deps.db
+      .prepare(`INSERT INTO usage_periods
+      (id,pool,period_kind,period_key,user_id,reserved,settled,uncertain,period_start,period_end,created_at,updated_at)
+      VALUES (?,?,?,?,NULL,0,0,0,?,?,?,?) ON CONFLICT DO NOTHING`)
+      .bind(
+        crypto.randomUUID(),
+        plan.pool,
+        BUDGET_PERIOD_KIND,
+        period.key,
+        period.startMs,
+        period.endMsExclusive,
+        now,
+        now,
+      ),
+    deps.db
+      .prepare(`UPDATE auth_challenges SET generation = ?, mac = ?, updated_at = ?
+      WHERE id = ? AND generation = ? AND consumed_at IS NULL AND aborted_at IS NULL AND deadline > ?
+        AND attempts < ? AND (purpose <> 'login' OR EXISTS (
+          SELECT 1 FROM users u WHERE u.id = ? AND u.email_key = auth_challenges.email_key
+            AND u.email_version = auth_challenges.address_version AND u.status = 'active'))
+        AND ${quotaGuard.sql}
+        AND (SELECT reserved+settled+uncertain FROM usage_periods WHERE pool = ? AND period_kind = ?
+          AND period_key = ? AND user_id IS NULL) < ?
+        AND (SELECT coalesce(sum(reserved+settled+uncertain),0) FROM usage_periods WHERE pool IN (${authPoolsSql})
+          AND period_kind = ? AND period_key = ? AND user_id IS NULL) < ?`)
+      .bind(
         newGeneration,
-        mac,
+        eligible ? mac : "never-authorize",
         now,
         challenge.id,
         challenge.generation,
         now,
-        challenge.recipient_user_id,
         OTP_ATTEMPTS,
+        challenge.recipient_user_id,
         ...quotaGuard.params,
-      ],
-    },
-    effects: [
-      intentEffect,
-      {
-        kind: "insert",
-        table: "mail_outbox",
-        columns: [
-          "id",
-          "purpose",
-          "priority",
-          "period_key",
-          "recipient_user_id",
-          "address_version",
-          "payload_kind",
-          "payload_ref",
-          "payload_ciphertext",
-          "status",
-          "idempotency_key",
-          "created_at",
-          "updated_at",
-        ],
-        rows: [
-          [
-            outboxId,
-            decision.pool,
-            AUTH_MAIL_PRIORITY,
-            period.key,
-            challenge.recipient_user_id,
-            challenge.address_version,
-            OTP_PAYLOAD_KIND,
-            challenge.id,
-            payload,
-            "pending",
-            scopedKey,
-            now,
-            now,
-          ],
-        ],
-      },
-      // P2-03：发送后载荷/状态已清时没有旧 pending 行；CAS 原语要求每项 update
-      // 守卫命中后必命中至少一行，故只在读到旧预留时附加这项。
-      ...(priorReservations.length > 0
-        ? ([
-            {
-              kind: "update",
-              table: "mail_outbox",
-              set: {
-                status: "superseded",
-                payload_ciphertext: null,
-                updated_at: now,
-              },
-              where: {
-                sql: "payload_ref = ? AND status IN ('pending', 'leased') AND id <> ?",
-                params: [challenge.id, outboxId],
-              },
-            },
-          ] as const)
-        : []),
-    ],
-  });
+        plan.pool,
+        BUDGET_PERIOD_KIND,
+        period.key,
+        plan.rowOccupancyLimit,
+        BUDGET_PERIOD_KIND,
+        period.key,
+        plan.authTotalLimit,
+      ),
+    deps.db
+      .prepare(`INSERT INTO auth_resend_intents (id,email_key,preauth_id,idempotency_key,created_at)
+      SELECT ?,?,?,?,? WHERE changes() = 1`)
+      .bind(intentId, emailKey, preauth.context.preauthId, input.idempotencyKey, now),
+    // 后续效果都由本次唯一意图 ID 守卫，不依赖可以合法为零行的 outbox 写入。
+    deps.db
+      .prepare(`UPDATE usage_periods SET reserved = reserved + ?, updated_at = ?
+      WHERE pool = ? AND period_kind = ? AND period_key = ? AND user_id IS NULL AND ${accepted}`)
+      .bind(eligible ? 1 : 0, now, plan.pool, BUDGET_PERIOD_KIND, period.key, intentId),
+    deps.db
+      .prepare(`INSERT INTO mail_outbox (id,purpose,priority,period_key,recipient_user_id,address_version,
+      payload_kind,payload_ref,payload_ciphertext,status,idempotency_key,created_at,updated_at)
+      SELECT ?,?,?,?,?,?,?,?,?,'pending',?,?,? WHERE ? AND ${accepted}`)
+      .bind(
+        outboxId,
+        plan.pool,
+        AUTH_MAIL_PRIORITY,
+        period.key,
+        challenge.recipient_user_id,
+        challenge.address_version,
+        OTP_PAYLOAD_KIND,
+        challenge.id,
+        payload,
+        scopedKey,
+        now,
+        now,
+        eligible ? 1 : 0,
+        intentId,
+      ),
+    deps.db
+      .prepare(`UPDATE usage_periods SET reserved = reserved - (${oldReserved}), updated_at = ?
+      WHERE user_id IS NULL AND period_kind = ? AND pool IN (${authPoolsSql})
+        AND period_key IN (SELECT period_key FROM mail_outbox WHERE payload_ref = ?
+          AND id <> ? AND status IN ('pending','leased') AND period_key <> ?)
+        AND ? AND ${accepted} AND (${oldReserved}) > 0`)
+      .bind(
+        challenge.id,
+        outboxId,
+        OUTBOX_UNRESERVED_PERIOD_KEY,
+        now,
+        BUDGET_PERIOD_KIND,
+        challenge.id,
+        outboxId,
+        OUTBOX_UNRESERVED_PERIOD_KEY,
+        eligible ? 1 : 0,
+        intentId,
+        challenge.id,
+        outboxId,
+        OUTBOX_UNRESERVED_PERIOD_KEY,
+      ),
+    deps.db
+      .prepare(`UPDATE mail_outbox SET status = 'superseded', payload_ciphertext = NULL, updated_at = ?
+      WHERE payload_ref = ? AND id <> ? AND status IN ('pending','leased') AND ? AND ${accepted}`)
+      .bind(now, challenge.id, outboxId, eligible ? 1 : 0, intentId),
+  ]);
 
-  if (rotation.outcome === "condition_missed") {
+  if (rotation[1]?.meta.changes !== 1) {
     // CAS 输家：并发请求已旋转，或挑战刚被消费/终止/到期。
-    await transitionMailReservation(
-      deps.db,
-      { pool: decision.pool, periodKey: period.key, now },
-      "release",
-    );
     const replayed = await deps.db
-      .prepare("SELECT id FROM mail_outbox WHERE idempotency_key = ?")
-      .bind(scopedKey)
+      .prepare("SELECT id FROM auth_resend_intents WHERE preauth_id = ? AND idempotency_key = ?")
+      .bind(preauth.context.preauthId, input.idempotencyKey)
       .first();
     if (replayed !== null) {
       return finalizeResend(deps, preauth.context, now);
     }
+    if (
+      decideMailIntent("auth_resend", await readMailDayLedger(deps.db, period.key)).decision ===
+      "reject"
+    )
+      throw new ApiError("rate_limited", { code: "rate_limited" });
     const stillOpen = await loadLatestOpenChallenge(
       deps.db,
       preauth.context.preauthId,
@@ -418,15 +389,6 @@ export async function runResendOtp(deps: ResendOtpDeps, input: ResendOtpInput): 
       code: "validation",
       fields: [{ path: "email", reason: "no_open_challenge" }],
     });
-  }
-
-  // —— 旧任务预留归还（superseded 属从未外发，§9.1 release；失配即已归还，幂等） ——
-  for (const prior of priorReservations) {
-    await transitionMailReservation(
-      deps.db,
-      { pool: prior.pool, periodKey: prior.periodKey, now },
-      "release",
-    );
   }
 
   return finalizeResend(deps, preauth.context, now);
