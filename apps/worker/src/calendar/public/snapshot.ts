@@ -1,8 +1,8 @@
+// P3-06 获准跨卡改动：整代保留历史投影（保证未来自然进入及更正对比），集合 SQL 固定构建语句数。
 // P3-05 · 可调用的公共完整代次构建入口；P3-11 负责调度，P3-06 负责个人 ICS。
 // 主方案 §6.3、附录 A.3。只读 P3-04 投影，不修改其发布器。
 import {
   CAL_PATCH_GLOBAL_MAX,
-  type CalendarPatchKind,
   decideCalendarPatch,
   EventStatusSchema,
   EventTypeSchema,
@@ -16,7 +16,6 @@ import {
   SNAPSHOT_REBUILD_TOPIC,
   TimeValueSchema,
 } from "@hoyo/contracts";
-import { conditionalCommit, type GuardedEffect } from "../../storage/cas";
 
 const PATCH_CAPACITY_PAUSE_REASON = "calendar_patch_capacity";
 
@@ -333,6 +332,7 @@ export async function buildPublicSnapshot(
     if (decision !== null) changes.push({ milestoneId: row.milestone_id, prior, decision });
     const patch = decision ?? (prior === null ? null : (old?.patch ?? null));
     plannedNodes.set(row.milestone_id, {
+      ...{ public_changed_at: row.updated_at },
       game: row.game,
       region: row.region,
       projection,
@@ -384,94 +384,27 @@ export async function buildPublicSnapshot(
     .bind(snapshotId, generation, nowMs)
     .run();
   try {
-    const inserts = [...plannedNodes].map(([milestoneId, node]) =>
-      db
-        .prepare(
-          "INSERT INTO public_snapshot_nodes (snapshot_id, milestone_id, node_json) VALUES (?, ?, ?)",
-        )
-        .bind(snapshotId, milestoneId, JSON.stringify(node)),
-    );
-    if (inserts.length > 0) await db.batch(inserts);
-    const effects: GuardedEffect[] = [];
-    for (const change of changes) {
-      if (change.prior !== null)
-        effects.push({
-          kind: "update",
-          table: "calendar_patches",
-          set: { superseded_at: nowMs, updated_at: nowMs },
-          where: { sql: "id = ? AND superseded_at IS NULL", params: [change.prior.id] },
-        });
-      const oldTime = timeColumns(change.decision.old_time);
-      const newTime = timeColumns(change.decision.new_time);
-      effects.push({
-        kind: "insert",
-        table: "calendar_patches",
-        columns: [
-          "id",
-          "milestone_id",
-          "patch_kind",
-          "old_time_exact_ms",
-          "old_time_date",
-          "new_time_exact_ms",
-          "new_time_date",
-          "fact_reason",
-          "effective_at",
-          "retain_until",
-          "superseded_at",
-          "created_at",
-          "updated_at",
-        ],
-        rows: [
-          [
-            crypto.randomUUID(),
-            change.milestoneId,
-            change.decision.kind as CalendarPatchKind,
-            oldTime[0],
-            oldTime[1],
-            newTime[0],
-            newTime[1],
-            change.decision.fact_reason,
-            nowMs,
-            change.decision.retain_until,
-            null,
-            nowMs,
-            nowMs,
-          ],
-        ],
-      });
-    }
-    if (current !== null)
-      effects.push({
-        kind: "update",
-        table: "public_snapshots",
-        set: { state: "superseded" },
-        where: { sql: "id = ? AND state = 'current'", params: [current.id] },
-      });
-    effects.push({
-      kind: "update",
-      table: "public_snapshots",
-      set: { state: "current", built_at: nowMs, published_at: nowMs },
-      where: { sql: "id = ? AND state = 'building'", params: [snapshotId] },
-    });
-    effects.push({
-      kind: "update",
-      table: "system_state",
-      set: { value_json: JSON.stringify({ pending: false }), updated_at: nowMs },
-      where: {
-        sql: "key = ? AND updated_at = ?",
-        params: [PUBLIC_SNAPSHOT_PENDING_STATE_KEY, pending.updated_at],
-      },
-    });
-    for (const outbox of outboxes)
-      effects.push({
-        kind: "update",
-        table: "outbox",
-        set: { dispatch_state: "dispatched", dispatched_at: nowMs },
-        where: { sql: "id = ? AND dispatch_state = 'pending'", params: [outbox.id] },
-      });
-    const result = await conditionalCommit(db, {
-      guard: {
-        sql: `UPDATE public_snapshots SET built_at = ? WHERE id = ? AND state = 'building'
+    // 全部节点通过一个 JSON 参数写入；语句数与节点/更正/outbox 数无关。
+    await db
+      .prepare(`INSERT INTO public_snapshot_nodes (snapshot_id, milestone_id, node_json)
+      SELECT ?, json_extract(value, '$.projection.milestone_id'), value FROM json_each(?)`)
+      .bind(snapshotId, JSON.stringify([...plannedNodes.values()]))
+      .run();
+    const patchPlans = changes.map((change) => ({
+      id: crypto.randomUUID(),
+      milestone_id: change.milestoneId,
+      prior_id: change.prior?.id ?? null,
+      kind: change.decision.kind,
+      old: timeColumns(change.decision.old_time),
+      next: timeColumns(change.decision.new_time),
+      reason: change.decision.fact_reason,
+      retain_until: change.decision.retain_until,
+    }));
+    // guard 的 built_at 是本次事务内的效果闸门；失败整批回滚，零命中则所有效果零写入。
+    const gate =
+      "EXISTS (SELECT 1 FROM public_snapshots WHERE id = ? AND state = 'building' AND built_at = ?)";
+    const guard = {
+      sql: `UPDATE public_snapshots SET built_at = ? WHERE id = ? AND state = 'building'
           AND ${
             current === null
               ? "NOT EXISTS (SELECT 1 FROM public_snapshots WHERE state = 'current')"
@@ -486,21 +419,57 @@ export async function buildPublicSnapshot(
           AND NOT EXISTS (SELECT 1 FROM public_snapshot_nodes n LEFT JOIN calendar_projections p
             ON p.milestone_id = n.milestone_id WHERE n.snapshot_id = ? AND p.milestone_id IS NULL
             AND json_extract(n.node_json, '$.tombstone') <> 1)`,
-        params: [
+      params: [
+        nowMs,
+        snapshotId,
+        ...(current === null ? [] : [current.id]),
+        PUBLIC_SNAPSHOT_PENDING_STATE_KEY,
+        pending.updated_at,
+        SNAPSHOT_REBUILD_TOPIC,
+        outboxes.length,
+        snapshotId,
+        snapshotId,
+      ],
+    };
+    const results = await db.batch([
+      db.prepare(guard.sql).bind(...guard.params),
+      db
+        .prepare(`UPDATE calendar_patches SET superseded_at = ?, updated_at = ?
+        WHERE id IN (SELECT json_extract(value, '$.prior_id') FROM json_each(?)) AND ${gate}`)
+        .bind(nowMs, nowMs, JSON.stringify(patchPlans), snapshotId, nowMs),
+      db
+        .prepare(`INSERT INTO calendar_patches (id, milestone_id, patch_kind, old_time_exact_ms,
+        old_time_date, new_time_exact_ms, new_time_date, fact_reason, effective_at, retain_until,
+        superseded_at, created_at, updated_at)
+        SELECT json_extract(value, '$.id'), json_extract(value, '$.milestone_id'),
+          json_extract(value, '$.kind'), json_extract(value, '$.old[0]'), json_extract(value, '$.old[1]'),
+          json_extract(value, '$.next[0]'), json_extract(value, '$.next[1]'), json_extract(value, '$.reason'),
+          ?, json_extract(value, '$.retain_until'), NULL, ?, ? FROM json_each(?) WHERE ${gate}`)
+        .bind(nowMs, nowMs, nowMs, JSON.stringify(patchPlans), snapshotId, nowMs),
+      db
+        .prepare(
+          `UPDATE public_snapshots SET state = 'superseded' WHERE state = 'current' AND ${gate}`,
+        )
+        .bind(snapshotId, nowMs),
+      db
+        .prepare(`UPDATE system_state SET value_json = ?, updated_at = ? WHERE key = ? AND ${gate}`)
+        .bind(
+          JSON.stringify({ pending: false }),
           nowMs,
-          snapshotId,
-          ...(current === null ? [] : [current.id]),
           PUBLIC_SNAPSHOT_PENDING_STATE_KEY,
-          pending.updated_at,
-          SNAPSHOT_REBUILD_TOPIC,
-          outboxes.length,
           snapshotId,
-          snapshotId,
-        ],
-      },
-      effects,
-    });
-    if (result.outcome === "condition_missed") return { outcome: "condition_missed" };
+          nowMs,
+        ),
+      db
+        .prepare(`UPDATE outbox SET dispatch_state = 'dispatched', dispatched_at = ?
+        WHERE topic = ? AND dispatch_state = 'pending' AND ${gate}`)
+        .bind(nowMs, SNAPSHOT_REBUILD_TOPIC, snapshotId, nowMs),
+      db
+        .prepare(`UPDATE public_snapshots SET state = 'current', published_at = ?
+        WHERE id = ? AND state = 'building' AND built_at = ?`)
+        .bind(nowMs, snapshotId, nowMs),
+    ]);
+    if (results[0]?.meta.changes !== 1) return { outcome: "condition_missed" };
     if (!capacityAlert) await clearCapacityPauseIfRecovered(db, nowMs);
     return { outcome: "built", generation, patch_count: patchCount, capacity_alert: capacityAlert };
   } finally {

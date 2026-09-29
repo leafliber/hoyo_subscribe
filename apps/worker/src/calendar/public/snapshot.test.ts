@@ -452,3 +452,93 @@ describe("A-P3-PATCH 公共快照与共享更正层", () => {
     });
   });
 });
+
+// P3-06 获准跨卡负载回归：超过原实现单次 1,000 条语句的形状。
+describe("A-P3-ICS 公共构建查询数上界", () => {
+  it("1200 节点及一次全部改期仍以固定查询数切换完整代次", async () => {
+    const size = 1200;
+    const at = T0 + 400 * day;
+    const nodes = Array.from({ length: size }, (_, i) => ({
+      ...projection(at + day),
+      milestone_id: `bulk-${i}`,
+      milestone: { ...projection(at + day).milestone, milestone_key: `bulk-${i}` },
+    }));
+    await env.DB.prepare(`INSERT INTO milestones (id, event_id, milestone_key, node_type, title,
+      time_exact_ms, source_timezone, raw_expression, time_basis, time_precision,
+      public_ical_revision, human_locked, created_at, updated_at)
+      SELECT json_extract(value, '$.milestone_id'), ?, json_extract(value, '$.milestone.milestone_key'),
+      'start', '合成', ?, 'UTC', '明确', 'official_explicit', 'datetime', 1, 0, ?, ? FROM json_each(?)`)
+      .bind(eventId, at + day, at, at, JSON.stringify(nodes))
+      .run();
+    await env.DB.prepare(`INSERT INTO calendar_projections
+      SELECT json_extract(value, '$.milestone_id'), ?, 1, value, ? FROM json_each(?)`)
+      .bind(eventId, at, JSON.stringify(nodes))
+      .run();
+    let queries = 0;
+    const counted = new Proxy(env.DB, {
+      get(target, property) {
+        if (property === "prepare")
+          return (sql: string) => {
+            queries++;
+            return target.prepare(sql);
+          };
+        const value = Reflect.get(target, property);
+        return typeof value === "function" ? value.bind(target) : value;
+      },
+    });
+    await queue(at);
+    expect((await buildPublicSnapshot(counted, at)).outcome).toBe("built");
+    expect(queries).toBeLessThanOrEqual(21);
+    expect((await readCurrentPublicSnapshot(env.DB, at))?.nodes).toHaveLength(size + 1);
+    await env.DB.prepare(`UPDATE calendar_projections SET
+      projection_json = json_set(projection_json, '$.milestone.time.utc_ms', ?),
+      public_ical_revision = public_ical_revision + 1, updated_at = ? WHERE milestone_id LIKE 'bulk-%'`)
+      .bind(at + 2 * day, at + 1)
+      .run();
+    await queue(at + 1);
+    queries = 0;
+    expect((await buildPublicSnapshot(counted, at + 1)).outcome).toBe("built");
+    expect(queries).toBeLessThanOrEqual(21);
+    expect(
+      (await readCurrentPublicSnapshot(env.DB, at + 1))?.nodes.filter(
+        (n) => n.patch?.kind === "rescheduled",
+      ),
+    ).toHaveLength(size);
+    console.log(JSON.stringify({ event: "p3_06_build_bound", nodes: size, queries }));
+  }, 60_000);
+  it("最终 CAS 未命中时所有效果零写入；数据库错误整批回滚", async () => {
+    const at = T0 + 400 * day + 2;
+    const previous = await readCurrentPublicSnapshot(env.DB, at);
+    await queue(at);
+    let raced = false;
+    const racing = new Proxy(env.DB, {
+      get(target, property) {
+        if (property === "batch")
+          return async (statements: D1PreparedStatement[]) => {
+            if (!raced) {
+              raced = true;
+              await target
+                .prepare("UPDATE system_state SET updated_at = updated_at + 1 WHERE key = ?")
+                .bind(PUBLIC_SNAPSHOT_PENDING_STATE_KEY)
+                .run();
+            }
+            return target.batch(statements);
+          };
+        const value = Reflect.get(target, property);
+        return typeof value === "function" ? value.bind(target) : value;
+      },
+    });
+    expect((await buildPublicSnapshot(racing, at)).outcome).toBe("condition_missed");
+    expect((await readCurrentPublicSnapshot(env.DB, at))?.generation).toBe(previous?.generation);
+    expect(await one("SELECT id FROM public_snapshots WHERE state = 'building'")).toBeNull();
+    await env.DB.prepare(`CREATE TRIGGER synthetic_snapshot_failure BEFORE UPDATE ON outbox
+      WHEN NEW.dispatch_state = 'dispatched' BEGIN SELECT RAISE(ABORT, 'synthetic'); END`).run();
+    try {
+      await expect(buildPublicSnapshot(env.DB, at + 1)).rejects.toThrow();
+      expect((await readCurrentPublicSnapshot(env.DB, at))?.generation).toBe(previous?.generation);
+      expect(await one("SELECT id FROM public_snapshots WHERE state = 'building'")).toBeNull();
+    } finally {
+      await env.DB.prepare("DROP TRIGGER synthetic_snapshot_failure").run();
+    }
+  }, 60_000);
+});
