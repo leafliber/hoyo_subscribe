@@ -1,3 +1,4 @@
+// P3-11 获准跨卡接线：导出 Cron scheduled 处理器；不依赖 waitUntil 保存待办。
 // P2-07 获准跨卡接线：挂载账号最近认证、换绑、轮换、删除、导出及摘要。
 // P2-05 授权跨卡改动：挂载 public 恢复动作及本人新码交付路径。
 // P2-06 跨卡接线：挂载云端订阅 GET/PATCH；沿用 P2-04 的 active 会话鉴权。
@@ -9,6 +10,7 @@
 // （消息逐条指明是哪一条），Worker 实例化失败即**拒绝启动**——与 `pnpm params:verify`
 // 共用同一个函数，不存在第二套校验。
 // P2-03 裁定授权注入：挂载原 preauth + 操作幂等键领取 pending Cookie 的完成端点。
+
 import { verifyParams } from "@hoyo/contracts";
 import { statusRoute } from "./accounts/admission/status";
 import { makeLifecycleRoutes } from "./accounts/lifecycle/routes";
@@ -21,6 +23,7 @@ import { siteverifyTurnstileVerifier } from "./auth/preauth/turnstile";
 import { makeRecoveryRoutes } from "./auth/recovery/routes";
 import { sessionAuthenticator } from "./auth/sessions/authenticator";
 import { makeSessionRoutes } from "./auth/sessions/routes";
+import { scheduled } from "./scheduled";
 import { applySecurityHeaders } from "./shell/headers";
 import { createApiShell } from "./shell/router";
 import { fromHex } from "./storage/crypto/bytes";
@@ -126,6 +129,7 @@ function getShell(env: Env): Shell {
 }
 
 export default {
+  scheduled,
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     if (new URL(request.url).pathname === "/") {
       // P1-01 探针 banner：根路径保持 200 文本（index.test.ts 依赖），叠安全头。

@@ -1,3 +1,4 @@
+// P3-11 获准跨卡改动：仅透传 backfill 入参到通知 outbox，历史导入不得群发。
 // P3-04 · 一次条件提交发布事实。只有本模块写事实、修订、投影与快照待更新 outbox。
 // P4-01 获准跨卡改动：仅随同一条件提交追加通知发布 outbox，不改变原发布判定和事实写入。
 import {
@@ -219,8 +220,9 @@ export async function publishApprovedCandidate(
   db: D1Database,
   candidateId: string,
   nowMs: number,
+  backfill = false,
 ): Promise<PublishOutcome> {
-  return publishCandidate(db, candidateId, nowMs, null);
+  return publishCandidate(db, candidateId, nowMs, null, backfill);
 }
 
 /** 带理由的人工修订，可修改 human_locked 对象；修订后锁定相关对象。 */
@@ -263,6 +265,7 @@ async function publishCandidate(
   candidateId: string,
   nowMs: number,
   manual: ManualAction | null,
+  backfill = false,
 ): Promise<PublishOutcome> {
   const candidate = await loadCandidate(db, candidateId);
   if (candidate.review_status !== "approved") throw new Error("只有已批准候选可发布");
@@ -414,6 +417,7 @@ async function publishCandidate(
       article.game,
       article.region,
       nowMs,
+      backfill,
     );
   if (snapshotPending === null) {
     effects.push(
@@ -547,6 +551,7 @@ function appendEventEffects(
   game: string,
   region: string,
   nowMs: number,
+  backfill: boolean,
 ): void {
   const old = event.old;
   const revision = (old?.event_revision ?? 0) + 1;
@@ -763,6 +768,7 @@ function appendEventEffects(
         NOTIFICATION_PUBLICATION_TOPIC,
         `notification:${event.id}:${revision}`,
         JSON.stringify({
+          backfill,
           event_id: event.id,
           event_revision: revision,
           schedule_revision: scheduleRevision,
