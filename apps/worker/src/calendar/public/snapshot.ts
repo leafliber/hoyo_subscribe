@@ -18,6 +18,8 @@ import {
 } from "@hoyo/contracts";
 import { conditionalCommit, type GuardedEffect } from "../../storage/cas";
 
+const PATCH_CAPACITY_PAUSE_REASON = "calendar_patch_capacity";
+
 interface ProjectionRow {
   milestone_id: string;
   event_id: string;
@@ -140,6 +142,40 @@ export async function writeNoncriticalPublicationPause(
     .run();
 }
 
+/** 容量告警不会覆盖其他来源已经写入的暂停原因。 */
+async function markCapacityPause(db: D1Database, nowMs: number): Promise<void> {
+  const value = JSON.stringify({ paused: true, reason: PATCH_CAPACITY_PAUSE_REASON });
+  await db
+    .prepare(`INSERT INTO system_state (key, value_json, updated_at) VALUES (?, ?, ?)
+      ON CONFLICT(key) DO UPDATE SET value_json = excluded.value_json,
+        updated_at = excluded.updated_at
+      WHERE json_extract(system_state.value_json, '$.paused') IS NOT 1
+        OR json_extract(system_state.value_json, '$.reason') = ?`)
+    .bind(NONCRITICAL_PUBLICATION_PAUSE_STATE_KEY, value, nowMs, PATCH_CAPACITY_PAUSE_REASON)
+    .run();
+}
+
+/** 只解除本卡容量原因；重算已保留行数，并要求没有尚待构建的发布。 */
+async function clearCapacityPauseIfRecovered(db: D1Database, nowMs: number): Promise<void> {
+  await db
+    .prepare(`UPDATE system_state SET value_json = ?, updated_at = ?
+      WHERE key = ? AND json_extract(value_json, '$.paused') = 1
+        AND json_extract(value_json, '$.reason') = ?
+        AND (SELECT COUNT(*) + 1 FROM calendar_patches WHERE retain_until > ?) < ?
+        AND NOT EXISTS (SELECT 1 FROM system_state
+          WHERE key = ? AND json_extract(value_json, '$.pending') = 1)`)
+    .bind(
+      JSON.stringify({ paused: false, reason: PATCH_CAPACITY_PAUSE_REASON }),
+      nowMs,
+      NONCRITICAL_PUBLICATION_PAUSE_STATE_KEY,
+      PATCH_CAPACITY_PAUSE_REASON,
+      nowMs,
+      CAL_PATCH_GLOBAL_MAX,
+      PUBLIC_SNAPSHOT_PENDING_STATE_KEY,
+    )
+    .run();
+}
+
 /** 读取当前整代，公共缓存寿命只取 published_at，不因读取或重组而续命。 */
 export async function readCurrentPublicSnapshot(
   db: D1Database,
@@ -176,6 +212,54 @@ export async function readCurrentPublicSnapshot(
   };
 }
 
+export type PublicSnapshotReclaimResult =
+  | { readonly outcome: "done"; readonly nodes_deleted: 0; readonly snapshot_deleted: false }
+  | {
+      readonly outcome: "progress";
+      readonly snapshot_id: string;
+      readonly nodes_deleted: number;
+      readonly snapshot_deleted: boolean;
+    };
+
+// 保留 current 和最新一条 superseded；building 不参与回收。代次可能因失败构建有缺号。
+const reclaimableSnapshotSql = `state = 'superseded' AND generation < (
+  SELECT MAX(previous.generation) FROM public_snapshots AS previous
+  WHERE previous.state = 'superseded' AND previous.generation < (
+    SELECT generation FROM public_snapshots WHERE state = 'current'
+  )
+)`;
+
+/** P3-11 定时调用：一页最多删除 maxNodes 个旧代节点，清空后删除代次行。 */
+export async function reclaimSupersededPublicSnapshotPage(
+  db: D1Database,
+  maxNodes: number,
+): Promise<PublicSnapshotReclaimResult> {
+  if (!Number.isSafeInteger(maxNodes) || maxNodes <= 0)
+    throw new Error("旧代次回收页大小必须为正安全整数");
+  const candidate = await db
+    .prepare(`SELECT id FROM public_snapshots WHERE ${reclaimableSnapshotSql}
+      ORDER BY generation ASC LIMIT 1`)
+    .first<{ id: string }>();
+  if (candidate === null) return { outcome: "done", nodes_deleted: 0, snapshot_deleted: false };
+  const nodes = await db
+    .prepare(`DELETE FROM public_snapshot_nodes WHERE rowid IN (
+      SELECT rowid FROM public_snapshot_nodes WHERE snapshot_id = ? ORDER BY rowid LIMIT ?
+    ) AND EXISTS (SELECT 1 FROM public_snapshots WHERE id = ? AND ${reclaimableSnapshotSql})`)
+    .bind(candidate.id, maxNodes, candidate.id)
+    .run();
+  const snapshot = await db
+    .prepare(`DELETE FROM public_snapshots WHERE id = ? AND ${reclaimableSnapshotSql}
+      AND NOT EXISTS (SELECT 1 FROM public_snapshot_nodes WHERE snapshot_id = ?)`)
+    .bind(candidate.id, candidate.id)
+    .run();
+  return {
+    outcome: "progress",
+    snapshot_id: candidate.id,
+    nodes_deleted: nodes.meta.changes ?? 0,
+    snapshot_deleted: (snapshot.meta.changes ?? 0) === 1,
+  };
+}
+
 /** 将当前 P3-04 投影构建成新代次；最终 CAS 核对投影和 outbox 后才切换可见性。 */
 export async function buildPublicSnapshot(
   db: D1Database,
@@ -190,8 +274,10 @@ export async function buildPublicSnapshot(
   if (
     pending === null ||
     (JSON.parse(pending.value_json) as { pending?: boolean }).pending !== true
-  )
+  ) {
+    await clearCapacityPauseIfRecovered(db, nowMs);
     return { outcome: "unchanged" };
+  }
   const outboxes = await pendingOutboxes(db);
   if (outboxes.length === 0) throw new Error("公共快照待更新但缺少 snapshot_rebuild outbox");
   const current = await db
@@ -285,8 +371,7 @@ export async function buildPublicSnapshot(
   const patchCount = (totalRetained?.n ?? 0) + changes.length;
   // 再增加一条就触及保护值时提前告警；关键更正仍可继续进入共享层。
   const capacityAlert = patchCount + 1 >= CAL_PATCH_GLOBAL_MAX;
-  if (capacityAlert)
-    await writeNoncriticalPublicationPause(db, true, "calendar_patch_capacity", nowMs);
+  if (capacityAlert) await markCapacityPause(db, nowMs);
 
   const generationRow = await db
     .prepare("SELECT COALESCE(MAX(generation), 0) AS n FROM public_snapshots")
@@ -416,6 +501,7 @@ export async function buildPublicSnapshot(
       effects,
     });
     if (result.outcome === "condition_missed") return { outcome: "condition_missed" };
+    if (!capacityAlert) await clearCapacityPauseIfRecovered(db, nowMs);
     return { outcome: "built", generation, patch_count: patchCount, capacity_alert: capacityAlert };
   } finally {
     await db

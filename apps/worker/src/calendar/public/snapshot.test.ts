@@ -5,6 +5,7 @@ import {
   CAL_PATCH_MIN_DAYS,
   CAL_PATCH_TAIL_DAYS,
   effectivePublicSnapshotNodes,
+  NONCRITICAL_PUBLICATION_PAUSE_STATE_KEY,
   PUBLIC_CACHE_FRESH,
   PUBLIC_SNAPSHOT_PENDING_STATE_KEY,
   type PublicCalendarProjection,
@@ -17,6 +18,7 @@ import {
   buildPublicSnapshot,
   readCurrentPublicSnapshot,
   readNoncriticalPublicationPause,
+  reclaimSupersededPublicSnapshotPage,
   writeNoncriticalPublicationPause,
 } from "./snapshot";
 
@@ -307,4 +309,106 @@ describe("A-P3-PATCH 公共快照与共享更正层", () => {
     expect(result).toMatchObject({ outcome: "built", capacity_alert: true });
     expect(await readNoncriticalPublicationPause(env.DB)).toBe(true);
   }, 30_000);
+
+  it("容量回落后仅解除本卡暂停标记，保留其他来源的暂停", async () => {
+    const recoveredAt = T0 + (CAL_PATCH_MIN_DAYS + CAL_PATCH_TAIL_DAYS + 1) * day;
+    await queue(recoveredAt);
+    expect(await buildPublicSnapshot(env.DB, recoveredAt + 1)).toMatchObject({
+      outcome: "built",
+      capacity_alert: false,
+    });
+    expect(await readNoncriticalPublicationPause(env.DB)).toBe(false);
+    expect(
+      await one<{ reason: string }>(
+        "SELECT json_extract(value_json, '$.reason') AS reason FROM system_state WHERE key = ?",
+        NONCRITICAL_PUBLICATION_PAUSE_STATE_KEY,
+      ),
+    ).toEqual({ reason: "calendar_patch_capacity" });
+
+    await writeNoncriticalPublicationPause(
+      env.DB,
+      true,
+      "calendar_patch_capacity",
+      recoveredAt + 2,
+    );
+    expect(await buildPublicSnapshot(env.DB, recoveredAt + 3)).toEqual({ outcome: "unchanged" });
+    expect(await readNoncriticalPublicationPause(env.DB)).toBe(false);
+
+    await writeNoncriticalPublicationPause(env.DB, true, "other_source", recoveredAt + 4);
+    expect(await buildPublicSnapshot(env.DB, recoveredAt + 5)).toEqual({ outcome: "unchanged" });
+    expect(await readNoncriticalPublicationPause(env.DB)).toBe(true);
+    expect(
+      await one<{ reason: string }>(
+        "SELECT json_extract(value_json, '$.reason') AS reason FROM system_state WHERE key = ?",
+        NONCRITICAL_PUBLICATION_PAUSE_STATE_KEY,
+      ),
+    ).toEqual({ reason: "other_source" });
+  });
+
+  it("旧代次按页回收节点，清空后删代次，保留当前与上一代", async () => {
+    const oldest = await one<{ id: string }>(
+      "SELECT id FROM public_snapshots WHERE state = 'superseded' ORDER BY generation ASC LIMIT 1",
+    );
+    expect(oldest).not.toBeNull();
+    const extraId = "reclaim-extra-node";
+    await env.DB.prepare(`INSERT INTO milestones (id, event_id, milestone_key, node_type, title,
+      time_exact_ms, source_timezone, raw_expression, time_basis, time_precision,
+      public_ical_revision, human_locked, created_at, updated_at)
+      VALUES (?, ?, 'reclaim-extra', 'start', '测试节点', ?, 'UTC', '官方时间',
+        'official_explicit', 'datetime', 1, 0, ?, ?)`)
+      .bind(extraId, eventId, T0 + 170 * day, T0, T0)
+      .run();
+    await env.DB.prepare(
+      "INSERT INTO public_snapshot_nodes (snapshot_id, milestone_id, node_json) VALUES (?, ?, '{}')",
+    )
+      .bind(oldest?.id, extraId)
+      .run();
+    await expect(reclaimSupersededPublicSnapshotPage(env.DB, 0)).rejects.toThrow();
+    const first = await reclaimSupersededPublicSnapshotPage(env.DB, 1);
+    expect(first).toMatchObject({
+      outcome: "progress",
+      snapshot_id: oldest?.id,
+      nodes_deleted: 1,
+      snapshot_deleted: false,
+    });
+    expect(
+      await one<{ n: number }>(
+        "SELECT COUNT(*) AS n FROM public_snapshot_nodes WHERE snapshot_id = ?",
+        oldest?.id,
+      ),
+    ).toEqual({ n: 1 });
+    const second = await reclaimSupersededPublicSnapshotPage(env.DB, 1);
+    expect(second).toMatchObject({
+      outcome: "progress",
+      snapshot_id: oldest?.id,
+      nodes_deleted: 1,
+      snapshot_deleted: true,
+    });
+    expect(await one("SELECT id FROM public_snapshots WHERE id = ?", oldest?.id)).toBeNull();
+
+    for (;;) {
+      const page = await reclaimSupersededPublicSnapshotPage(env.DB, 1);
+      if (page.outcome === "done") break;
+    }
+    const retained = (
+      await env.DB.prepare("SELECT id, state FROM public_snapshots ORDER BY generation DESC").all<{
+        id: string;
+        state: string;
+      }>()
+    ).results;
+    expect(retained.map(({ state }) => state)).toEqual(["current", "superseded"]);
+    for (const { id } of retained) {
+      expect(
+        await one<{ n: number }>(
+          "SELECT COUNT(*) AS n FROM public_snapshot_nodes WHERE snapshot_id = ?",
+          id,
+        ),
+      ).toEqual({ n: 1 });
+    }
+    expect(await reclaimSupersededPublicSnapshotPage(env.DB, 1)).toEqual({
+      outcome: "done",
+      nodes_deleted: 0,
+      snapshot_deleted: false,
+    });
+  });
 });

@@ -56,6 +56,27 @@ describe("A-P3-PATCH 合同判定", () => {
     );
   });
 
+  it("先推后退再提前时，累计旧时间水位仍为曾发布的最晚时间", () => {
+    const pushed = decideCalendarPatch(projection(), projection(at(200 * day)), null, day);
+    const movedBack = decideCalendarPatch(
+      projection(at(200 * day)),
+      projection(at(170 * day)),
+      pushed,
+      2 * day,
+    );
+    const movedEarlier = decideCalendarPatch(
+      projection(at(170 * day)),
+      projection(at(150 * day)),
+      movedBack,
+      3 * day,
+    );
+    expect(movedBack?.old_time).toEqual(at(200 * day));
+    expect(movedEarlier?.old_time).toEqual(at(200 * day));
+    expect(movedEarlier?.retain_until).toBe(
+      Math.max(3 * day + CAL_PATCH_MIN_DAYS * day, (200 + CAL_PATCH_TAIL_DAYS) * day),
+    );
+  });
+
   it("取消、撤回、删除、延期未知用旧已发布时间；分类纠正不改时间", () => {
     const old = projection();
     const cancelled = { ...old, event: { ...old.event, status: "cancelled" as const } };
