@@ -46,6 +46,7 @@ import { createApiShell, mintCsrfToken, parseCookieHeader, type ShellRoute } fro
 import { randomBytes, testKeyring } from "../../shell/test-support";
 import { encryptField } from "../../storage/crypto/aead";
 import { computeEmailKey, macOtpVerification } from "../../storage/crypto/mac";
+import { readMailDayLedger, transitionMailReservation } from "../../storage/ledger/mail-ledger";
 import { splitSqlStatements } from "../../storage/split-sql";
 import { makePendingSession } from "../consume/session";
 import { mintPreauthCookieValue, PREAUTH_COOKIE_NAME } from "../preauth/cookie";
@@ -1978,4 +1979,59 @@ it("A-P2-OTP R2 重发守卫失配和 SQL 失败均不留下发信或预算副�
       0,
     );
   }
+});
+
+describe("A-P2-OTP P2-09 复核旧预留归还", () => {
+  it.each(["pending", "leased", "accepted"])(
+    "R5 旧信 %s：只归还未外发预留，重试不重复占用",
+    async (status) => {
+      isolateDay();
+      const email = freshEmail("r5-release");
+      await seedUser(email, email);
+      const ctx = await preauthContext();
+      expect((await apply({ email, preauthValue: ctx.value })).status).toBe(202);
+      const challenge = (await challengesOf(await emailKeyOf(email)))[0];
+      const old = (await outboxOf(challenge.id))[0];
+      const day = utcDayPeriod(clockMs).key;
+      expect((await readMailDayLedger(env.DB, day)).pools.existing_auth).toEqual({
+        reserved: 1,
+        settled: 0,
+        uncertain: 0,
+      });
+      if (status === "accepted") {
+        // 只在本地模拟外发结果；accepted 消耗额度，不代表送达或已读。
+        expect(
+          await transitionMailReservation(
+            env.DB,
+            { pool: "existing_auth", periodKey: day, now: clockMs },
+            "settle",
+          ),
+        ).toEqual({ outcome: "committed" });
+        await run(
+          "UPDATE mail_outbox SET status = 'accepted', payload_ciphertext = NULL WHERE id = ?",
+          old.id,
+        );
+      } else {
+        await run("UPDATE mail_outbox SET status = ? WHERE id = ?", status, old.id);
+      }
+      clockMs += OTP_COOLDOWN * SECOND;
+      for (let retry = 0; retry < 2; retry++) {
+        expect(
+          (await resend({ email, preauthValue: ctx.value, idempotencyKey: "r5-resend" })).status,
+        ).toBe(202);
+        expect((await readMailDayLedger(env.DB, day)).pools.existing_auth).toEqual({
+          reserved: 1,
+          settled: status === "accepted" ? 1 : 0,
+          uncertain: 0,
+        });
+        const outbox = await outboxOf(challenge.id);
+        expect(outbox).toHaveLength(2);
+        expect(outbox.find((row) => row.id === old.id)).toMatchObject({
+          status: status === "accepted" ? "accepted" : "superseded",
+          payload_ciphertext: null,
+        });
+        expect(outbox.filter((row) => row.status === "pending")).toHaveLength(1);
+      }
+    },
+  );
 });

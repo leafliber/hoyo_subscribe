@@ -68,12 +68,19 @@ function poolRowIdentitySql(
   };
 }
 
-function insertUsageRowStatement(
+/** 可组合构造只返回 SQL，不执行数据库调用；可放进调用方的同一原子批次。 */
+export interface MailLedgerStatement {
+  sql: string;
+  params: SqlParam[];
+}
+
+/** 幂等创建池行或用户行；与 reserveMailBudget 使用同一个构造。 */
+export function insertUsageRowStatement(
   pool: MailPool,
   period: MailBudgetPeriod,
   now: number,
   userId?: string,
-): GuardStatement {
+): MailLedgerStatement {
   return {
     sql: `INSERT INTO usage_periods
       (id, pool, period_kind, period_key, user_id, reserved, settled, uncertain, period_start, period_end, created_at, updated_at)
@@ -121,6 +128,69 @@ function capacityPredicates(
   return { sql: parts.join(" AND "), params };
 }
 
+/** 在挑战等外部守卫中检查容量；复用账本自身的行、认证合计与用户机会谓词。 */
+export function mailBudgetCapacityPredicate(
+  plan: MailReservationPlan,
+  periodKey: string,
+  userId?: string,
+): MailLedgerStatement {
+  const identity = poolRowIdentitySql(plan.pool, periodKey);
+  const capacity = capacityPredicates(plan, periodKey, userId);
+  return {
+    sql: `EXISTS (SELECT 1 FROM usage_periods WHERE ${identity.sql} AND ${capacity.sql})`,
+    params: [...identity.params, ...capacity.params],
+  };
+}
+
+/**
+ * 池行预占构造。condition 必须包含容量谓词，或引用同批已通过容量守卫的唯一效果。
+ * amount=0 供占位意图保持语句同形；它不产生预留。用户机会行仍由调用方在同批组合。
+ */
+export function reserveMailPoolStatement(
+  ref: Omit<MailReservationRef, "userId">,
+  condition: GuardStatement,
+  amount: 0 | 1 = 1,
+): MailLedgerStatement {
+  const identity = poolRowIdentitySql(ref.pool, ref.periodKey);
+  return {
+    sql: `UPDATE usage_periods SET reserved = reserved + ?, updated_at = ?
+      WHERE ${identity.sql} AND (${condition.sql})`,
+    params: [amount, ref.now, ...identity.params, ...(condition.params ?? [])],
+  };
+}
+
+/**
+ * 按旧发送行归还认证池预留：仅 pending/leased、已挂靠预算且非本次新任务。
+ * 不触碰 settled/uncertain；按原 pool/period 归还，查询只覆盖本 payload_ref 关联周期。
+ * 调用方必须在同一 batch 的后续语句中终止这些旧任务，并在 condition 绑定同次受理。
+ */
+export function releaseUnsentAuthReservationsStatement(
+  payloadRef: string,
+  excludeOutboxId: string,
+  now: number,
+  condition: GuardStatement,
+): MailLedgerStatement {
+  const oldReserved = `SELECT count(*) FROM mail_outbox o WHERE o.payload_ref = ?
+    AND o.id <> ? AND o.status IN ${UNSENT_STATUS_LIST} AND o.period_key <> ?
+    AND o.period_key = usage_periods.period_key AND o.purpose = usage_periods.pool`;
+  const oldParams = [payloadRef, excludeOutboxId, OUTBOX_UNRESERVED_PERIOD_KEY];
+  return {
+    sql: `UPDATE usage_periods SET reserved = reserved - (${oldReserved}), updated_at = ?
+      WHERE user_id IS NULL AND period_kind = ? AND pool IN ${AUTH_POOL_LIST}
+        AND period_key IN (SELECT period_key FROM mail_outbox WHERE payload_ref = ?
+          AND id <> ? AND status IN ${UNSENT_STATUS_LIST} AND period_key <> ?)
+        AND (${condition.sql}) AND (${oldReserved}) > 0`,
+    params: [
+      ...oldParams,
+      now,
+      BUDGET_PERIOD_KIND,
+      ...oldParams,
+      ...(condition.params ?? []),
+      ...oldParams,
+    ],
+  };
+}
+
 /**
  * 预占一次发送预算：守卫命中即 reserved+1（池行 + 业务意图的 user 行），并按需把
  * mail_outbox.period_key 盖章为预占日。任一容量条件不满足 → condition_missed，零写入。
@@ -134,16 +204,17 @@ export async function reserveMailBudget(
   const withUser = reservation.userDayLimit !== undefined && plan.userId !== undefined;
   const outboxId = plan.outboxId;
 
-  const identity = poolRowIdentitySql(reservation.pool, plan.period.key);
   const capacity = capacityPredicates(reservation, plan.period.key, plan.userId);
 
-  let guardSql = `UPDATE usage_periods SET reserved = reserved + 1, updated_at = ?
-    WHERE ${identity.sql} AND ${capacity.sql}`;
-  const guardParams: SqlParam[] = [plan.now, ...identity.params, ...capacity.params];
+  const condition = { ...capacity, params: [...capacity.params] };
   if (outboxId !== undefined) {
-    guardSql += ` AND (SELECT count(*) FROM mail_outbox WHERE id = ? AND period_key = ? AND status IN ${UNSENT_STATUS_LIST}) = 1`;
-    guardParams.push(outboxId, OUTBOX_UNRESERVED_PERIOD_KEY);
+    condition.sql += ` AND (SELECT count(*) FROM mail_outbox WHERE id = ? AND period_key = ? AND status IN ${UNSENT_STATUS_LIST}) = 1`;
+    condition.params.push(outboxId, OUTBOX_UNRESERVED_PERIOD_KEY);
   }
+  const guard = reserveMailPoolStatement(
+    { pool: reservation.pool, periodKey: plan.period.key, now: plan.now },
+    condition,
+  );
 
   const effects: GuardedEffect[] = [];
   if (withUser && plan.userId !== undefined) {
@@ -176,7 +247,7 @@ export async function reserveMailBudget(
         ? [insertUsageRowStatement(reservation.pool, plan.period, plan.now, plan.userId)]
         : []),
     ],
-    guard: { sql: guardSql, params: guardParams },
+    guard,
     effects,
   });
 }
@@ -298,16 +369,12 @@ export async function rolloverUnsentOutboxReservation(
   const reservation = planMailReservation(plan.intent);
   const withUser = reservation.userDayLimit !== undefined && plan.userId !== undefined;
 
-  const newIdentity = poolRowIdentitySql(reservation.pool, plan.toPeriod.key);
   const capacity = capacityPredicates(reservation, plan.toPeriod.key, plan.userId);
 
-  let guardSql = `UPDATE usage_periods SET reserved = reserved + 1, updated_at = ?
-    WHERE ${newIdentity.sql} AND ${capacity.sql}
+  let conditionSql = `${capacity.sql}
       AND (SELECT count(*) FROM mail_outbox WHERE id = ? AND period_key = ? AND status IN ${UNSENT_STATUS_LIST}) = 1
       AND (SELECT coalesce(reserved, 0) FROM usage_periods WHERE pool = ? AND period_kind = ? AND period_key = ? AND user_id IS NULL) > 0`;
-  const guardParams: SqlParam[] = [
-    plan.now,
-    ...newIdentity.params,
+  const conditionParams: SqlParam[] = [
     ...capacity.params,
     plan.outboxId,
     plan.fromPeriodKey,
@@ -316,9 +383,9 @@ export async function rolloverUnsentOutboxReservation(
     plan.fromPeriodKey,
   ];
   if (withUser && plan.userId !== undefined) {
-    guardSql +=
+    conditionSql +=
       " AND (SELECT coalesce(reserved, 0) FROM usage_periods WHERE pool = ? AND period_kind = ? AND period_key = ? AND user_id = ?) > 0";
-    guardParams.push(reservation.pool, BUDGET_PERIOD_KIND, plan.fromPeriodKey, plan.userId);
+    conditionParams.push(reservation.pool, BUDGET_PERIOD_KIND, plan.fromPeriodKey, plan.userId);
   }
 
   const effects: GuardedEffect[] = [
@@ -371,7 +438,10 @@ export async function rolloverUnsentOutboxReservation(
         ? [insertUsageRowStatement(reservation.pool, plan.toPeriod, plan.now, plan.userId)]
         : []),
     ],
-    guard: { sql: guardSql, params: guardParams },
+    guard: reserveMailPoolStatement(
+      { pool: reservation.pool, periodKey: plan.toPeriod.key, now: plan.now },
+      { sql: conditionSql, params: conditionParams },
+    ),
     effects,
   });
 }

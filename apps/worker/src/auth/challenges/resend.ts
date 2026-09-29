@@ -25,12 +25,9 @@
 // 发送载荷清除后仍可重发，列缺失/损坏一律失败关闭，login 失败关闭语义保留。
 
 import {
-  AUTH_MAIL_POOLS,
-  BUDGET_PERIOD_KIND,
   canonicalizeEmail,
   decideMailIntent,
   OTP_ATTEMPTS,
-  OUTBOX_UNRESERVED_PERIOD_KEY,
   planMailReservation,
   utcDayPeriod,
 } from "@hoyo/contracts";
@@ -38,7 +35,14 @@ import { ApiError, jsonResponse, parseCookieHeader } from "../../shell";
 import type { Keyring } from "../../storage/crypto/keyring";
 import { computeEmailKey, macOtpVerification } from "../../storage/crypto/mac";
 import { generateOtpCode } from "../../storage/crypto/random";
-import { readMailDayLedger } from "../../storage/ledger/mail-ledger";
+import {
+  insertUsageRowStatement,
+  type MailLedgerStatement,
+  mailBudgetCapacityPredicate,
+  readMailDayLedger,
+  releaseUnsentAuthReservationsStatement,
+  reserveMailPoolStatement,
+} from "../../storage/ledger/mail-ledger";
 import type { PreauthContext } from "../preauth/cookie";
 import { PREAUTH_COOKIE_NAME, verifyPreauthCookieValue } from "../preauth/cookie";
 import { authQuotaGuard, decideAuthQuota, readAuthQuotaSnapshot } from "../preauth/quota";
@@ -255,27 +259,12 @@ export async function runResendOtp(deps: ResendOtpDeps, input: ResendOtpInput): 
   // 预算阈值仍由 contracts 的唯一规则源提供；将预占、旋转、意图、outbox 和旧预留
   // 归还放进一个 D1 batch，避免占位路径另开短路，也不让它短暂占用预算。
   const plan = planMailReservation("auth_resend");
-  if (plan.authTotalLimit === undefined) throw new Error("认证重发缺少预算计划");
-  const authPoolsSql = AUTH_MAIL_POOLS.map((pool) => `'${pool}'`).join(", ");
+  const capacity = mailBudgetCapacityPredicate(plan, period.key);
   const accepted = "EXISTS (SELECT 1 FROM auth_resend_intents WHERE id = ?)";
-  const oldReserved = `SELECT count(*) FROM mail_outbox o WHERE o.payload_ref = ?
-    AND o.id <> ? AND o.status IN ('pending','leased') AND o.period_key <> ?
-    AND o.period_key = usage_periods.period_key AND o.purpose = usage_periods.pool`;
+  const prepareLedger = (statement: MailLedgerStatement) =>
+    deps.db.prepare(statement.sql).bind(...statement.params);
   const rotation = await deps.db.batch([
-    deps.db
-      .prepare(`INSERT INTO usage_periods
-      (id,pool,period_kind,period_key,user_id,reserved,settled,uncertain,period_start,period_end,created_at,updated_at)
-      VALUES (?,?,?,?,NULL,0,0,0,?,?,?,?) ON CONFLICT DO NOTHING`)
-      .bind(
-        crypto.randomUUID(),
-        plan.pool,
-        BUDGET_PERIOD_KIND,
-        period.key,
-        period.startMs,
-        period.endMsExclusive,
-        now,
-        now,
-      ),
+    prepareLedger(insertUsageRowStatement(plan.pool, period, now)),
     deps.db
       .prepare(`UPDATE auth_challenges SET generation = ?, mac = ?, updated_at = ?
       WHERE id = ? AND generation = ? AND consumed_at IS NULL AND aborted_at IS NULL AND deadline > ?
@@ -283,10 +272,7 @@ export async function runResendOtp(deps: ResendOtpDeps, input: ResendOtpInput): 
           SELECT 1 FROM users u WHERE u.id = ? AND u.email_key = auth_challenges.email_key
             AND u.email_version = auth_challenges.address_version AND u.status = 'active'))
         AND ${quotaGuard.sql}
-        AND (SELECT reserved+settled+uncertain FROM usage_periods WHERE pool = ? AND period_kind = ?
-          AND period_key = ? AND user_id IS NULL) < ?
-        AND (SELECT coalesce(sum(reserved+settled+uncertain),0) FROM usage_periods WHERE pool IN (${authPoolsSql})
-          AND period_kind = ? AND period_key = ? AND user_id IS NULL) < ?`)
+        AND ${capacity.sql}`)
       .bind(
         newGeneration,
         eligible ? mac : "never-authorize",
@@ -297,23 +283,20 @@ export async function runResendOtp(deps: ResendOtpDeps, input: ResendOtpInput): 
         OTP_ATTEMPTS,
         challenge.recipient_user_id,
         ...quotaGuard.params,
-        plan.pool,
-        BUDGET_PERIOD_KIND,
-        period.key,
-        plan.rowOccupancyLimit,
-        BUDGET_PERIOD_KIND,
-        period.key,
-        plan.authTotalLimit,
+        ...capacity.params,
       ),
     deps.db
       .prepare(`INSERT INTO auth_resend_intents (id,email_key,preauth_id,idempotency_key,created_at)
       SELECT ?,?,?,?,? WHERE changes() = 1`)
       .bind(intentId, emailKey, preauth.context.preauthId, input.idempotencyKey, now),
     // 后续效果都由本次唯一意图 ID 守卫，不依赖可以合法为零行的 outbox 写入。
-    deps.db
-      .prepare(`UPDATE usage_periods SET reserved = reserved + ?, updated_at = ?
-      WHERE pool = ? AND period_kind = ? AND period_key = ? AND user_id IS NULL AND ${accepted}`)
-      .bind(eligible ? 1 : 0, now, plan.pool, BUDGET_PERIOD_KIND, period.key, intentId),
+    prepareLedger(
+      reserveMailPoolStatement(
+        { pool: plan.pool, periodKey: period.key, now },
+        { sql: accepted, params: [intentId] },
+        eligible ? 1 : 0,
+      ),
+    ),
     deps.db
       .prepare(`INSERT INTO mail_outbox (id,purpose,priority,period_key,recipient_user_id,address_version,
       payload_kind,payload_ref,payload_ciphertext,status,idempotency_key,created_at,updated_at)
@@ -334,27 +317,12 @@ export async function runResendOtp(deps: ResendOtpDeps, input: ResendOtpInput): 
         eligible ? 1 : 0,
         intentId,
       ),
-    deps.db
-      .prepare(`UPDATE usage_periods SET reserved = reserved - (${oldReserved}), updated_at = ?
-      WHERE user_id IS NULL AND period_kind = ? AND pool IN (${authPoolsSql})
-        AND period_key IN (SELECT period_key FROM mail_outbox WHERE payload_ref = ?
-          AND id <> ? AND status IN ('pending','leased') AND period_key <> ?)
-        AND ? AND ${accepted} AND (${oldReserved}) > 0`)
-      .bind(
-        challenge.id,
-        outboxId,
-        OUTBOX_UNRESERVED_PERIOD_KEY,
-        now,
-        BUDGET_PERIOD_KIND,
-        challenge.id,
-        outboxId,
-        OUTBOX_UNRESERVED_PERIOD_KEY,
-        eligible ? 1 : 0,
-        intentId,
-        challenge.id,
-        outboxId,
-        OUTBOX_UNRESERVED_PERIOD_KEY,
-      ),
+    prepareLedger(
+      releaseUnsentAuthReservationsStatement(challenge.id, outboxId, now, {
+        sql: `? AND ${accepted}`,
+        params: [eligible ? 1 : 0, intentId],
+      }),
+    ),
     deps.db
       .prepare(`UPDATE mail_outbox SET status = 'superseded', payload_ciphertext = NULL, updated_at = ?
       WHERE payload_ref = ? AND id <> ? AND status IN ('pending','leased') AND ? AND ${accepted}`)
