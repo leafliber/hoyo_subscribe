@@ -1,15 +1,19 @@
 import { env } from "cloudflare:test";
 import {
+  browseWindow,
   PUBLIC_READ_LIMITS as LIMITS,
   PUBLIC_CACHE_FRESH,
   PublicEventDetailResponseSchema,
   PublicEventsResponseSchema,
   type PublicSnapshotNode,
   PublicStatusResponseSchema,
+  SUPPORTED_SCOPE,
   TimeValueSchema,
 } from "@hoyo/contracts";
 import { beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { writeRegistrationOpen } from "../accounts/admission/registration";
 import worker from "../index";
+import { PUBLIC_HEAD_SQL, PUBLIC_PENDING_SQL, PUBLIC_SOURCES_SQL } from "./queries";
 import { readCatalog, readEventDetail, readEvents, readPublicStatus } from "./read";
 import { makeNode, migratePublicTest, NOW, resetPublicTest, seedNodes } from "./test-support";
 
@@ -17,11 +21,73 @@ function must<T>(value: T | null | undefined): T {
   if (value == null) throw new Error("missing test fixture");
   return value;
 }
+// 仅触发可用性读取；没有邮件绑定，不调用发送链。
+const mailStatusEnv = {
+  ...env,
+  AUTH_MAIL_FROM: "auth@example.invalid",
+  BIZ_MAIL_FROM: "calendar@example.invalid",
+  SITE_ORIGIN: "https://example.invalid",
+  CRYPTO_MASTER_SECRET: "synthetic-unused",
+  CRYPTO_OTP_PEPPER: "synthetic-unused",
+  CRYPTO_UNSUBSCRIBE_KEY_ID: "synthetic-unused",
+};
 const url = (path = "events") => new URL(`https://app.test/api/v2/${path}`);
-const request = (path: string) =>
-  worker.fetch(new Request(url(path), { headers: { cookie: "ignored=synthetic" } }), env, {
+const request = (path: string, bindings: Env = env) =>
+  worker.fetch(new Request(url(path), { headers: { cookie: "ignored=synthetic" } }), bindings, {
     waitUntil() {},
   } as unknown as ExecutionContext);
+async function seedApprovedEvidence() {
+  const n = makeNode();
+  const projection = JSON.stringify(n.projection);
+  const node = { ...n, source_projection_json: projection };
+  await seedNodes([node]);
+  await env.DB.prepare(
+    "INSERT INTO sources VALUES ('source','genshin','cn','synthetic','[]','[]','{}','{}','maintenance-required',?,?,?)",
+  )
+    .bind(NOW - 100, NOW - 100, NOW - 100)
+    .run();
+  await env.DB.prepare(
+    "INSERT INTO articles VALUES ('article','source','ext','https://example.invalid/official',?,?,?,?)",
+  )
+    .bind(NOW, NOW, NOW, NOW)
+    .run();
+  await env.DB.prepare(
+    "INSERT INTO article_versions VALUES ('version','article',1,'hash','[]','[]','complete',?,?,?)",
+  )
+    .bind(NOW - 200, NOW, NOW)
+    .run();
+  await env.DB.prepare(
+    "INSERT INTO candidates(id,proposal_json,review_status,created_at,updated_at) VALUES ('pending','{}','pending',?,?),('approved','{}','approved',?,?)",
+  )
+    .bind(NOW, NOW, NOW, NOW)
+    .run();
+  await env.DB.prepare(
+    "INSERT INTO evidence(id,candidate_id,event_id,milestone_id,article_version_id,block_ref,created_at) VALUES ('gap','pending',NULL,NULL,'version','blocks/0',?),('published','approved','event','node','version','blocks/0',?)",
+  )
+    .bind(NOW, NOW)
+    .run();
+  await env.DB.prepare("INSERT INTO calendar_projections VALUES ('node','event',1,?,?)")
+    .bind(projection, NOW)
+    .run();
+  await env.DB.prepare("UPDATE candidates SET proposal_json = ? WHERE id = 'approved'")
+    .bind(
+      JSON.stringify({
+        events: [
+          {
+            title: n.projection.event.title,
+            event_type: n.projection.event.event_type,
+            status: n.projection.event.status,
+            status_evidence: null,
+            milestones: [
+              { ...n.projection.milestone, time_evidence: { quote: "合成公告中的已核验片段" } },
+            ],
+          },
+        ],
+      }),
+    )
+    .run();
+}
+
 beforeAll(migratePublicTest);
 beforeEach(resetPublicTest);
 describe("A-P3-PUBLIC 真实本地 D1 公共闭环", () => {
@@ -71,7 +137,7 @@ describe("A-P3-PUBLIC 真实本地 D1 公共闭环", () => {
     expect(status.status).toBe(200);
     const data = PublicStatusResponseSchema.parse(await status.json());
     expect(data.capabilities.calendar).toBe("unknown");
-    expect(data.sources.every((s) => s.verificationState === "unknown")).toBe(true);
+    expect(must(data.sources).every((s) => s.verificationState === "unknown")).toBe(true);
     expect(data.calendarClients).toContainEqual({
       client: "apple_calendar_macos",
       support: "verified",
@@ -242,15 +308,24 @@ describe("A-P3-PUBLIC 真实本地 D1 公共闭环", () => {
     release();
     await expect(inFlight).rejects.toMatchObject({ code: "conflict" });
   });
-  it("缓存到期带真实发布时间和 stale，读取不续命；私人参数/任意窗口拒绝", async () => {
+  it("旧代次实时响应仍有完整副本新鲜期；私人参数/任意窗口拒绝", async () => {
     await seedNodes([makeNode()]);
     const fresh = await readEvents(env.DB, url(), NOW);
     expect(fresh.headers.get("cache-control")).toContain(`max-age=${PUBLIC_CACHE_FRESH}`);
     const stale = await readEvents(env.DB, url(), NOW + PUBLIC_CACHE_FRESH * 1000);
     const body = PublicEventsResponseSchema.parse(await stale.json());
-    expect(body.cache.stale).toBe(true);
+    expect(body.cache).toEqual({
+      generatedAt: NOW + PUBLIC_CACHE_FRESH * 1000,
+      freshUntil: NOW + PUBLIC_CACHE_FRESH * 2000,
+      stale: false,
+    });
     expect(body.publication.publishedAt).toBe(NOW);
-    expect(stale.headers.get("cache-control")).toContain("max-age=0");
+    expect(stale.headers.get("cache-control")).toBe(`public, max-age=${PUBLIC_CACHE_FRESH}`);
+    const nextDay = PublicEventsResponseSchema.parse(
+      await (await readEvents(env.DB, url(), NOW + 86400000)).json(),
+    );
+    expect(nextDay.cache.stale).toBe(false);
+    expect(nextDay.cache.freshUntil - nextDay.cache.generatedAt).toBe(PUBLIC_CACHE_FRESH * 1000);
     for (const q of [
       "email=x",
       "user_id=x",
@@ -315,61 +390,13 @@ describe("A-P3-PUBLIC 真实本地 D1 公共闭环", () => {
     });
   });
   it("来源维护与待审只给聚合数；官方发布时间与核验、发布代次时间分开", async () => {
-    const n = makeNode();
-    const projection = JSON.stringify(n.projection);
-    const node = { ...n, source_projection_json: projection };
-    await seedNodes([node]);
-    await env.DB.prepare(
-      "INSERT INTO sources VALUES ('source','genshin','cn','synthetic','[]','[]','{}','{}','maintenance-required',?,?,?)",
-    )
-      .bind(NOW - 100, NOW - 100, NOW - 100)
-      .run();
-    await env.DB.prepare(
-      "INSERT INTO articles VALUES ('article','source','ext','https://example.invalid/official',?,?,?,?)",
-    )
-      .bind(NOW, NOW, NOW, NOW)
-      .run();
-    await env.DB.prepare(
-      "INSERT INTO article_versions VALUES ('version','article',1,'hash','[]','[]','complete',?,?,?)",
-    )
-      .bind(NOW - 200, NOW, NOW)
-      .run();
-    await env.DB.prepare(
-      "INSERT INTO candidates(id,proposal_json,review_status,created_at,updated_at) VALUES ('pending','{}','pending',?,?),('approved','{}','approved',?,?)",
-    )
-      .bind(NOW, NOW, NOW, NOW)
-      .run();
-    await env.DB.prepare(
-      "INSERT INTO evidence(id,candidate_id,event_id,milestone_id,article_version_id,block_ref,created_at) VALUES ('gap','pending',NULL,NULL,'version','blocks/0',?),('published','approved','event','node','version','blocks/0',?)",
-    )
-      .bind(NOW, NOW)
-      .run();
-    await env.DB.prepare("INSERT INTO calendar_projections VALUES ('node','event',1,?,?)")
-      .bind(projection, NOW)
-      .run();
-    await env.DB.prepare("UPDATE candidates SET proposal_json = ? WHERE id = 'approved'")
-      .bind(
-        JSON.stringify({
-          events: [
-            {
-              title: n.projection.event.title,
-              event_type: n.projection.event.event_type,
-              status: n.projection.event.status,
-              status_evidence: null,
-              milestones: [
-                { ...n.projection.milestone, time_evidence: { quote: "合成公告中的已核验片段" } },
-              ],
-            },
-          ],
-        }),
-      )
-      .run();
+    await seedApprovedEvidence();
     const status = await readPublicStatus(env.DB, NOW);
-    expect(status.sources[0]).toMatchObject({
+    expect(must(status.sources)[0]).toMatchObject({
       verificationState: "unavailable",
       verifiedAt: NOW - 100,
-      reviewCount: 1,
     });
+    expect(status.reviewGaps).toContainEqual({ game: "genshin", count: 1 });
     const list = PublicEventsResponseSchema.parse(
       await (await readEvents(env.DB, url(), NOW)).json(),
     );
@@ -383,5 +410,207 @@ describe("A-P3-PUBLIC 真实本地 D1 公共闭环", () => {
       await (await readEvents(env.DB, url(), NOW)).json(),
     );
     expect(unbound.nodes[0]?.noticePublishedAt).toBeNull();
+  });
+  it("窗口终点恰好 end 的节点必须排除", async () => {
+    const end = must(browseWindow("today", NOW).end);
+    const before = makeNode("before");
+    const atEnd = makeNode("at-end");
+    before.projection.milestone.time = TimeValueSchema.parse({
+      ...before.projection.milestone.time,
+      utc_ms: end - 1,
+    });
+    atEnd.projection.milestone.time = TimeValueSchema.parse({
+      ...atEnd.projection.milestone.time,
+      utc_ms: end,
+    });
+    await seedNodes([before, atEnd]);
+    const result = PublicEventsResponseSchema.parse(
+      await (await readEvents(env.DB, url("events?range=today"), NOW)).json(),
+    );
+    expect(result.nodes.map((n) => n.id)).toEqual(["before"]);
+  });
+  it("近期变更恰好上限时没有截断", async () => {
+    await seedNodes(
+      Array.from({ length: LIMITS.recentChanges }, (_, i) => {
+        const n = makeNode(`exact-${i}`);
+        return {
+          ...n,
+          patch: {
+            kind: "rescheduled" as const,
+            fact_reason: "合成更正",
+            extends_window: true,
+            display_time: n.projection.milestone.time,
+            old_time: n.projection.milestone.time,
+            new_time: n.projection.milestone.time,
+            retain_until: NOW + 1000,
+          },
+        };
+      }),
+    );
+    const result = PublicEventsResponseSchema.parse(
+      await (await readEvents(env.DB, url(), NOW)).json(),
+    );
+    expect(result.recentChanges).toHaveLength(LIMITS.recentChanges);
+    expect(result.recentChangesTruncated).toBe(false);
+  });
+  it("详情排除仍在保留期的墓碑节点", async () => {
+    const live = makeNode("live"),
+      deleted = makeNode("deleted");
+    deleted.tombstone = true;
+    deleted.patch = {
+      kind: "deleted",
+      fact_reason: "系统删除",
+      extends_window: true,
+      display_time: deleted.projection.milestone.time,
+      old_time: deleted.projection.milestone.time,
+      new_time: null,
+      retain_until: NOW + 1000,
+    };
+    await seedNodes([live, deleted]);
+    const result = PublicEventDetailResponseSchema.parse(
+      await (await readEventDetail(env.DB, url("events/event"), "event", NOW)).json(),
+    );
+    expect(result.event.milestones.map((n) => n.id)).toEqual(["live"]);
+    expect(result.event.changes).toEqual([]);
+    const list = PublicEventsResponseSchema.parse(
+      await (await readEvents(env.DB, url(), NOW)).json(),
+    );
+    expect(list.recentChanges.map((n) => n.id)).toEqual(["deleted"]);
+  });
+  it("投影绑定成立但候选字段不匹配时公告发布时间未知", async () => {
+    await seedApprovedEvidence();
+    const before = PublicEventsResponseSchema.parse(
+      await (await readEvents(env.DB, url(), NOW)).json(),
+    );
+    expect(before.nodes[0]?.noticePublishedAt).toBe(NOW - 200);
+    await env.DB.prepare(
+      "UPDATE candidates SET proposal_json = json_set(proposal_json, '$.events[0].title', '不同标题') WHERE id = 'approved'",
+    ).run();
+    const result = PublicEventsResponseSchema.parse(
+      await (await readEvents(env.DB, url(), NOW)).json(),
+    );
+    expect(result.nodes[0]?.noticePublishedAt).toBeNull();
+    expect(result.nodes[0]?.evidence).toBe(makeNode().projection.milestone.time.raw_expression);
+  });
+  it("同游戏官方与米游社逐来源显示，待审独立统计", async () => {
+    await seedApprovedEvidence();
+    await env.DB.prepare("UPDATE sources SET verification_state = 'verified-working'").run();
+    await env.DB.prepare(
+      "INSERT INTO sources SELECT 'miyoushe',game,region,adapter,approved_hosts_json,verified_publishers_json,cursor_json,poll_policy_json,'maintenance-required-list-only',last_success_at,created_at,updated_at FROM sources WHERE source_id='source'",
+    ).run();
+    const result = await readPublicStatus(env.DB, NOW);
+    expect(result.sources).toEqual([
+      {
+        sourceId: "miyoushe",
+        game: "genshin",
+        verifiedAt: NOW - 100,
+        verificationState: "verified",
+        degradationReasons: ["content_unavailable"],
+      },
+      {
+        sourceId: "source",
+        game: "genshin",
+        verifiedAt: NOW - 100,
+        verificationState: "verified",
+        degradationReasons: [],
+      },
+    ]);
+    expect(result.reviewGaps).toContainEqual({ game: "genshin", count: 1 });
+  });
+  it("无法归属及超过上限的待审计数为未知，status 仍返回原有开关", async () => {
+    await seedApprovedEvidence();
+    await writeRegistrationOpen(env.DB, true, NOW);
+    await env.DB.prepare(
+      "INSERT INTO system_state(key,value_json,updated_at) VALUES ('mail_sending_available','true',?) ON CONFLICT(key) DO UPDATE SET value_json='true'",
+    )
+      .bind(NOW)
+      .run();
+    try {
+      await env.DB.prepare(
+        "INSERT INTO candidates(id,proposal_json,review_status,created_at,updated_at) VALUES ('orphan','{}','pending',?,?)",
+      )
+        .bind(NOW, NOW)
+        .run();
+      for (const overflow of [false, true]) {
+        if (overflow) {
+          await env.DB.prepare("DELETE FROM candidates WHERE id='orphan'").run();
+          await env.DB.prepare(
+            "INSERT INTO candidates(id,proposal_json,review_status,created_at,updated_at) SELECT 'overflow-' || value,'{}','pending',?,? FROM json_each(?)",
+          )
+            .bind(
+              NOW,
+              NOW,
+              JSON.stringify(Array.from({ length: LIMITS.pendingCandidates }, (_, i) => i)),
+            )
+            .run();
+          await env.DB.prepare(
+            "INSERT INTO evidence(id,candidate_id,article_version_id,block_ref,created_at) SELECT id,id,'version','blocks/0',? FROM candidates WHERE id LIKE 'overflow-%'",
+          )
+            .bind(NOW)
+            .run();
+        }
+        const response = await request("status", mailStatusEnv);
+        expect(response.status).toBe(200);
+        const result = PublicStatusResponseSchema.parse(await response.json());
+        expect(result.registration_open).toBe(true);
+        expect(result.mail_sending_available).toBe(true);
+        expect(result.reviewGaps).toEqual(
+          SUPPORTED_SCOPE.games.map((game) => ({ game, count: null })),
+        );
+        expect(result.sources).not.toBeNull();
+        expect(result.publication).not.toBeNull();
+      }
+    } finally {
+      await writeRegistrationOpen(env.DB, false, NOW);
+      await env.DB.prepare("DELETE FROM system_state WHERE key='mail_sending_available'").run();
+    }
+  });
+  it("每个公开聚合查询故障只降级该项，注册与邮件独立返回", async () => {
+    await seedApprovedEvidence();
+    await writeRegistrationOpen(env.DB, true, NOW);
+    await env.DB.prepare(
+      "INSERT INTO system_state(key,value_json,updated_at) VALUES ('mail_sending_available','true',?) ON CONFLICT(key) DO UPDATE SET value_json='true'",
+    )
+      .bind(NOW)
+      .run();
+    try {
+      for (const failSql of [PUBLIC_HEAD_SQL, PUBLIC_PENDING_SQL, PUBLIC_SOURCES_SQL]) {
+        const db = {
+          prepare(sql: string) {
+            if (sql === failSql) throw new Error("synthetic read failure");
+            return env.DB.prepare(sql);
+          },
+        } as D1Database;
+        const response = await request("status", { ...mailStatusEnv, DB: db });
+        expect(response.status).toBe(200);
+        const result = PublicStatusResponseSchema.parse(await response.json());
+        expect(result.registration_open).toBe(true);
+        expect(result.mail_sending_available).toBe(true);
+        expect(result.publication === null).toBe(failSql === PUBLIC_HEAD_SQL);
+        expect(result.sources === null).toBe(failSql === PUBLIC_SOURCES_SQL);
+        expect(result.reviewGaps.find((r) => r.game === "genshin")?.count).toBe(
+          failSql === PUBLIC_PENDING_SQL ? null : 1,
+        );
+      }
+      await env.DB.prepare(
+        "INSERT INTO sources SELECT 'extra-' || value, 'genshin','cn','synthetic','[]','[]','{}','{}','verified-working',?,?,? FROM json_each(?)",
+      )
+        .bind(
+          NOW,
+          NOW,
+          NOW,
+          JSON.stringify(Array.from({ length: LIMITS.sourcesPerGame }, (_, i) => i)),
+        )
+        .run();
+      const response = await request("status", mailStatusEnv);
+      expect(response.status).toBe(200);
+      const result = PublicStatusResponseSchema.parse(await response.json());
+      expect(result.sources).toBeNull();
+      expect(result.reviewGaps.find((r) => r.game === "genshin")?.count).toBe(1);
+      expect(result.registration_open).toBe(true);
+    } finally {
+      await writeRegistrationOpen(env.DB, false, NOW);
+      await env.DB.prepare("DELETE FROM system_state WHERE key='mail_sending_available'").run();
+    }
   });
 });

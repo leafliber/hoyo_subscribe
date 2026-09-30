@@ -20,12 +20,16 @@ export const statusRoute: ShellRoute = {
   write: false,
   handler: async (ctx) => {
     validatePublicQuery(ctx.url);
-    const registrationOpen = await readRegistrationOpen(ctx.env.DB);
+    const [registrationOpen, mailSendingAvailable, publicStatus] = await Promise.all([
+      readRegistrationOpen(ctx.env.DB).catch(() => false),
+      environmentMailAvailable(ctx.env).catch(() => false),
+      readPublicStatus(ctx.env.DB),
+    ]);
     return publicResponse(
       PublicStatusResponseSchema.parse({
-        ...(await readPublicStatus(ctx.env.DB)),
+        ...publicStatus,
         registration_open: registrationOpen,
-        mail_sending_available: await environmentMailAvailable(ctx.env),
+        mail_sending_available: mailSendingAvailable,
       }),
     );
   },

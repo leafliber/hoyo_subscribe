@@ -15,9 +15,9 @@ export const PUBLIC_CHANGES_SQL = `SELECT milestone_id,
     AND json_extract(node_json, '$.patch.retain_until') IS NOT NULL
     AND json_extract(node_json, '$.patch.retain_until') > ?
   ORDER BY json_extract(node_json, '$.patch.retain_until') DESC, milestone_id LIMIT ?`;
-export const PUBLIC_SOURCES_SQL = `SELECT last_success_at, verification_state FROM sources
+export const PUBLIC_SOURCES_SQL = `SELECT source_id, last_success_at, verification_state FROM sources
   WHERE game = ? AND region = 'cn' ORDER BY source_id LIMIT ?`;
-// 扫描 pending 索引有限前缀；超过保护值明确报错，禁止把截断计数当精确总量。
+// 扫描 pending 索引有限前缀；超过保护值降级为未知，禁止把截断计数当精确总量。
 // 每个候选由第一条证据（其来源唯一）归属游戏；人工 run_id 可空，不能只依赖 extraction_runs。
 export const PUBLIC_PENDING_SQL = `SELECT COALESCE((SELECT s.game FROM extraction_runs r
   JOIN article_versions av ON av.id = r.article_version_id

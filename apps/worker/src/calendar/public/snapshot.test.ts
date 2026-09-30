@@ -601,7 +601,23 @@ describe("A-P3-ICS 公共构建查询数上界", () => {
       );
       expect(insert.meta.changes).toBe(current?.node_count);
       expect(remove.meta.changes).toBe(current?.node_count);
-      expect(insert.meta.rows_written).toBe((current?.node_count ?? 0) * 3);
+      expect(insert.meta.rows_written).toBe(
+        // 主表 + 所有全量索引（含主键）按 N 计；更正部分索引只写带 retain_until 的节点。
+        (current?.node_count ?? 0) *
+          (1 +
+            Number(
+              await env.DB.prepare(
+                "SELECT COUNT(*) AS n FROM pragma_index_list('public_snapshot_nodes') WHERE partial = 0",
+              ).first("n"),
+            )) +
+          Number(
+            await env.DB.prepare(
+              "SELECT COUNT(*) AS n FROM public_snapshot_nodes WHERE snapshot_id = ? AND json_extract(node_json, '$.patch.retain_until') IS NOT NULL",
+            )
+              .bind(current?.id)
+              .first("n"),
+          ),
+      );
       // 本地 workerd 对 DELETE 的统计只计主表；生产预算仍按官方索引规则保守估算。
       expect(remove.meta.rows_written).toBe(current?.node_count);
     } finally {

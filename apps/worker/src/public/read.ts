@@ -5,13 +5,17 @@ import {
   type GameId,
   PUBLIC_READ_LIMITS as LIMITS,
   NODE_TYPES,
+  PUBLIC_CACHE_FRESH,
   type PublicCache,
   PublicCatalogResponseSchema,
   PublicEventDetailResponseSchema,
   PublicEventsResponseSchema,
   type PublicPublication,
+  PublicPublicationSchema,
   type PublicScheduleNode,
   type PublicSnapshotNode,
+  type PublicSourceStatus,
+  PublicSourceStatusSchema,
   parsePublicSelection,
   publicCache,
   publicCursorMatches,
@@ -62,11 +66,8 @@ export function publicResponse(body: { cache: PublicCache }): Response {
   const encoded = JSON.stringify(body);
   if (bytes(encoded) > LIMITS.responseBytes) throw unavailable();
   const response = jsonResponse(body);
-  // 不使用 stale-while-revalidate：避免缓存返回 stale:false 的已过期内容。
-  const seconds = body.cache.stale
-    ? 0
-    : Math.max(0, Math.floor((body.cache.freshUntil - body.cache.generatedAt) / 1000));
-  response.headers.set("cache-control", `public, max-age=${seconds}, must-revalidate`);
+  // PUBLIC_CACHE_FRESH 描述本次响应副本；数据水位由 publication/sources 单独提供。
+  response.headers.set("cache-control", `public, max-age=${PUBLIC_CACHE_FRESH}`);
   return response;
 }
 
@@ -113,13 +114,11 @@ async function notices(
     { publishedAt: number | null; evidence: ReturnType<typeof publicEvidence> }
   >();
   for (let offset = 0; offset < nodes.length; offset += LIMITS.scanPage) {
-    const input = nodes
-      .slice(offset, offset + LIMITS.scanPage)
-      .map((n) => ({
-        id: n.projection.milestone_id,
-        eventId: n.projection.event_id,
-        projection: n.source_projection_json,
-      }));
+    const input = nodes.slice(offset, offset + LIMITS.scanPage).map((n) => ({
+      id: n.projection.milestone_id,
+      eventId: n.projection.event_id,
+      projection: n.source_projection_json,
+    }));
     const rows = await db
       .prepare(PUBLIC_NOTICE_SQL)
       .bind(LIMITS.nodeBytes, JSON.stringify(input), publishedAt, publishedAt)
@@ -309,34 +308,68 @@ export async function readEventDetail(
   return publicResponse(body);
 }
 
-export async function readPublicStatus(db: D1Database, now = Date.now()) {
-  const pub = publication(await head(db));
-  const pending = (
-    await db
-      .prepare(PUBLIC_PENDING_SQL)
-      .bind(LIMITS.pendingCandidates + 1)
-      .all<{ game: string | null }>()
-  ).results;
-  if (
-    pending.length > LIMITS.pendingCandidates ||
-    pending.some((r) => !SUPPORTED_SCOPE.games.includes(r.game as GameId))
-  )
-    throw unavailable();
-  const sources = [];
-  for (const game of SUPPORTED_SCOPE.games) {
+// 每项单独降级；不能让公开聚合故障吞掉注册、邮件或其他成功读取的状态。
+async function readStatusPublication(db: D1Database) {
+  try {
+    return PublicPublicationSchema.nullable().parse(publication(await head(db)));
+  } catch {
+    return null;
+  }
+}
+async function readReviewGaps(db: D1Database) {
+  let pending: { game: string | null }[] | null = null;
+  try {
     const rows = (
       await db
-        .prepare(PUBLIC_SOURCES_SQL)
-        .bind(game, LIMITS.sourcesPerGame + 1)
-        .all<{ last_success_at: number | null; verification_state: string }>()
+        .prepare(PUBLIC_PENDING_SQL)
+        .bind(LIMITS.pendingCandidates + 1)
+        .all<{ game: string | null }>()
     ).results;
-    if (rows.length > LIMITS.sourcesPerGame) throw unavailable();
-    sources.push(publicSourceStatus(game, rows, pending.filter((r) => r.game === game).length));
+    // 未归属候选可能属于任意游戏；超过有界前缀也无法确认任意游戏的总数。
+    if (
+      rows.length <= LIMITS.pendingCandidates &&
+      rows.every((r) => SUPPORTED_SCOPE.games.includes(r.game as GameId))
+    )
+      pending = rows;
+  } catch {
+    // 未知不等于零，也不用截断前缀冒充精确数。
   }
+  return SUPPORTED_SCOPE.games.map((game) => ({
+    game,
+    count: pending === null ? null : pending.filter((r) => r.game === game).length,
+  }));
+}
+async function readSources(db: D1Database): Promise<PublicSourceStatus[] | null> {
+  try {
+    const sources: PublicSourceStatus[] = [];
+    for (const game of SUPPORTED_SCOPE.games) {
+      const rows = (
+        await db
+          .prepare(PUBLIC_SOURCES_SQL)
+          .bind(game, LIMITS.sourcesPerGame + 1)
+          .all<{ source_id: string; last_success_at: number | null; verification_state: string }>()
+      ).results;
+      if (rows.length > LIMITS.sourcesPerGame) return null;
+      sources.push(
+        ...rows.map((row) => PublicSourceStatusSchema.parse(publicSourceStatus(game, row))),
+      );
+    }
+    return sources;
+  } catch {
+    return null;
+  }
+}
+export async function readPublicStatus(db: D1Database, now = Date.now()) {
+  const [pub, reviewGaps, sources] = await Promise.all([
+    readStatusPublication(db),
+    readReviewGaps(db),
+    readSources(db),
+  ]);
   return {
     publication: pub,
     cache: publicCache(pub, now),
     sources,
+    reviewGaps,
     capabilities: {
       calendar: "unknown",
       email_seats: "unknown",

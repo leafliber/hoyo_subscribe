@@ -85,6 +85,30 @@ describe("A-P3-PUBLIC 公共读唯一纯函数", () => {
     ).toBeNull();
   });
 
+  it("证据时间不匹配本代时不采用该片段", () => {
+    const proposal = {
+      events: [
+        {
+          title: node.projection.event.title,
+          event_type: node.projection.event.event_type,
+          status: node.projection.event.status,
+          status_evidence: null,
+          milestones: [
+            {
+              ...node.projection.milestone,
+              time: { ...node.projection.milestone.time, date: "2026-10-01" },
+              time_evidence: { quote: "其他日期的片段" },
+            },
+          ],
+        },
+      ],
+    };
+    expect(publicEvidence(node, proposal)).toBeNull();
+    expect(publicNode(node, null, publicEvidence(node, proposal)).evidence).toBe(
+      node.projection.milestone.time.raw_expression,
+    );
+  });
+
   it("日期不补午夜、未知时间保持待定、all 也从今日起", () => {
     const output = publicNode(node);
     expect(output.time.precision).toBe("date");

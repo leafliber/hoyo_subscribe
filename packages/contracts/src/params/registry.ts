@@ -1101,7 +1101,7 @@ export const PARAM_META: Readonly<Record<keyof ParamValues, ParamMeta>> = {
     unit: "混合（条/字节）",
     status: "strategy",
     description: "P3-14 公共读 API 的扫描页、变更数、详情、来源、待审聚合与字节保护",
-    note: "近期变更期限使用共享更正层 retain_until；响应超限分页，单节点/详情/待审计数超限报不可用，不截断冒充完整",
+    note: "近期变更期限使用共享更正层 retain_until；响应超限分页，单节点/详情超限报不可用，状态聚合超限为未知，不截断冒充完整",
   },
   PUBLIC_SNAPSHOT_WRITE_PROFILE: {
     section: "A.3",
