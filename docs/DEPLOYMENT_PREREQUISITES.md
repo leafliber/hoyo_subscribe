@@ -21,7 +21,9 @@
 | --- | --- | --- | --- |
 | **按 IP 的边缘限速规则** | P2-01 | §4.2 第 3 步、§8.3、[R16] | ⚠ 应用侧只做**同邮箱**近似限速——附录 A 无 IP 维度参数，按 [R16] 该维度属边缘。**边缘规则未配时，换邮箱即可绕过第 3 步**；这不是应用缺陷，但上线前必须配 |
 | ~~发件子域与 DNS（认证域 / 业务域分开）~~ **已完成（2026-09-28）** | P0-05 | §2.2 | 认证 `auth.hoyo.airo.cc`（preview 已关）、业务 `hoyo.airo.cc`；两者都关了「静默丢弃受抑制收件人」，DNS 均 ready。见 `docs/evidence/p0/platform-facts.md` §2 |
-| 反馈 Queue 的消费者 | P0-05 / P4-07 | §7.4、§7.7 | Queue `hoyo-mail-events` 与业务域的事件订阅已于 2026-09-28 建好（经所有者批准）；上线时把取证用的 HTTP pull 消费者换成 P4-07 的 Worker 消费者 |
+| 反馈 Queue 的消费者 | P0-05 / P4-07 | §7.4、§7.7 | Queue `hoyo-mail-events` 与业务域的事件订阅已于 2026-09-28 建好（经所有者批准）；上线时把取证用的 HTTP pull 消费者换成 P4-07 的 Worker 消费者。**一个 Queue 只能有一个消费者**：先摘掉 HTTP pull 消费者，再部署 Worker |
+| 反馈 DLQ `hoyo-mail-events-dlq`（P4-07 合入后生效） | P4-07 | §7.5 | P4-07 的消费者配置了 `max_retries = 8` 后转入这个 DLQ，部署前要先建好（Queues 含在 Workers Paid 内）。DLQ 有保留期，要有人定期查看 |
+| 反馈消费的普通变量 `MAIL_FEEDBACK_ACCOUNT_ID`、`MAIL_FEEDBACK_SUBSCRIPTIONS`（P4-07 合入后生效） | P4-07 | §7.5 | 前者是 Cloudflare 账户 ID；后者是 JSON 数组，每项 `{id, domain}`，业务域与认证域的事件订阅各一项。缺任一项时消费者整批 retry，最终进 DLQ，不会误 ack |
 | 认证域的事件订阅 | P0-05 / P4-07 | §7.5、§7.7 | `auth.hoyo.airo.cc` 的订阅**未建**（订阅按发件域建）。上线前经所有者批准建进同一个 Queue，否则验证码邮件的硬退信与投诉收不到 |
 | `send_email` 绑定限定发件地址 | P4-03 | §2.2 | `AUTH_MAILER` / `BIZ_MAILER` 各配 `allowed_sender_addresses`，只放本用途地址（由 P4-03 写进 `wrangler.jsonc`） |
 | ~~Workers AI 可用性确认~~ **已解决（2026-09-22）** | P0-03 | — | 可用性与 10,000 Neurons/日免费额度已查实；此前按 entitlements 判断是看错了信号。见 `docs/evidence/p0/platform-facts.md` |
