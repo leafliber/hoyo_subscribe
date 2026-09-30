@@ -1,6 +1,6 @@
 # P4-07 反馈收件箱与抑制
 
-**2026-09-30 返工**：按任务卡 `4b36dfb` 复核裁定修正容量与保留，精确地址 HMAC 已使用正式原语，P1 占位 Queue 已移除。返工报告见 `REWORK.md`；本文件描述当前实现。
+**2026-09-30 返工**：按任务卡 `4b36dfb` 复核裁定修正容量与保留，精确地址 HMAC 已使用正式原语，P1 占位 Queue 已移除。返工报告见 [PR #41 描述](https://github.com/leafliber/hoyo_subscribe/pull/41)；本文件描述当前实现。
 
 合同：主方案 §7.5 后半、§7.7、A.4/A.5；P0-05 platform-facts §2.2；P4-03 验收登记与 outbox/README。只处理 `hoyo-mail-events`，没有 HTTP 反馈入口或外部请求。本地测试均是 P0-05 形状的合成事件。
 
@@ -34,7 +34,7 @@ accepted 仅为已提交平台；jobs 的 provider_status=delivered 才表示收
 
 接近容量（MAIL_FEEDBACK_MAX - FEEDBACK_BATCH）时，提前汇总最旧的显式 done 记录，给下一批留空间。找不到可回收完成行时仍允许硬上限内的余位；最终 INSERT 中再核验硬上限。处理中、待重试和未到期未关联记录不因容量压力被删除；这些保护记录真的占满时才拒绝并 retry/DLQ。容量计数仍是有注册表上界的 COUNT，不设另一份持久计数口径。
 
-迁移 `0021_mail_feedback_cleanup_indexes.sql` 增加完成清理和未关联清理的两个部分时间索引 `(created_at,id)`；JSON 谓词兼容旧非 JSON 引用。未关联清理显式使用新索引，防 SQLite 选择旧 outbox 索引后再排序。最终编号以合入时 main 为准；并行撞号后合入方改号。
+迁移 `0022_mail_feedback_cleanup_indexes.sql` 增加完成清理和未关联清理的两个部分时间索引 `(created_at,id)`；JSON 谓词兼容旧非 JSON 引用。未关联清理显式使用新索引，防 SQLite 选择旧 outbox 索引后再排序。最终编号以合入时 main 为准；并行撞号后合入方改号。
 
 本地 workerd/D1 满容量实测基准：总容量拒绝的 INSERT 读 20,002 行，19999 行且未关联满额时两个 COUNT 共读 21,002 行；完成 TTL / 完成压力 / 未关联 TTL 三种清理页各读 10 行，EXPLAIN 无临时排序。含 2 次接近容量首轮失败、重新写入、回执、汇总、删除及批末清理的一批 10 条共 210 条查询、240,052 rows_read。按 MAIL_TOTAL_DAY=260、31 天、每封 3–5 个反馈，折算 580,445,736–967,409,560 行/月，约为验收登记所列 Paid 250 亿行包含量的 2.32%–3.87%。仅是本模块正常处理模型，不含额外重试和同账户其他读量。
 

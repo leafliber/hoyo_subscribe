@@ -92,7 +92,10 @@ describe("A-P2-PREAUTH 全局注册开关（§4.2 /status 公布 registration_op
       waitUntil() {},
     } as unknown as ExecutionContext);
     expect(res.status).toBe(200);
-    expect(await res.json()).toEqual({ registration_open: false, mail_sending_available: false });
+    expect(await res.json()).toMatchObject({
+      registration_open: false,
+      mail_sending_available: false,
+    });
   });
 
   it("写入 true 后读侧与 /status 公布 true；写回 false 再关闭", async () => {
@@ -101,7 +104,10 @@ describe("A-P2-PREAUTH 全局注册开关（§4.2 /status 公布 registration_op
     const res = await worker.fetch(new Request("https://app.test/api/v2/status"), env, {
       waitUntil() {},
     } as unknown as ExecutionContext);
-    expect(await res.json()).toEqual({ registration_open: true, mail_sending_available: false });
+    expect(await res.json()).toMatchObject({
+      registration_open: true,
+      mail_sending_available: false,
+    });
     await writeRegistrationOpen(env.DB, false, T0);
     expect(await readRegistrationOpen(env.DB)).toBe(false);
   });

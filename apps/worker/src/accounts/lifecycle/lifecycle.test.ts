@@ -1,3 +1,4 @@
+// F2-04 返工获准跨卡：补账号摘要 user_id 与偏好导出不含该标识的断言。
 // A-P2-ACCOUNT：真实 D1 校验最近证明、换邮箱事务、轮换两步确认、终止与分页释放。
 // 邮箱与秘密全部是测试随机样本；不调用真实发信服务。
 import { env } from "cloudflare:test";
@@ -218,6 +219,23 @@ describe("A-P2-ACCOUNT", () => {
       }),
     });
     const cookie = `${USER_SESSION_COOKIE_NAME}=${fixture.token}`;
+    const beforeRead = await first<{ expires_at: number; renewed_at: number }>(
+      "SELECT expires_at,renewed_at FROM sessions WHERE id = ?",
+      fixture.session.sessionId,
+    );
+    const summary = await shell.fetch(
+      new Request("https://app.test/api/v2/me", { headers: { cookie } }),
+      env,
+      fakeExecutionContext,
+    );
+    expect(summary.status).toBe(200);
+    expect(await summary.json()).toHaveProperty("user_id", fixture.userId);
+    expect(
+      await first(
+        "SELECT expires_at,renewed_at FROM sessions WHERE id = ?",
+        fixture.session.sessionId,
+      ),
+    ).toEqual(beforeRead);
     const exported = await shell.fetch(
       new Request("https://app.test/api/v2/me/export", { headers: { cookie } }),
       env,
@@ -1006,11 +1024,14 @@ describe("A-P2-ACCOUNT", () => {
       recoveryCodeRequired: false,
     };
     const summary = await readAccountSummary(env.DB, await keysPromise, auth, now);
+    expect(summary).toHaveProperty("user_id", fixture.userId);
     expect(JSON.stringify(summary)).not.toContain(fixture.email);
     expect(JSON.stringify(summary)).toContain("recent_auth_required");
     const exported = await exportPreferences(env.DB, fixture.userId);
     const text = JSON.stringify(exported);
+    expect(exported).not.toHaveProperty("user_id");
     for (const sensitive of [
+      fixture.userId,
       fixture.email,
       fixture.recoverySecret,
       fixture.recoveryId,

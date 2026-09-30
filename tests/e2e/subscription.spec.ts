@@ -1,3 +1,4 @@
+// F2-04 获准跨卡：仅将证据截图写入改为显式环境变量启用。
 import { mkdirSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { expect, test } from "@playwright/test";
@@ -170,7 +171,11 @@ test("U09a 页面仅维护本机选择，不请求订阅 API；实际预览和�
 
 test("U09 U09a U10 E2 桌面与手机实际截图", async ({ page }, info) => {
   await page.goto("/subscription");
-  const folder = resolve("tests/e2e/evidence/f2-01");
+  const folder = resolve(
+    process.env.HOYO_E2E_WRITE_EVIDENCE === "1"
+      ? "tests/e2e/evidence/f2-01"
+      : "tests/e2e/test-results/f2-01",
+  );
   mkdirSync(folder, { recursive: true });
   const viewport = info.project.name.startsWith("mobile") ? "mobile" : "desktop";
   await page.screenshot({ path: `${folder}/${viewport}-subscription.png`, fullPage: true });

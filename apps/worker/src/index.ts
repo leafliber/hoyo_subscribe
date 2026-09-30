@@ -29,6 +29,7 @@ import { makeSessionRoutes } from "./auth/sessions/routes";
 import { makeFeedHandler } from "./calendar/feed/handler";
 import { queue } from "./mail/feedback";
 import { mailAdmissionHook } from "./mail/provider/admission";
+import { publicRoutes } from "./public/routes";
 import { scheduled } from "./scheduled";
 import { applySecurityHeaders } from "./shell/headers";
 import { createApiShell } from "./shell/router";
@@ -110,6 +111,7 @@ function getShell(env: Env): Shell {
         // 全局注册开关。
         makePreauthInitRoute({ keys: () => getKeyring(env as Env & ShellSecrets) }),
         statusRoute,
+        ...publicRoutes,
         // P2-02 挂载点：申请 / 重发 / 校验三端点（七步准入管线 + 真实第 7 步效果）。
         // 近似限速门每 shell（isolate）一个实例；Turnstile 懒构造——秘密未注入时仅
         // 申请端点失败关闭（503），不影响预认证初始化与其余路由。
