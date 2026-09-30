@@ -1,0 +1,40 @@
+
+ RUN  v4.1.11 /Users/cassia/.codex/worktrees/p4-03-mail-outbox/hoyo_subscribe/apps/worker
+
+ ❯ src/mail/outbox/outbox.test.ts (23 tests | 1 failed | 22 skipped) 36ms
+   × A-P4-OUTBOX 过期清理与 calling_provider 竞争不能退掉另一封信的预算 15ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  src/mail/outbox/outbox.test.ts > A-P4-OUTBOX 过期清理与 calling_provider 竞争不能退掉另一封信的预算
+AssertionError: expected { reserved: +0, settled: +0, …(1) } to deeply equal { reserved: 1, settled: +0, …(1) }
+
+- Expected
++ Received
+
+  {
+-   "reserved": 1,
++   "reserved": 0,
+    "settled": 0,
+    "uncertain": 1,
+  }
+
+ ❯ src/mail/outbox/outbox.test.ts:536:26
+    534|   // 第二封尚未过期，reserved 必须保留；第一封已经越过调用边界，uncertain 保留。
+    535|   expect((await row(oid))?.status).toBe("calling_provider");
+    536|   expect(await budget()).toEqual({ reserved: 1, settled: 0, uncertain:…
+       |                          ^
+    537| });
+    538|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 22 skipped (23)
+   Start at  10:00:40
+   Duration  1.18s (transform 342ms, setup 0ms, import 736ms, tests 36ms, environment 0ms)
+
+undefined
+/Users/cassia/.codex/worktrees/p4-03-mail-outbox/hoyo_subscribe/apps/worker:
+[ERR_PNPM_RECURSIVE_EXEC_FIRST_FAIL] Command failed with exit code 1: vitest run src/mail/outbox/outbox.test.ts -t '过期清理与'

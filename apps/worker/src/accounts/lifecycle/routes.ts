@@ -1,5 +1,7 @@
+// P4-03 所有者补充授权：最近认证/换邮箱验证码共享故障门与提交后唤醒。
 // P2-07：账号危险操作路由。外壳统一校验 Origin/CSRF，证明和所有者再由 D1 实时核对。
 // 删除是受限恢复会话唯一允许的账号写入；其他写入仍由外壳默认拒绝。
+
 import { API_BODY_MAX_BYTES, isRecentAuthAction, isRecentAuthRole } from "@hoyo/contracts";
 import {
   type RecentSession,
@@ -10,6 +12,7 @@ import { serializePendingSessionCookie } from "../../auth/consume/session";
 import type { ApproximateRateGate } from "../../auth/preauth/rate-gate";
 import type { TurnstileVerifier } from "../../auth/preauth/turnstile";
 import { proveWithRecoveryCode } from "../../auth/recent-auth/proof";
+import { type MailAdmissionHook, withMailAdmission } from "../../mail/provider/admission";
 import type { ShellAuth } from "../../shell/domains";
 import { ApiError, jsonResponse } from "../../shell/errors";
 import type { ShellRoute } from "../../shell/router";
@@ -61,6 +64,7 @@ function noStore(body: unknown, status = 200): Response {
 }
 
 export interface LifecycleRouteDeps {
+  readonly mail?: MailAdmissionHook;
   readonly keys: () => Promise<Keyring>;
   readonly rateGate: ApproximateRateGate;
   readonly turnstile: () => TurnstileVerifier;
@@ -94,20 +98,22 @@ export function makeLifecycleRoutes(deps: LifecycleRouteDeps): readonly ShellRou
             code: "validation",
             fields: [{ path: "role", reason: "invalid_role" }],
           });
-        const challengeId = await startRecentOtp(
-          ctx.env.DB,
-          await deps.keys(),
-          sessionOf(ctx.auth),
-          action,
-          role,
-          typeof ctx.body?.target_email === "string" ? ctx.body.target_email : undefined,
-          stringField(ctx.body, "idempotency_key"),
-          now(),
-          {
-            rateGate: deps.rateGate,
-            turnstile: deps.turnstile(),
-            turnstileToken: stringField(ctx.body, "turnstile_token"),
-          },
+        const challengeId = await withMailAdmission(ctx.env, deps.mail, async () =>
+          startRecentOtp(
+            ctx.env.DB,
+            await deps.keys(),
+            sessionOf(ctx.auth),
+            action,
+            role,
+            typeof ctx.body?.target_email === "string" ? ctx.body.target_email : undefined,
+            stringField(ctx.body, "idempotency_key"),
+            now(),
+            {
+              rateGate: deps.rateGate,
+              turnstile: deps.turnstile(),
+              turnstileToken: stringField(ctx.body, "turnstile_token"),
+            },
+          ),
         );
         return noStore({ challenge_id: challengeId }, 202);
       },

@@ -1,3 +1,4 @@
+// P4-03 所有者补充授权：认证生成前的邮件故障门、提交后尽力唤醒。
 // 认证挑战三端点（任务卡 P2-02 交付物一；主方案 §8.2、§4.2、§4.3）。
 //
 // - POST /api/v2/auth/challenges        申请：P2-01 七步准入管线 + 本卡注入的第 7 步真实
@@ -9,6 +10,7 @@
 // preauth_id，与 P2-01 相同的绑定语义）；预认证上下文核验在各业务函数内完成。
 
 import { OTP_DIGITS } from "@hoyo/contracts";
+import { type MailAdmissionHook, withMailAdmission } from "../../mail/provider/admission";
 import type { ShellRoute } from "../../shell";
 import { parseCookieHeader } from "../../shell";
 import type { Keyring } from "../../storage/crypto/keyring";
@@ -24,6 +26,7 @@ import { runVerifyOtp } from "./verify";
 const IDEMPOTENCY_KEY_MAX_LENGTH = 128;
 
 export interface ChallengeRouteDeps {
+  readonly mail?: MailAdmissionHook;
   /** 密钥环提供方（index.ts 传入 getKeyring；构造失败时写路由失败关闭）。 */
   readonly keys: () => Promise<Keyring>;
   /** 近似限速门（每 isolate 一个实例；进程内镜像，见 preauth/rate-gate.ts）。 */
@@ -64,21 +67,23 @@ export function makeChallengeRoutes(deps: ChallengeRouteDeps): readonly ShellRou
       },
       csrfBinding: preauthCsrfBinding,
       handler: async (ctx) =>
-        runPreauthAdmission(
-          {
-            db: ctx.env.DB,
-            keys: await deps.keys(),
-            rateGate: deps.rateGate,
-            turnstile: deps.turnstile(),
-            effect: createAdmittedChallengeAndMailTask,
-            now: () => Date.now(),
-          },
-          {
-            request: ctx.request,
-            email: bodyString(ctx.body, "email"),
-            turnstileToken: bodyString(ctx.body, "turnstile_token"),
-            idempotencyKey: bodyString(ctx.body, "idempotency_key") || null,
-          },
+        withMailAdmission(ctx.env, deps.mail, async () =>
+          runPreauthAdmission(
+            {
+              db: ctx.env.DB,
+              keys: await deps.keys(),
+              rateGate: deps.rateGate,
+              turnstile: deps.turnstile(),
+              effect: createAdmittedChallengeAndMailTask,
+              now: () => Date.now(),
+            },
+            {
+              request: ctx.request,
+              email: bodyString(ctx.body, "email"),
+              turnstileToken: bodyString(ctx.body, "turnstile_token"),
+              idempotencyKey: bodyString(ctx.body, "idempotency_key") || null,
+            },
+          ),
         ),
     },
     {
@@ -98,17 +103,19 @@ export function makeChallengeRoutes(deps: ChallengeRouteDeps): readonly ShellRou
       },
       csrfBinding: preauthCsrfBinding,
       handler: async (ctx) =>
-        runResendOtp(
-          {
-            db: ctx.env.DB,
-            keys: await deps.keys(),
-            now: () => Date.now(),
-          },
-          {
-            request: ctx.request,
-            email: bodyString(ctx.body, "email"),
-            idempotencyKey: bodyString(ctx.body, "idempotency_key"),
-          },
+        withMailAdmission(ctx.env, deps.mail, async () =>
+          runResendOtp(
+            {
+              db: ctx.env.DB,
+              keys: await deps.keys(),
+              now: () => Date.now(),
+            },
+            {
+              request: ctx.request,
+              email: bodyString(ctx.body, "email"),
+              idempotencyKey: bodyString(ctx.body, "idempotency_key"),
+            },
+          ),
         ),
     },
     {

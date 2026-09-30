@@ -1,0 +1,33 @@
+COMMAND: pnpm --filter @hoyo/worker exec vitest run src/mail/outbox -t 外部接受后本地未落账
+
+ RUN  v4.1.11 /Users/cassia/.codex/worktrees/p4-03-mail-outbox/hoyo_subscribe/apps/worker
+
+ ❯ src/mail/outbox/outbox.test.ts (27 tests | 1 failed | 26 skipped) 28ms
+     × 外部接受后本地未落账的崩溃恢复成 unknown，不退款、不盲重发 9ms
+
+ Test Files  1 failed | 1 skipped (2)
+      Tests  1 failed | 36 skipped (37)
+   Start at  10:18:22
+   Duration  1.08s (transform 701ms, setup 0ms, import 1.56s, tests 28ms, environment 0ms)
+
+undefined
+/Users/cassia/.codex/worktrees/p4-03-mail-outbox/hoyo_subscribe/apps/worker:
+[ERR_PNPM_RECURSIVE_EXEC_FIRST_FAIL] Command failed with exit code 1: vitest run src/mail/outbox -t '外部接受后本地未落账'
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  src/mail/outbox/outbox.test.ts > A-P4-OUTBOX 租约与外部不确定边界 > 外部接受后本地未落账的崩溃恢复成 unknown，不退款、不盲重发
+AssertionError: expected 'pending' to be 'unknown' // Object.is equality
+
+Expected: "unknown"
+Received: "pending"
+
+ ❯ src/mail/outbox/outbox.test.ts:209:38
+    207|     await repairMailPage(env.DB, now);
+    208|     await repairMailPage(env.DB, now);
+    209|     expect((await row(oid))?.status).toBe("unknown");
+       |                                      ^
+    210|     expect(await budget()).toEqual({ reserved: 0, settled: 0, uncertai…
+    211|     expect(await sendOneMail(deps(), "watchdog")).toBe(false);
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯

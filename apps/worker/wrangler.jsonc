@@ -41,5 +41,9 @@
 
   // 原生 send_email 是唯一首版发送路径；认证与业务使用不同发件子域（主方案 §2.2）。
   // 绑定为占位，不指向生产发送链。
-  "send_email": [{ "name": "AUTH_MAILER" }, { "name": "BIZ_MAILER" }]
+  // P4-03 获准配置：平台按用途锁定所有者指定的发件地址。
+  "send_email": [
+    { "name": "AUTH_MAILER", "allowed_sender_addresses": ["hoyo-sub@auth.hoyo.airo.cc"] },
+    { "name": "BIZ_MAILER", "allowed_sender_addresses": ["hoyo-sub@hoyo.airo.cc"] }
+  ]
 }

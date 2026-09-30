@@ -1,0 +1,8 @@
+
+ RUN  v4.1.11 /Users/cassia/.codex/worktrees/p4-03-mail-outbox/hoyo_subscribe/apps/worker
+
+
+ Test Files  1 passed (1)
+      Tests  1 passed | 26 skipped (27)
+   Start at  10:14:56
+   Duration  1.14s (transform 347ms, setup 0ms, import 734ms, tests 32ms, environment 0ms)
