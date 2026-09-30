@@ -1,6 +1,7 @@
 // A-P3-ICS：真实本地 D1、公开整代及 HTTP 外壳；无真实账户/发信/网络来源。
 import { createExecutionContext, env } from "cloudflare:test";
 import {
+  CAL_PATCH_MIN_DAYS,
   decideCalendarPatch,
   FEED_BASE_NODE_MAX,
   FEED_FUTURE_DAYS,
@@ -293,6 +294,30 @@ describe("A-P3-ICS Feed HTTP 读路径与完整快照", () => {
         ),
       ).toEqual({ last_served_node_count: 4, last_served_generation: d * 2 + 1 });
     }
+    expect(metrics).not.toContain("feed_shrink_guard");
+  });
+  it("基线已回收但当前代仍含更正时间证据，到期立即恢复窗口输出", async () => {
+    const values = nodes().map((n, i) => {
+      if (i >= 6) return node(n.projection.milestone_id, T + 2 * CAL_PATCH_MIN_DAYS * day);
+      const next = node(
+        n.projection.milestone_id,
+        T + (FEED_FUTURE_DAYS + 2 * CAL_PATCH_MIN_DAYS) * day,
+      );
+      return { ...next, patch: decideCalendarPatch(n.projection, next.projection, null, T) };
+    });
+    await snapshot(values);
+    expect(await events(await request())).toHaveLength(10);
+    at++;
+    await snapshot(values, 2);
+    at++;
+    await snapshot(values, 3);
+    await run("DELETE FROM public_snapshot_nodes WHERE snapshot_id='synthetic-generation-1'");
+    await run("DELETE FROM public_snapshots WHERE generation=1");
+    at = (values[0]?.patch?.retain_until ?? 0) + 1;
+    await fresh();
+    const response = await request();
+    expect(response.status).toBe(200);
+    expect(await events(response)).toHaveLength(4);
     expect(metrics).not.toContain("feed_shrink_guard");
   });
   it("基线回收后当前代按旧时刻仍不足原条数，不以新增节点补齐缺失证据", async () => {
