@@ -29,6 +29,7 @@ import { suppressionAddressKey } from "../suppression";
 import { consumeFeedback, queue } from "./index";
 import { FEEDBACK_DLQ, FEEDBACK_QUEUE, parseFeedback, type Receipt } from "./schema";
 import {
+  compactFeedbackPage,
   FEEDBACK_LOOKUP_SQL,
   type FeedbackKeys,
   ingestFeedback,
@@ -195,6 +196,8 @@ beforeEach(async () => {
 describe("A-P4-FEEDBACK", () => {
   it("Queue 配置由注册表约束，小批/重试/DLQ 不漂移", () => {
     const parsed = JSON.parse(config.replace(/^\s*\/\/.*$/gm, ""));
+    expect(parsed.queues.producers).toBeUndefined();
+    expect(parsed.queues.consumers).toHaveLength(1);
     expect(
       parsed.queues.consumers.find((c: { queue: string }) => c.queue === FEEDBACK_QUEUE),
     ).toEqual({
@@ -342,7 +345,7 @@ describe("A-P4-FEEDBACK", () => {
       });
       expect(await one("SELECT COUNT(*) AS n FROM suppressions")).toEqual({ n: 0 });
       expect(await one("SELECT mail_outbox_id FROM mail_feedback")).toEqual({
-        mail_outbox_id: null,
+        mail_outbox_id: oid,
       });
     } finally {
       await env.DB.exec("DROP TRIGGER synthetic_feedback_fail");
@@ -447,24 +450,28 @@ describe("A-P4-FEEDBACK", () => {
     expect(await one("SELECT COUNT(*) AS n FROM mail_feedback")).toEqual({ n: MAIL_UNMATCHED_MAX });
     expect(a.messages[0]?.ack).not.toHaveBeenCalled();
     expect(b.messages[0]?.ack).not.toHaveBeenCalled();
-    expect(await pruneFeedbackPage(env.DB, T + MAIL_FEEDBACK_TTL * 1000 + 1)).toBe(0);
+    expect(await pruneFeedbackPage(env.DB, T + MAIL_FEEDBACK_TTL * 1000 + 1)).toBe(FEEDBACK_BATCH);
   });
-  it("反馈总容量上限阻断新事件，已完成重复事件仍可 ack", async () => {
+  it("总容量被待重试占满时不删除它们，也不突破硬上限", async () => {
     await seed();
     const e = event();
     await consumeFeedback(batch([e]), deps());
     await run(
       `WITH RECURSIVE n(x) AS (SELECT 1 UNION ALL SELECT x+1 FROM n WHERE x<?)
       INSERT INTO mail_feedback(id,provider_event_id,mail_outbox_id,kind,feedback_at,raw_ref,created_at)
-      SELECT 'history-'||x,'history-'||x,'synthetic-history','delivered',?,'{}',? FROM n`,
+      SELECT 'history-'||x,'history-'||x,'synthetic-history','delivered',?,'{"stage":"pending"}',? FROM n`,
       MAIL_FEEDBACK_MAX - 1,
       T,
       T,
     );
-    const b = batch([event(), e]);
+    // 唯一完成行可被压力回收；第一封进来后改为待重试，第二封才真正无可回收行。
+    await run(
+      "UPDATE mail_feedback SET raw_ref=json_set(raw_ref,'$.stage','pending') WHERE provider_event_id=?",
+      e.payload.eventId,
+    );
+    const b = batch([event()]);
     await consumeFeedback(b, deps());
     expect(b.messages[0]?.retry).toHaveBeenCalledOnce();
-    expect(b.messages[1]?.ack).toHaveBeenCalledOnce();
     expect(await one("SELECT COUNT(*) AS n FROM mail_feedback")).toEqual({ n: MAIL_FEEDBACK_MAX });
   });
   it("孤儿反馈维护关联与完成元数据 TTL，未决异常保持有界保留", async () => {
@@ -472,8 +479,8 @@ describe("A-P4-FEEDBACK", () => {
     await consumeFeedback(batch([e]), deps());
     await seed();
     expect(await reconcileFeedbackPage(env.DB, keys, T)).toBe(1);
-    expect(await pruneFeedbackPage(env.DB, T + MAIL_FEEDBACK_TTL * 1000)).toBe(0);
-    expect(await pruneFeedbackPage(env.DB, T + MAIL_FEEDBACK_TTL * 1000 + 1)).toBe(1);
+    expect(await pruneFeedbackPage(env.DB, T + MAIL_FEEDBACK_TTL * 1000 - 1)).toBe(0);
+    expect(await pruneFeedbackPage(env.DB, T + MAIL_FEEDBACK_TTL * 1000)).toBe(1);
   });
   it("处理者崩溃租约到期后可恢复，租约期间不 ack", async () => {
     const e = event();
@@ -618,11 +625,141 @@ it("A-P4-FEEDBACK 相同 eventId 内容冲突不能覆盖已有记录或伪造�
   await seed();
   const e = event();
   await consumeFeedback(batch([e]), deps());
+  const beforeConflict = await one("SELECT * FROM mail_feedback");
   const changed = { ...e, payload: { ...e.payload, messageId: "<another-synthetic>" } };
   const b = batch([changed]);
   await consumeFeedback(b, deps());
   expect(b.messages[0]?.ack).not.toHaveBeenCalled();
-  expect(await one("SELECT message_id FROM mail_feedback")).toEqual({
-    message_id: e.payload.messageId,
+  expect(await one("SELECT * FROM mail_feedback")).toEqual(beforeConflict);
+});
+
+async function seedFeedbackHistory(count: number, createdAt: number, completed: boolean) {
+  await run(
+    `WITH RECURSIVE n(x) AS (SELECT 1 UNION ALL SELECT x+1 FROM n WHERE x<?)
+    INSERT INTO mail_feedback(id,provider_event_id,message_id,mail_outbox_id,kind,feedback_at,raw_ref,created_at)
+    SELECT 'probe-'||x,'probe-'||x,'<probe-'||x||'>',?,'deferred',?, ?,? FROM n`,
+    count,
+    completed ? "synthetic-history" : null,
+    createdAt,
+    JSON.stringify({ stage: completed ? "done" : "pending", leaseUntil: 0, token: null }),
+    createdAt,
+  );
+}
+it("A-P4-FEEDBACK 探针一：1000 条过期未关联不阻挡可关联投诉，异常到期汇总", async () => {
+  const { uid, binding } = await seed();
+  await seedFeedbackHistory(MAIL_UNMATCHED_MAX, T - MAIL_FEEDBACK_TTL * 1000, false);
+  const b = batch([event("complained")]);
+  await consumeFeedback(b, deps());
+  expect(b.messages[0]?.ack).toHaveBeenCalledOnce();
+  expect(
+    await one("SELECT enabled,routine_enabled FROM email_channels WHERE user_id=?", uid),
+  ).toEqual({ enabled: 0, routine_enabled: 0 });
+  expect(await one("SELECT kind,email_binding_id FROM suppressions")).toEqual({
+    kind: "complaint",
+    email_binding_id: binding,
   });
+  while (await pruneFeedbackPage(env.DB, T)) {
+    /* 有限页直到全部过期异常已汇总 */
+  }
+  expect(await one("SELECT COUNT(*) AS n FROM mail_feedback WHERE mail_outbox_id IS NULL")).toEqual(
+    { n: 0 },
+  );
+  expect(
+    await one(
+      "SELECT value_json FROM system_state WHERE key='mail_feedback:unmatched_expired:deferred'",
+    ),
+  ).toEqual({ value_json: String(MAIL_UNMATCHED_MAX) });
+});
+it("A-P4-FEEDBACK 未过期未关联已满，可关联投诉仍直接入库且不占未关联池", async () => {
+  const { uid } = await seed();
+  await seedFeedbackHistory(MAIL_UNMATCHED_MAX, T, false);
+  const b = batch([event("complained")]);
+  await consumeFeedback(b, deps());
+  expect(b.messages[0]?.ack).toHaveBeenCalledOnce();
+  expect(await one("SELECT COUNT(*) AS n FROM mail_feedback WHERE mail_outbox_id IS NULL")).toEqual(
+    { n: MAIL_UNMATCHED_MAX },
+  );
+  expect(await one("SELECT enabled FROM email_channels WHERE user_id=?", uid)).toEqual({
+    enabled: 0,
+  });
+});
+it("A-P4-FEEDBACK 探针二：20000 条新近完成记录时一批新反馈含投诉全部处理", async () => {
+  const { uid } = await seed();
+  await seedFeedbackHistory(MAIL_FEEDBACK_MAX, T - 1, true);
+  const b = batch(
+    Array.from({ length: FEEDBACK_BATCH }, (_, n) => event(n === 0 ? "complained" : "delivered")),
+  );
+  await consumeFeedback(b, deps());
+  for (const message of b.messages) {
+    expect(message.ack).toHaveBeenCalledOnce();
+    expect(message.retry).not.toHaveBeenCalled();
+  }
+  expect(
+    await one("SELECT enabled,routine_enabled FROM email_channels WHERE user_id=?", uid),
+  ).toEqual({ enabled: 0, routine_enabled: 0 });
+  expect(await one("SELECT kind FROM suppressions")).toEqual({ kind: "complaint" });
+  const total = await one<{ n: number }>("SELECT COUNT(*) AS n FROM mail_feedback");
+  expect(total?.n).toBeLessThanOrEqual(MAIL_FEEDBACK_MAX);
+  const archived = await one<{ value_json: string }>(
+    "SELECT value_json FROM system_state WHERE key='mail_feedback:archived:deferred'",
+  );
+  expect(Number(archived?.value_json)).toBeGreaterThanOrEqual(FEEDBACK_BATCH);
+  expect((total?.n ?? 0) + Number(archived?.value_json)).toBe(MAIL_FEEDBACK_MAX + FEEDBACK_BATCH);
+});
+it("A-P4-FEEDBACK 压力回收只删最旧 done，不删处理中、待重试、未过期未关联", async () => {
+  await seedFeedbackHistory(FEEDBACK_BATCH * 2, T - 1, true);
+  await run(
+    "UPDATE mail_feedback SET raw_ref=json_set(raw_ref,'$.stage','pending','$.leaseUntil',?) WHERE id='probe-1'",
+    T + EXECUTOR_BATCH_WALL_LIMIT * 1000,
+  );
+  await run(
+    "UPDATE mail_feedback SET raw_ref=json_set(raw_ref,'$.stage','pending') WHERE id='probe-2'",
+  );
+  await run(
+    "UPDATE mail_feedback SET raw_ref=json_set(raw_ref,'$.stage','pending'),mail_outbox_id=NULL WHERE id='probe-3'",
+  );
+  // 未来的 done 作为排序对照；旧的完成行必须先清理。
+  await run("UPDATE mail_feedback SET created_at=? WHERE id='probe-4'", T + 1);
+  expect(await compactFeedbackPage(env.DB, T)).toBe(FEEDBACK_BATCH);
+  const retained = (
+    await env.DB.prepare("SELECT id FROM mail_feedback ORDER BY id").all<{ id: string }>()
+  ).results.map((r) => r.id);
+  expect(retained).toHaveLength(FEEDBACK_BATCH);
+  expect(retained).toEqual(expect.arrayContaining(["probe-1", "probe-2", "probe-3", "probe-4"]));
+  expect(await pruneFeedbackPage(env.DB, T)).toBe(0);
+});
+it("A-P4-FEEDBACK 过期异常汇总并发只计一次，已取得活跃租约的旧行不删", async () => {
+  await seedFeedbackHistory(FEEDBACK_BATCH, T - MAIL_FEEDBACK_TTL * 1000, false);
+  await run(
+    "UPDATE mail_feedback SET raw_ref=json_set(raw_ref,'$.leaseUntil',?,'$.token','busy') WHERE id='probe-1'",
+    T + EXECUTOR_BATCH_WALL_LIMIT * 1000,
+  );
+  await Promise.all([pruneFeedbackPage(env.DB, T), pruneFeedbackPage(env.DB, T)]);
+  expect(await one("SELECT COUNT(*) AS n FROM mail_feedback")).toEqual({ n: 1 });
+  expect(
+    await one(
+      "SELECT value_json FROM system_state WHERE key='mail_feedback:unmatched_expired:deferred'",
+    ),
+  ).toEqual({ value_json: String(FEEDBACK_BATCH - 1) });
+});
+it("A-P4-FEEDBACK 先投诉后硬退信，抑制种类仍为投诉", async () => {
+  await seed();
+  const complaint = batch([event("complained")]);
+  await consumeFeedback(complaint, deps());
+  const bounce = batch([event("bounced")]);
+  await consumeFeedback(bounce, deps());
+  expect(complaint.messages[0]?.ack).toHaveBeenCalledOnce();
+  expect(bounce.messages[0]?.ack).toHaveBeenCalledOnce();
+  expect(await one("SELECT kind FROM suppressions")).toEqual({ kind: "complaint" });
+});
+it("A-P4-FEEDBACK 已关联待重试的反馈可由维护重放，关联不代表完成", async () => {
+  const { oid } = await seed(undefined, "calling_provider");
+  const e = event();
+  const b = batch([e]);
+  await consumeFeedback(b, deps());
+  expect(b.messages[0]?.ack).not.toHaveBeenCalled();
+  expect(await one("SELECT mail_outbox_id FROM mail_feedback")).toEqual({ mail_outbox_id: oid });
+  expect(await compactFeedbackPage(env.DB, T)).toBe(0);
+  await run("UPDATE mail_outbox SET status='accepted' WHERE id=?", oid);
+  expect(await reconcileFeedbackPage(env.DB, keys, T)).toBe(1);
 });

@@ -695,6 +695,16 @@ export const EXPECTED_INDEXES: Record<string, ExpectedIndex> = {
     table: "deliveries",
     columns: ["milestone_id", "schedule_revision", "rule_id", "channel", "target_ref"],
   },
+  idx_mail_feedback_completed_cleanup: {
+    table: "mail_feedback",
+    columns: ["created_at", "id"],
+    partial: true,
+  },
+  idx_mail_feedback_unmatched_cleanup: {
+    table: "mail_feedback",
+    columns: ["created_at", "id"],
+    partial: true,
+  },
   idx_mail_feedback_message: { table: "mail_feedback", columns: ["message_id"] },
   idx_mail_feedback_outbox: { table: "mail_feedback", columns: ["mail_outbox_id"] },
   idx_usage_periods_identity: {

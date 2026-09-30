@@ -1,12 +1,12 @@
 // P4-07：只写应用本地冻结，不调用平台抑制 API，不提供自动解除入口。
 import type { EmailLookupKey, FieldEncryptionKey } from "@hoyo/contracts";
 import { decryptDeliveryAddress, deliveryAddressForm } from "../../auth/challenges/delivery";
-import { computeEmailKey } from "../../storage/crypto/mac";
+import { computeExactAddressKey } from "../../storage/crypto/mac";
 import type { MailRow } from "../outbox/types";
 
 export const suppressionAddressKey = (key: EmailLookupKey, address: string) =>
   // 复用 lookup HMAC，加用途标签；本地部分大小写保留，不用账号 canonical_email。
-  computeEmailKey(key, JSON.stringify(["suppression-address:v1", deliveryAddressForm(address)]));
+  computeExactAddressKey(key, deliveryAddressForm(address));
 
 export async function resolveFeedbackBinding(
   db: D1Database,

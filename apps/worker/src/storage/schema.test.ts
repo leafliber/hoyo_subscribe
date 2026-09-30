@@ -4,9 +4,27 @@
 // 测试在真实 workerd + miniflare D1 上执行（@cloudflare/vitest-pool-workers），
 // 与部署引擎一致；本地 D1 与生产 D1 的差异以 P0-01 证据（d1-conditional-tx）为准。
 import { env } from "cloudflare:test";
+// P4-07 返工授权：仅追加反馈满容量生产 SQL 与真实 D1 读量基准。
+import {
+  FEEDBACK_BATCH,
+  MAIL_FEEDBACK_MAX,
+  MAIL_FEEDBACK_TTL,
+  MAIL_TOTAL_DAY,
+  MAIL_UNMATCHED_MAX,
+  SECRET_BITS,
+} from "@hoyo/contracts";
 import { beforeAll, describe, expect, it } from "vitest";
 import { readFeedState, recordFeedOutput } from "../calendar/feed/store";
+import {
+  FEEDBACK_COMPLETED_PAGE_SQL,
+  FEEDBACK_INSERT_SQL,
+  FEEDBACK_PRESSURE_PAGE_SQL,
+  FEEDBACK_UNMATCHED_PAGE_SQL,
+  ingestFeedback,
+  pruneFeedbackPage,
+} from "../mail/feedback/store";
 import { NEXT_OCCURRENCE_ALARM_SQL, START_DUE_OCCURRENCE_SQL } from "../mail/occurrences/expand";
+import { Keyring } from "./crypto/keyring";
 import {
   EXPECTED_DDL_INVARIANTS,
   EXPECTED_ENUM_CHECKS,
@@ -1838,4 +1856,237 @@ describe("A-P1-DB D1 schema、索引与迁移框架", () => {
       }
     }
   }, 120_000);
+});
+
+describe("A-P4-FEEDBACK 满容量写入与清理 rows_read", () => {
+  it("容量 COUNT 按 MAIL_FEEDBACK_MAX 封顶，TTL/压力清理使用时间索引", async ({ annotate }) => {
+    await run("DELETE FROM mail_feedback");
+    await run(
+      `WITH RECURSIVE n(x) AS (SELECT 1 UNION ALL SELECT x+1 FROM n WHERE x<?)
+      INSERT INTO mail_feedback(id,provider_event_id,message_id,mail_outbox_id,kind,feedback_at,raw_ref,created_at)
+      SELECT 'feedback-bench-'||x,'feedback-bench-'||x,'<feedback-bench-'||x||'>',
+        CASE WHEN x<=? THEN NULL ELSE 'synthetic-completed' END,'delivered',?,
+        CASE WHEN x<=? THEN '{"stage":"pending","leaseUntil":0}' ELSE '{"stage":"done","leaseUntil":0}' END,?
+      FROM n`,
+      MAIL_FEEDBACK_MAX,
+      MAIL_UNMATCHED_MAX,
+      T0,
+      MAIL_UNMATCHED_MAX,
+      T0 - MAIL_FEEDBACK_TTL * 1000,
+    );
+    try {
+      const insert = await env.DB.prepare(FEEDBACK_INSERT_SQL)
+        .bind(
+          "feedback-overflow",
+          "feedback-overflow",
+          "<feedback-overflow>",
+          "synthetic-completed",
+          "complained",
+          T0,
+          '{"stage":"pending"}',
+          T0,
+          "feedback-overflow",
+          MAIL_FEEDBACK_MAX,
+          "synthetic-completed",
+          MAIL_UNMATCHED_MAX,
+        )
+        .all();
+      expect(insert.results).toHaveLength(0);
+      expect(insert.meta.rows_read).toBeLessThanOrEqual(MAIL_FEEDBACK_MAX + FEEDBACK_BATCH);
+      expect(await query("SELECT id FROM mail_feedback WHERE id='feedback-overflow'")).toHaveLength(
+        0,
+      );
+      const pageRead: Record<string, number> = {};
+      for (const [label, sql, params, index] of [
+        [
+          "completed_ttl",
+          FEEDBACK_COMPLETED_PAGE_SQL,
+          [T0, T0 - MAIL_FEEDBACK_TTL * 1000, FEEDBACK_BATCH],
+          "idx_mail_feedback_completed_cleanup",
+        ],
+        [
+          "completed_pressure",
+          FEEDBACK_PRESSURE_PAGE_SQL,
+          [T0, FEEDBACK_BATCH],
+          "idx_mail_feedback_completed_cleanup",
+        ],
+        [
+          "unmatched_ttl",
+          FEEDBACK_UNMATCHED_PAGE_SQL,
+          [T0 - MAIL_FEEDBACK_TTL * 1000, T0, FEEDBACK_BATCH],
+          "idx_mail_feedback_unmatched_cleanup",
+        ],
+      ] as const) {
+        const result = await env.DB.prepare(sql)
+          .bind(...params)
+          .all();
+        expect(result.results).toHaveLength(FEEDBACK_BATCH);
+        expect(result.meta.rows_read).toBeLessThanOrEqual(FEEDBACK_BATCH * 3);
+        pageRead[label] = result.meta.rows_read;
+        const plan = await env.DB.prepare(`EXPLAIN QUERY PLAN ${sql}`)
+          .bind(...params)
+          .all<{ detail: string }>();
+        expect(plan.results.map((row) => row.detail).join(" ")).toContain(index);
+        expect(plan.results.map((row) => row.detail).join(" ")).not.toContain("TEMP B-TREE");
+      }
+      // 总容量留一个槽，再测真正未知 messageId 的第二个 COUNT，避免第一个闸门短路。
+      await run("DELETE FROM mail_feedback WHERE id=?", `feedback-bench-${MAIL_FEEDBACK_MAX}`);
+      const unmatchedInsert = await env.DB.prepare(FEEDBACK_INSERT_SQL)
+        .bind(
+          "unmatched-overflow",
+          "unmatched-overflow",
+          "<unmatched-overflow>",
+          null,
+          "delivered",
+          T0,
+          '{"stage":"pending"}',
+          T0,
+          "unmatched-overflow",
+          MAIL_FEEDBACK_MAX,
+          null,
+          MAIL_UNMATCHED_MAX,
+        )
+        .all();
+      expect(unmatchedInsert.results).toHaveLength(0);
+      expect(unmatchedInsert.meta.rows_read).toBeGreaterThan(MAIL_FEEDBACK_MAX);
+      expect(unmatchedInsert.meta.rows_read).toBeLessThanOrEqual(
+        MAIL_FEEDBACK_MAX + MAIL_UNMATCHED_MAX + FEEDBACK_BATCH,
+      );
+      // 保留表外再多历史也不能让容量闸门纳入：只累计受保护的 feedback 表。
+      await annotate(
+        JSON.stringify({
+          event: "p4_07_capacity_rows_read",
+          capacity: MAIL_FEEDBACK_MAX,
+          insert: insert.meta.rows_read,
+          unmatched_insert: unmatchedInsert.meta.rows_read,
+          pages: pageRead,
+        }),
+      );
+    } finally {
+      await run("DELETE FROM mail_feedback");
+    }
+  });
+
+  it("满容量一批实际准入、回执、清理总读量与月度估算", async ({ annotate }) => {
+    await run("DELETE FROM mail_feedback");
+    await run(
+      `WITH RECURSIVE n(x) AS (SELECT 1 UNION ALL SELECT x+1 FROM n WHERE x<?)
+      INSERT INTO mail_feedback(id,provider_event_id,mail_outbox_id,kind,feedback_at,raw_ref,created_at)
+      SELECT 'full-bench-'||x,'full-bench-'||x,'synthetic-completed','delivered',?,'{"stage":"done","leaseUntil":0}',? FROM n`,
+      MAIL_FEEDBACK_MAX,
+      T0,
+      T0 - 1,
+    );
+    await run(
+      `INSERT INTO mail_outbox(id,purpose,priority,period_key,email_binding_id,address_version,payload_kind,status,message_id,created_at,updated_at)
+      VALUES ('feedback-bench-outbox','existing_auth',0,'synthetic','synthetic-binding',1,'synthetic','accepted','<feedback-bench-message>',?,?)`,
+      T0,
+      T0,
+    );
+    const samples: Array<{ sql: string; read: number }> = [];
+    const originals = new WeakMap<D1PreparedStatement, D1PreparedStatement>();
+    const labels = new WeakMap<D1PreparedStatement, string>();
+    function wrap(statement: D1PreparedStatement, sql: string): D1PreparedStatement {
+      const proxy = new Proxy(statement, {
+        get(target, key) {
+          if (key === "bind") return (...args: unknown[]) => wrap(target.bind(...args), sql);
+          if (key === "first")
+            return async (column?: string) => {
+              const result = await target.all<Record<string, unknown>>();
+              samples.push({ sql, read: result.meta.rows_read });
+              const row = result.results[0];
+              return column ? (row?.[column] ?? null) : (row ?? null);
+            };
+          if (key === "all" || key === "run")
+            return async () => {
+              const result = await target[key]();
+              samples.push({ sql, read: result.meta.rows_read });
+              return result;
+            };
+          const value = Reflect.get(target, key);
+          return typeof value === "function" ? value.bind(target) : value;
+        },
+      });
+      originals.set(proxy, statement);
+      labels.set(proxy, sql);
+      return proxy;
+    }
+    const measured = new Proxy(env.DB, {
+      get(target, key) {
+        if (key === "prepare") return (sql: string) => wrap(target.prepare(sql), sql);
+        if (key === "batch")
+          return async (statements: D1PreparedStatement[]) => {
+            const results = await target.batch(statements.map((s) => originals.get(s) ?? s));
+            results.forEach((result, n) => {
+              samples.push({
+                sql: labels.get(statements[n] as D1PreparedStatement) ?? "batch",
+                read: result.meta.rows_read,
+              });
+            });
+            return results;
+          };
+        const value = Reflect.get(target, key);
+        return typeof value === "function" ? value.bind(target) : value;
+      },
+    });
+    try {
+      const ring = await Keyring.create({
+        masterSecret: new Uint8Array(SECRET_BITS / 8).fill(3),
+        otpPepper: new Uint8Array(SECRET_BITS / 8).fill(7),
+        unsubscribeMacCurrentKeyId: "synthetic",
+      });
+      for (let n = 0; n < FEEDBACK_BATCH; n++)
+        expect(
+          await ingestFeedback(
+            measured,
+            {
+              eventId: `measured-${n}`,
+              messageId: "<feedback-bench-message>",
+              receipt: n === FEEDBACK_BATCH - 1 ? "complained" : "delivered",
+              at: T0,
+              recipient: "synthetic@example.invalid",
+              suppression: n === FEEDBACK_BATCH - 1 ? "complaint" : null,
+            },
+            { lookup: ring.emailLookup(), field: ring.fieldEncryption() },
+            T0,
+          ),
+        ).toBe(true);
+      await pruneFeedbackPage(measured, T0);
+      const inserts = samples.filter((s) => s.sql === FEEDBACK_INSERT_SQL).map((s) => s.read);
+      expect(Math.max(...inserts)).toBeLessThanOrEqual(MAIL_FEEDBACK_MAX + FEEDBACK_BATCH);
+      const cleanup = samples
+        .filter((s) =>
+          [
+            FEEDBACK_COMPLETED_PAGE_SQL,
+            FEEDBACK_PRESSURE_PAGE_SQL,
+            FEEDBACK_UNMATCHED_PAGE_SQL,
+          ].includes(s.sql),
+        )
+        .map((s) => s.read);
+      expect(Math.max(...cleanup)).toBeLessThanOrEqual(FEEDBACK_BATCH * 3);
+      const total = samples.reduce((sum, s) => sum + s.read, 0);
+      // 包含接近容量时首轮失败与回收后重试；其余查询不允许再出现隐蔽整表扫描。
+      expect(total).toBeLessThanOrEqual(
+        (FEEDBACK_BATCH + 2) * (MAIL_FEEDBACK_MAX + FEEDBACK_BATCH) +
+          FEEDBACK_BATCH * FEEDBACK_BATCH * 10,
+      );
+      await annotate(
+        JSON.stringify({
+          event: "p4_07_full_batch_rows_read",
+          batch: FEEDBACK_BATCH,
+          statements: samples.length,
+          insert_rows: inserts,
+          cleanup_max: Math.max(...cleanup),
+          total,
+          month_31_days_3_events: Math.ceil((total / FEEDBACK_BATCH) * MAIL_TOTAL_DAY * 31 * 3),
+          month_31_days_5_events: Math.ceil((total / FEEDBACK_BATCH) * MAIL_TOTAL_DAY * 31 * 5),
+        }),
+      );
+    } finally {
+      await run("DELETE FROM mail_feedback");
+      await run("DELETE FROM suppressions WHERE email_binding_id='synthetic-binding'");
+      await run("DELETE FROM jobs WHERE id='delivery:mail:feedback-bench-outbox'");
+      await run("DELETE FROM mail_outbox WHERE id='feedback-bench-outbox'");
+    }
+  });
 });
