@@ -266,6 +266,53 @@ describe("A-P3-ICS Feed HTTP 读路径与完整快照", () => {
     await fresh();
     expect((await events(await request()))[0]?.sequence).toBe(1);
   });
+  it("每日拉取其间两次无关重建并回收基线，10 中 6 条自然滑出，连续五天照常输出", async () => {
+    const values = nodes().map((n, i) =>
+      node(n.projection.milestone_id, i < 6 ? T - FEED_PAST_DAYS * day : T),
+    );
+    await snapshot(values);
+    expect(await events(await request())).toHaveLength(10);
+    for (let d = 1; d <= 5; d++) {
+      at = T + d * day;
+      await fresh();
+      await snapshot(values, d * 2);
+      await snapshot(values, d * 2 + 1);
+      // 真实只保留 current 与上一代；不引用已回收基线。
+      await run(
+        "DELETE FROM public_snapshot_nodes WHERE snapshot_id IN (SELECT id FROM public_snapshots WHERE generation < ?)",
+        d * 2,
+      );
+      await run("DELETE FROM public_snapshots WHERE generation < ?", d * 2);
+      const response = await request();
+      expect(response.status).toBe(200);
+      expect(await events(response)).toHaveLength(4);
+      expect(
+        await one(
+          "SELECT last_served_node_count,last_served_generation FROM calendar_feeds WHERE token_hash=?",
+          hash,
+        ),
+      ).toEqual({ last_served_node_count: 4, last_served_generation: d * 2 + 1 });
+    }
+    expect(metrics).not.toContain("feed_shrink_guard");
+  });
+  it("基线回收后当前代按旧时刻仍不足原条数，不以新增节点补齐缺失证据", async () => {
+    await snapshot(nodes());
+    expect((await request()).status).toBe(200);
+    at += day;
+    await fresh();
+    const remaining = nodes().slice(0, 4);
+    const additions = nodes(6).map((n) => ({
+      ...node(`new-${n.projection.milestone_id}`, T - FEED_PAST_DAYS * day),
+      public_changed_at: at,
+    }));
+    await snapshot([...remaining, ...additions], 2);
+    await snapshot([...remaining, ...additions], 3);
+    await run("DELETE FROM public_snapshot_nodes WHERE snapshot_id='synthetic-generation-1'");
+    await run("DELETE FROM public_snapshots WHERE generation=1");
+    const response = await request();
+    expect(response.status).toBe(503);
+    expect(await response.json()).toMatchObject({ calendar: { reason: "shrink_guard" } });
+  });
   it("无解释 10→0 返回 503、告警及诊断，不覆盖成功基线", async () => {
     await snapshot(nodes());
     await request();
@@ -371,6 +418,33 @@ describe("A-P3-ICS Feed HTTP 读路径与完整快照", () => {
     await run("UPDATE public_snapshots SET state='superseded' WHERE state='current'");
     expect((await request()).status).toBe(503);
   });
+  it.each(["GET", "HEAD"])(
+    "%s 在组装后最终 CAS 前来源过期，不能返回 200/304 或更新成功基线",
+    async (method) => {
+      await snapshot(nodes());
+      const tag = (await request()).headers.get("etag") ?? "";
+      let clockReads = 0;
+      handler = makeFeedHandler({
+        now: () => {
+          clockReads++;
+          // 第一次为组装时刻；第二次已序列化且完成守卫，紧接着最终 CAS。
+          if (clockReads === 2) at = T + FEED_MAX_STALE * 1000 + 1;
+          return at;
+        },
+      });
+      const response = await request(method, tag);
+      expect(response.status).toBe(503);
+      expect(clockReads).toBe(3);
+      expect(
+        await one(
+          "SELECT last_served_at,last_output_diagnostic FROM calendar_feeds WHERE token_hash=?",
+          hash,
+        ),
+      ).toEqual({ last_served_at: T, last_output_diagnostic: "source_stale" });
+      if (method === "HEAD") expect(await response.text()).toBe("");
+      else expect(await response.json()).toMatchObject({ calendar: { reason: "source_stale" } });
+    },
+  );
   it("组装期间配置变化有界重读，不返回旧选择", async () => {
     await snapshot(nodes());
     let changed = false;

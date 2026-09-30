@@ -35,6 +35,18 @@ describe("A-P3-ICS RFC 5545 格式", () => {
     expect(unfolded).not.toContain("METHOD:CANCEL");
     expect(foldLine("😀".repeat(50)).replaceAll("\r\n ", "")).toBe("😀".repeat(50));
   });
+  it("恰好 75 octets 不折行，第 76 字节必须折行且续行空格计入上限", () => {
+    const exact = `${"中".repeat(24)}abc`;
+    expect(new TextEncoder().encode(exact).length).toBe(75);
+    expect(foldLine(exact)).toBe(exact);
+    expect(foldLine(`${exact}d`)).toBe(`${exact}\r\n d`);
+    expect(foldLine("a".repeat(150)).split("\r\n")).toEqual([
+      "a".repeat(75),
+      ` ${"a".repeat(74)}`,
+      " a",
+    ]);
+    expect(foldLine(`${"a".repeat(74)}😀`)).toBe(`${"a".repeat(74)}\r\n 😀`);
+  });
   it("UTC Z、稳定变更时间、DISPLAY VALARM，取消只是单节点状态", () => {
     const time = TimeValueSchema.parse({
       precision: "datetime",

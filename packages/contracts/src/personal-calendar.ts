@@ -151,8 +151,20 @@ export function feedShrinkBlocked(input: {
 }): boolean {
   const after = personalCalendarNodes(input.config, input.current, input.now);
   if (!feedNeedsShrinkEvidence(input.baseline, after.length, input.view_revision)) return false;
-  if (input.previous === null || input.baseline.served_at === null) return true;
-  const before = personalCalendarNodes(input.config, input.previous, input.baseline.served_at);
+  if (input.baseline.served_at === null) return true;
+  // 当前模板仍保留历史节点：无公共修订的节点可按基线时刻重算，不能把新加入节点当旧证据。
+  const evidence =
+    input.previous ??
+    input.current.filter((node) => {
+      const changedAt = (node as PublicSnapshotNode & { public_changed_at?: number })
+        .public_changed_at;
+      return (
+        changedAt !== undefined &&
+        Number.isSafeInteger(changedAt) &&
+        changedAt <= (input.baseline.served_at as number)
+      );
+    });
+  const before = personalCalendarNodes(input.config, evidence, input.baseline.served_at);
   if (before.length !== input.baseline.count) return true;
   const afterIds = new Set(after.map((item) => item.node.projection.milestone_id));
   const currentById = new Map(input.current.map((node) => [node.projection.milestone_id, node]));
