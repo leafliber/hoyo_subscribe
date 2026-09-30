@@ -1,0 +1,15 @@
+.local-preferences {
+  margin-block: var(--space-6);
+  padding-block: var(--space-4);
+  border-top: 1px solid var(--color-border);
+}
+.local-preferences label {
+  display: block;
+  margin-block: var(--space-4);
+}
+.local-preferences input[type="file"] {
+  display: block;
+  max-width: 100%;
+  margin-block: var(--space-2);
+  font: inherit;
+}
