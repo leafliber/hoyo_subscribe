@@ -1,0 +1,21 @@
+
+ RUN  v4.1.11 /Users/cassia/.codex/worktrees/p4-03-mail-outbox/hoyo_subscribe/apps/worker
+
+[A-P4-OUTBOX] nextAlarm: baseline=3, +2000 expanded rows_read=3
+[A-P4-OUTBOX] startDueOccurrenceExpansion: baseline=3, +2000 expanded rows_read=3
+[A-P4-OUTBOX] nextAlarm: baseline=3, +2000 invalidated rows_read=3
+[A-P4-OUTBOX] startDueOccurrenceExpansion: baseline=3, +2000 invalidated rows_read=3
+[A-P4-OUTBOX] nextAlarm: baseline=3, +2000 expired rows_read=3
+[A-P4-OUTBOX] startDueOccurrenceExpansion: baseline=3, +2000 expired rows_read=3
+ ↓ src/storage/schema.test.ts > A-P1-DB D1 schema、索引与迁移框架 > A-P1-DB 空库顺序重放全部迁移后，表/列/索引/触发器与预期一致
+ ↓ src/storage/schema.test.ts > A-P1-DB D1 schema、索引与迁移框架 > A-P1-DB 禁止对象不存在；三类业务版本量分列存在
+ ↓ src/storage/schema.test.ts > A-P1-DB D1 schema、索引与迁移框架 > A-P1-DB CHECK 枚举与 packages/contracts 同步；合同不变式子句落位
+ ↓ src/storage/schema.test.ts > A-P1-DB D1 schema、索引与迁移框架 > A-P1-DB 任务卡必备字段全部落位
+ ↓ src/storage/schema.test.ts > A-P1-DB D1 schema、索引与迁移框架 > A-P1-DB §8.1 全部访问路径索引命中：真实 rows_read 基准报告
+ ↓ src/storage/schema.test.ts > A-P1-DB D1 schema、索引与迁移框架 > A-P1-DB 合同不变式在数据库层生效（触发器与 CHECK 拒绝违约写入）
+ ✓ src/storage/schema.test.ts > A-P1-DB D1 schema、索引与迁移框架 > A-P4-OUTBOX nextAlarm 与起步查询塞入大量历史后 rows_read 不涨 145ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed | 6 skipped (7)
+   Start at  18:16:11
+   Duration  1.44s (transform 389ms, setup 0ms, import 790ms, tests 244ms, environment 0ms)

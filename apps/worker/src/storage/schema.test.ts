@@ -6,6 +6,7 @@
 import { env } from "cloudflare:test";
 import { beforeAll, describe, expect, it } from "vitest";
 import { readFeedState, recordFeedOutput } from "../calendar/feed/store";
+import { NEXT_OCCURRENCE_ALARM_SQL, START_DUE_OCCURRENCE_SQL } from "../mail/occurrences/expand";
 import {
   EXPECTED_DDL_INVARIANTS,
   EXPECTED_ENUM_CHECKS,
@@ -1778,4 +1779,63 @@ describe("A-P1-DB D1 schema、索引与迁移框架", () => {
       await run("DELETE FROM public_snapshots WHERE id LIKE 'history-%'");
     }
   });
+  // P4-03 返工：使用生产 SQL；已展开、已失效、未展开但已过期三类历史均不得增加热读量。
+  it("A-P4-OUTBOX nextAlarm 与起步查询塞入大量历史后 rows_read 不涨", async () => {
+    await run(
+      `INSERT INTO occurrences(id,event_id,milestone_id,schedule_revision,kind,due_at,expires_at,created_at)
+      VALUES ('p403_live','e_001','m_001',0,'new_event',?,?,?)`,
+      T0,
+      T0 + DAY,
+      T0,
+    );
+    expect(await query<{ due: number }>(NEXT_OCCURRENCE_ALARM_SQL, T0)).toEqual([{ due: T0 }]);
+    expect(
+      (await query<{ id: string }>(START_DUE_OCCURRENCE_SQL, T0, T0, T0, 1)).map((r) => r.id),
+    ).toEqual(["p403_live"]);
+    const queries = [
+      { name: "nextAlarm", sql: NEXT_OCCURRENCE_ALARM_SQL, params: [T0] },
+      {
+        name: "startDueOccurrenceExpansion",
+        sql: START_DUE_OCCURRENCE_SQL,
+        params: [T0, T0, T0, 1],
+      },
+    ];
+    const baseline = await Promise.all(queries.map((q) => measure(q.sql, ...q.params)));
+    for (const history of ["expanded", "invalidated", "expired"]) {
+      await insertRows(
+        "occurrences",
+        [
+          "id",
+          "event_id",
+          "milestone_id",
+          "schedule_revision",
+          "kind",
+          "due_at",
+          "expires_at",
+          "audience_upper_order",
+          "invalidated_at",
+          "created_at",
+        ],
+        Array.from({ length: 2000 }, (_, i) => [
+          `p403_${history}_${i}`,
+          "e_001",
+          "m_001",
+          0,
+          `synthetic_${history}_${i}`,
+          T0 - DAY,
+          history === "expired" ? T0 - 1 : T0 + DAY,
+          history === "expanded" ? 0 : null,
+          history === "invalidated" ? T0 : null,
+          T0 - DAY,
+        ]),
+      );
+      for (const [i, q] of queries.entries()) {
+        const actual = await measure(q.sql, ...q.params);
+        console.info(
+          `[A-P4-OUTBOX] ${q.name}: baseline=${baseline[i]}, +2000 ${history} rows_read=${actual}`,
+        );
+        expect(actual, `${q.name} ${history}`).toBe(baseline[i]);
+      }
+    }
+  }, 120_000);
 });

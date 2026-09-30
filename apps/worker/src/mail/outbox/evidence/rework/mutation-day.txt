@@ -1,0 +1,36 @@
+
+ RUN  v4.1.11 /Users/cassia/.codex/worktrees/p4-03-mail-outbox/hoyo_subscribe/apps/worker
+
+ ❯ src/mail/outbox/outbox.test.ts (47 tests | 1 failed | 46 skipped) 30ms
+   × A-P4-OUTBOX calling_provider 前 utc_day_changed 拒绝外调且不消耗预算 10ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  src/mail/outbox/outbox.test.ts > A-P4-OUTBOX calling_provider 前 utc_day_changed 拒绝外调且不消耗预算
+AssertionError: expected [ { channel: 'auth', …(4) } ] to have a length of +0 but got 1
+
+- Expected
++ Received
+
+- 0
++ 1
+
+ ❯ src/mail/outbox/outbox.test.ts:719:18
+    717|       "worker",
+    718|     );
+    719|     expect(sent).toHaveLength(0);
+       |                  ^
+    720|     expect(await row(oid)).toMatchObject({ status: "retry_wait", attem…
+    721|     const ledger = await readMailDayLedger(env.DB, period.key);
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 46 skipped (47)
+   Start at  18:13:55
+   Duration  1.05s (transform 371ms, setup 0ms, import 790ms, tests 30ms, environment 0ms)
+
+undefined
+/Users/cassia/.codex/worktrees/p4-03-mail-outbox/hoyo_subscribe/apps/worker:
+[ERR_PNPM_RECURSIVE_EXEC_FIRST_FAIL] Command failed with exit code 1: vitest run src/mail/outbox/outbox.test.ts -t 'calling_provider 前 utc_day_changed'

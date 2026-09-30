@@ -1,0 +1,18 @@
+Scope: all 4 workspace projects
+✓ Lockfile passes supply-chain policies (verified 7d ago)
+Lockfile is up to date, resolution step is skipped
+Already up to date
+
+Done in 283ms using pnpm v11.11.0
+$ node scripts/migrate/check.mjs
+静态检查通过：18 个迁移（0001–0018），无禁止对象
+
+ RUN  v4.1.11 /Users/cassia/.codex/worktrees/p4-03-mail-outbox/hoyo_subscribe/apps/worker
+
+
+ Test Files  1 passed (1)
+      Tests  6 passed (6)
+   Start at  10:15:25
+   Duration  1.35s (transform 389ms, setup 0ms, import 831ms, tests 157ms, environment 0ms)
+
+migrate:check 通过：空库顺序重放全部迁移，schema 与索引符合预期，rows_read 基准见上方输出

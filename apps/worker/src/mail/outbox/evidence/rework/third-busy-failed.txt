@@ -1,0 +1,21 @@
+
+ RUN  v4.1.11 /Users/cassia/.codex/worktrees/p4-03-mail-outbox/hoyo_subscribe/apps/worker
+
+ ❯ src/executors/delivery/runtime.test.ts (9 tests | 1 failed | 8 skipped) 29ms
+   × A-P4-OUTBOX DO 正忙时申请、重发、换邮箱认证请求照常返回，不等待串行唤醒 8ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  src/executors/delivery/runtime.test.ts > A-P4-OUTBOX DO 正忙时申请、重发、换邮箱认证请求照常返回，不等待串行唤醒
+Error: Cannot perform I/O on behalf of a different Durable Object. I/O objects (such as streams, request/response bodies, and others) created in the context of one Durable Object cannot be accessed from a different Durable Object in the same isolate. This is a limitation of Cloudflare Workers which allows us to improve overall performance. (I/O type: OutgoingFactory)
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 8 skipped (9)
+   Start at  18:10:34
+   Duration  1.27s (transform 388ms, setup 0ms, import 806ms, tests 29ms, environment 0ms)
+
+undefined
+/Users/cassia/.codex/worktrees/p4-03-mail-outbox/hoyo_subscribe/apps/worker:
+[ERR_PNPM_RECURSIVE_EXEC_FIRST_FAIL] Command failed with exit code 1: vitest run src/executors/delivery/runtime.test.ts -t 'DO 正忙'

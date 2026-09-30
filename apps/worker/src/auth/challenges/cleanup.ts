@@ -1,3 +1,4 @@
+// P4-03 所有者补充授权：修复过期清理与 calling_provider 交错造成聚合预算误退款。
 // 过期挑战的验证码密文清除（任务卡 P2-02 §4.3 清除条款；A.5 EXPIRED_AUTH_CLEANUP）。
 //
 // §4.3：验证码原值只存在于短期加密发信载荷中，「接受、消费、过期或终止后清除」。
@@ -8,20 +9,12 @@
 // 最迟时间——**过期即不能授权**；窗口结束后删除挑战行，不延长任何授权。
 // 定时挂接归 P3-11；本卡交付原语及全部窗口结束后的物理删除。
 
-import {
-  type MailPool,
-  OTP_COOLDOWN,
-  OTP_TTL,
-  OUTBOX_UNRESERVED_PERIOD_KEY,
-  utcDayPeriod,
-} from "@hoyo/contracts";
-import { transitionMailReservation } from "../../storage/ledger/mail-ledger";
+import { OTP_COOLDOWN, OTP_TTL, utcDayPeriod } from "@hoyo/contracts";
+import { expireOtpMail } from "../../mail/outbox/expiry";
 
 /** 一条待回收的过期发送行（及其预算归属）。 */
 interface ExpiredOutboxRow {
   readonly id: string;
-  readonly pool: MailPool;
-  readonly periodKey: string;
 }
 
 /** 清除结果：清除的密文行数与归还的预留数（幂等：重复执行两者归零）。 */
@@ -58,30 +51,12 @@ export async function clearExpiredOtpPayloads(
     .bind(now, now)
     .all<ExpiredOutboxRow>();
   const rows = expired.results ?? [];
-  if (rows.length > 0)
-    await db.batch(
-      rows.map((row) =>
-        db
-          .prepare(
-            `UPDATE mail_outbox SET status = 'expired', payload_ciphertext = NULL, updated_at = ?
-            WHERE id = ? AND payload_ciphertext IS NOT NULL`,
-          )
-          .bind(now, row.id),
-      ),
-    );
-  let released = 0;
+  let cleared = 0,
+    released = 0;
   for (const row of rows) {
-    if (row.periodKey === OUTBOX_UNRESERVED_PERIOD_KEY) {
-      continue; // 从未预占（无预算可归还）
-    }
-    const outcome = await transitionMailReservation(
-      db,
-      { pool: row.pool, periodKey: row.periodKey, now },
-      "release",
-    );
-    if (outcome.outcome === "committed") {
-      released += 1;
-    }
+    const result = await expireOtpMail(db, row.id, now);
+    if (result.cleared) cleared++;
+    if (result.released) released++;
   }
   // 日意图、冷却、小时错误、挑战截止与完成回执全部结束才能删行。
   // 在载荷与预算清理之后运行，避免留下失去挑战关联的待发验证码。
@@ -97,5 +72,5 @@ export async function clearExpiredOtpPayloads(
       AND deadline <= ?`)
       .bind(createdBefore, attemptsBefore, now),
   ]);
-  return { cleared: rows.length, budgetReleased: released };
+  return { cleared, budgetReleased: released };
 }

@@ -1,0 +1,57 @@
+COMMAND: pnpm --filter @hoyo/worker exec vitest run src/mail/outbox -t 复核读取
+
+ RUN  v4.1.11 /Users/cassia/.codex/worktrees/p4-03-mail-outbox/hoyo_subscribe/apps/worker
+
+ ❯ src/mail/outbox/outbox.test.ts (27 tests | 1 failed | 26 skipped) 30ms
+     × 复核读取之后挑战被消费，calling_provider 事务守卫拒绝外调 10ms
+ ❯ src/mail/outbox/digest.test.ts (10 tests | 1 failed | 9 skipped) 41ms
+     × 复核读取后关闭通道，原子调用守卫挡住外调 23ms
+
+ Test Files  2 failed (2)
+      Tests  2 failed | 35 skipped (37)
+   Start at  10:18:20
+   Duration  1.15s (transform 759ms, setup 0ms, import 1.63s, tests 71ms, environment 0ms)
+
+undefined
+/Users/cassia/.codex/worktrees/p4-03-mail-outbox/hoyo_subscribe/apps/worker:
+[ERR_PNPM_RECURSIVE_EXEC_FIRST_FAIL] Command failed with exit code 1: vitest run src/mail/outbox -t '复核读取'
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  src/mail/outbox/digest.test.ts > A-P4-OUTBOX 合并通知发送前复核 > 复核读取后关闭通道，原子调用守卫挡住外调
+AssertionError: expected [ { channel: 'business', …(5) } ] to have a length of +0 but got 1
+
+- Expected
++ Received
+
+- 0
++ 1
+
+ ❯ src/mail/outbox/digest.test.ts:326:18
+    324|       "test",
+    325|     );
+    326|     expect(sent).toHaveLength(0);
+       |                  ^
+    327|     expect((await rows<{ status: string }>("SELECT status FROM mail_ou…
+    328|       "retry_wait",
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/2]⎯
+
+ FAIL  src/mail/outbox/outbox.test.ts > A-P4-OUTBOX 租约与外部不确定边界 > 复核读取之后挑战被消费，calling_provider 事务守卫拒绝外调
+AssertionError: expected [ { channel: 'auth', …(4) } ] to have a length of +0 but got 1
+
+- Expected
++ Received
+
+- 0
++ 1
+
+ ❯ src/mail/outbox/outbox.test.ts:247:18
+    245|       "worker",
+    246|     );
+    247|     expect(sent).toHaveLength(0);
+       |                  ^
+    248|     expect((await row(oid))?.status).toBe("retry_wait");
+    249|     expect((await budget()).reserved).toBe(1);
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/2]⎯

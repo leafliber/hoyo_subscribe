@@ -1,4 +1,4 @@
--- P3-06 · 用户已授权从 0019 起编；P2-09 占 0018，合入时按实际顺序调整。
+-- P3-06 · P2-09 占 0018，P4-03 先合入占 0019，本卡按实际顺序使用 0020。
 -- D3 §2.6 输出事实，不记录私人节点集合。保留期与逻辑 Feed 一致，账号删除随行清理。
 ALTER TABLE calendar_feeds ADD COLUMN last_served_at INTEGER;
 ALTER TABLE calendar_feeds ADD COLUMN last_guard_blocked_at INTEGER;

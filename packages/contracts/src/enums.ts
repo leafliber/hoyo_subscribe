@@ -64,7 +64,7 @@ export const SESSION_STATUSES = ["pending", "active", "revoked"] as const;
 /** 会话状态（主方案 §4.5）。 */
 export type SessionStatus = (typeof SESSION_STATUSES)[number];
 
-// 主方案 §7.4：发送状态。`accepted` 只表示收件服务器接受，不是已送达或已读。
+// 主方案 §7.4：发送状态。`accepted(messageId)` 只表示平台受理；收件服务器接受是后续回执，不是已送达终端或已读。
 export const DELIVERY_STATUSES = [
   "pending",
   "leased",

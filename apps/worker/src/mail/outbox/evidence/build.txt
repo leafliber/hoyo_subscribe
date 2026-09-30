@@ -1,0 +1,61 @@
+Scope: all 4 workspace projects
+✓ Lockfile passes supply-chain policies (verified 7d ago)
+Lockfile is up to date, resolution step is skipped
+Already up to date
+
+Done in 297ms using pnpm v11.11.0
+$ pnpm -r --if-present run build
+Scope: 3 of 4 workspace projects
+apps/web build$ astro build
+apps/worker build$ wrangler deploy --dry-run --outdir=dist
+apps/web build: 10:21:23 [types] Generated 33ms
+apps/web build: 10:21:23 [build] output: "static"
+apps/web build: 10:21:23 [build] mode: "static"
+apps/web build: 10:21:23 [build] directory: /Users/cassia/.codex/worktrees/p4-03-mail-outbox/hoyo_subscribe/apps/web/dist/
+apps/web build: 10:21:23 [build] Collecting build info...
+apps/web build: 10:21:23 [build] ✓ Completed in 40ms.
+apps/web build: 10:21:23 [build] Building static entrypoints...
+apps/web build: 10:21:23 [vite] ✓ built in 120ms
+apps/web build: 10:21:23 [vite] ✓ built in 32ms
+apps/web build: 10:21:23 [build] Rearranging server assets...
+apps/web build:  generating static routes
+apps/web build: 10:21:23   ├─ /account/index.html (+4ms)
+apps/web build: 10:21:23   ├─ /events/sample/index.html (+1ms)
+apps/web build: 10:21:23   ├─ /events/morning/index.html (+1ms)
+apps/web build: 10:21:23   ├─ /events/reward/index.html (+1ms)
+apps/web build: 10:21:23   ├─ /events/end/index.html (+0ms)
+apps/web build: 10:21:23   ├─ /events/long/index.html (+0ms)
+apps/web build: 10:21:23   ├─ /events/derived/index.html (+0ms)
+apps/web build: 10:21:23   ├─ /events/date/index.html (+0ms)
+apps/web build: 10:21:23   ├─ /events/estimate/index.html (+0ms)
+apps/web build: 10:21:23   ├─ /events/later/index.html (+1ms)
+apps/web build: 10:21:23   ├─ /events/month/index.html (+0ms)
+apps/web build: 10:21:23   ├─ /events/old/index.html (+0ms)
+apps/web build: 10:21:23   ├─ /events/rescheduled/index.html (+0ms)
+apps/web build: 10:21:23   ├─ /events/cancel/index.html (+0ms)
+apps/web build: 10:21:23   ├─ /events/retract/index.html (+0ms)
+apps/web build: 10:21:23   ├─ /events/pending/index.html (+0ms)
+apps/web build: 10:21:23   ├─ /help/index.html (+1ms)
+apps/web build: 10:21:23   ├─ /login/index.html (+1ms)
+apps/web build: 10:21:23   ├─ /recover/index.html (+0ms)
+apps/web build: 10:21:23   ├─ /status/index.html (+0ms)
+apps/web build: 10:21:23   ├─ /subscription/index.html (+1ms)
+apps/web build: 10:21:23   ├─ /index.html (+1ms)
+apps/web build: 10:21:23 ✓ Completed in 26ms.
+apps/web build: 10:21:23 [build] ✓ Completed in 192ms.
+apps/web build: 10:21:23 [build] 22 page(s) built in 237ms
+apps/web build: 10:21:23 [build] Complete!
+apps/web build: Done
+apps/worker build:  ⛅️ wrangler 4.136.0 (update available 4.144.0)
+apps/worker build: ───────────────────────────────────────────────
+apps/worker build: Total Upload: 1236.01 KiB / gzip: 228.31 KiB
+apps/worker build: Your Worker has access to the following bindings:
+apps/worker build: Binding                                                                           Resource
+apps/worker build: env.PIPELINE_DO (PipelineDO)                                                      Durable Object
+apps/worker build: env.DELIVERY_DO (DeliveryDO)                                                      Durable Object
+apps/worker build: env.AUTH_MAILER (unrestricted - senders: hoyo-sub@auth.hoyo.airo.cc)              Send Email
+apps/worker build: env.BIZ_MAILER (unrestricted - senders: hoyo-sub@hoyo.airo.cc)                    Send Email
+apps/worker build: env.MAIL_FEEDBACK_QUEUE (mail-feedback)                                           Queue
+apps/worker build: env.DB (hoyo-subscribe-db)                                                        D1 Database
+apps/worker build: --dry-run: exiting now.
+apps/worker build: Done

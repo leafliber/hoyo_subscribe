@@ -1,0 +1,17 @@
+$ pnpm -r --if-present run typecheck && tsc --project tests/e2e
+Scope: 3 of 4 workspace projects
+packages/contracts typecheck$ tsc --noEmit
+packages/contracts typecheck: Done
+apps/worker typecheck$ tsc --noEmit
+apps/web typecheck$ tsc --noEmit
+apps/worker typecheck: src/executors/delivery/runtime.test.ts(153,39): error TS2352: Conversion of type '{ env: { AUTH_MAIL_FROM: string; BIZ_MAIL_FROM: string; SITE_ORIGIN: string; CRYPTO_MASTER_SECRET: string; CRYPTO_OTP_PEPPER: string; CRYPTO_UNSUBSCRIBE_KEY_ID: string; DB: D1Database; AUTH_MAILER: SendEmail; BIZ_MAILER: SendEmail; MAIL_FEEDBACK_QUEUE: Queue; PIPELINE_DO: DurableObjectNamespace<import("../pipeline-d...' to type 'RouteContext' may be a mistake because neither type sufficiently overlaps with the other. If this was intentional, convert the expression to 'unknown' first.
+apps/worker typecheck:   Type '{ env: { AUTH_MAIL_FROM: string; BIZ_MAIL_FROM: string; SITE_ORIGIN: string; CRYPTO_MASTER_SECRET: string; CRYPTO_OTP_PEPPER: string; CRYPTO_UNSUBSCRIBE_KEY_ID: string; DB: D1Database; AUTH_MAILER: SendEmail; BIZ_MAILER: SendEmail; MAIL_FEEDBACK_QUEUE: Queue; PIPELINE_DO: DurableObjectNamespace<import("../pipeline-d...' is missing the following properties from type 'RouteContext': request, url, params, auth, and 3 more.
+apps/worker typecheck: src/executors/delivery/runtime.test.ts(208,27): error TS2550: Property 'withResolvers' does not exist on type 'PromiseConstructor'. Do you need to change your target library? Try changing the 'lib' compiler option to 'es2024' or later.
+apps/worker typecheck: src/executors/delivery/runtime.test.ts(209,23): error TS2550: Property 'withResolvers' does not exist on type 'PromiseConstructor'. Do you need to change your target library? Try changing the 'lib' compiler option to 'es2024' or later.
+apps/worker typecheck: src/executors/delivery/runtime.test.ts(256,30): error TS2352: Conversion of type '{ env: Cloudflare.Env; body: { email: string; action: string; role: string; }; request: Request<unknown, CfProperties<unknown>>; auth: { kind: "session"; domain: "user"; userId: string; sessionId: string; sessionTokenHash: string; }; executionContext: { ...; }; }' to type 'RouteContext' may be a mistake because neither type sufficiently overlaps with the other. If this was intentional, convert the expression to 'unknown' first.
+apps/worker typecheck:   Type '{ env: Cloudflare.Env; body: { email: string; action: string; role: string; }; request: Request<unknown, CfProperties<unknown>>; auth: { kind: "session"; domain: "user"; userId: string; sessionId: string; sessionTokenHash: string; }; executionContext: { ...; }; }' is missing the following properties from type 'RouteContext': url, params, ownerUserId, requestId
+apps/worker typecheck: Failed
+/Users/cassia/.codex/worktrees/p4-03-mail-outbox/hoyo_subscribe/apps/worker:
+[ERR_PNPM_RECURSIVE_RUN_FIRST_FAIL] @hoyo/worker@ typecheck: `tsc --noEmit`
+Exit status 1
+[ELIFECYCLE] Command failed with exit code 1.
