@@ -196,6 +196,13 @@ describe("A-P3-PUBLIC 公共读唯一纯函数", () => {
       publicSourceStatus("genshin", { ...source, last_success_at: null }).verificationState,
     ).toBe("unknown");
     expect(
+      publicSourceStatus("genshin", {
+        ...source,
+        last_success_at: null,
+        verification_state: "maintenance-required",
+      }).verificationState,
+    ).toBe("unknown");
+    expect(
       publicSourceStatus("genshin", { ...source, verification_state: "unverified" })
         .verificationState,
     ).toBe("unknown");

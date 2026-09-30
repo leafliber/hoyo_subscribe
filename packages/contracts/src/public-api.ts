@@ -244,7 +244,14 @@ export function publicSourceStatus(
     sourceId: row.source_id,
     game,
     verifiedAt: row.last_success_at,
-    verificationState: stopped ? "unavailable" : verified ? "verified" : "unknown",
+    verificationState:
+      row.last_success_at === null
+        ? "unknown"
+        : stopped
+          ? "unavailable"
+          : verified
+            ? "verified"
+            : "unknown",
     degradationReasons: stopped
       ? ["maintenance_required"]
       : listOnly
