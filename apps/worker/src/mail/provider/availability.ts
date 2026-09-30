@@ -1,10 +1,12 @@
 // P4-03 · §2.3；缺省关闭。P5 负责受控恢复开关，失败不能自动重新开通。
 import { ApiError } from "../../shell/errors";
 export const MAIL_AVAILABILITY_KEY = "mail_sending_available";
-export async function mailAvailable(db: D1Database): Promise<boolean> {
+export async function mailAvailable(db: D1Database, now = Date.now()): Promise<boolean> {
   const row = await db
-    .prepare("SELECT value_json FROM system_state WHERE key = ?")
-    .bind(MAIL_AVAILABILITY_KEY)
+    .prepare(
+      "SELECT value_json FROM system_state WHERE key = ? AND NOT EXISTS (SELECT 1 FROM jobs WHERE id='delivery:backoff' AND (status='failed' OR due_at>?))",
+    )
+    .bind(MAIL_AVAILABILITY_KEY, now)
     .first<{ value_json: string }>();
   return row !== null && JSON.parse(row.value_json) === true;
 }

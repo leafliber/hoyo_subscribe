@@ -52,12 +52,12 @@ export class NativeMailProvider implements MailProvider {
       });
       return typeof result?.messageId === "string" && result.messageId.length > 0
         ? { kind: "accepted", messageId: result.messageId }
-        : { kind: "unknown", reason: "missing_message_id", pause: true };
+        : { kind: "unknown", reason: "missing_message_id", pause: false };
     } catch (error) {
       const code =
         error !== null && typeof error === "object" && "code" in error ? error.code : null;
       if (typeof code !== "string" || !definiteRejections.has(code))
-        return { kind: "unknown", reason: "provider_result_unknown", pause: true };
+        return { kind: "unknown", reason: "provider_result_unknown", pause: false };
       const retryable = code === "E_RATE_LIMIT_EXCEEDED" || code === "E_DAILY_LIMIT_EXCEEDED";
       return {
         kind: "rejected",

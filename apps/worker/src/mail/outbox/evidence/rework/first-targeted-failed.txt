@@ -1,0 +1,41 @@
+
+ RUN  v4.1.11 /Users/cassia/.codex/worktrees/p4-03-mail-outbox/hoyo_subscribe/apps/worker
+
+ ❯ src/executors/delivery/runtime.test.ts (9 tests | 2 failed) 127ms
+   × A-P4-OUTBOX DO 正忙时申请、重发、换邮箱认证请求照常返回，不等待串行唤醒 21ms
+   × A-P4-OUTBOX 一个发生项起步失败 terminal=true 独立停下，其他发生项仍展开 8ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  src/executors/delivery/runtime.test.ts > A-P4-OUTBOX DO 正忙时申请、重发、换邮箱认证请求照常返回，不等待串行唤醒
+Error: Cannot perform I/O on behalf of a different Durable Object. I/O objects (such as streams, request/response bodies, and others) created in the context of one Durable Object cannot be accessed from a different Durable Object in the same isolate. This is a limitation of Cloudflare Workers which allows us to improve overall performance. (I/O type: OutgoingFactory)
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/2]⎯
+
+ FAIL  src/executors/delivery/runtime.test.ts > A-P4-OUTBOX 一个发生项起步失败 terminal=true 独立停下，其他发生项仍展开
+Error: D1_ERROR: UNIQUE constraint failed: events.id: SQLITE_CONSTRAINT (extended: SQLITE_CONSTRAINT_PRIMARYKEY)
+ ❯ D1DatabaseSessionAlwaysPrimary._sendOrThrow cloudflare-internal:d1-api:188:19
+ ❯ cloudflare-internal:d1-api:478:19
+ ❯ src/executors/delivery/runtime.test.ts:304:5
+    302|   "A-P4-OUTBOX 一个发生项起步失败 terminal=%s 独立停下，其他发生项仍展开",
+    303|   async (terminal) => {
+    304|     await run(
+       |     ^
+    305|       `INSERT INTO events(id,game,region,event_type,status,title,event…
+    306|     VALUES ('start-event','genshin','CN','limited_event','scheduled','…
+
+Caused by: Error: UNIQUE constraint failed: events.id: SQLITE_CONSTRAINT (extended: SQLITE_CONSTRAINT_PRIMARYKEY)
+ ❯ D1DatabaseSessionAlwaysPrimary._sendOrThrow cloudflare-internal:d1-api:189:24
+ ❯ cloudflare-internal:d1-api:478:19
+ ❯ src/executors/delivery/runtime.test.ts:304:5
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/2]⎯
+
+
+ Test Files  1 failed | 4 passed (5)
+      Tests  2 failed | 83 passed (85)
+   Start at  18:07:58
+   Duration  2.59s (transform 2.84s, setup 0ms, import 6.77s, tests 1.54s, environment 2ms)
+
+undefined
+/Users/cassia/.codex/worktrees/p4-03-mail-outbox/hoyo_subscribe/apps/worker:
+[ERR_PNPM_RECURSIVE_EXEC_FIRST_FAIL] Command failed with exit code 1: vitest run src/mail/outbox src/executors/delivery/runtime.test.ts src/mail/occurrences/occurrences.test.ts src/storage/schema.test.ts

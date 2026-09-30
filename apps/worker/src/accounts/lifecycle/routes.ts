@@ -98,22 +98,26 @@ export function makeLifecycleRoutes(deps: LifecycleRouteDeps): readonly ShellRou
             code: "validation",
             fields: [{ path: "role", reason: "invalid_role" }],
           });
-        const challengeId = await withMailAdmission(ctx.env, deps.mail, async () =>
-          startRecentOtp(
-            ctx.env.DB,
-            await deps.keys(),
-            sessionOf(ctx.auth),
-            action,
-            role,
-            typeof ctx.body?.target_email === "string" ? ctx.body.target_email : undefined,
-            stringField(ctx.body, "idempotency_key"),
-            now(),
-            {
-              rateGate: deps.rateGate,
-              turnstile: deps.turnstile(),
-              turnstileToken: stringField(ctx.body, "turnstile_token"),
-            },
-          ),
+        const challengeId = await withMailAdmission(
+          ctx.env,
+          deps.mail,
+          async () =>
+            startRecentOtp(
+              ctx.env.DB,
+              await deps.keys(),
+              sessionOf(ctx.auth),
+              action,
+              role,
+              typeof ctx.body?.target_email === "string" ? ctx.body.target_email : undefined,
+              stringField(ctx.body, "idempotency_key"),
+              now(),
+              {
+                rateGate: deps.rateGate,
+                turnstile: deps.turnstile(),
+                turnstileToken: stringField(ctx.body, "turnstile_token"),
+              },
+            ),
+          ctx.executionContext,
         );
         return noStore({ challenge_id: challengeId }, 202);
       },

@@ -67,23 +67,27 @@ export function makeChallengeRoutes(deps: ChallengeRouteDeps): readonly ShellRou
       },
       csrfBinding: preauthCsrfBinding,
       handler: async (ctx) =>
-        withMailAdmission(ctx.env, deps.mail, async () =>
-          runPreauthAdmission(
-            {
-              db: ctx.env.DB,
-              keys: await deps.keys(),
-              rateGate: deps.rateGate,
-              turnstile: deps.turnstile(),
-              effect: createAdmittedChallengeAndMailTask,
-              now: () => Date.now(),
-            },
-            {
-              request: ctx.request,
-              email: bodyString(ctx.body, "email"),
-              turnstileToken: bodyString(ctx.body, "turnstile_token"),
-              idempotencyKey: bodyString(ctx.body, "idempotency_key") || null,
-            },
-          ),
+        withMailAdmission(
+          ctx.env,
+          deps.mail,
+          async () =>
+            runPreauthAdmission(
+              {
+                db: ctx.env.DB,
+                keys: await deps.keys(),
+                rateGate: deps.rateGate,
+                turnstile: deps.turnstile(),
+                effect: createAdmittedChallengeAndMailTask,
+                now: () => Date.now(),
+              },
+              {
+                request: ctx.request,
+                email: bodyString(ctx.body, "email"),
+                turnstileToken: bodyString(ctx.body, "turnstile_token"),
+                idempotencyKey: bodyString(ctx.body, "idempotency_key") || null,
+              },
+            ),
+          ctx.executionContext,
         ),
     },
     {
@@ -103,19 +107,23 @@ export function makeChallengeRoutes(deps: ChallengeRouteDeps): readonly ShellRou
       },
       csrfBinding: preauthCsrfBinding,
       handler: async (ctx) =>
-        withMailAdmission(ctx.env, deps.mail, async () =>
-          runResendOtp(
-            {
-              db: ctx.env.DB,
-              keys: await deps.keys(),
-              now: () => Date.now(),
-            },
-            {
-              request: ctx.request,
-              email: bodyString(ctx.body, "email"),
-              idempotencyKey: bodyString(ctx.body, "idempotency_key"),
-            },
-          ),
+        withMailAdmission(
+          ctx.env,
+          deps.mail,
+          async () =>
+            runResendOtp(
+              {
+                db: ctx.env.DB,
+                keys: await deps.keys(),
+                now: () => Date.now(),
+              },
+              {
+                request: ctx.request,
+                email: bodyString(ctx.body, "email"),
+                idempotencyKey: bodyString(ctx.body, "idempotency_key"),
+              },
+            ),
+          ctx.executionContext,
         ),
     },
     {

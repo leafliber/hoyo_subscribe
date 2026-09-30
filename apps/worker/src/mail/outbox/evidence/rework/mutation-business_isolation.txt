@@ -1,0 +1,66 @@
+
+ RUN  v4.1.11 /Users/cassia/.codex/worktrees/p4-03-mail-outbox/hoyo_subscribe/apps/worker
+
+stdout | src/mail/outbox/outbox.test.ts > A-P4-OUTBOX 业务扫描失败 terminal=false 不停止下一轮认证发信
+{"ts":1790763243709,"level":"error","event":"delivery_tick_failed","reason_code":"transient_or_unknown"}
+
+stdout | src/mail/outbox/outbox.test.ts > A-P4-OUTBOX 业务扫描失败 terminal=true 不停止下一轮认证发信
+{"ts":1790763243716,"level":"error","event":"delivery_tick_failed","reason_code":"sql_binding_limit"}
+
+ ❯ src/mail/outbox/outbox.test.ts (47 tests | 2 failed | 45 skipped) 31ms
+   × A-P4-OUTBOX 业务扫描失败 terminal=false 不停止下一轮认证发信 9ms
+   × A-P4-OUTBOX 业务扫描失败 terminal=true 不停止下一轮认证发信 3ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  src/mail/outbox/outbox.test.ts > A-P4-OUTBOX 业务扫描失败 terminal=false 不停止下一轮认证发信
+AssertionError: expected null to deeply equal { status: 'pending' }
+
+- Expected:
+{
+  "status": "pending",
+}
+
++ Received:
+null
+
+ ❯ src/mail/outbox/outbox.test.ts:810:7
+    808|         "SELECT status FROM jobs WHERE id='delivery:occurrence-backoff…
+    809|       ).first(),
+    810|     ).toEqual({ status: terminal ? "failed" : "pending" });
+       |       ^
+    811|     const oid = await seed();
+    812|     expect(await runtime.nextAlarm()).toBe(T);
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/2]⎯
+
+ FAIL  src/mail/outbox/outbox.test.ts > A-P4-OUTBOX 业务扫描失败 terminal=true 不停止下一轮认证发信
+AssertionError: expected null to deeply equal { status: 'failed' }
+
+- Expected:
+{
+  "status": "failed",
+}
+
++ Received:
+null
+
+ ❯ src/mail/outbox/outbox.test.ts:810:7
+    808|         "SELECT status FROM jobs WHERE id='delivery:occurrence-backoff…
+    809|       ).first(),
+    810|     ).toEqual({ status: terminal ? "failed" : "pending" });
+       |       ^
+    811|     const oid = await seed();
+    812|     expect(await runtime.nextAlarm()).toBe(T);
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/2]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  2 failed | 45 skipped (47)
+   Start at  18:14:02
+   Duration  1.01s (transform 355ms, setup 0ms, import 762ms, tests 31ms, environment 0ms)
+
+undefined
+/Users/cassia/.codex/worktrees/p4-03-mail-outbox/hoyo_subscribe/apps/worker:
+[ERR_PNPM_RECURSIVE_EXEC_FIRST_FAIL] Command failed with exit code 1: vitest run src/mail/outbox/outbox.test.ts -t '业务扫描失败'

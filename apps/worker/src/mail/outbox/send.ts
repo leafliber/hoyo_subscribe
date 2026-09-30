@@ -66,10 +66,10 @@ export async function sendOneMail(deps: SendDeps, owner: string, id?: string): P
     const result = await Promise.race<MailResult>([
       deps.provider
         .send(prepared.mail)
-        .catch(() => ({ kind: "unknown", reason: "provider_threw", pause: true }) as const),
+        .catch(() => ({ kind: "unknown", reason: "provider_threw", pause: false }) as const),
       new Promise<MailResult>((resolve) => {
         timer = setTimeout(
-          () => resolve({ kind: "unknown", reason: "provider_timeout", pause: true }),
+          () => resolve({ kind: "unknown", reason: "provider_timeout", pause: false }),
           Math.max(0, deadline - now()),
         );
       }),
@@ -99,7 +99,7 @@ export async function sendOneMail(deps: SendDeps, owner: string, id?: string): P
           ? { budget: { from: "uncertain" as const, to: "settled" as const } }
           : {}),
       });
-      if (result.pause) await deps.pause();
+      if (result.kind === "rejected" && result.pause) await deps.pause();
       logEvent("error", "mail_provider_failed", { reason_code: reason, count: row.attempts + 1 });
     }
   } catch (error) {
@@ -109,7 +109,12 @@ export async function sendOneMail(deps: SendDeps, owner: string, id?: string): P
         reason_code: "await_watchdog",
         count: row.attempts + 1,
       });
-      throw error;
+      // 已领取的单封邮件独立终止；只有连这个条件写回也失败才上抛为执行器故障。
+      await transitionMail(deps.db, { ...row, status: "calling_provider" }, now(), {
+        status: "unknown",
+        reason: "result_persistence_unknown",
+      });
+      return true;
     }
     const failure =
       error instanceof MailDataError ||

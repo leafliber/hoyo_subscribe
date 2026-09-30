@@ -15,7 +15,7 @@ export type MailResult =
       readonly reason: string;
       readonly pause: boolean;
     }
-  | { readonly kind: "unknown"; readonly reason: string; readonly pause: boolean };
+  | { readonly kind: "unknown"; readonly reason: string; readonly pause: false };
 export interface MailProvider {
   send(mail: ServerMail): Promise<MailResult>;
 }

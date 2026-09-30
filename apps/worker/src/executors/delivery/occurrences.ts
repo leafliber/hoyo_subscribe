@@ -40,7 +40,7 @@ export async function runOccurrencePass(
     } catch (error) {
       const failure = classifyPipelineFailure(error);
       await db
-        .prepare(`UPDATE jobs SET status=?,due_at=?,attempts=attempts+1,last_error=?,updated_at=?
+        .prepare(`UPDATE jobs SET status=?,due_at=?,lease_version=lease_version+1,attempts=attempts+1,last_error=?,updated_at=?
         WHERE id=? AND status='pending' AND lease_version=?`)
         .bind(
           failure.terminal ? "failed" : "pending",

@@ -7,8 +7,10 @@ import {
   utcDayPeriod,
   WATCHDOG_INTERVAL,
 } from "@hoyo/contracts";
+import { NEXT_OCCURRENCE_ALARM_SQL } from "../../mail/occurrences/expand";
 import { type SendDeps, sendOneMail } from "../../mail/outbox/send";
 import { MAIL_CLAIM_CANDIDATE_SQL, repairMailPage } from "../../mail/outbox/state";
+import { MAIL_AVAILABILITY_KEY } from "../../mail/provider/availability";
 import { logEvent } from "../../shell/logger";
 import { classifyPipelineFailure } from "../pipeline/failure";
 import { runOccurrencePass } from "./occurrences";
@@ -29,7 +31,14 @@ export class DeliveryRuntime {
         if (!(await sendOneMail({ ...this.deps, batchDeadline: deadline }, "DeliveryDO/main")))
           break;
       }
-      // 同一批继续推进页面；批量上界复用执行槽数，余量通过即时 alarm 接续，绝不等下一 Cron。
+    } catch (error) {
+      await this.recordFailure(error);
+      return;
+    }
+    const occurrenceBackoff = await this.occurrenceBackoff();
+    if (occurrenceBackoff) return;
+    try {
+      // 业务阶段独立退避；失败不改变认证发送的闸门或下一轮发送资格。
       for (let unit = 0; unit < SEND_CONCURRENCY && this.now() < deadline; unit++) {
         const pass = await runOccurrencePass(this.deps.db, this.now(), {
           signalLimit: 0,
@@ -39,25 +48,47 @@ export class DeliveryRuntime {
         if (pass.started === 0 && pass.pages === 0) break;
       }
     } catch (error) {
-      await this.recordFailure(error);
+      await this.recordFailure(error, "occurrences");
     }
   }
-  private async recordFailure(error: unknown): Promise<void> {
+  private async occurrenceBackoff() {
+    return this.deps.db
+      .prepare(
+        "SELECT due_at,status FROM jobs WHERE id='delivery:occurrence-backoff' AND (status='failed' OR due_at>?)",
+      )
+      .bind(this.now())
+      .first<{ due_at: number; status: string }>();
+  }
+  private async recordFailure(
+    error: unknown,
+    scope: "executor" | "occurrences" = "executor",
+  ): Promise<void> {
     const failure = classifyPipelineFailure(error);
     logEvent("error", "delivery_tick_failed", { reason_code: failure.reason });
     // DO 的错误退避持久保存；不在当前批次重复执行暂时失败的 SQL。
-    await this.deps.db
-      .prepare(`INSERT INTO jobs(id,kind,payload_json,due_at,status,attempts,last_error,created_at,updated_at)
-        VALUES ('delivery:backoff','delivery_backoff','{}',?,?,1,?,?,?)
+    const writes = [
+      this.deps.db
+        .prepare(`INSERT INTO jobs(id,kind,payload_json,due_at,status,attempts,last_error,created_at,updated_at)
+        VALUES (?,'delivery_backoff','{}',?,?,1,?,?,?)
         ON CONFLICT(id) DO UPDATE SET due_at=excluded.due_at,status=excluded.status,attempts=jobs.attempts+1,last_error=excluded.last_error,updated_at=excluded.updated_at`)
-      .bind(
-        this.now() + WATCHDOG_INTERVAL * 1000,
-        failure.terminal ? "failed" : "pending",
-        failure.reason,
-        this.now(),
-        this.now(),
-      )
-      .run();
+        .bind(
+          scope === "executor" ? "delivery:backoff" : "delivery:occurrence-backoff",
+          this.now() + WATCHDOG_INTERVAL * 1000,
+          failure.terminal ? "failed" : "pending",
+          failure.reason,
+          this.now(),
+          this.now(),
+        ),
+    ];
+    // 执行器核心永久停下时，同一事务关闭生成前开关与公开可用状态。
+    if (scope === "executor" && failure.terminal)
+      writes.push(
+        this.deps.db
+          .prepare(`INSERT INTO system_state(key,value_json,updated_at) VALUES (?,'false',?)
+        ON CONFLICT(key) DO UPDATE SET value_json='false',updated_at=excluded.updated_at`)
+          .bind(MAIL_AVAILABILITY_KEY, this.now()),
+      );
+    await this.deps.db.batch(writes);
   }
 
   async watchdog(): Promise<void> {
@@ -95,19 +126,22 @@ export class DeliveryRuntime {
       )
       .first<{ due: number | null }>();
     if (lease?.due != null) due.push(lease.due);
-    const jobs = await db
-      .prepare(
-        `SELECT MIN(due_at) AS due FROM jobs WHERE kind='occurrence_email_expansion' AND status='pending'`,
-      )
-      .first<{ due: number | null }>();
-    if (jobs?.due != null) due.push(jobs.due);
-    const occurrence = await db
-      .prepare(
-        `SELECT MIN(o.due_at) AS due FROM occurrences o JOIN events e ON e.id=o.event_id WHERE o.invalidated_at IS NULL AND o.audience_upper_order IS NULL AND o.expires_at>? AND e.schedule_revision=o.schedule_revision`,
-      )
-      .bind(now)
-      .first<{ due: number | null }>();
-    if (occurrence?.due != null) due.push(occurrence.due);
+    const occurrenceBackoff = await this.occurrenceBackoff();
+    if (occurrenceBackoff) {
+      if (occurrenceBackoff.status !== "failed") due.push(occurrenceBackoff.due_at);
+    } else {
+      const jobs = await db
+        .prepare(
+          `SELECT MIN(due_at) AS due FROM jobs WHERE kind='occurrence_email_expansion' AND status='pending'`,
+        )
+        .first<{ due: number | null }>();
+      if (jobs?.due != null) due.push(jobs.due);
+      const occurrence = await db
+        .prepare(NEXT_OCCURRENCE_ALARM_SQL)
+        .bind(now)
+        .first<{ due: number | null }>();
+      if (occurrence?.due != null) due.push(occurrence.due);
+    }
     return due.length ? Math.max(now, Math.min(...due)) : null;
   }
 }

@@ -1,0 +1,36 @@
+
+ RUN  v4.1.11 /Users/cassia/.codex/worktrees/p4-03-mail-outbox/hoyo_subscribe/apps/worker
+
+ ❯ src/mail/outbox/outbox.test.ts (47 tests | 1 failed | 46 skipped) 30ms
+   × A-P4-OUTBOX 当前绑定已抑制的登录认证信不外调并释放预留 11ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  src/mail/outbox/outbox.test.ts > A-P4-OUTBOX 当前绑定已抑制的登录认证信不外调并释放预留
+AssertionError: expected [ { channel: 'auth', …(4) } ] to have a length of +0 but got 1
+
+- Expected
++ Received
+
+- 0
++ 1
+
+ ❯ src/mail/outbox/outbox.test.ts:764:16
+    762|   });
+    763|   await sendOneMail(deps(), "worker");
+    764|   expect(sent).toHaveLength(0);
+       |                ^
+    765|   expect(await row(oid)).toMatchObject({
+    766|     status: "skipped",
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 46 skipped (47)
+   Start at  18:13:57
+   Duration  1.04s (transform 369ms, setup 0ms, import 786ms, tests 30ms, environment 0ms)
+
+undefined
+/Users/cassia/.codex/worktrees/p4-03-mail-outbox/hoyo_subscribe/apps/worker:
+[ERR_PNPM_RECURSIVE_EXEC_FIRST_FAIL] Command failed with exit code 1: vitest run src/mail/outbox/outbox.test.ts -t '当前绑定已抑制'
