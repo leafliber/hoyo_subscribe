@@ -21,6 +21,7 @@ export const PublicPublicationSchema = z.strictObject({
   generation: z.int().positive(),
   publishedAt: Timestamp,
 });
+/** 响应副本的新鲜期；源站实时响应 stale 恒为 false，非代次或来源水位。 */
 export const PublicCacheSchema = z.strictObject({
   generatedAt: Timestamp,
   freshUntil: Timestamp,
@@ -99,25 +100,30 @@ export const PublicEventDetailResponseSchema = z.strictObject({
   }),
 });
 export const PublicSourceStatusSchema = z.strictObject({
+  sourceId: z.string().min(1),
   game: GameIdSchema,
   verifiedAt: Timestamp.nullable(),
   verificationState: z.enum(["verified", "unavailable", "unknown"]),
   degradationReasons: z.array(
-    z.enum(["source_unavailable", "maintenance_required", "not_verified"]),
+    z.enum(["source_unavailable", "maintenance_required", "not_verified", "content_unavailable"]),
   ),
-  reviewCount: z.int().nonnegative(),
 });
+export const PublicCapabilitySchema = z.enum(["open", "closed", "unknown"]);
 export const PublicStatusResponseSchema = z.strictObject({
   registration_open: z.boolean(),
   mail_sending_available: z.boolean(),
   publication: PublicPublicationSchema.nullable(),
   cache: PublicCacheSchema,
-  sources: z.array(PublicSourceStatusSchema),
+  /** null 表示来源聚合未知；空数组表示查询成功且没有登记来源。 */
+  sources: z.array(PublicSourceStatusSchema).nullable(),
+  reviewGaps: z.array(
+    z.strictObject({ game: GameIdSchema, count: z.int().nonnegative().nullable() }),
+  ),
   capabilities: z.strictObject({
-    calendar: z.literal("unknown"),
-    email_seats: z.literal("unknown"),
-    routine_email: z.literal("unknown"),
-    push: z.literal("unknown"),
+    calendar: PublicCapabilitySchema,
+    email_seats: PublicCapabilitySchema,
+    routine_email: PublicCapabilitySchema,
+    push: PublicCapabilitySchema,
   }),
   calendarClients: z.array(
     z.strictObject({
@@ -146,10 +152,8 @@ import {
   browseWindow,
 } from "./schedule-browse";
 
-export function publicCache(publication: PublicPublication | null, now: number): PublicCache {
-  const freshUntil =
-    publication === null ? now : publication.publishedAt + PUBLIC_CACHE_FRESH * 1000;
-  return { generatedAt: now, freshUntil, stale: publication === null || now >= freshUntil };
+export function publicCache(_publication: PublicPublication | null, now: number): PublicCache {
+  return { generatedAt: now, freshUntil: now + PUBLIC_CACHE_FRESH * 1000, stale: false };
 }
 
 /** 不把 ICS tombstone（删除补偿）误称为官方取消；它只能在变更区域出现。 */
@@ -229,24 +233,27 @@ export function publicImportantNode(
 }
 
 export function publicSourceStatus(
-  game: PublicStatusResponse["sources"][number]["game"],
-  rows: readonly { last_success_at: number | null; verification_state: string }[],
-  reviewCount: number,
-): PublicStatusResponse["sources"][number] {
-  const unavailable = rows.some((r) => r.verification_state.startsWith("maintenance-required"));
-  const unknown =
-    rows.length === 0 ||
-    rows.some((r) => r.last_success_at === null || r.verification_state !== "verified-working");
-  const knownTimes = rows.map((r) => r.last_success_at);
+  game: PublicSourceStatus["game"],
+  row: { source_id: string; last_success_at: number | null; verification_state: string },
+): PublicSourceStatus {
+  const stopped = row.verification_state === "maintenance-required";
+  const listOnly = row.verification_state === "maintenance-required-list-only";
+  const verified =
+    row.last_success_at !== null && (row.verification_state === "verified-working" || listOnly);
   return {
+    sourceId: row.source_id,
     game,
-    verifiedAt:
-      knownTimes.length === 0 || knownTimes.some((t) => t === null)
-        ? null
-        : Math.min(...(knownTimes as number[])),
-    verificationState: unavailable ? "unavailable" : unknown ? "unknown" : "verified",
-    degradationReasons: unavailable ? ["maintenance_required"] : unknown ? ["not_verified"] : [],
-    reviewCount,
+    verifiedAt: row.last_success_at,
+    verificationState: stopped ? "unavailable" : verified ? "verified" : "unknown",
+    degradationReasons: stopped
+      ? ["maintenance_required"]
+      : listOnly
+        ? verified
+          ? ["content_unavailable"]
+          : ["content_unavailable", "not_verified"]
+        : verified
+          ? []
+          : ["not_verified"],
   };
 }
 

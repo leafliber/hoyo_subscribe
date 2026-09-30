@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { PUBLIC_CACHE_FRESH } from "./params/registry";
 import {
+  PublicCapabilitySchema,
   PublicEventsResponseSchema,
   publicCache,
   publicEvidence,
@@ -131,29 +132,64 @@ describe("A-P3-PUBLIC 公共读唯一纯函数", () => {
       }
     }
   });
-  it("数据新鲜期按发布时间，不因重读续命；截止时刻即陈旧", () => {
-    const publication = { generation: 1, publishedAt: now };
-    const at = now + PUBLIC_CACHE_FRESH * 1000;
-    expect(publicCache(publication, at - 1).stale).toBe(false);
-    expect(publicCache(publication, at)).toEqual({ generatedAt: at, freshUntil: at, stale: true });
-    expect(publicCache(null, now).stale).toBe(true);
+  it("响应副本从生成时起新鲜，旧代次和无代次不把源站响应标陈旧", () => {
+    for (const publication of [null, { generation: 1, publishedAt: now - 86400000 }]) {
+      expect(publicCache(publication, now)).toEqual({
+        generatedAt: now,
+        freshUntil: now + PUBLIC_CACHE_FRESH * 1000,
+        stale: false,
+      });
+    }
   });
-  it("缺来源不声称正常，按游戏聚合保留已核验水位", () => {
-    expect(publicSourceStatus("genshin", [], 2)).toMatchObject({
-      verificationState: "unknown",
-      verifiedAt: null,
-      reviewCount: 2,
+  it("逐来源映射，不把 list-only 合成整个游戏不可用", () => {
+    const source = {
+      source_id: "official",
+      last_success_at: now,
+      verification_state: "verified-working",
+    };
+    expect(publicSourceStatus("genshin", source)).toMatchObject({
+      sourceId: "official",
+      verificationState: "verified",
+      verifiedAt: now,
+      degradationReasons: [],
     });
     expect(
-      publicSourceStatus(
-        "hsr",
-        [
-          { last_success_at: now, verification_state: "verified-working" },
-          { last_success_at: now - 1, verification_state: "maintenance-required" },
-        ],
-        0,
-      ),
-    ).toMatchObject({ verificationState: "unavailable", verifiedAt: now - 1 });
+      publicSourceStatus("genshin", {
+        ...source,
+        source_id: "miyoushe",
+        verification_state: "maintenance-required-list-only",
+      }),
+    ).toMatchObject({
+      sourceId: "miyoushe",
+      verificationState: "verified",
+      degradationReasons: ["content_unavailable"],
+    });
+    expect(
+      publicSourceStatus("genshin", { ...source, verification_state: "maintenance-required" })
+        .verificationState,
+    ).toBe("unavailable");
+    expect(
+      publicSourceStatus("genshin", { ...source, last_success_at: null }).verificationState,
+    ).toBe("unknown");
+    expect(
+      publicSourceStatus("genshin", { ...source, verification_state: "unverified" })
+        .verificationState,
+    ).toBe("unknown");
+    expect(
+      publicSourceStatus("genshin", {
+        ...source,
+        last_success_at: null,
+        verification_state: "maintenance-required-list-only",
+      }),
+    ).toMatchObject({
+      verificationState: "unknown",
+      degradationReasons: ["content_unavailable", "not_verified"],
+    });
+  });
+  it("能力合同接受 open / closed / unknown 三态", () => {
+    for (const value of ["open", "closed", "unknown"])
+      expect(PublicCapabilitySchema.parse(value)).toBe(value);
+    expect(PublicCapabilitySchema.safeParse(true).success).toBe(false);
   });
   it("无确切当前安排不虚构重要节点，响应严格拒绝秘密字段", () => {
     expect(publicImportantNode([{ ...publicNode(node), status: "cancelled" }], now)).toBeNull();
