@@ -287,6 +287,20 @@ export const CAL_PATCH_GLOBAL_MAX = 10_000 as const;
 /** 公共快照新鲜窗口。附录 A.3；§6.4。 */
 export const PUBLIC_CACHE_FRESH = 300 as const;
 
+/** P3-14 工程保护：公共扫描按页，超限明确失败，不把残缺详情/计数当完整结果。
+ * 近期变更期限复用共享更正层 retain_until（CAL_PATCH_MIN_DAYS/TAIL_DAYS），不另设 TTL。
+ */
+export const PUBLIC_READ_LIMITS = {
+  scanPage: 100,
+  recentChanges: 20,
+  detailNodes: 1000,
+  sourcesPerGame: 16,
+  pendingCandidates: 1000,
+  nodeBytes: 8192,
+  responseBytes: 524288,
+  queryBytes: 4096,
+} as const;
+
 /** 私人 Feed 只用当前完整发布代次，不回退旧代次（附录原值 24 小时）。附录 A.3；§6.6。 */
 export const FEED_MAX_STALE = 86_400 as const;
 
@@ -579,6 +593,7 @@ export const PARAMS = {
   CAL_PATCH_TAIL_DAYS,
   CAL_PATCH_GLOBAL_MAX,
   PUBLIC_CACHE_FRESH,
+  PUBLIC_READ_LIMITS,
   FEED_MAX_STALE,
   REMINDER_GRACE,
   NEW_EVENT_TTL,
@@ -1072,6 +1087,13 @@ export const PARAM_META: Readonly<Record<keyof ParamValues, ParamMeta>> = {
     unit: "条",
     description: "公共更正记录保护值；接近上限告警并暂停非关键扩大",
     status: "baseline",
+  },
+  PUBLIC_READ_LIMITS: {
+    section: "A.3",
+    unit: "混合（条/字节）",
+    status: "strategy",
+    description: "P3-14 公共读 API 的扫描页、变更数、详情、来源、待审聚合与字节保护",
+    note: "近期变更期限使用共享更正层 retain_until；响应超限分页，单节点/详情/待审计数超限报不可用，不截断冒充完整",
   },
   PUBLIC_CACHE_FRESH: {
     section: "A.3",

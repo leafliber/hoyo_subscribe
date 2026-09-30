@@ -308,6 +308,22 @@ export const PARAM_EQUATIONS: readonly EquationDefinition[] = [
       },
     },
   ),
+  eq(
+    "public-read-bounds",
+    "公共读保护",
+    "公共读上限均为正整数；recentChanges <= scanPage <= detailNodes；nodeBytes × (recentChanges + 1) < responseBytes <= FEED_RESPONSE_MAX_BYTES；queryBytes <= nodeBytes",
+    (v) =>
+      `PUBLIC_READ_LIMITS(${JSON.stringify(v.PUBLIC_READ_LIMITS)}) <= FEED_RESPONSE_MAX_BYTES(${v.FEED_RESPONSE_MAX_BYTES})`,
+    (v) =>
+      Object.values(v.PUBLIC_READ_LIMITS).every((n) => Number.isSafeInteger(n) && n > 0) &&
+      v.PUBLIC_READ_LIMITS.recentChanges <= v.PUBLIC_READ_LIMITS.scanPage &&
+      v.PUBLIC_READ_LIMITS.scanPage <= v.PUBLIC_READ_LIMITS.detailNodes &&
+      v.PUBLIC_READ_LIMITS.nodeBytes * (v.PUBLIC_READ_LIMITS.recentChanges + 1) <
+        v.PUBLIC_READ_LIMITS.responseBytes &&
+      v.PUBLIC_READ_LIMITS.responseBytes <= v.FEED_RESPONSE_MAX_BYTES &&
+      v.PUBLIC_READ_LIMITS.queryBytes <= v.PUBLIC_READ_LIMITS.nodeBytes,
+    { PUBLIC_READ_LIMITS: { ...PARAMS.PUBLIC_READ_LIMITS, responseBytes: 1 } },
+  ),
 ];
 
 /** §11 中无法以参数数值表达的语义条款：由对应实现阶段的测试保证，本校验不假装覆盖。 */

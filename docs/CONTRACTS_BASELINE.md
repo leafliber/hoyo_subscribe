@@ -365,6 +365,10 @@ DELIVERY_DEDUPE_TTL > 业务发生项最大有效期 + 最大重试余量
 `MAIL_TOTAL_MONTH = …`、`MAIL_AUTH_FLOOR < MAIL_EXISTING_AUTH_MONTH`、
 `MAIL_URGENT_FLOOR < MAIL_URGENT_MONTH`、`MAIL_BASE_MONTH >= … × 本账单周期相交UTC日期数 × …`。
 
+P3-14 工程依赖：`PUBLIC_READ_LIMITS` 所有值为正整数；`recentChanges <= scanPage <= detailNodes`；
+`nodeBytes × (recentChanges + 1) < responseBytes <= FEED_RESPONSE_MAX_BYTES`；`queryBytes <= nodeBytes`。
+近期重要变更期限取当前共享更正的 `retain_until`，条数取 `recentChanges`。详情/单节点/精确聚合超限明确不可用，不静默截断。
+
 ## 12. API 分组速查（§8.2）
 
 | 路径组 | 要点 |

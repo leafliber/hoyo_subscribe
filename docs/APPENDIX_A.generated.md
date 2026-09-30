@@ -99,6 +99,7 @@ P0 待定项（`MODEL_MAX_INPUT`、`MODEL_MAX_BILLED_OUTPUT`）未填写前，�
 | CAL_PATCH_MIN_DAYS | 90 | 天 | 更正保留下限，仅用于公共更正层 | 基线 |
 | CAL_PATCH_TAIL_DAYS | 30 | 天 | 覆盖旧节点最晚时间之后的保留尾巴 | 基线 |
 | CAL_PATCH_GLOBAL_MAX | 10,000 | 条 | 公共更正记录保护值；接近上限告警并暂停非关键扩大 | 基线 |
+| PUBLIC_READ_LIMITS | {"scanPage":100,"recentChanges":20,"detailNodes":1000,"sourcesPerGame":16,"pendingCandidates":1000,"nodeBytes":8192,"responseBytes":524288,"queryBytes":4096} | 混合（条/字节） | P3-14 公共读 API 的扫描页、变更数、详情、来源、待审聚合与字节保护 | 策略；近期变更期限使用共享更正层 retain_until；响应超限分页，单节点/详情/待审计数超限报不可用，不截断冒充完整 |
 | PUBLIC_CACHE_FRESH | 300 | 秒 | 公共快照新鲜窗口 | 基线 |
 | FEED_MAX_STALE | 86,400 | 秒（原文 24 小时） | 私人 Feed 只用当前完整发布代次，不回退旧代次 | 基线 |
 | REMINDER_GRACE | 300 | 秒 | 正常提前提醒有效期，且不超过节点时刻 | 基线 |
@@ -220,6 +221,7 @@ P0 待定项（`MODEL_MAX_INPUT`、`MODEL_MAX_BILLED_OUTPUT`）未填写前，�
 | push-test-day-within-send-day | 预留与容量包含 | PUSH_TEST_DAY <= PUSH_SEND_DAY（测试日量仍计入总发送） | PUSH_TEST_DAY(200) <= PUSH_SEND_DAY(5000) |
 | ai-soft-below-hard | usage 单位一致 | AI_SOFT_DAY < AI_HARD_DAY（同为 Neurons/日，软线严于硬线） | AI_SOFT_DAY(6000) < AI_HARD_DAY(8000) |
 | source-response-caps-within-ceiling | 来源上限 | SOURCE_LIMIT_PROFILE 每来源响应上限 > 0 且 <= responseCapCeilingBytes | max(SOURCE_LIMIT_PROFILE.responseCapsBytes)(524288) <= responseCapCeilingBytes(524288) |
+| public-read-bounds | 公共读保护 | 公共读上限均为正整数；recentChanges <= scanPage <= detailNodes；nodeBytes × (recentChanges + 1) < responseBytes <= FEED_RESPONSE_MAX_BYTES；queryBytes <= nodeBytes | PUBLIC_READ_LIMITS({"scanPage":100,"recentChanges":20,"detailNodes":1000,"sourcesPerGame":16,"pendingCandidates":1000,"nodeBytes":8192,"responseBytes":524288,"queryBytes":4096}) <= FEED_RESPONSE_MAX_BYTES(2097152) |
 
 ### 语义条款（无法用参数数值校验，由实现阶段测试保证）
 
@@ -227,5 +229,5 @@ P0 待定项（`MODEL_MAX_INPUT`、`MODEL_MAX_BILLED_OUTPUT`）未填写前，�
 
 ### 等式数量核对
 
-数值等式 25 条、语义条款 1 条。
+数值等式 26 条、语义条款 1 条。
 `pnpm params:verify` 与 Worker 启动路径逐条校验数值等式，任一不成立即拒绝并指明该条。
