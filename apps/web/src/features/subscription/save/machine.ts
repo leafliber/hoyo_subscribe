@@ -1,3 +1,4 @@
+// F2-04 获准跨卡：仅接入本机草稿比较与身份生命周期，保存快照、CAS 和冲突规则不变。
 // F2-03：订阅保存的唯一客户端状态机；只提交显式点击时的规范化快照。
 import {
   parseSubscriptionConfig,
@@ -26,7 +27,7 @@ export interface SaveView {
 const endpoint = "/api/v2/me/subscription";
 const csrfCookie = "__Host-hoyo_csrf";
 
-function csrfToken(): string | null {
+export function csrfToken(): string | null {
   const prefix = `${csrfCookie}=`;
   const value = document.cookie.split("; ").find((part) => part.startsWith(prefix));
   return value ? decodeURIComponent(value.slice(prefix.length)) : null;
@@ -86,15 +87,42 @@ export class SubscriptionSaveMachine {
     readonly editSerial: number;
   } | null = null;
 
-  constructor(private readonly view: SaveView) {}
+  private active = true;
+
+  constructor(
+    private readonly view: SaveView,
+    private readonly isCurrent: () => boolean = () => true,
+  ) {}
+
+  private current(): boolean {
+    return this.active && this.isCurrent();
+  }
+
+  dispose(): void {
+    this.active = false;
+    this.readSerial += 1;
+  }
+
+  /** 导入/恢复只进入既有比较流程；绝不写云端或采用文件里的 revision。 */
+  stageDraft(draft: Draft): void {
+    if (!this.current() || this.inFlight) return;
+    this.view.applyDraft(draft);
+    this.editSerial += 1;
+    this.compareCloud = this.cloud;
+    this.phase = "conflict";
+    this.message = "本机草稿已载入，请比较后返回编辑；保存后才会在云端生效。";
+    this.paint();
+  }
 
   private paint(): void {
+    if (!this.current()) return;
     const draft = this.view.readDraft();
     this.view.render(this.phase, this.message, this.cloud, draft);
     this.view.compare(this.compareCloud, draft, this.phase === "conflict");
   }
 
   async start(): Promise<void> {
+    if (!this.current()) return;
     // 游客没有可读的个人配置；CSRF Cookie 是同站可见的会话线索，不是认证判定。
     if (!csrfToken()) {
       this.phase = "guest";
@@ -108,6 +136,7 @@ export class SubscriptionSaveMachine {
   }
 
   edited(): void {
+    if (!this.current()) return;
     this.editSerial += 1;
     if (this.phase === "conflict") {
       this.paint();
@@ -127,12 +156,13 @@ export class SubscriptionSaveMachine {
   }
 
   async refresh(): Promise<void> {
+    if (!this.current()) return;
     if (!csrfToken() || this.inFlight) return;
     const readSerial = ++this.readSerial;
     const editAtStart = this.editSerial;
     try {
       const latest = await readCloud();
-      if (readSerial !== this.readSerial || this.inFlight) return;
+      if (!this.current() || readSerial !== this.readSerial || this.inFlight) return;
       const changed =
         this.cloud !== null
           ? latest.revision !== this.cloud.revision
@@ -155,7 +185,7 @@ export class SubscriptionSaveMachine {
         this.message = latest.config ? "本机修改尚未保存。" : "尚无已保存订阅；当前是本机预选。";
       }
     } catch (error) {
-      if (readSerial !== this.readSerial || this.inFlight) return;
+      if (!this.current() || readSerial !== this.readSerial || this.inFlight) return;
       const feedback = feedbackForFailure(error);
       this.phase = "uncertain";
       this.message = `${feedback.title}。${feedback.nextStep}`;
@@ -164,6 +194,7 @@ export class SubscriptionSaveMachine {
   }
 
   async save(): Promise<void> {
+    if (!this.current()) return;
     if (this.inFlight || this.phase === "conflict") return;
     const token = csrfToken();
     if (!token) {
@@ -174,7 +205,7 @@ export class SubscriptionSaveMachine {
     }
     if (this.cloud === null) {
       await this.refresh();
-      if (this.cloud === null || this.compareCloud !== null) return;
+      if (!this.current() || this.cloud === null || this.compareCloud !== null) return;
     }
     const config = normalize(this.view.readDraft());
     if (!config) {
@@ -209,6 +240,7 @@ export class SubscriptionSaveMachine {
         }),
       });
       const body: unknown = await response.json();
+      if (!this.current()) return;
       if (response.status === 409) {
         const current = (body as { current?: unknown }).current;
         this.enterComparison(
@@ -231,6 +263,7 @@ export class SubscriptionSaveMachine {
           : "云端设置已保存。外部日历的更新时间由客户端决定。";
       }
     } catch (_error) {
+      if (!this.current()) return;
       this.phase = "uncertain";
       this.message = "保存结果尚不确定，正在重新读取云端核对。";
       await this.reconcile();
@@ -245,6 +278,7 @@ export class SubscriptionSaveMachine {
     if (!submission) return;
     try {
       const latest = await readCloud();
+      if (!this.current()) return;
       this.cloud = latest;
       if (
         latest.config &&
@@ -259,12 +293,14 @@ export class SubscriptionSaveMachine {
         this.enterComparison(latest, "保存结果未能与当前草稿一致，请比较云端与本机设置。", false);
       }
     } catch (_error) {
+      if (!this.current()) return;
       this.phase = "uncertain";
       this.message = "无法确认保存结果；草稿和提交快照仍保留。请稍后重新读取云端。";
     }
   }
 
   async recheck(): Promise<void> {
+    if (!this.current()) return;
     if (this.submitted) await this.reconcile();
     else await this.refresh();
     this.paint();
@@ -279,6 +315,7 @@ export class SubscriptionSaveMachine {
   }
 
   adoptCloud(): void {
+    if (!this.current()) return;
     if (this.phase !== "conflict" || !this.cloud) return;
     if (this.cloud.config) this.view.applyDraft(this.cloud.config);
     this.compareCloud = null;
@@ -289,6 +326,7 @@ export class SubscriptionSaveMachine {
   }
 
   keepDraft(): void {
+    if (!this.current()) return;
     if (this.phase !== "conflict") return;
     this.compareCloud = null;
     this.submitted = null;
@@ -298,6 +336,7 @@ export class SubscriptionSaveMachine {
   }
 
   discard(): void {
+    if (!this.current()) return;
     if (this.cloud?.config) this.view.applyDraft(this.cloud.config);
     this.compareCloud = null;
     this.submitted = null;

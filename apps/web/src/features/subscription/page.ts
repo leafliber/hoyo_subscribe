@@ -1,3 +1,4 @@
+// F2-04 获准跨卡：只挂草稿读写、导入入口与身份清理，不改变表单业务语义。
 // F2-03 获准跨卡改动：只连接 F2-01 表单与保存状态机，不改变四类设置语义。
 import {
   changeNotificationScope,
@@ -10,6 +11,7 @@ import {
   SUBSCRIPTION_RULE_COPY,
   SUPPORTED_SCOPE_REGIONS,
 } from "@hoyo/contracts";
+import { SubscriptionDraftController } from "./draft/controller";
 import {
   type Draft,
   makeDraft,
@@ -160,79 +162,116 @@ if (form instanceof HTMLFormElement) {
     };
   }
 
-  const machine = new SubscriptionSaveMachine({
+  let drafts: SubscriptionDraftController | undefined;
+  function createMachine(): SubscriptionSaveMachine {
+    return new SubscriptionSaveMachine(
+      {
+        readDraft: draftFromForm,
+        applyDraft,
+        render(phase: Phase, message: string, snapshot: Snapshot | null) {
+          drafts?.paint(phase);
+          const saved = snapshot?.config;
+          if (cloudState)
+            cloudState.textContent = saved
+              ? `云端已保存 · 版本 ${snapshot.revision}`
+              : "尚无已保存订阅";
+          if (draftState)
+            draftState.textContent = (
+              {
+                guest: "本机预选 · 尚未保存",
+                loading: "正在读取云端设置",
+                saved: "当前选择与云端一致",
+                dirty: "本机未保存修改",
+                saving: "正在保存",
+                conflict: "云端与本机草稿待比较",
+                uncertain: "云端结果尚未确认",
+              } satisfies Record<Phase, string>
+            )[phase];
+          if (saveResult) saveResult.textContent = message;
+          if (saveButton instanceof HTMLButtonElement)
+            saveButton.disabled = phase === "saving" || phase === "loading" || phase === "conflict";
+          if (discardButton instanceof HTMLButtonElement)
+            discardButton.disabled = phase === "saving";
+          if (recheck instanceof HTMLButtonElement)
+            recheck.hidden = phase === "guest" || phase === "saving" || phase === "loading";
+          if (channelSummary)
+            channelSummary.textContent = saved
+              ? `接收方式将使用已保存的配置：游戏 ${groupText(saved).游戏}；提醒 ${groupText(saved).提醒}；日历显示 ${groupText(saved).日历显示}；变更消息 ${groupText(saved).变更消息}。版本 ${snapshot.revision}。`
+              : "尚无已保存配置可用于开通接收方式。";
+          if (previewText)
+            previewText.textContent = saved
+              ? "尚无实际日历预览。云端设置已保存，但个人日历尚未连接。"
+              : "尚无实际日历预览。当前选项只是本机预选，尚未连接个人日历。";
+        },
+        compare(cloud, draft, visible) {
+          if (!comparison || !differences) return;
+          comparison.hidden = !visible;
+          const adopt = document.getElementById("adopt-cloud");
+          if (adopt instanceof HTMLButtonElement) adopt.disabled = cloud === null;
+          differences.replaceChildren();
+          if (!visible) return;
+          const cloudGroups = groupText(cloud?.config ?? null);
+          const draftGroups = groupText(draft);
+          for (const group of ["游戏", "提醒", "日历显示", "变更消息"] as const) {
+            const section = document.createElement("section");
+            const heading = document.createElement("h3");
+            heading.textContent = `${group}${cloudGroups[group] === draftGroups[group] ? " · 相同" : " · 不同"}`;
+            const cloudLine = document.createElement("p");
+            cloudLine.textContent = `云端：${cloudGroups[group]}`;
+            const draftLine = document.createElement("p");
+            draftLine.textContent = `本机草稿：${draftGroups[group]}`;
+            section.append(heading, cloudLine, draftLine);
+            differences.append(section);
+          }
+        },
+        validation(path) {
+          if (path?.includes("scope.games")) showError(gameError);
+          else if (path?.includes("calendar.event_types")) {
+            if (calendarDetails instanceof HTMLDetailsElement) calendarDetails.open = true;
+            showError(eventTypeError);
+          }
+          if (saveResult) saveResult.textContent = "请检查所选内容；草稿未写入云端。";
+        },
+      },
+      () => drafts?.current() ?? true,
+    );
+  }
+  let machine = createMachine();
+  drafts = new SubscriptionDraftController({
+    form,
     readDraft: draftFromForm,
-    applyDraft,
-    render(phase: Phase, message: string, snapshot: Snapshot | null) {
-      const saved = snapshot?.config;
-      if (cloudState)
-        cloudState.textContent = saved
-          ? `云端已保存 · 版本 ${snapshot.revision}`
-          : "尚无已保存订阅";
-      if (draftState)
-        draftState.textContent = (
-          {
-            guest: "本机预选 · 尚未保存",
-            loading: "正在读取云端设置",
-            saved: "当前选择与云端一致",
-            dirty: "本机未保存修改",
-            saving: "正在保存",
-            conflict: "云端与本机草稿待比较",
-            uncertain: "云端结果尚未确认",
-          } satisfies Record<Phase, string>
-        )[phase];
-      if (saveResult) saveResult.textContent = message;
-      if (saveButton instanceof HTMLButtonElement)
-        saveButton.disabled = phase === "saving" || phase === "loading" || phase === "conflict";
-      if (discardButton instanceof HTMLButtonElement) discardButton.disabled = phase === "saving";
-      if (recheck instanceof HTMLButtonElement)
-        recheck.hidden = phase === "guest" || phase === "saving" || phase === "loading";
-      if (channelSummary)
-        channelSummary.textContent = saved
-          ? `接收方式将使用已保存的配置：游戏 ${groupText(saved).游戏}；提醒 ${groupText(saved).提醒}；日历显示 ${groupText(saved).日历显示}；变更消息 ${groupText(saved).变更消息}。版本 ${snapshot.revision}。`
-          : "尚无已保存配置可用于开通接收方式。";
-      if (previewText)
-        previewText.textContent = saved
-          ? "尚无实际日历预览。云端设置已保存，但个人日历尚未连接。"
-          : "尚无实际日历预览。当前选项只是本机预选，尚未连接个人日历。";
-    },
-    compare(cloud, draft, visible) {
-      if (!comparison || !differences) return;
-      comparison.hidden = !visible;
-      differences.replaceChildren();
-      if (!visible) return;
-      const cloudGroups = groupText(cloud?.config ?? null);
-      const draftGroups = groupText(draft);
-      for (const group of ["游戏", "提醒", "日历显示", "变更消息"] as const) {
-        const section = document.createElement("section");
-        const heading = document.createElement("h3");
-        heading.textContent = `${group}${cloudGroups[group] === draftGroups[group] ? " · 相同" : " · 不同"}`;
-        const cloudLine = document.createElement("p");
-        cloudLine.textContent = `云端：${cloudGroups[group]}`;
-        const draftLine = document.createElement("p");
-        draftLine.textContent = `本机草稿：${draftGroups[group]}`;
-        section.append(heading, cloudLine, draftLine);
-        differences.append(section);
-      }
-    },
-    validation(path) {
-      if (path?.includes("scope.games")) showError(gameError);
-      else if (path?.includes("calendar.event_types")) {
-        if (calendarDetails instanceof HTMLDetailsElement) calendarDetails.open = true;
-        showError(eventTypeError);
-      }
-      if (saveResult) saveResult.textContent = "请检查所选内容；草稿未写入云端。";
+    machine: () => machine,
+    reset() {
+      machine.dispose();
+      for (const choice of choices) choice.checked = initialChoice.get(choice) ?? false;
+      hideErrors();
+      sync();
+      machine = createMachine();
+      // 身份控制器决定何时重新读取；原账号的提示与比较立即清空。
+      if (cloudState) cloudState.textContent = "身份待确认";
+      if (channelSummary) channelSummary.textContent = "身份待确认，未展示已保存配置。";
+      if (draftState) draftState.textContent = "本机预选 · 尚未保存";
+      if (saveResult) saveResult.textContent = "";
+      if (comparison) comparison.hidden = true;
+      differences?.replaceChildren();
+      if (previewText) previewText.textContent = "身份待确认，未展示私人预览。";
+      if (saveButton instanceof HTMLButtonElement) saveButton.disabled = false;
+      if (discardButton instanceof HTMLButtonElement) discardButton.disabled = false;
+      return machine;
     },
   });
 
   form.addEventListener("change", () => {
+    if (!drafts?.current()) return;
     hideErrors();
     sync();
     machine.edited();
+    drafts.edited();
   });
 
   form.addEventListener("submit", async (event) => {
     event.preventDefault();
+    if (!drafts?.current()) return;
     hideErrors();
     if (selected("games").length === 0) {
       if (saveResult) saveResult.textContent = "请先选择至少一个关注的游戏。";
@@ -245,20 +284,30 @@ if (form instanceof HTMLFormElement) {
       showError(eventTypeError);
       return;
     }
-    await machine.save();
+    await drafts?.save();
   });
 
   document.getElementById("discard-changes")?.addEventListener("click", () => {
+    if (!drafts?.current()) return;
     if (!machine.getSnapshot()?.config) {
       for (const choice of choices) choice.checked = initialChoice.get(choice) ?? false;
     }
     hideErrors();
     sync();
     machine.discard();
+    drafts?.discarded();
   });
 
   document.getElementById("adopt-cloud")?.addEventListener("click", () => {
-    if (window.confirm("采用云端设置会丢弃本机草稿。确定继续吗？")) machine.adoptCloud();
+    if (!drafts?.current()) return;
+    if (window.confirm("采用云端设置会丢弃本机草稿。确定继续吗？")) {
+      if (!machine.getSnapshot()?.config) {
+        for (const choice of choices) choice.checked = initialChoice.get(choice) ?? false;
+        sync();
+      }
+      machine.adoptCloud();
+      drafts?.discarded();
+    }
   });
   document.getElementById("keep-draft")?.addEventListener("click", () => machine.keepDraft());
   recheck?.addEventListener("click", () => void machine.recheck());
@@ -267,5 +316,5 @@ if (form instanceof HTMLFormElement) {
   });
 
   sync();
-  void machine.start();
+  void drafts.start();
 }
