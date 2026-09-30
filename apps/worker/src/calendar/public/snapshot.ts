@@ -1,4 +1,4 @@
-// P3-06 获准跨卡改动：整代保留历史投影（保证未来自然进入及更正对比），集合 SQL 固定构建语句数。
+// P3-06 获准跨卡改动：整代保留历史投影（保证未来自然进入及更正对比），集合 SQL 按 UTF-8 字节分块。
 // P3-11 获准跨卡改动：回收条件纳入 generation 小于 current 的残留 building。
 // P3-05 · 可调用的公共完整代次构建入口；P3-11 负责调度，P3-06 负责个人 ICS。
 // 主方案 §6.3、附录 A.3。只读 P3-04 投影，不修改其发布器。
@@ -12,8 +12,10 @@ import {
   type PatchDecision,
   PUBLIC_CACHE_FRESH,
   PUBLIC_SNAPSHOT_PENDING_STATE_KEY,
+  PUBLIC_SNAPSHOT_WRITE_PROFILE,
   type PublicCalendarProjection,
   type PublicSnapshotNode,
+  publicSnapshotJsonChunks,
   SNAPSHOT_REBUILD_TOPIC,
   TimeValueSchema,
 } from "@hoyo/contracts";
@@ -405,6 +407,21 @@ export async function buildPublicSnapshot(
   const capacityAlert = patchCount + 1 >= CAL_PATCH_GLOBAL_MAX;
   if (capacityAlert) await markCapacityPause(db, nowMs);
 
+  const patchPlans = changes.map((change) => ({
+    id: crypto.randomUUID(),
+    milestone_id: change.milestoneId,
+    prior_id: change.prior?.id ?? null,
+    kind: change.decision.kind,
+    old: timeColumns(change.decision.old_time),
+    next: timeColumns(change.decision.new_time),
+    reason: change.decision.fact_reason,
+    retain_until: change.decision.retain_until,
+  }));
+  const nodeChunks = publicSnapshotJsonChunks([...plannedNodes.values()]);
+  const patchChunks = publicSnapshotJsonChunks(patchPlans);
+  // 固定开销最多 18；节点每块一条，更正每块两条；含 finally 清理与容量标记。
+  if (18 + nodeChunks.length + 2 * patchChunks.length > PUBLIC_SNAPSHOT_WRITE_PROFILE.queryLimit)
+    throw new Error("too many SQL statements: public snapshot chunk budget");
   const generationRow = await db
     .prepare("SELECT COALESCE(MAX(generation), 0) AS n FROM public_snapshots")
     .first<{ n: number }>();
@@ -416,22 +433,14 @@ export async function buildPublicSnapshot(
     .bind(snapshotId, generation, nowMs)
     .run();
   try {
-    // 全部节点通过一个 JSON 参数写入；语句数与节点/更正/outbox 数无关。
-    await db
-      .prepare(`INSERT INTO public_snapshot_nodes (snapshot_id, milestone_id, node_json)
-      SELECT ?, json_extract(value, '$.projection.milestone_id'), value FROM json_each(?)`)
-      .bind(snapshotId, JSON.stringify([...plannedNodes.values()]))
-      .run();
-    const patchPlans = changes.map((change) => ({
-      id: crypto.randomUUID(),
-      milestone_id: change.milestoneId,
-      prior_id: change.prior?.id ?? null,
-      kind: change.decision.kind,
-      old: timeColumns(change.decision.old_time),
-      next: timeColumns(change.decision.new_time),
-      reason: change.decision.fact_reason,
-      retain_until: change.decision.retain_until,
-    }));
+    // 分块只写不可见 building；中途失败由 finally 回收，当前整代保持不变。
+    for (const chunk of nodeChunks) {
+      await db
+        .prepare(`INSERT INTO public_snapshot_nodes (snapshot_id, milestone_id, node_json)
+        SELECT ?, json_extract(value, '$.projection.milestone_id'), value FROM json_each(?)`)
+        .bind(snapshotId, chunk)
+        .run();
+    }
     // guard 的 built_at 是本次事务内的效果闸门；失败整批回滚，零命中则所有效果零写入。
     const gate =
       "EXISTS (SELECT 1 FROM public_snapshots WHERE id = ? AND state = 'building' AND built_at = ?)";
@@ -469,19 +478,21 @@ export async function buildPublicSnapshot(
     };
     const results = await db.batch([
       db.prepare(guard.sql).bind(...guard.params),
-      db
-        .prepare(`UPDATE calendar_patches SET superseded_at = ?, updated_at = ?
+      ...patchChunks.flatMap((chunk) => [
+        db
+          .prepare(`UPDATE calendar_patches SET superseded_at = ?, updated_at = ?
         WHERE id IN (SELECT json_extract(value, '$.prior_id') FROM json_each(?)) AND ${gate}`)
-        .bind(nowMs, nowMs, JSON.stringify(patchPlans), snapshotId, nowMs),
-      db
-        .prepare(`INSERT INTO calendar_patches (id, milestone_id, patch_kind, old_time_exact_ms,
+          .bind(nowMs, nowMs, chunk, snapshotId, nowMs),
+        db
+          .prepare(`INSERT INTO calendar_patches (id, milestone_id, patch_kind, old_time_exact_ms,
         old_time_date, new_time_exact_ms, new_time_date, fact_reason, effective_at, retain_until,
         superseded_at, created_at, updated_at)
         SELECT json_extract(value, '$.id'), json_extract(value, '$.milestone_id'),
           json_extract(value, '$.kind'), json_extract(value, '$.old[0]'), json_extract(value, '$.old[1]'),
           json_extract(value, '$.next[0]'), json_extract(value, '$.next[1]'), json_extract(value, '$.reason'),
           ?, json_extract(value, '$.retain_until'), NULL, ?, ? FROM json_each(?) WHERE ${gate}`)
-        .bind(nowMs, nowMs, nowMs, JSON.stringify(patchPlans), snapshotId, nowMs),
+          .bind(nowMs, nowMs, nowMs, chunk, snapshotId, nowMs),
+      ]),
       db
         .prepare(
           `UPDATE public_snapshots SET state = 'superseded' WHERE state = 'current' AND ${gate}`,

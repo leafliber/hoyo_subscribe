@@ -8,7 +8,9 @@ import {
   NONCRITICAL_PUBLICATION_PAUSE_STATE_KEY,
   PUBLIC_CACHE_FRESH,
   PUBLIC_SNAPSHOT_PENDING_STATE_KEY,
+  PUBLIC_SNAPSHOT_WRITE_PROFILE,
   type PublicCalendarProjection,
+  publicSnapshotJsonChunks,
   SNAPSHOT_REBUILD_TOPIC,
   TimeValueSchema,
 } from "@hoyo/contracts";
@@ -464,32 +466,65 @@ describe("A-P3-PATCH 公共快照与共享更正层", () => {
 
 // P3-06 获准跨卡负载回归：超过原实现单次 1,000 条语句的形状。
 describe("A-P3-ICS 公共构建查询数上界", () => {
-  it("1200 节点及一次全部改期仍以固定查询数切换完整代次", async () => {
+  it("1200 个真实尺寸节点超过 2 MB，节点和更正分块后完整原子发布", async () => {
     const size = 1200;
     const at = T0 + 400 * day;
     const nodes = Array.from({ length: size }, (_, i) => ({
       ...projection(at + day),
+      event: {
+        ...projection(at + day).event,
+        title: "官".repeat(20),
+        summary: "活".repeat(150),
+        official_url: "https://webstatic.mihoyo.com/ys/event/e20260930preview/index.html",
+      },
       milestone_id: `bulk-${i}`,
       milestone: { ...projection(at + day).milestone, milestone_key: `bulk-${i}` },
     }));
-    await env.DB.prepare(`INSERT INTO milestones (id, event_id, milestone_key, node_type, title,
+    for (const chunk of publicSnapshotJsonChunks(nodes)) {
+      await env.DB.prepare(`INSERT INTO milestones (id, event_id, milestone_key, node_type, title,
       time_exact_ms, source_timezone, raw_expression, time_basis, time_precision,
       public_ical_revision, human_locked, created_at, updated_at)
       SELECT json_extract(value, '$.milestone_id'), ?, json_extract(value, '$.milestone.milestone_key'),
       'start', '合成', ?, 'UTC', '明确', 'official_explicit', 'datetime', 1, 0, ?, ? FROM json_each(?)`)
-      .bind(eventId, at + day, at, at, JSON.stringify(nodes))
-      .run();
-    await env.DB.prepare(`INSERT INTO calendar_projections
+        .bind(eventId, at + day, at, at, chunk)
+        .run();
+      await env.DB.prepare(`INSERT INTO calendar_projections
       SELECT json_extract(value, '$.milestone_id'), ?, 1, value, ? FROM json_each(?)`)
-      .bind(eventId, at, JSON.stringify(nodes))
-      .run();
-    let queries = 0;
+        .bind(eventId, at, chunk)
+        .run();
+    }
+    let queries = 0,
+      nodeWrites = 0,
+      patchWrites = 0,
+      maxParamBytes = 0;
     const counted = new Proxy(env.DB, {
       get(target, property) {
         if (property === "prepare")
           return (sql: string) => {
             queries++;
-            return target.prepare(sql);
+            if (sql.startsWith("INSERT INTO public_snapshot_nodes")) nodeWrites++;
+            if (
+              sql.startsWith("UPDATE calendar_patches") ||
+              sql.startsWith("INSERT INTO calendar_patches")
+            )
+              patchWrites++;
+            const stmt = target.prepare(sql);
+            return new Proxy(stmt, {
+              get(statement, key) {
+                if (key === "bind")
+                  return (...args: unknown[]) => {
+                    for (const value of args)
+                      if (typeof value === "string")
+                        maxParamBytes = Math.max(
+                          maxParamBytes,
+                          new TextEncoder().encode(value).length,
+                        );
+                    return statement.bind(...args);
+                  };
+                const value = Reflect.get(statement, key);
+                return typeof value === "function" ? value.bind(statement) : value;
+              },
+            });
           };
         const value = Reflect.get(target, property);
         return typeof value === "function" ? value.bind(target) : value;
@@ -497,7 +532,8 @@ describe("A-P3-ICS 公共构建查询数上界", () => {
     });
     await queue(at);
     expect((await buildPublicSnapshot(counted, at)).outcome).toBe("built");
-    expect(queries).toBeLessThanOrEqual(21);
+    expect(queries).toBeLessThanOrEqual(18 + nodeWrites + patchWrites);
+    expect(maxParamBytes).toBeLessThanOrEqual(PUBLIC_SNAPSHOT_WRITE_PROFILE.chunkBytes);
     expect((await readCurrentPublicSnapshot(env.DB, at))?.nodes).toHaveLength(size + 1);
     await env.DB.prepare(`UPDATE calendar_projections SET
       projection_json = json_set(projection_json, '$.milestone.time.utc_ms', ?),
@@ -506,14 +542,34 @@ describe("A-P3-ICS 公共构建查询数上界", () => {
       .run();
     await queue(at + 1);
     queries = 0;
+    nodeWrites = 0;
+    patchWrites = 0;
+    maxParamBytes = 0;
     expect((await buildPublicSnapshot(counted, at + 1)).outcome).toBe("built");
-    expect(queries).toBeLessThanOrEqual(21);
+    expect(queries).toBeLessThanOrEqual(18 + nodeWrites + patchWrites);
+    expect(maxParamBytes).toBeLessThanOrEqual(PUBLIC_SNAPSHOT_WRITE_PROFILE.chunkBytes);
     expect(
       (await readCurrentPublicSnapshot(env.DB, at + 1))?.nodes.filter(
         (n) => n.patch?.kind === "rescheduled",
       ),
     ).toHaveLength(size);
-    console.log(JSON.stringify({ event: "p3_06_build_bound", nodes: size, queries }));
+    const result = await readCurrentPublicSnapshot(env.DB, at + 1, true);
+    const totalBytes = new TextEncoder().encode(JSON.stringify(result?.nodes)).length;
+    expect(totalBytes).toBeGreaterThan(PUBLIC_SNAPSHOT_WRITE_PROFILE.singleValueBytes);
+    expect(nodeWrites).toBeGreaterThan(1);
+    expect(patchWrites).toBeGreaterThan(2);
+    expect(queries).toBeLessThan(PUBLIC_SNAPSHOT_WRITE_PROFILE.queryLimit);
+    console.log(
+      JSON.stringify({
+        event: "p3_06_build_bytes",
+        nodes: size,
+        queries,
+        nodeWrites,
+        patchWrites,
+        maxParamBytes,
+        totalBytes,
+      }),
+    );
   }, 60_000);
   it("记录整代复制和回收的 D1 rows_written，包含节点索引维护", async () => {
     const current = await one<{ id: string; node_count: number }>(
@@ -552,9 +608,40 @@ describe("A-P3-ICS 公共构建查询数上界", () => {
       await env.DB.prepare("DELETE FROM public_snapshots WHERE id=?").bind(id).run();
     }
   });
-  it("最终 CAS 未命中时所有效果零写入；数据库错误整批回滚", async () => {
+  it("中间节点块写入报错只回收 building，不暴露半代或吞掉待办", async () => {
     const at = T0 + 400 * day + 2;
     const previous = await readCurrentPublicSnapshot(env.DB, at);
+    await queue(at);
+    await env.DB.prepare(`CREATE TRIGGER synthetic_node_chunk_failure BEFORE INSERT ON public_snapshot_nodes
+      WHEN NEW.milestone_id='bulk-500' BEGIN SELECT RAISE(ABORT,'synthetic chunk'); END`).run();
+    try {
+      await expect(buildPublicSnapshot(env.DB, at)).rejects.toThrow();
+      expect((await readCurrentPublicSnapshot(env.DB, at))?.generation).toBe(previous?.generation);
+      expect(await one("SELECT id FROM public_snapshots WHERE state='building'")).toBeNull();
+      expect(
+        await one<{ n: number }>(
+          "SELECT COUNT(*) AS n FROM public_snapshot_nodes n WHERE NOT EXISTS (SELECT 1 FROM public_snapshots s WHERE s.id=n.snapshot_id)",
+        ),
+      ).toEqual({ n: 0 });
+      expect(
+        await one<{ n: number }>(
+          "SELECT COUNT(*) AS n FROM outbox WHERE dispatch_state='pending' AND topic=?",
+          SNAPSHOT_REBUILD_TOPIC,
+        ),
+      ).toEqual({ n: 1 });
+    } finally {
+      await env.DB.prepare("DROP TRIGGER synthetic_node_chunk_failure").run();
+    }
+  });
+  it("最终 CAS 未命中时所有效果零写入；数据库错误整批回滚", async () => {
+    const at = T0 + 400 * day + 3;
+    const previous = await readCurrentPublicSnapshot(env.DB, at);
+    await env.DB.prepare(
+      `UPDATE calendar_projections SET projection_json=json_set(projection_json,'$.milestone.time.utc_ms',?), public_ical_revision=public_ical_revision+1,updated_at=? WHERE milestone_id LIKE 'bulk-%'`,
+    )
+      .bind(at + 3 * day, at)
+      .run();
+    const patchesBefore = await one<{ n: number }>("SELECT COUNT(*) AS n FROM calendar_patches");
     await queue(at);
     let raced = false;
     const racing = new Proxy(env.DB, {
@@ -583,6 +670,7 @@ describe("A-P3-ICS 公共构建查询数上界", () => {
       await expect(buildPublicSnapshot(env.DB, at + 1)).rejects.toThrow();
       expect((await readCurrentPublicSnapshot(env.DB, at))?.generation).toBe(previous?.generation);
       expect(await one("SELECT id FROM public_snapshots WHERE state = 'building'")).toBeNull();
+      expect(await one("SELECT COUNT(*) AS n FROM calendar_patches")).toEqual(patchesBefore);
     } finally {
       await env.DB.prepare("DROP TRIGGER synthetic_snapshot_failure").run();
     }
