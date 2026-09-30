@@ -1,0 +1,37 @@
+$ pnpm -r --if-present run test
+Scope: 3 of 4 workspace projects
+packages/contracts test$ vitest run
+packages/contracts test:  RUN  v4.1.11 /Users/cassia/.codex/worktrees/p4-04-mail-budget/hoyo_subscribe/packages/contracts
+packages/contracts test:  Test Files  26 passed (26)
+packages/contracts test:       Tests  211 passed (211)
+packages/contracts test:    Start at  23:41:46
+packages/contracts test:    Duration  622ms (transform 668ms, setup 0ms, import 1.76s, tests 242ms, environment 2ms)
+packages/contracts test: Done
+apps/worker test$ vitest run
+apps/worker test:  RUN  v4.1.11 /Users/cassia/.codex/worktrees/p4-04-mail-budget/hoyo_subscribe/apps/worker
+apps/worker test:  ❯ src/mail/outbox/outbox.test.ts (47 tests | 1 failed) 430ms
+apps/worker test:      × 执行器到墙钟即停，仍保留待办；暂停时不安排发送热循环 22ms
+apps/worker test: ⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+apps/worker test:  FAIL  src/mail/outbox/outbox.test.ts > A-P4-OUTBOX 租约与外部不确定边界 > 执行器到墙钟即停，仍保留待办；暂停时不安排发送热循环
+apps/worker test: AssertionError: expected 1790812800000 to be null
+apps/worker test: - Expected:
+apps/worker test: null
+apps/worker test: + Received:
+apps/worker test: 1790812800000
+apps/worker test:  ❯ src/mail/outbox/outbox.test.ts:393:7
+apps/worker test:     391|     expect(
+apps/worker test:     392|       await new DeliveryRuntime(deps({ available: async () => false })…
+apps/worker test:     393|     ).toBeNull();
+apps/worker test:        |       ^
+apps/worker test:     394|   });
+apps/worker test:     395| });
+apps/worker test: ⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+apps/worker test:  Test Files  1 failed | 52 passed (53)
+apps/worker test:       Tests  1 failed | 690 passed (691)
+apps/worker test:    Start at  23:41:47
+apps/worker test:    Duration  12.90s (transform 7.65s, setup 0ms, import 60.44s, tests 16.27s, environment 2ms)
+apps/worker test: Failed
+/Users/cassia/.codex/worktrees/p4-04-mail-budget/hoyo_subscribe/apps/worker:
+[ERR_PNPM_RECURSIVE_RUN_FIRST_FAIL] @hoyo/worker@ test: `vitest run`
+Exit status 1
+[ELIFECYCLE] Test failed. See above for more details.

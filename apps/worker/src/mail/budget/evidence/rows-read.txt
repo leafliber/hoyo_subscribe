@@ -1,0 +1,39 @@
+
+ RUN  v4.1.11 /Users/cassia/.codex/worktrees/p4-04-mail-budget/hoyo_subscribe/apps/worker
+
+stdout | src/mail/budget/budget.test.ts > A-P4-BUDGET 旧日扫描 rows_read 不随 2000 条已调用历史增长
+A-P4-BUDGET hot query rows_read {"before":[5,1,7,4,1,0,1],"after":[5,1,7,4,1,0,1]}
+
+ ↓ src/mail/budget/budget.test.ts > A-P4-BUDGET 批准与公平游标原子组合 > 合并多条 Delivery 只扣一个机会；unknown 保留占用和游标、不自动重投
+ ↓ src/mail/budget/budget.test.ts > A-P4-BUDGET 批准与公平游标原子组合 > 两个并发批准抢最后一额仅一人成功；失败者不建 outbox、不推进游标
+ ↓ src/mail/budget/budget.test.ts > A-P4-BUDGET 批准与公平游标原子组合 > 预算在计划之后耗尽仍拒绝，SQL 报错整批回滚（含游标、账本、outbox）
+ ↓ src/mail/budget/budget.test.ts > A-P4-BUDGET 批准与公平游标原子组合 > 100 席位全量取消可批准，恰余 floor 后拒绝更正/晚发现但仍批准取消
+ ↓ src/mail/budget/budget.test.ts > A-P4-BUDGET 批准与公平游标原子组合 > 每用户基础/紧急独立限频，UTC 次日恢复且公平游标不清零
+ ↓ src/mail/budget/budget.test.ts > A-P4-BUDGET UTC 日界与旧租约竞态 > 未调用 pending 旧日撤回并重新预留，保留意图、作废旧租约
+ ↓ src/mail/budget/budget.test.ts > A-P4-BUDGET UTC 日界与旧租约竞态 > 未调用 leased 旧日撤回并重新预留，保留意图、作废旧租约
+ ↓ src/mail/budget/budget.test.ts > A-P4-BUDGET UTC 日界与旧租约竞态 > 未调用 retry_wait 旧日撤回并重新预留，保留意图、作废旧租约
+ ↓ src/mail/budget/budget.test.ts > A-P4-BUDGET UTC 日界与旧租约竞态 > 新日满额先撤回旧日，意图保留等待；不误释放已调用、unknown 和明确拒绝已结算的邮件
+ ↓ src/mail/budget/budget.test.ts > A-P4-BUDGET UTC 日界与旧租约竞态 > 真实外调抢先跨过边界，旧读撤回失败，其他信预留不受影响
+ ↓ src/mail/budget/budget.test.ts > A-P4-BUDGET UTC 日界与旧租约竞态 > 同一旧日行并发撤回只退款一次，未预留意图并发重排只预留一次
+ ↓ src/mail/budget/budget.test.ts > A-P4-BUDGET UTC 日界与旧租约竞态 > 明确可重试拒绝保留已消耗预算，不自行分配重试预算
+ ↓ src/mail/budget/budget.test.ts > A-P4-BUDGET 业务执行器闭环 > 调度持久跨批次推进，替身发送 accepted 后结算；完整展开之前不批准
+ ↓ src/mail/budget/budget.test.ts > A-P4-BUDGET 业务执行器闭环 > 预算拒绝的前排用户不堵住其他用户，deferred 跨执行器重启保存
+ ✓ src/mail/budget/budget.test.ts > A-P4-BUDGET 旧日扫描 rows_read 不随 2000 条已调用历史增长 32ms
+ ↓ src/mail/budget/budget.test.ts > A-P4-BUDGET 已外调可重试拒绝并发只计一次，到期 expired 不退款
+ ↓ src/mail/budget/budget.test.ts > A-P4-BUDGET 导出构造随外部守卫批准，转换检查全局和用户源占用
+ ↓ src/mail/budget/budget.test.ts > A-P4-BUDGET 新日无预算等待到期后终止，不把过期意图无限保留
+ ↓ src/mail/budget/budget.test.ts > A-P4-BUDGET 有 failed 起步的批次仍批准其他发生项，不复活 failed
+ ↓ src/mail/budget/budget.test.ts > A-P4-BUDGET 只剩失败展开的 pending Delivery 不触发新批次空转
+ ↓ src/mail/budget/budget.test.ts > A-P4-BUDGET 预算扫描错误 terminal=false 不停止认证核心，持久退避
+ ↓ src/mail/budget/budget.test.ts > A-P4-BUDGET 预算扫描错误 terminal=true 不停止认证核心，持久退避
+ ↓ src/mail/budget/budget.test.ts > A-P4-BUDGET 同状态下旧租约 version 不得撤回新持有者预留
+ ↓ src/mail/budget/budget.test.ts > A-P4-BUDGET 同状态下旧租约 owner 不得撤回新持有者预留
+ ↓ src/mail/budget/budget.test.ts > A-P4-BUDGET 认证跨日 existing_auth_first_login 沿用原意图且重新核 floor
+ ↓ src/mail/budget/budget.test.ts > A-P4-BUDGET 认证跨日 auth_resend 沿用原意图且重新核 floor
+ ↓ src/mail/budget/budget.test.ts > A-P4-BUDGET 认证跨日 signup_auth 沿用原意图且重新核 floor
+
+ Test Files  1 passed (1)
+      Tests  1 passed | 26 skipped (27)
+   Start at  00:11:27
+   Duration  993ms (transform 341ms, setup 0ms, import 733ms, tests 51ms, environment 0ms)
+

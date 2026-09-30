@@ -1,0 +1,20 @@
+$ tsc --noEmit
+src/mail/budget/budget.test.ts(108,5): error TS2322: Type 'Mock<() => Promise<{ kind: string; reason: string; pause: boolean; }>>' is not assignable to type '(mail: ServerMail) => Promise<MailResult>'.
+  Type 'Promise<{ kind: string; reason: string; pause: boolean; }>' is not assignable to type 'Promise<MailResult>'.
+    Type '{ kind: string; reason: string; pause: boolean; }' is not assignable to type 'MailResult'.
+      Type '{ kind: string; reason: string; pause: boolean; }' is not assignable to type '{ readonly kind: "unknown"; readonly reason: string; readonly pause: false; }'.
+        Types of property 'kind' are incompatible.
+          Type 'string' is not assignable to type '"unknown"'.
+src/mail/budget/budget.test.ts(318,5): error TS2322: Type 'Mock<() => Promise<{ kind: string; retryable: boolean; reason: string; pause: boolean; }>>' is not assignable to type '(mail: ServerMail) => Promise<MailResult>'.
+  Type 'Promise<{ kind: string; retryable: boolean; reason: string; pause: boolean; }>' is not assignable to type 'Promise<MailResult>'.
+    Type '{ kind: string; retryable: boolean; reason: string; pause: boolean; }' is not assignable to type 'MailResult'.
+      Type '{ kind: string; retryable: boolean; reason: string; pause: boolean; }' is not assignable to type '{ readonly kind: "rejected"; readonly retryable: boolean; readonly reason: string; readonly pause: boolean; }'.
+        Types of property 'kind' are incompatible.
+          Type 'string' is not assignable to type '"rejected"'.
+src/mail/budget/dispatch.ts(7,3): error TS2724: '"../../storage/ledger/mail-ledger"' has no exported member named 'reserveMailBudgetEffects'. Did you mean 'reserveMailBudget'?
+src/mail/budget/rollover.ts(17,3): error TS2724: '"../../storage/ledger/mail-ledger"' has no exported member named 'mailReservationTransitionEffects'. Did you mean 'MailReservationTransition'?
+src/mail/budget/rollover.ts(18,3): error TS2724: '"../../storage/ledger/mail-ledger"' has no exported member named 'mailReservationTransitionPredicate'. Did you mean 'MailReservationTransition'?
+src/mail/budget/rollover.ts(19,3): error TS2724: '"../../storage/ledger/mail-ledger"' has no exported member named 'reserveMailBudgetEffects'. Did you mean 'reserveMailBudget'?
+/Users/cassia/.codex/worktrees/p4-04-mail-budget/hoyo_subscribe/apps/worker:
+[ERR_PNPM_RECURSIVE_RUN_FIRST_FAIL] @hoyo/worker@ typecheck: `tsc --noEmit`
+Exit status 1
