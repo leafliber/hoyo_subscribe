@@ -1,9 +1,0 @@
-
- RUN  v4.1.11 /Users/cassia/.codex/worktrees/p4-04-mail-budget/hoyo_subscribe/apps/worker
-
-
- Test Files  3 passed (3)
-      Tests  81 passed (81)
-   Start at  20:26:21
-   Duration  8.87s (transform 2.08s, setup 0ms, import 4.35s, tests 4.67s, environment 0ms)
-

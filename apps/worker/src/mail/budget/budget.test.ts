@@ -22,6 +22,7 @@ import { selectDispatchCandidate } from "../dispatch/dispatch";
 import { type SendDeps, sendOneMail } from "../outbox/send";
 import { claimMail, transitionMail } from "../outbox/state";
 import type { MailRow } from "../outbox/types";
+import { MAIL_AVAILABILITY_KEY, mailAvailable, pauseMail } from "../provider/availability";
 import { approveBudgetedDispatch, planBudgetedDispatch } from "./dispatch";
 import {
   nextRolloverAlarm,
@@ -316,6 +317,62 @@ describe("A-P4-BUDGET UTC 日界与旧租约竞态", () => {
     expect((await ledger()).pools.base_business.reserved).toBe(0);
     expect((await ledger(next)).pools.base_business.reserved).toBe(1);
   });
+  it("同用户同池已调用 retry_wait 与未调用预留跨日隔离，已结算邮件不重排不重发", async () => {
+    const uid = await user(1);
+    let now = T;
+    const d = deps(() => now);
+    d.provider.send = vi
+      .fn<SendDeps["provider"]["send"]>()
+      .mockResolvedValueOnce({
+        kind: "rejected",
+        retryable: true,
+        reason: "synthetic",
+        pause: false,
+      })
+      .mockResolvedValue({ kind: "accepted", messageId: "synthetic-accepted" });
+    await fact("cancelled_or_retracted");
+    const rejectedId = await approve((await batch()).id);
+    expect(await sendOneMail(d, "sender", rejectedId)).toBe(true);
+    // 让已结算行在候选排序中靠前：另一封的预留不能掩盖错误退款。
+    await run("UPDATE mail_outbox SET created_at=? WHERE id=?", T - 1, rejectedId);
+    const rejected = await mail(rejectedId);
+    expect(rejected).toMatchObject({ status: "retry_wait", sent_at: T });
+    await fact("cancelled_or_retracted");
+    const unsentId = await approve((await batch()).id);
+    const unsent = await mail(unsentId);
+    expect(unsent).toMatchObject({ status: "pending", sent_at: null });
+    const before = await ledger(T, uid);
+    expect(before.pools.urgent_business).toEqual({ settled: 1, reserved: 1, uncertain: 0 });
+    expect(before.userUrgent).toEqual({ settled: 1, reserved: 1, uncertain: 0 });
+
+    now = utcDayPeriod(T).endMsExclusive;
+    await rolloverBudgetPage(env.DB, now);
+    expect(await mail(rejectedId)).toEqual(rejected);
+    expect(await mail(unsentId)).toMatchObject({
+      status: "pending",
+      sent_at: null,
+      period_key: utcDayPeriod(now).key,
+      payload_ref: unsent.payload_ref,
+      recipient_user_id: uid,
+    });
+    const oldDay = await ledger(T, uid),
+      newDay = await ledger(now, uid);
+    expect(oldDay.pools.urgent_business).toEqual({ settled: 1, reserved: 0, uncertain: 0 });
+    expect(oldDay.userUrgent).toEqual({ settled: 1, reserved: 0, uncertain: 0 });
+    expect(newDay.pools.urgent_business).toEqual({ settled: 0, reserved: 1, uncertain: 0 });
+    expect(newDay.userUrgent).toEqual({ settled: 0, reserved: 1, uncertain: 0 });
+    expect(d.provider.send).toHaveBeenCalledTimes(1);
+    expect(await sendOneMail(d, "new-day-sender")).toBe(true);
+    expect((await mail(unsentId)).status).toBe("accepted");
+    expect(await sendOneMail(d, "new-day-sender")).toBe(false);
+    expect(await sendOneMail(d, "new-day-sender", rejectedId)).toBe(false);
+    expect(d.provider.send).toHaveBeenCalledTimes(2);
+    expect(await mail(rejectedId)).toEqual(rejected);
+    expect(await ledger(T, uid)).toEqual(oldDay);
+    const afterSend = await ledger(now, uid);
+    expect(afterSend.pools.urgent_business).toEqual({ settled: 1, reserved: 0, uncertain: 0 });
+    expect(afterSend.userUrgent).toEqual({ settled: 1, reserved: 0, uncertain: 0 });
+  });
   it("明确可重试拒绝保留已消耗预算，不自行分配重试预算", async () => {
     await user(1);
     await fact();
@@ -337,6 +394,40 @@ describe("A-P4-BUDGET UTC 日界与旧租约竞态", () => {
 });
 
 describe("A-P4-BUDGET 业务执行器闭环", () => {
+  it("mail_sending_available 关闭不批准业务、不建 outbox、不预留，打开后正常批准", async () => {
+    const uid = await user(1);
+    await fact("cancelled_or_retracted");
+    await batch();
+    const d = deps();
+    d.available = () => mailAvailable(env.DB, T);
+    const runtime = new DeliveryRuntime(d);
+    await pauseMail(env.DB, T);
+    expect(await d.available()).toBe(false);
+    await runtime.tick();
+    expect(await rows("SELECT id FROM mail_outbox")).toHaveLength(0);
+    expect(await rows("SELECT pool FROM usage_periods")).toHaveLength(0);
+    expect(await rows("SELECT status,mail_outbox_ref FROM deliveries")).toEqual([
+      { status: "pending", mail_outbox_ref: null },
+    ]);
+    expect(await rows("SELECT last_order FROM dispatch_cursors")).toHaveLength(0);
+    expect(d.provider.send).not.toHaveBeenCalled();
+
+    await run("UPDATE system_state SET value_json='true' WHERE key=?", MAIL_AVAILABILITY_KEY);
+    expect(await d.available()).toBe(true);
+    await runtime.tick();
+    const approved = await rows<{ id: string; status: string; period_key: string }>(
+      "SELECT id,status,period_key FROM mail_outbox",
+    );
+    expect(approved).toHaveLength(1);
+    expect(approved[0]).toMatchObject({ status: "pending", period_key: utcDayPeriod(T).key });
+    expect(await rows("SELECT mail_outbox_ref FROM deliveries")).toEqual([
+      { mail_outbox_ref: approved[0]?.id },
+    ]);
+    const day = await ledger(T, uid);
+    expect(day.pools.urgent_business).toEqual({ settled: 0, reserved: 1, uncertain: 0 });
+    expect(day.userUrgent).toEqual({ settled: 0, reserved: 1, uncertain: 0 });
+    expect(d.provider.send).not.toHaveBeenCalled();
+  });
   it("调度持久跨批次推进，替身发送 accepted 后结算；完整展开之前不批准", async () => {
     await user(1);
     await fact("cancelled_or_retracted");
