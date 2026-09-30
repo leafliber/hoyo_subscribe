@@ -83,6 +83,27 @@ export function personalCalendarNodes(
     a.node.projection.milestone_id.localeCompare(b.node.projection.milestone_id),
   );
 }
+/** 成功输出的自然退出上界；只保存整集合的一个派生时刻，不保存私人节点集合。 */
+export function feedNaturalExitAt(nodes: readonly PersonalCalendarNode[], now: number): number {
+  const windowExit = (time: TimeValue): number => {
+    if (time.precision === "unknown") return now;
+    const timestamp =
+      time.precision === "date" ? Date.parse(`${time.date}T00:00:00Z`) : time.utc_ms;
+    return (Math.floor(timestamp / DAY_MS) + FEED_PAST_DAYS + 1) * DAY_MS;
+  };
+  let exit = now;
+  for (const item of nodes) {
+    // 补偿结束后会恢复事实时间；即使中间暂时缺席，也覆盖其未来自然重新进入。
+    exit = Math.max(
+      exit,
+      windowExit(item.time),
+      item.node.tombstone ? now : windowExit(item.node.projection.milestone.time),
+      item.node.patch?.retain_until ?? now,
+    );
+  }
+  if (!Number.isSafeInteger(exit)) throw new Error("invalid_feed_natural_exit");
+  return exit;
+}
 export function feedNodeLimit(
   nodes: readonly PersonalCalendarNode[],
 ): "base_node_limit" | "patch_node_limit" | null {
@@ -126,6 +147,7 @@ export interface FeedBaseline {
   readonly view_revision: number | null;
   readonly generation: number | null;
   readonly served_at: number | null;
+  readonly natural_exit_at?: number | null;
 }
 /** 小日历指上次成功的集合；10→0 不能被误当“小日历”而放过。 */
 export function feedNeedsShrinkEvidence(
@@ -152,7 +174,7 @@ export function feedShrinkBlocked(input: {
   const after = personalCalendarNodes(input.config, input.current, input.now);
   if (!feedNeedsShrinkEvidence(input.baseline, after.length, input.view_revision)) return false;
   if (input.baseline.served_at === null) return true;
-  // 当前模板仍保留历史节点：无公共修订的节点可按基线时刻重算，不能把新加入节点当旧证据。
+  // 只用仍存在且无公共修订的节点按基线时刻重算；不假定模板永久保留历史。
   const evidence =
     input.previous ??
     input.current.filter((node) => {
@@ -165,10 +187,10 @@ export function feedShrinkBlocked(input: {
       );
     });
   const before = personalCalendarNodes(input.config, evidence, input.baseline.served_at);
-  if (before.length !== input.baseline.count) return true;
+  if (input.baseline.count === null || before.length > input.baseline.count) return true;
   const afterIds = new Set(after.map((item) => item.node.projection.milestone_id));
   const currentById = new Map(input.current.map((node) => [node.projection.milestone_id, node]));
-  return before.some((item) => {
+  const unexplainedKnown = before.some((item) => {
     const id = item.node.projection.milestone_id;
     if (afterIds.has(id)) return false;
     // 原节点自然移出窗口或已到更正保留期；不是官方取消。
@@ -183,6 +205,19 @@ export function feedShrinkBlocked(input: {
       return false;
     return true;
   });
+  // 可重建的缺席项仍逐项核验，不能用标量盖过已有的反证。
+  if (unexplainedKnown) return true;
+  const missing = input.baseline.count - before.length;
+  if (missing <= FEED_SHRINK_GUARD_RATIO * input.baseline.count) return false;
+  // 只对不可重建部分使用成功时保存的上界；旧行/无值继续保守。
+  const exit = input.baseline.natural_exit_at;
+  return !(
+    exit !== null &&
+    exit !== undefined &&
+    Number.isSafeInteger(exit) &&
+    exit >= input.baseline.served_at &&
+    input.now >= exit
+  );
 }
 export const FEED_DIAGNOSTICS = {
   shrink_guard: "本次输出未通过完整性检查，已暂停更新以保护你现有的日历内容。",

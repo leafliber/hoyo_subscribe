@@ -52,7 +52,7 @@ export async function readFeedSourceWatermarks(
   ).results;
   return rows.map((row) => row.last_success_at);
 }
-/** 仅取保留的上一代来核对缩水证据；绝不把它用作响应内容。更早的基线无法证实时失败关闭。 */
+/** 仅取保留的上一代来核对缩水证据；绝不把它用作响应内容。更早基线由 contracts 核对现存证据和已保存的自然退出上界。 */
 export async function readShrinkEvidence(
   db: D1Database,
   generation: number,

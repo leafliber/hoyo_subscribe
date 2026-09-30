@@ -4,9 +4,11 @@ import {
   FEED_MAX_STALE,
   FEED_PAST_DAYS,
   FEED_SHRINK_GUARD_MIN,
+  FEED_SHRINK_GUARD_RATIO,
 } from "./params/registry";
 import {
   feedIdentity,
+  feedNaturalExitAt,
   feedShrinkBlocked,
   feedSourcesFresh,
   feedWindow,
@@ -215,5 +217,107 @@ describe("A-P3-ICS 个人窗口、闹钟与缩水唯一规则", () => {
     );
     expect(feedShrinkBlocked({ ...input, current, now })).toBe(false);
     expect(feedShrinkBlocked({ ...input, current: current.slice(0, 9), now })).toBe(true);
+  });
+  it("自然退出上界取 UTC 窗口与更正保留期较晚者，覆盖 DATE、越界补偿与空集合", () => {
+    const base = node();
+    const expected = feedWindow(now).start + (2 * FEED_PAST_DAYS + 1) * day;
+    expect(feedNaturalExitAt(personalCalendarNodes(config, [base], now), now)).toBe(expected);
+    const date = node();
+    date.projection.milestone.time = TimeValueSchema.parse({
+      precision: "date",
+      date: "2026-09-30",
+      source_timezone: "UTC+8",
+      raw_expression: "当日",
+      time_basis: "official_explicit",
+    });
+    expect(feedNaturalExitAt(personalCalendarNodes(config, [date], now), now)).toBe(expected);
+    const deleted = {
+      ...base,
+      tombstone: true,
+      patch: decideCalendarPatch(base.projection, null, null, now),
+    };
+    expect(deleted.patch?.retain_until).toBeGreaterThan(expected);
+    expect(feedNaturalExitAt(personalCalendarNodes(config, [deleted], now), now)).toBe(
+      deleted.patch?.retain_until,
+    );
+    const moved = changed(base, node("node", now + (FEED_FUTURE_DAYS + 20) * day));
+    const exit = feedNaturalExitAt(personalCalendarNodes(config, [moved], now), now);
+    expect(exit).toBe(expected + (FEED_FUTURE_DAYS + 20) * day);
+    expect(personalCalendarNodes(config, [moved], exit - 1)).toHaveLength(1);
+    expect(personalCalendarNodes(config, [moved], exit)).toHaveLength(0);
+    expect(feedNaturalExitAt([], now)).toBe(now);
+  });
+  it("重算差额按最坏未解释计，恰好比例可过，超过只在自然退出上界兜底", () => {
+    const values = Array.from({ length: 10 }, (_, i) => ({
+      ...node(String(i)),
+      public_changed_at: now,
+    }));
+    const exit = feedNaturalExitAt(personalCalendarNodes(config, values, now), now);
+    const input = {
+      baseline: {
+        count: 10,
+        view_revision: 0,
+        generation: 1,
+        served_at: now,
+        natural_exit_at: exit,
+      },
+      view_revision: 0,
+      config,
+      previous: null,
+      now: exit,
+      current: values.slice(10 * FEED_SHRINK_GUARD_RATIO),
+    };
+    // 6 个可重算项全部有自然退出证据，4 个差额恰好达到比例；无需标量也通过。
+    expect(
+      feedShrinkBlocked({ ...input, baseline: { ...input.baseline, natural_exit_at: null } }),
+    ).toBe(false);
+    const missingFive = { ...input, current: values.slice(5) };
+    expect(
+      feedShrinkBlocked({ ...missingFive, baseline: { ...input.baseline, natural_exit_at: null } }),
+    ).toBe(true);
+    expect(
+      feedShrinkBlocked({
+        ...missingFive,
+        baseline: { ...input.baseline, natural_exit_at: exit + 1 },
+      }),
+    ).toBe(true);
+    expect(feedShrinkBlocked(missingFive)).toBe(false);
+    expect(feedShrinkBlocked({ ...missingFive, now: exit + day })).toBe(false);
+  });
+  it("标量不能覆盖重算超额或已知缺席项的反证；新公共修订不冒充旧证据", () => {
+    const previous = Array.from({ length: 10 }, (_, i) => node(String(i)));
+    const input = {
+      baseline: {
+        count: 10,
+        view_revision: 0,
+        generation: 1,
+        served_at: now,
+        natural_exit_at: now,
+      },
+      view_revision: 0,
+      config,
+      previous,
+      current: [],
+      now,
+    };
+    expect(feedShrinkBlocked(input)).toBe(true);
+    expect(
+      feedShrinkBlocked({
+        ...input,
+        previous: [...previous, node("extra")],
+        now: now + (FEED_PAST_DAYS + 1) * day,
+      }),
+    ).toBe(true);
+    const after = now + (FEED_PAST_DAYS + 1) * day;
+    const changed = previous.map((n) => ({ ...n, public_changed_at: after }));
+    expect(
+      feedShrinkBlocked({
+        ...input,
+        previous: null,
+        current: changed,
+        now: after,
+        baseline: { ...input.baseline, natural_exit_at: null },
+      }),
+    ).toBe(true);
   });
 });

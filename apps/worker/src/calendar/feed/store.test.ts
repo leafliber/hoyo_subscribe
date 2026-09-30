@@ -158,4 +158,50 @@ describe("A-P3-ICS 主状态授权与输出事实", () => {
     }
     expect((await readFeedState(env.DB, hash))?.last_served_at).toBeNull();
   });
+  it("只有成功最终 CAS 写自然退出上界，诊断、守卫、过时基线及数据库失败均不覆盖", async () => {
+    const initial = await requiredState();
+    const exit = now + 86_400_000;
+    expect(await recordFeedOutput(env.DB, hash, initial, 1, 10, now, false, null, [], exit)).toBe(
+      true,
+    );
+    for (const blocked of [true, false]) {
+      const state = await requiredState();
+      expect(
+        await recordFeedOutput(
+          env.DB,
+          hash,
+          state,
+          1,
+          0,
+          now + 1,
+          blocked,
+          blocked ? "shrink_guard" : "source_stale",
+          [],
+          exit + 1,
+        ),
+      ).toBe(true);
+      expect((await requiredState()).last_served_natural_exit_at).toBe(exit);
+    }
+    expect(
+      await recordFeedOutput(env.DB, hash, initial, 1, 0, now + 2, false, null, [], exit + 2),
+    ).toBe(false);
+    const state = await requiredState();
+    // 标量本身也属于 CAS 基线，不能与另一份成功输出的条数拼接。
+    await run("UPDATE calendar_feeds SET last_served_natural_exit_at=?", exit + 1);
+    expect(
+      await recordFeedOutput(env.DB, hash, state, 1, 0, now + 2, false, null, [], exit + 2),
+    ).toBe(false);
+    const latest = await requiredState();
+    await run(
+      "CREATE TRIGGER synthetic_exit_failure BEFORE UPDATE ON calendar_feeds BEGIN SELECT RAISE(ABORT,'synthetic'); END",
+    );
+    try {
+      await expect(
+        recordFeedOutput(env.DB, hash, latest, 1, 0, now + 2, false, null, [], exit + 2),
+      ).rejects.toThrow();
+    } finally {
+      await run("DROP TRIGGER synthetic_exit_failure");
+    }
+    expect((await requiredState()).last_served_natural_exit_at).toBe(exit + 1);
+  });
 });

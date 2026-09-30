@@ -5,6 +5,7 @@ import {
   FEED_RESPONSE_MAX_BYTES,
   type FeedDiagnostic,
   feedIdentity,
+  feedNaturalExitAt,
   feedNeedsShrinkEvidence,
   feedNodeLimit,
   feedShrinkBlocked,
@@ -67,6 +68,7 @@ function baseline(state: FeedState) {
     view_revision: state.last_served_view_revision,
     generation: state.last_served_generation,
     served_at: state.last_served_at,
+    natural_exit_at: state.last_served_natural_exit_at,
   };
 }
 export function makeFeedHandler(
@@ -184,6 +186,7 @@ export function makeFeedHandler(
             false,
             null,
             sourceIds,
+            feedNaturalExitAt(nodes, at),
           ))
         )
           return null;

@@ -365,6 +365,7 @@ export const EXPECTED_TABLES: Record<string, readonly string[]> = {
     "last_served_view_revision",
     "last_served_generation",
     "last_served_at",
+    "last_served_natural_exit_at",
     "last_guard_blocked_at",
     "recovery_epoch",
     "last_output_diagnostic",

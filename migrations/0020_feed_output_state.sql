@@ -11,3 +11,6 @@ UPDATE public_snapshots SET node_count = (SELECT COUNT(*) FROM public_snapshot_n
 -- P3-07 可直接读取最新输出诊断；不含 token、节点集合或个人 URL。
 ALTER TABLE calendar_feeds ADD COLUMN last_output_diagnostic TEXT;
 ALTER TABLE calendar_feeds ADD COLUMN last_output_at INTEGER;
+
+-- P3-06 第三轮授权：成功输出的整集合自然退出上界；旧行无证据时不猜测回填。
+ALTER TABLE calendar_feeds ADD COLUMN last_served_natural_exit_at INTEGER;

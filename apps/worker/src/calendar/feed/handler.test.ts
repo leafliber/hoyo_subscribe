@@ -9,7 +9,9 @@ import {
   FEED_PAST_DAYS,
   FEED_PATCH_NODE_MAX,
   FEED_RESPONSE_MAX_BYTES,
+  feedNaturalExitAt,
   type PublicSnapshotNode,
+  personalCalendarNodes,
   type SubscriptionConfig,
   TimeValueSchema,
 } from "@hoyo/contracts";
@@ -126,6 +128,19 @@ async function snapshot(values: readonly StampedNode[], generation = 1) {
       JSON.stringify(value),
     );
   }
+}
+function expiryBaseline(): StampedNode[] {
+  return nodes().map((n, i) => {
+    if (i === 0)
+      return { ...n, tombstone: true, patch: decideCalendarPatch(n.projection, null, null, T) };
+    return node(n.projection.milestone_id, T + (i < 6 ? -FEED_PAST_DAYS : FEED_FUTURE_DAYS) * day);
+  });
+}
+async function replaceAndReclaim(values: readonly StampedNode[]) {
+  await snapshot(values, 2);
+  await snapshot(values, 3);
+  await run("DELETE FROM public_snapshot_nodes WHERE snapshot_id='synthetic-generation-1'");
+  await run("DELETE FROM public_snapshots WHERE generation=1");
 }
 function request(method = "GET", etag?: string, db = env.DB) {
   const shell = createApiShell({
@@ -338,6 +353,88 @@ describe("A-P3-ICS Feed HTTP 读路径与完整快照", () => {
     expect(response.status).toBe(503);
     expect(await response.json()).toMatchObject({ calendar: { reason: "shrink_guard" } });
   });
+  it("基线已回收、到期墓碑与自然滑出证据已清掉，差额超比例时等到自然退出上界", async () => {
+    const values = expiryBaseline();
+    const exit = feedNaturalExitAt(personalCalendarNodes(config, values, T), T);
+    await snapshot(values);
+    expect(await events(await request())).toHaveLength(10);
+    expect(await one("SELECT last_served_natural_exit_at FROM calendar_feeds")).toEqual({
+      last_served_natural_exit_at: exit,
+    });
+    at = (values[0]?.patch?.retain_until ?? 0) + 1;
+    await fresh();
+    // 模拟 P3-13 裁剪：墓碑、5 条自然滑出的历史证据均已删除；k=6/10。
+    await replaceAndReclaim(values.slice(6));
+    for (const instant of [at, exit - 1]) {
+      at = instant;
+      await fresh();
+      expect((await request()).status).toBe(503);
+      expect(
+        await one(
+          "SELECT last_served_natural_exit_at,last_served_at,last_served_node_count FROM calendar_feeds",
+        ),
+      ).toEqual({
+        last_served_natural_exit_at: exit,
+        last_served_at: T,
+        last_served_node_count: 10,
+      });
+    }
+    at = exit;
+    await fresh();
+    // 旧行缺值不能猜测回填；同一份当前代次仍拒绝。
+    await run("UPDATE calendar_feeds SET last_served_natural_exit_at=NULL");
+    expect((await request()).status).toBe(503);
+    await run("UPDATE calendar_feeds SET last_served_natural_exit_at=?", exit);
+    const response = await request();
+    expect(response.status).toBe(200);
+    expect(await events(response)).toHaveLength(0);
+    expect(await one("SELECT last_served_node_count,last_served_at FROM calendar_feeds")).toEqual({
+      last_served_node_count: 0,
+      last_served_at: exit,
+    });
+  });
+  it.each(["reschedule", "classification"])(
+    "基线回收且墓碑清理后再有一条 %s，差额 2/10 不阻塞有证据的窗口收缩",
+    async (change) => {
+      const values = expiryBaseline();
+      await snapshot(values);
+      expect((await request()).status).toBe(200);
+      const oldExit =
+        (
+          await one<{ last_served_natural_exit_at: number }>(
+            "SELECT last_served_natural_exit_at FROM calendar_feeds",
+          )
+        )?.last_served_natural_exit_at ?? 0;
+      at = (values[0]?.patch?.retain_until ?? 0) + 1;
+      await fresh();
+      const remaining = values.slice(1).map((n, i) => {
+        if (i !== 5) return n;
+        const next =
+          change === "reschedule"
+            ? node(n.projection.milestone_id, T + (FEED_FUTURE_DAYS + 1) * day)
+            : {
+                ...n,
+                projection: {
+                  ...n.projection,
+                  event: { ...n.projection.event, event_type: "gacha" as const },
+                },
+              };
+        return {
+          ...next,
+          public_ical_revision: 2,
+          public_changed_at: at,
+          patch: decideCalendarPatch(n.projection, next.projection, n.patch, at),
+        };
+      });
+      // 仍存在的 5 条历史节点解释自然滑出；无法重算的只有墓碑和事后修订，共 2 条。
+      await replaceAndReclaim(remaining);
+      expect(at).toBeLessThan(oldExit);
+      const response = await request();
+      expect(response.status).toBe(200);
+      expect(await events(response)).toHaveLength(change === "reschedule" ? 4 : 3);
+      expect(metrics).not.toContain("feed_shrink_guard");
+    },
+  );
   it("无解释 10→0 返回 503、告警及诊断，不覆盖成功基线", async () => {
     await snapshot(nodes());
     await request();
@@ -448,6 +545,7 @@ describe("A-P3-ICS Feed HTTP 读路径与完整快照", () => {
     async (method) => {
       await snapshot(nodes());
       const tag = (await request()).headers.get("etag") ?? "";
+      const before = await one("SELECT last_served_natural_exit_at FROM calendar_feeds");
       let clockReads = 0;
       handler = makeFeedHandler({
         now: () => {
@@ -460,6 +558,7 @@ describe("A-P3-ICS Feed HTTP 读路径与完整快照", () => {
       const response = await request(method, tag);
       expect(response.status).toBe(503);
       expect(clockReads).toBe(3);
+      expect(await one("SELECT last_served_natural_exit_at FROM calendar_feeds")).toEqual(before);
       expect(
         await one(
           "SELECT last_served_at,last_output_diagnostic FROM calendar_feeds WHERE token_hash=?",

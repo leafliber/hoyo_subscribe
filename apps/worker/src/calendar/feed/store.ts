@@ -19,6 +19,7 @@ export interface FeedState {
   last_served_view_revision: number | null;
   last_served_generation: number | null;
   last_served_at: number | null;
+  last_served_natural_exit_at: number | null;
   last_guard_blocked_at: number | null;
   revision: number;
   schema_version: number;
@@ -38,7 +39,7 @@ export async function readFeedState(db: D1Database, hash: string): Promise<FeedS
   return db
     .prepare(`SELECT f.user_id, f.namespace, f.token_generation, f.view_revision, f.changed_at,
     f.recovery_epoch, f.last_served_node_count, f.last_served_view_revision,
-    f.last_served_generation, f.last_served_at, f.last_guard_blocked_at,
+    f.last_served_generation, f.last_served_at, f.last_served_natural_exit_at, f.last_guard_blocked_at,
     s.revision, s.schema_version, s.scope_json, s.calendar_json, s.notifications_json
     FROM calendar_feeds f JOIN users u ON u.id = f.user_id JOIN user_subscriptions s ON s.user_id = f.user_id
     WHERE f.token_hash = ? AND f.state = 'enabled' AND u.status = 'active'
@@ -66,17 +67,19 @@ export async function recordFeedOutput(
   blocked: boolean,
   diagnostic: FeedDiagnostic | null = null,
   requiredSources: readonly string[] = [],
+  naturalExitAt: number | null = null,
 ): Promise<boolean> {
   const failed = diagnostic !== null || blocked;
   const set = blocked
     ? "last_guard_blocked_at = ?, "
     : failed
       ? ""
-      : "last_served_at = ?, last_served_node_count = ?, last_served_view_revision = view_revision, last_served_generation = ?, ";
+      : "last_served_at = ?, last_served_node_count = ?, last_served_view_revision = view_revision, last_served_generation = ?, last_served_natural_exit_at = ?, ";
   const result = await db
     .prepare(`UPDATE calendar_feeds SET ${set}last_output_at = ?, last_output_diagnostic = ?
     WHERE token_hash = ? AND state = 'enabled' AND token_generation = ? AND view_revision = ?
       AND last_served_at IS ? AND last_served_node_count IS ? AND last_served_generation IS ?
+      AND last_served_natural_exit_at IS ?
       AND EXISTS (SELECT 1 FROM users u WHERE u.id = calendar_feeds.user_id AND u.status = 'active'
         AND u.recovery_epoch = calendar_feeds.recovery_epoch)
       AND EXISTS (SELECT 1 FROM user_subscriptions s WHERE s.user_id = calendar_feeds.user_id
@@ -85,7 +88,7 @@ export async function recordFeedOutput(
       AND (? = 1 OR NOT EXISTS (SELECT 1 FROM json_each(?) requested LEFT JOIN sources s ON s.source_id = requested.value
         WHERE s.last_success_at IS NULL OR s.last_success_at > ? OR s.last_success_at < ?))`)
     .bind(
-      ...(blocked ? [now] : failed ? [] : [now, count, generation]),
+      ...(blocked ? [now] : failed ? [] : [now, count, generation, naturalExitAt]),
       now,
       diagnostic ?? (blocked ? "shrink_guard" : null),
       hash,
@@ -94,6 +97,7 @@ export async function recordFeedOutput(
       state.last_served_at,
       state.last_served_node_count,
       state.last_served_generation,
+      state.last_served_natural_exit_at,
       state.revision,
       generation,
       Number(failed),
