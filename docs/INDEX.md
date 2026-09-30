@@ -14,7 +14,7 @@
 | 文档 | 用途 |
 | --- | --- |
 | [../AGENTS.md](../AGENTS.md) | 执行者 Agent 入口：硬规则、禁止清单、工作流、交付报告模板 |
-| [BUILD_PLAN.md](BUILD_PLAN.md) | 阶段依赖图、门禁规则、任务卡总表、并行策略 |
+| [BUILD_PLAN.md](BUILD_PLAN.md) | 阶段依赖图、门禁规则与当前状态、进度与后续计划、任务卡总表、并行策略 |
 | [ENGINEERING.md](ENGINEERING.md) | 仓库结构、工具链、命令、代码与测试约定、Definition of Done |
 | [CONTRACTS_BASELINE.md](CONTRACTS_BASELINE.md) | 跨阶段反复使用的枚举、公式与边界的集中索引 |
 | [ACCEPTANCE.md](ACCEPTANCE.md) | 验收矩阵 → 测试 ID 映射；每阶段放行检查单；拒收条件 |
