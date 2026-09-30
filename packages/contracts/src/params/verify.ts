@@ -77,6 +77,27 @@ const maxOccurrenceTtl = (v: WritableParamValues): number =>
 export const PARAM_EQUATIONS: readonly EquationDefinition[] = [
   // —— 邮件：纯日额度模型（ADR-0003）——
   eq(
+    "public-snapshot-chunk-within-d1",
+    "D1 工程上限",
+    "API_BODY_MAX_BYTES < chunkBytes / 2；2 < chunkBytes <= singleValueBytes / 2；queryLimit > 18",
+    (v) =>
+      `API_BODY_MAX_BYTES(${v.API_BODY_MAX_BYTES}) < chunkBytes(${v.PUBLIC_SNAPSHOT_WRITE_PROFILE.chunkBytes}) / 2 <= singleValueBytes(${v.PUBLIC_SNAPSHOT_WRITE_PROFILE.singleValueBytes}) / 4; queryLimit(${v.PUBLIC_SNAPSHOT_WRITE_PROFILE.queryLimit}) > 18`,
+    (v) =>
+      Number.isSafeInteger(v.PUBLIC_SNAPSHOT_WRITE_PROFILE.chunkBytes) &&
+      v.PUBLIC_SNAPSHOT_WRITE_PROFILE.chunkBytes > 2 &&
+      v.API_BODY_MAX_BYTES < v.PUBLIC_SNAPSHOT_WRITE_PROFILE.chunkBytes / 2 &&
+      v.PUBLIC_SNAPSHOT_WRITE_PROFILE.chunkBytes <=
+        v.PUBLIC_SNAPSHOT_WRITE_PROFILE.singleValueBytes / 2 &&
+      Number.isSafeInteger(v.PUBLIC_SNAPSHOT_WRITE_PROFILE.queryLimit) &&
+      v.PUBLIC_SNAPSHOT_WRITE_PROFILE.queryLimit > 18,
+    {
+      PUBLIC_SNAPSHOT_WRITE_PROFILE: {
+        ...PARAMS.PUBLIC_SNAPSHOT_WRITE_PROFILE,
+        chunkBytes: PARAMS.PUBLIC_SNAPSHOT_WRITE_PROFILE.singleValueBytes,
+      },
+    },
+  ),
+  eq(
     "mail-total-day-sum",
     "邮件（纯日额度）",
     "MAIL_TOTAL_DAY = MAIL_AUTH_DAY + MAIL_BASE_DAY + MAIL_URGENT_DAY",

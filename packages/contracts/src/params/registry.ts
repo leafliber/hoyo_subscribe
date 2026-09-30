@@ -301,6 +301,13 @@ export const PUBLIC_READ_LIMITS = {
   queryBytes: 4096,
 } as const;
 
+/** P3-06 / ENGINEERING §5.4：工程分块策略及 D1 平台边界，不改变业务窗口/更正保留期。 */
+export const PUBLIC_SNAPSHOT_WRITE_PROFILE = {
+  chunkBytes: 262_144,
+  singleValueBytes: 2_000_000,
+  queryLimit: 1_000,
+} as const;
+
 /** 私人 Feed 只用当前完整发布代次，不回退旧代次（附录原值 24 小时）。附录 A.3；§6.6。 */
 export const FEED_MAX_STALE = 86_400 as const;
 
@@ -594,6 +601,7 @@ export const PARAMS = {
   CAL_PATCH_GLOBAL_MAX,
   PUBLIC_CACHE_FRESH,
   PUBLIC_READ_LIMITS,
+  PUBLIC_SNAPSHOT_WRITE_PROFILE,
   FEED_MAX_STALE,
   REMINDER_GRACE,
   NEW_EVENT_TTL,
@@ -1094,6 +1102,13 @@ export const PARAM_META: Readonly<Record<keyof ParamValues, ParamMeta>> = {
     status: "strategy",
     description: "P3-14 公共读 API 的扫描页、变更数、详情、来源、待审聚合与字节保护",
     note: "近期变更期限使用共享更正层 retain_until；响应超限分页，单节点/详情/待审计数超限报不可用，不截断冒充完整",
+  },
+  PUBLIC_SNAPSHOT_WRITE_PROFILE: {
+    section: "A.3",
+    unit: "字节 / 查询",
+    status: "strategy",
+    description: "公共快照按 UTF-8 字节分块；单值及单次调用不得超过 D1 工程边界",
+    note: "P3-06 返工 / ENGINEERING §5.4；分块不裁剪节点，边界来自平台约束",
   },
   PUBLIC_CACHE_FRESH: {
     section: "A.3",

@@ -1,3 +1,4 @@
+// P3-06 获准跨卡：仅登记 0019 的 Feed 输出事实与完整代次清单列。
 // P2-07 获准跨卡改动：登记 0017 最近认证表及账号终止触发器。
 // P2-05 授权跨卡改动：登记恢复会话标记、停用幂等水位与尝试双窗表。
 // 预期 schema 注册表（任务卡 P1-04，验收 ID A-P1-DB）。
@@ -157,7 +158,15 @@ export const EXPECTED_TABLES: Record<string, readonly string[]> = {
     "created_at",
     "updated_at",
   ],
-  public_snapshots: ["id", "generation", "state", "built_at", "published_at", "created_at"],
+  public_snapshots: [
+    "id",
+    "generation",
+    "state",
+    "built_at",
+    "published_at",
+    "created_at",
+    "node_count",
+  ],
   public_snapshot_nodes: ["snapshot_id", "milestone_id", "node_json"],
   // 数据组 4：用户
   users: [
@@ -355,6 +364,12 @@ export const EXPECTED_TABLES: Record<string, readonly string[]> = {
     "last_served_node_count",
     "last_served_view_revision",
     "last_served_generation",
+    "last_served_at",
+    "last_served_natural_exit_at",
+    "last_guard_blocked_at",
+    "recovery_epoch",
+    "last_output_diagnostic",
+    "last_output_at",
     "token_rotated_at",
     "created_at",
     "updated_at",

@@ -325,6 +325,8 @@ pending 期限重合，没有问题。**若把 `AUTH_COMPLETION_TTL` 调得比 `
 
 ## 11. 附录 A.5 启动等式（`pnpm params:verify` 必须实现全部）
 
+P3-06 工程等式 `public-snapshot-chunk-within-d1`：`API_BODY_MAX_BYTES < PUBLIC_SNAPSHOT_WRITE_PROFILE.chunkBytes / 2`，`2 < chunkBytes <= singleValueBytes / 2`，`queryLimit > 18`，分块字节数和查询上限为安全整数。只约束 D1 集合写入，不改变日历业务语义（ENGINEERING §5.4）。
+
 > 邮件部分按 **ADR-0003** 改写；其余不变。
 
 ```text

@@ -100,6 +100,7 @@ P0 待定项（`MODEL_MAX_INPUT`、`MODEL_MAX_BILLED_OUTPUT`）未填写前，�
 | CAL_PATCH_TAIL_DAYS | 30 | 天 | 覆盖旧节点最晚时间之后的保留尾巴 | 基线 |
 | CAL_PATCH_GLOBAL_MAX | 10,000 | 条 | 公共更正记录保护值；接近上限告警并暂停非关键扩大 | 基线 |
 | PUBLIC_READ_LIMITS | {"scanPage":100,"recentChanges":20,"detailNodes":1000,"sourcesPerGame":16,"pendingCandidates":1000,"nodeBytes":8192,"responseBytes":524288,"queryBytes":4096} | 混合（条/字节） | P3-14 公共读 API 的扫描页、变更数、详情、来源、待审聚合与字节保护 | 策略；近期变更期限使用共享更正层 retain_until；响应超限分页，单节点/详情/待审计数超限报不可用，不截断冒充完整 |
+| PUBLIC_SNAPSHOT_WRITE_PROFILE | {"chunkBytes":262144,"singleValueBytes":2000000,"queryLimit":1000} | 字节 / 查询 | 公共快照按 UTF-8 字节分块；单值及单次调用不得超过 D1 工程边界 | 策略；P3-06 返工 / ENGINEERING §5.4；分块不裁剪节点，边界来自平台约束 |
 | PUBLIC_CACHE_FRESH | 300 | 秒 | 公共快照新鲜窗口 | 基线 |
 | FEED_MAX_STALE | 86,400 | 秒（原文 24 小时） | 私人 Feed 只用当前完整发布代次，不回退旧代次 | 基线 |
 | REMINDER_GRACE | 300 | 秒 | 正常提前提醒有效期，且不超过节点时刻 | 基线 |
@@ -196,6 +197,7 @@ P0 待定项（`MODEL_MAX_INPUT`、`MODEL_MAX_BILLED_OUTPUT`）未填写前，�
 
 | 等式 ID | 分组 | 合同 | 当前值 |
 | --- | --- | --- | --- |
+| public-snapshot-chunk-within-d1 | D1 工程上限 | API_BODY_MAX_BYTES < chunkBytes / 2；2 < chunkBytes <= singleValueBytes / 2；queryLimit > 18 | API_BODY_MAX_BYTES(8192) < chunkBytes(262144) / 2 <= singleValueBytes(2000000) / 4; queryLimit(1000) > 18 |
 | mail-total-day-sum | 邮件（纯日额度） | MAIL_TOTAL_DAY = MAIL_AUTH_DAY + MAIL_BASE_DAY + MAIL_URGENT_DAY | MAIL_TOTAL_DAY(260) = MAIL_AUTH_DAY(90) + MAIL_BASE_DAY(50) + MAIL_URGENT_DAY(120) → 260 = 260 |
 | mail-total-day-within-platform-limit | 邮件（纯日额度） | MAIL_TOTAL_DAY <= PLATFORM_MAIL_DAY_LIMIT（平台实测日上限） | MAIL_TOTAL_DAY(260) <= PLATFORM_MAIL_DAY_LIMIT(1000) |
 | mail-signup-auth-day-subset | 邮件（纯日额度） | MAIL_SIGNUP_AUTH_DAY <= MAIL_AUTH_DAY | MAIL_SIGNUP_AUTH_DAY(10) <= MAIL_AUTH_DAY(90) |
@@ -229,5 +231,5 @@ P0 待定项（`MODEL_MAX_INPUT`、`MODEL_MAX_BILLED_OUTPUT`）未填写前，�
 
 ### 等式数量核对
 
-数值等式 26 条、语义条款 1 条。
+数值等式 27 条、语义条款 1 条。
 `pnpm params:verify` 与 Worker 启动路径逐条校验数值等式，任一不成立即拒绝并指明该条。
