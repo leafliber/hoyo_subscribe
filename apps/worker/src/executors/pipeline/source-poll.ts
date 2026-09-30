@@ -132,6 +132,8 @@ function parseUtc8DisplayTimeMs(raw: string | null): number | null {
 // ---------- 公告源批次 ----------
 
 export interface AnnouncementPollReport {
+  /** P3-11：复用本批已限量读取的正文，不为每篇重复请求全集。 */
+  readonly contentSet?: Awaited<ReturnType<typeof fetchAnnouncementContentSet>>;
   readonly sourceId: string;
   /** ok=本批完整成功；incomplete=临时失败（水位不动，下批重试）；maintenance-required=访问控制信号（停用并标维护）。 */
   readonly status: "ok" | "incomplete" | "maintenance-required";
@@ -199,6 +201,7 @@ export async function runAnnouncementPollBatch(
       complete: false,
       diff: null,
       items: list.items,
+      contentSet,
       recheckCandidates: [],
       failure: contentSet.failure,
       nextState: state,
@@ -226,6 +229,7 @@ export async function runAnnouncementPollBatch(
     status: "ok",
     complete: true,
     diff,
+    contentSet,
     items: list.items,
     recheckCandidates: selectRecheckCandidates(entry, list.items, nowMs),
     failure: null,
@@ -241,6 +245,7 @@ export async function runAnnouncementPollBatch(
 // ---------- 米游社批次 ----------
 
 export interface MiyousheTypeScanReport {
+  readonly items: readonly SourceItemStub[];
   readonly newsType: MiyousheNewsType;
   readonly status: "ok" | "incomplete" | "maintenance-required";
   readonly added: readonly string[];
@@ -312,6 +317,7 @@ export async function runMiyoushePollBatch(
       allComplete = false;
       perType[newsType] = {
         newsType,
+        items: [],
         status,
         added: [],
         changed: [],
@@ -344,7 +350,15 @@ export async function runMiyoushePollBatch(
       nextScan = { newsType, lastId: null, reachedLast: false, fingerprints };
     }
     if (!list.complete) allComplete = false;
-    perType[newsType] = { newsType, status: "ok", added, changed, nextScan, failure: null };
+    perType[newsType] = {
+      newsType,
+      items: list.items,
+      status: "ok",
+      added,
+      changed,
+      nextScan,
+      failure: null,
+    };
   }
 
   const scans = { ...watermark.scans };
