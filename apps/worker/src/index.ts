@@ -1,3 +1,4 @@
+// P4-07 获准接线：仅挂载受控 Queue 处理器。
 // P4-03 所有者补充授权：仅注入认证故障门与 outbox 提交后的唤醒钩子。
 // P3-11 获准跨卡接线：导出 Cron scheduled 处理器；不依赖 waitUntil 保存待办。
 // P2-07 获准跨卡接线：挂载账号最近认证、换绑、轮换、删除、导出及摘要。
@@ -24,6 +25,7 @@ import { siteverifyTurnstileVerifier } from "./auth/preauth/turnstile";
 import { makeRecoveryRoutes } from "./auth/recovery/routes";
 import { sessionAuthenticator } from "./auth/sessions/authenticator";
 import { makeSessionRoutes } from "./auth/sessions/routes";
+import { queue } from "./mail/feedback";
 import { mailAdmissionHook } from "./mail/provider/admission";
 import { scheduled } from "./scheduled";
 import { applySecurityHeaders } from "./shell/headers";
@@ -133,6 +135,7 @@ function getShell(env: Env): Shell {
 }
 
 export default {
+  queue,
   scheduled,
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     if (new URL(request.url).pathname === "/") {
