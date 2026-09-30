@@ -5,6 +5,7 @@
 // 与部署引擎一致；本地 D1 与生产 D1 的差异以 P0-01 证据（d1-conditional-tx）为准。
 import { env } from "cloudflare:test";
 import { beforeAll, describe, expect, it } from "vitest";
+import { readFeedState, recordFeedOutput } from "../calendar/feed/store";
 import {
   EXPECTED_DDL_INVARIANTS,
   EXPECTED_ENUM_CHECKS,
@@ -1689,4 +1690,92 @@ describe("A-P1-DB D1 schema、索引与迁移框架", () => {
       ),
     ).rejects.toThrow(/constraint|unique/i);
   }, 120_000);
+  it("热授权与最终 CAS 的 rows_read 不随 2000 条无关 Feed 和历史代次增长", async () => {
+    // P3-06 获准跨卡：使用生产 SQL 测量，限定合成 Feed，测试后清理无关历史。
+    const hash = "fth_030",
+      now = T0;
+    await run("UPDATE calendar_feeds SET recovery_epoch=0 WHERE token_hash=?", hash);
+    const samples: number[] = [];
+    const measured = new Proxy(env.DB, {
+      get(target, key) {
+        if (key === "prepare")
+          return (sql: string) => {
+            const stmt = target.prepare(sql);
+            return new Proxy(stmt, {
+              get(s, k) {
+                if (k === "bind")
+                  return (...args: unknown[]) => {
+                    const bound = s.bind(...args);
+                    return new Proxy(bound, {
+                      get(b, m) {
+                        if (m === "first")
+                          return async () => {
+                            const r = await b.all();
+                            samples.push(r.meta.rows_read);
+                            return r.results[0] ?? null;
+                          };
+                        if (m === "run")
+                          return async () => {
+                            const r = await b.run();
+                            samples.push(r.meta.rows_read);
+                            return r;
+                          };
+                        const v = Reflect.get(b, m);
+                        return typeof v === "function" ? v.bind(b) : v;
+                      },
+                    });
+                  };
+                const v = Reflect.get(s, k);
+                return typeof v === "function" ? v.bind(s) : v;
+              },
+            });
+          };
+        const v = Reflect.get(target, key);
+        return typeof v === "function" ? v.bind(target) : v;
+      },
+    });
+    const measure = async () => {
+      samples.length = 0;
+      const state = await readFeedState(measured, hash);
+      expect(state).not.toBeNull();
+      if (state)
+        expect(await recordFeedOutput(measured, hash, state, 2, 10, now, false)).toBe(true);
+      return [...samples];
+    };
+    const before = await measure();
+    const ids = JSON.stringify(Array.from({ length: 2000 }, (_, i) => i + 10000));
+    await run(
+      `INSERT INTO users(id,"order",status,email_key,email_binding_id,email_ciphertext,email_version,created_at,updated_at)
+      SELECT 'history-'||value,value,'active','key-'||value,'binding-'||value,X'00',1,?,? FROM json_each(?)`,
+      now,
+      now,
+      ids,
+    );
+    await run(
+      `INSERT INTO calendar_feeds(user_id,namespace,state,token_hash,token_ciphertext,token_generation,view_revision,changed_at,created_at,updated_at,recovery_epoch)
+      SELECT 'history-'||value,'namespace-'||value,'enabled','hash-'||value,X'00',0,0,?,?,?,0 FROM json_each(?)`,
+      now,
+      now,
+      now,
+      ids,
+    );
+    await run(
+      `INSERT INTO public_snapshots(id,generation,state,built_at,published_at,created_at)
+      SELECT 'history-'||value,value,'superseded',?,?,? FROM json_each(?)`,
+      now,
+      now,
+      now,
+      ids,
+    );
+    try {
+      const after = await measure();
+      console.log(JSON.stringify({ event: "p3_06_hot_rows_read", history: 2000, before, after }));
+      expect(after).toEqual(before);
+      expect(after.every((n) => n < 30)).toBe(true);
+    } finally {
+      await run("DELETE FROM calendar_feeds WHERE user_id LIKE 'history-%'");
+      await run("DELETE FROM users WHERE id LIKE 'history-%'");
+      await run("DELETE FROM public_snapshots WHERE id LIKE 'history-%'");
+    }
+  });
 });

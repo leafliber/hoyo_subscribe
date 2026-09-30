@@ -33,10 +33,13 @@ interface SnapshotRow {
   id: string;
   generation: number;
   published_at: number | null;
+  node_count?: number | null;
 }
 interface StoredNodeRow {
   milestone_id: string;
   node_json: string;
+  public_ical_revision: number;
+  updated_at: number;
 }
 interface PatchRow {
   id: string;
@@ -180,6 +183,7 @@ async function clearCapacityPauseIfRecovered(db: D1Database, nowMs: number): Pro
 export async function readCurrentPublicSnapshot(
   db: D1Database,
   nowMs: number,
+  includeExpiredPatches = false,
 ): Promise<{
   generation: number;
   published_at: number;
@@ -187,7 +191,9 @@ export async function readCurrentPublicSnapshot(
   nodes: readonly PublicSnapshotNode[];
 } | null> {
   const row = await db
-    .prepare("SELECT id, generation, published_at FROM public_snapshots WHERE state = 'current'")
+    .prepare(
+      "SELECT id, generation, published_at, node_count FROM public_snapshots WHERE state = 'current'",
+    )
     .first<SnapshotRow>();
   if (row === null || row.published_at === null) return null;
   const nodes =
@@ -199,15 +205,22 @@ export async function readCurrentPublicSnapshot(
         .bind(row.id)
         .all<{ node_json: string }>()
     ).results ?? [];
+  if (row.node_count === null || row.node_count === undefined || row.node_count !== nodes.length)
+    throw new Error("公共完整代次条目清单不符");
   return {
     generation: row.generation,
     published_at: row.published_at,
     fresh: nowMs <= row.published_at + PUBLIC_CACHE_FRESH * 1000,
     nodes: nodes
       .map((item) => nodeFromJson(item.node_json))
-      .filter((node) => !node.tombstone || (node.patch?.retain_until ?? 0) > nowMs)
+      .filter(
+        (node) =>
+          includeExpiredPatches || !node.tombstone || (node.patch?.retain_until ?? 0) > nowMs,
+      )
       .map((node) =>
-        node.patch !== null && node.patch.retain_until <= nowMs ? { ...node, patch: null } : node,
+        !includeExpiredPatches && node.patch !== null && node.patch.retain_until <= nowMs
+          ? { ...node, patch: null }
+          : node,
       ),
   };
 }
@@ -283,7 +296,9 @@ export async function buildPublicSnapshot(
   const outboxes = await pendingOutboxes(db);
   if (outboxes.length === 0) throw new Error("公共快照待更新但缺少 snapshot_rebuild outbox");
   const current = await db
-    .prepare("SELECT id, generation, published_at FROM public_snapshots WHERE state = 'current'")
+    .prepare(
+      "SELECT id, generation, published_at, node_count FROM public_snapshots WHERE state = 'current'",
+    )
     .first<SnapshotRow>();
   const rows =
     (
@@ -300,11 +315,13 @@ export async function buildPublicSnapshot(
       : ((
           await db
             .prepare(
-              "SELECT milestone_id, node_json FROM public_snapshot_nodes WHERE snapshot_id = ?",
+              `SELECT n.milestone_id, n.node_json, m.public_ical_revision, m.updated_at
+               FROM public_snapshot_nodes n JOIN milestones m ON m.id = n.milestone_id WHERE n.snapshot_id = ?`,
             )
             .bind(current.id)
             .all<StoredNodeRow>()
         ).results ?? []);
+  const oldMetadata = new Map(oldRows.map((row) => [row.milestone_id, row]));
   const oldNodes = new Map(oldRows.map((row) => [row.milestone_id, nodeFromJson(row.node_json)]));
   const activePatches =
     (
@@ -347,6 +364,12 @@ export async function buildPublicSnapshot(
   }
   for (const [milestoneId, old] of oldNodes) {
     if (plannedNodes.has(milestoneId)) continue;
+    const metadata = oldMetadata.get(milestoneId);
+    if (
+      !old.tombstone &&
+      (metadata === undefined || metadata.public_ical_revision <= old.public_ical_revision)
+    )
+      throw new Error("删除缺少权威公共版本推进");
     const prior = activeById.get(milestoneId) ?? null;
     const decision = old.tombstone
       ? null
@@ -356,6 +379,12 @@ export async function buildPublicSnapshot(
     if (patch === null) continue;
     plannedNodes.set(milestoneId, {
       ...old,
+      ...(!old.tombstone && metadata
+        ? {
+            public_changed_at: metadata.updated_at,
+            public_ical_revision: metadata.public_ical_revision,
+          }
+        : {}),
       projection: {
         ...old.projection,
         event: { ...old.projection.event, status: "cancelled" },
@@ -421,7 +450,10 @@ export async function buildPublicSnapshot(
               OR json_extract(n.node_json, '$.public_ical_revision') <> p.public_ical_revision)
           AND NOT EXISTS (SELECT 1 FROM public_snapshot_nodes n LEFT JOIN calendar_projections p
             ON p.milestone_id = n.milestone_id WHERE n.snapshot_id = ? AND p.milestone_id IS NULL
-            AND json_extract(n.node_json, '$.tombstone') <> 1)`,
+            AND json_extract(n.node_json, '$.tombstone') <> 1)
+          AND NOT EXISTS (SELECT 1 FROM public_snapshot_nodes n JOIN milestones m ON m.id = n.milestone_id
+            WHERE n.snapshot_id = ? AND json_extract(n.node_json, '$.tombstone') = 1
+              AND json_extract(n.node_json, '$.public_ical_revision') <> m.public_ical_revision)`,
       params: [
         nowMs,
         snapshotId,
@@ -430,6 +462,7 @@ export async function buildPublicSnapshot(
         pending.updated_at,
         SNAPSHOT_REBUILD_TOPIC,
         outboxes.length,
+        snapshotId,
         snapshotId,
         snapshotId,
       ],
@@ -468,7 +501,7 @@ export async function buildPublicSnapshot(
         WHERE topic = ? AND dispatch_state = 'pending' AND ${gate}`)
         .bind(nowMs, SNAPSHOT_REBUILD_TOPIC, snapshotId, nowMs),
       db
-        .prepare(`UPDATE public_snapshots SET state = 'current', published_at = ?
+        .prepare(`UPDATE public_snapshots SET state = 'current', published_at = ?, node_count = (SELECT COUNT(*) FROM public_snapshot_nodes WHERE snapshot_id = public_snapshots.id)
         WHERE id = ? AND state = 'building' AND built_at = ?`)
         .bind(nowMs, snapshotId, nowMs),
     ]);

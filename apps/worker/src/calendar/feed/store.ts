@@ -1,5 +1,11 @@
 // P3-06 · 主状态授权与版本核对；P3-07 管理入口签发时须保存当前 recovery_epoch（灾备代次）。
-import { SECRET_BITS, type SubscriptionConfig, subscriptionConfigSchemaFor } from "@hoyo/contracts";
+import {
+  FEED_MAX_STALE,
+  type FeedDiagnostic,
+  SECRET_BITS,
+  type SubscriptionConfig,
+  subscriptionConfigSchemaFor,
+} from "@hoyo/contracts";
 import { fromBase64Url, toBase64Url, toHex, utf8Encode } from "../../storage/crypto/bytes";
 
 export interface FeedState {
@@ -58,21 +64,30 @@ export async function recordFeedOutput(
   count: number,
   now: number,
   blocked: boolean,
+  diagnostic: FeedDiagnostic | null = null,
+  requiredSources: readonly string[] = [],
 ): Promise<boolean> {
+  const failed = diagnostic !== null || blocked;
   const set = blocked
-    ? "last_guard_blocked_at = ?"
-    : "last_served_at = ?, last_served_node_count = ?, last_served_view_revision = view_revision, last_served_generation = ?";
+    ? "last_guard_blocked_at = ?, "
+    : failed
+      ? ""
+      : "last_served_at = ?, last_served_node_count = ?, last_served_view_revision = view_revision, last_served_generation = ?, ";
   const result = await db
-    .prepare(`UPDATE calendar_feeds SET ${set}
+    .prepare(`UPDATE calendar_feeds SET ${set}last_output_at = ?, last_output_diagnostic = ?
     WHERE token_hash = ? AND state = 'enabled' AND token_generation = ? AND view_revision = ?
       AND last_served_at IS ? AND last_served_node_count IS ? AND last_served_generation IS ?
       AND EXISTS (SELECT 1 FROM users u WHERE u.id = calendar_feeds.user_id AND u.status = 'active'
         AND u.recovery_epoch = calendar_feeds.recovery_epoch)
       AND EXISTS (SELECT 1 FROM user_subscriptions s WHERE s.user_id = calendar_feeds.user_id
         AND s.state = 'initialized' AND s.revision = ?)
-      AND EXISTS (SELECT 1 FROM public_snapshots WHERE state = 'current' AND generation = ?)`)
+      AND EXISTS (SELECT 1 FROM public_snapshots WHERE state = 'current' AND generation = ?)
+      AND (? = 1 OR NOT EXISTS (SELECT 1 FROM json_each(?) requested LEFT JOIN sources s ON s.source_id = requested.value
+        WHERE s.last_success_at IS NULL OR s.last_success_at > ? OR s.last_success_at < ?))`)
     .bind(
-      ...(blocked ? [now] : [now, count, generation]),
+      ...(blocked ? [now] : failed ? [] : [now, count, generation]),
+      now,
+      diagnostic ?? (blocked ? "shrink_guard" : null),
       hash,
       state.token_generation,
       state.view_revision,
@@ -81,6 +96,10 @@ export async function recordFeedOutput(
       state.last_served_generation,
       state.revision,
       generation,
+      Number(failed),
+      JSON.stringify(requiredSources),
+      now,
+      now - FEED_MAX_STALE * 1000,
     )
     .run();
   return result.meta.changes === 1;

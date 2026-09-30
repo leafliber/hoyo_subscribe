@@ -251,11 +251,19 @@ describe("A-P3-PATCH 公共快照与共享更正层", () => {
       .bind(nodeId)
       .run();
     await queue(T0 + 5 * day);
+    // 删除必须由发布端先推进同一 milestone 的权威版本，构建器不自行取号。
+    await expect(buildPublicSnapshot(env.DB, T0 + 5 * day + 1)).rejects.toThrow(
+      "删除缺少权威公共版本推进",
+    );
+    await env.DB.prepare("UPDATE milestones SET public_ical_revision=6, updated_at=? WHERE id=?")
+      .bind(T0 + 5 * day, nodeId)
+      .run();
     expect((await buildPublicSnapshot(env.DB, T0 + 5 * day + 1)).outcome).toBe("built");
     const current = await readCurrentPublicSnapshot(env.DB, T0 + 5 * day + 1);
     expect(current?.nodes).toHaveLength(1);
     expect(current?.nodes[0]?.tombstone).toBe(true);
     expect(current?.nodes[0]?.patch?.kind).toBe("deleted");
+    expect(current?.nodes[0]?.public_ical_revision).toBe(6);
     expect(
       (await readCurrentPublicSnapshot(env.DB, (current?.nodes[0]?.patch?.retain_until ?? 0) + 1))
         ?.nodes,
@@ -265,10 +273,10 @@ describe("A-P3-PATCH 公共快照与共享更正层", () => {
   it("节点恢复沿用身份并替换删除补偿", async () => {
     await env.DB.prepare(`INSERT INTO calendar_projections
       (milestone_id, event_id, public_ical_revision, projection_json, updated_at)
-      VALUES (?, ?, 6, ?, ?)`)
+      VALUES (?, ?, 7, ?, ?)`)
       .bind(nodeId, eventId, JSON.stringify(projection(T0 + 180 * day)), T0 + 6 * day)
       .run();
-    await env.DB.prepare("UPDATE milestones SET public_ical_revision = 6 WHERE id = ?")
+    await env.DB.prepare("UPDATE milestones SET public_ical_revision = 7 WHERE id = ?")
       .bind(nodeId)
       .run();
     await env.DB.prepare("UPDATE events SET status = 'scheduled' WHERE id = ?").bind(eventId).run();
@@ -278,6 +286,7 @@ describe("A-P3-PATCH 公共快照与共享更正层", () => {
     expect(current?.nodes).toHaveLength(1);
     expect(current?.nodes[0]?.projection.milestone_id).toBe(nodeId);
     expect(current?.nodes[0]?.patch?.kind).toBe("restored");
+    expect(current?.nodes[0]?.public_ical_revision).toBe(7);
     expect(current?.nodes[0]?.tombstone).toBe(false);
   });
 
@@ -506,6 +515,43 @@ describe("A-P3-ICS 公共构建查询数上界", () => {
     ).toHaveLength(size);
     console.log(JSON.stringify({ event: "p3_06_build_bound", nodes: size, queries }));
   }, 60_000);
+  it("记录整代复制和回收的 D1 rows_written，包含节点索引维护", async () => {
+    const current = await one<{ id: string; node_count: number }>(
+      "SELECT id,node_count FROM public_snapshots WHERE state='current'",
+    );
+    expect(current).not.toBeNull();
+    const id = "synthetic-cost-snapshot";
+    await env.DB.prepare(
+      "INSERT INTO public_snapshots(id,generation,state,created_at) VALUES (?,999999,'building',?)",
+    )
+      .bind(id, T0)
+      .run();
+    try {
+      const insert = await env.DB.prepare(
+        "INSERT INTO public_snapshot_nodes SELECT ?,milestone_id,node_json FROM public_snapshot_nodes WHERE snapshot_id=?",
+      )
+        .bind(id, current?.id)
+        .run();
+      const remove = await env.DB.prepare("DELETE FROM public_snapshot_nodes WHERE snapshot_id=?")
+        .bind(id)
+        .run();
+      console.log(
+        JSON.stringify({
+          event: "p3_06_snapshot_write_cost",
+          nodes: current?.node_count,
+          insert_rows_written: insert.meta.rows_written,
+          delete_rows_written: remove.meta.rows_written,
+        }),
+      );
+      expect(insert.meta.changes).toBe(current?.node_count);
+      expect(remove.meta.changes).toBe(current?.node_count);
+      expect(insert.meta.rows_written).toBe((current?.node_count ?? 0) * 3);
+      // 本地 workerd 对 DELETE 的统计只计主表；生产预算仍按官方索引规则保守估算。
+      expect(remove.meta.rows_written).toBe(current?.node_count);
+    } finally {
+      await env.DB.prepare("DELETE FROM public_snapshots WHERE id=?").bind(id).run();
+    }
+  });
   it("最终 CAS 未命中时所有效果零写入；数据库错误整批回滚", async () => {
     const at = T0 + 400 * day + 2;
     const previous = await readCurrentPublicSnapshot(env.DB, at);
