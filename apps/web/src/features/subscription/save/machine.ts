@@ -121,10 +121,10 @@ export class SubscriptionSaveMachine {
     this.view.compare(this.compareCloud, draft, this.phase === "conflict");
   }
 
-  async start(): Promise<void> {
+  async start(readCloud = true): Promise<void> {
     if (!this.current()) return;
     // 游客没有可读的个人配置；CSRF Cookie 是同站可见的会话线索，不是认证判定。
-    if (!csrfToken()) {
+    if (!readCloud || !csrfToken()) {
       this.phase = "guest";
       this.paint();
       return;
@@ -159,17 +159,16 @@ export class SubscriptionSaveMachine {
     if (!this.current()) return;
     if (!csrfToken() || this.inFlight) return;
     const readSerial = ++this.readSerial;
-    const editAtStart = this.editSerial;
     try {
       const latest = await readCloud();
       if (!this.current() || readSerial !== this.readSerial || this.inFlight) return;
       const changed =
         this.cloud !== null
           ? latest.revision !== this.cloud.revision
-          : latest.config !== null && this.editSerial !== editAtStart;
+          : latest.config !== null && this.editSerial !== 0;
       const hasDraft =
         this.cloud === null
-          ? this.editSerial !== editAtStart
+          ? this.editSerial !== 0
           : !same(normalize(this.view.readDraft()), this.cloud.config);
       this.cloud = latest;
       if (changed && hasDraft) {

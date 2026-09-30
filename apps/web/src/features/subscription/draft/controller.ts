@@ -1,6 +1,11 @@
 import "./style.css";
 import { type DraftIdentity, DraftStorage } from "../../../lib/storage/drafts";
-import { DRAFT_IDENTITY_EVENT, readDraftIdentityEvent } from "../../../lib/storage/identity";
+import {
+  DRAFT_IDENTITY_EVENT,
+  publishDraftIdentity,
+  readConfirmedDraftIdentity,
+  readDraftIdentityEvent,
+} from "../../../lib/storage/identity";
 import { csrfToken, type Draft, type Phase, type SubscriptionSaveMachine } from "../save/machine";
 import { exportPreferences, importPreferences } from "./preferences";
 
@@ -9,6 +14,8 @@ export class SubscriptionDraftController {
   private identity: DraftIdentity = csrfToken() ? { status: "unknown" } : { status: "guest" };
   private marker = csrfToken();
   private generation = 0;
+  private identifying = false;
+  private applyingConfirmation = false;
   private suspended = false;
   private channel: BroadcastChannel | null = null;
   private edits = 0;
@@ -59,6 +66,11 @@ export class SubscriptionDraftController {
     document.addEventListener(DRAFT_IDENTITY_EVENT, (event) => {
       const identity = readDraftIdentityEvent(event);
       if (identity) {
+        // 页面首次确认沿用当前编辑；只把真正的身份切换广播给其他标签页。
+        if (this.applyingConfirmation) {
+          this.identity = identity;
+          return;
+        }
         this.channel?.postMessage("invalidate");
         void this.switchIdentity(identity);
       }
@@ -97,6 +109,7 @@ export class SubscriptionDraftController {
 
   private invalidate(): void {
     this.suspended = false;
+    this.identifying = false;
     this.marker = csrfToken();
     this.identity = this.marker ? { status: "unknown" } : { status: "guest" };
     this.generation += 1;
@@ -125,11 +138,23 @@ export class SubscriptionDraftController {
   async start(): Promise<void> {
     const generation = this.generation;
     const edits = this.edits;
+    if (this.identity.status === "unknown" && this.marker) {
+      this.identifying = true;
+      this.paint(this.phase);
+      const identity = await readConfirmedDraftIdentity();
+      if (!this.current() || generation !== this.generation) return;
+      this.identifying = false;
+      this.applyingConfirmation = true;
+      publishDraftIdentity(identity);
+      this.applyingConfirmation = false;
+      // /me 未完成时的编辑也属于当前已确认身份，不能在确认时清空。
+      if (this.edits !== edits && this.pending) void this.persist(this.host.readDraft());
+    }
     const local = this.storage.read(this.identity).catch(() => {
       if (generation === this.generation) this.storageFailed = true;
       return null;
     });
-    await this.host.machine().start();
+    await this.host.machine().start(this.identity.status !== "guest");
     const row = await local;
     if (!this.current() || generation !== this.generation || edits !== this.edits) return;
     if (row) {
@@ -166,7 +191,7 @@ export class SubscriptionDraftController {
 
   paint(phase: Phase): void {
     this.phase = phase;
-    this.input.disabled = phase === "saving" || phase === "loading";
+    this.input.disabled = this.identifying || phase === "saving" || phase === "loading";
     // 初次读到云端并不删除尚未完成读取的本机草稿。
     if (phase === "saved" && this.pending) {
       this.pending = false;
@@ -195,12 +220,18 @@ export class SubscriptionDraftController {
   }
 
   async save(): Promise<void> {
-    if (!this.current()) return;
+    if (!this.current() || this.identifying) return;
     if (!navigator.onLine) {
       this.paint(this.phase);
       return;
     }
     await this.host.machine().save();
+  }
+
+  async refresh(recheck = false): Promise<void> {
+    if (!this.current() || this.identifying || this.identity.status === "guest") return;
+    if (recheck) await this.host.machine().recheck();
+    else await this.host.machine().refresh();
   }
 
   discarded(): void {

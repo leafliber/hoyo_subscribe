@@ -1,3 +1,4 @@
+// F2-04 返工获准跨卡：仅在 readAccountSummary 返回 user_id，供已确认身份的本机草稿分键。
 // P2-07：D3 草案 §1.2/§2.10 的本人摘要与可分享偏好导出。
 // 视图只读主状态，未知通道显式 unknown；导出不包含邮箱、任何凭证、URL 或通道同意。
 import {
@@ -143,6 +144,7 @@ export async function readAccountSummary(
     asEnvelopeBytes(account.email_ciphertext),
   );
   return {
+    user_id: auth.userId,
     email: { masked: maskEmail(address), email_version: account.email_version },
     recovery_code_saved: saved,
     recovery_code_generation: recovery?.generation ?? null,

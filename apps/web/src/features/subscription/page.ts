@@ -310,9 +310,9 @@ if (form instanceof HTMLFormElement) {
     }
   });
   document.getElementById("keep-draft")?.addEventListener("click", () => machine.keepDraft());
-  recheck?.addEventListener("click", () => void machine.recheck());
+  recheck?.addEventListener("click", () => void drafts?.refresh(true));
   document.addEventListener("visibilitychange", () => {
-    if (document.visibilityState === "visible") void machine.refresh();
+    if (document.visibilityState === "visible") void drafts?.refresh();
   });
 
   sync();

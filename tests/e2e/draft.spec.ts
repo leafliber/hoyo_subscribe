@@ -1,4 +1,4 @@
-// F2-04 获准跨卡：U18/U19 的隔离浏览器验收，身份事件由测试替身模拟 F3 的已确认身份接线。
+// F2-04：U18/U19 浏览器验收；返工新增真实 /me 形状的身份启动路径，旧事件用例仅验证 F3 生命周期接线。
 import { readFile } from "node:fs/promises";
 import { expect, type Page, test } from "@playwright/test";
 import {
@@ -13,6 +13,8 @@ import {
   DEFAULT_CALENDAR_NODE_TYPES,
   DEFAULT_RULE_IDS,
   DEFAULT_SCOPE_GAMES,
+  SESSION_ABSOLUTE_TTL,
+  SESSION_IDLE_TTL,
   SUBSCRIPTION_SCHEMA_VERSION,
   SUPPORTED_SCOPE_REGIONS,
   type SubscriptionConfig,
@@ -78,6 +80,7 @@ async function rows(page: Page): Promise<Array<{ key: IDBValidKey; value: unknow
     async () =>
       new Promise((resolve, reject) => {
         const request = indexedDB.open("hoyo-local-drafts", 1);
+        request.onupgradeneeded = () => request.result.createObjectStore("drafts");
         request.onsuccess = () => {
           const db = request.result;
           const transaction = db.transaction("drafts");
@@ -435,4 +438,254 @@ test("U19 导入文件的迟到读取在身份切换后丢弃", async ({ page })
   await expect(page.locator("#save-comparison")).toBeHidden();
   await expect(page.locator("#preference-result")).not.toContainText("已生成可比较草稿");
   expect(await rows(page)).toEqual([]);
+});
+
+// 与 readAccountSummary 返回值对齐；仅 user_id 是草稿模块实际消费的字段。
+function accountSummary(userId: string) {
+  const now = Date.now();
+  const unavailable = { allowed: false, reason: "recent_auth_required" };
+  return {
+    user_id: userId,
+    email: { masked: "s***@example.invalid", email_version: 1 },
+    recovery_code_saved: true,
+    recovery_code_generation: 1,
+    subscription: { state: "initialized" },
+    session: {
+      state: "active",
+      expires_at: now + SESSION_IDLE_TTL * 1000,
+      absolute_expires_at: now + SESSION_ABSOLUTE_TTL * 1000,
+      expiry_notice: false,
+      recovery_code_required: false,
+    },
+    channels: {
+      calendar: { state: "unknown" },
+      email: { state: "unknown" },
+      push: { state: "unknown" },
+    },
+    reclaim_grace_until: null,
+    actions: {
+      save_subscription: { allowed: true },
+      export_data: { allowed: true },
+      email_change: unavailable,
+      recovery_code_rotate: unavailable,
+      account_delete: unavailable,
+    },
+  };
+}
+
+async function drainBrowser(page: Page): Promise<void> {
+  await page.evaluate(
+    () =>
+      new Promise<void>((resolve) =>
+        requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
+      ),
+  );
+}
+
+test("U18 返工：已登录离线草稿按 /me 身份落盘，联网只提示且显式保存仍可用", async ({
+  page,
+  context,
+}) => {
+  const writes = await watchEffects(page);
+  await session(page);
+  const reads: string[] = [];
+  await page.route("**/api/v2/me", (route) => {
+    reads.push("me");
+    return route.fulfill({ json: accountSummary("synthetic-account-a") });
+  });
+  await page.route("**/api/v2/me/subscription", (route) => {
+    reads.push("subscription");
+    if (route.request().method() === "GET") return route.fulfill({ json: snapshot() });
+    const body = route.request().postDataJSON();
+    return route.fulfill({ json: snapshot({ ...body.config, revision: 2 }) });
+  });
+  await page.goto("/subscription");
+  await expect(page.locator("#cloud-state")).toContainText("版本 1");
+  expect(reads).toEqual(["me", "subscription"]);
+  await context.setOffline(true);
+  await change(page);
+  await expect(page.locator("#local-draft-status")).toHaveText("离线：仅保存在本机，尚未同步。");
+  const stored = await rows(page);
+  expect(stored.map((row) => row.key)).toEqual(["user:synthetic-account-a"]);
+  expect(JSON.stringify(stored[0].value)).not.toContain("synthetic-account-a");
+  await context.setOffline(false);
+  await expect(page.locator("#local-draft-status")).toContainText("有待保存草稿");
+  await drainBrowser(page);
+  expect(writes).toEqual([]);
+  expect(
+    await page.evaluate(
+      () => (window as unknown as { draftPermissionCalls: number }).draftPermissionCalls,
+    ),
+  ).toBe(0);
+  await expect(page.locator('input[name="new_event"]')).toBeChecked();
+  await page.getByRole("button", { name: "保存订阅" }).click();
+  await expect(page.locator("#cloud-state")).toContainText("版本 2");
+  expect(writes).toEqual(["PATCH"]);
+  await expect.poll(() => rows(page)).toEqual([]);
+  const download = page.waitForEvent("download");
+  await page.getByRole("button", { name: "导出当前偏好" }).click();
+  const path = await (await download).path();
+  const exported = await readFile(path as string, "utf8");
+  expect(exported).not.toContain("user_id");
+  expect(exported).not.toContain("synthetic-account-a");
+  expect(page.url()).not.toContain("synthetic-account-a");
+});
+
+for (const failure of ["503", "network", "invalid-user-id"] as const) {
+  test(`U18 返工：/me ${failure} 保持 unknown，编辑不落盘也不带入游客空间`, async ({ page }) => {
+    const writes = await watchEffects(page);
+    await session(page);
+    await page.route("**/api/v2/me", (route) => {
+      if (failure === "network") return route.abort("failed");
+      if (failure === "invalid-user-id")
+        return route.fulfill({ json: { ...accountSummary("synthetic-account-a"), user_id: null } });
+      return route.fulfill({ status: 503, json: { error: { code: "temporarily_unavailable" } } });
+    });
+    await page.route("**/api/v2/me/subscription", (route) => route.fulfill({ json: snapshot() }));
+    await page.goto("/subscription");
+    await expect(page.locator("#cloud-state")).toContainText("版本 1");
+    await change(page);
+    await expect(page.locator("#local-draft-status")).toContainText("尚未确认账号身份");
+    await drainBrowser(page);
+    expect(await rows(page)).toEqual([]);
+    await page.context().clearCookies();
+    await page.reload();
+    await expect(page.locator("#local-draft-status")).toContainText("本机草稿就绪");
+    await expect(page.locator('input[name="new_event"]')).not.toBeChecked();
+    await expect(page.locator("#save-comparison")).toBeHidden();
+    expect(await rows(page)).toEqual([]);
+    expect(writes).toEqual([]);
+  });
+}
+
+test("U18 返工：账号本机读取迟到不覆盖读取期间的新编辑", async ({ page }) => {
+  await session(page);
+  await page.route("**/api/v2/me", (route) =>
+    route.fulfill({ json: accountSummary("synthetic-account-a") }),
+  );
+  await page.route("**/api/v2/me/subscription", (route) => route.fulfill({ json: snapshot() }));
+  await page.goto("/subscription");
+  await expect(page.locator("#cloud-state")).toContainText("版本 1");
+  await change(page);
+  await expect(page.locator("#local-draft-status")).toContainText("有待保存草稿");
+  // 延迟真实 IndexedDB get 的成功回调，保留真实事务、记录与写入顺序。
+  await page.addInitScript(() => {
+    const get = IDBObjectStore.prototype.get;
+    IDBObjectStore.prototype.get = function (key) {
+      const request = get.call(this, key);
+      if (this.name === "drafts") {
+        Object.defineProperty(request, "onsuccess", {
+          set(handler: (this: IDBRequest, event: Event) => void) {
+            request.addEventListener("success", (event) => {
+              (window as unknown as { releaseDraftRead: () => void }).releaseDraftRead = () =>
+                handler.call(request, event);
+            });
+          },
+        });
+      }
+      return request;
+    };
+  });
+  await page.reload();
+  await expect
+    .poll(() =>
+      page.evaluate(
+        () => typeof (window as unknown as { releaseDraftRead?: () => void }).releaseDraftRead,
+      ),
+    )
+    .toBe("function");
+  await expect(page.locator("#cloud-state")).toContainText("版本 1");
+  await page.locator("#calendar-settings summary").click();
+  await page.getByRole("checkbox", { name: "日历提醒" }).uncheck();
+  await page.evaluate(() =>
+    (window as unknown as { releaseDraftRead: () => void }).releaseDraftRead(),
+  );
+  await expect(page.locator("#local-draft-status")).toContainText("有待保存草稿");
+  await drainBrowser(page);
+  await expect(page.getByRole("checkbox", { name: "日历提醒" })).not.toBeChecked();
+  await expect(page.locator('input[name="new_event"]')).not.toBeChecked();
+  await expect(page.locator("#save-comparison")).toBeHidden();
+  expect((await rows(page))[0].value).toMatchObject({
+    config: { calendar: { alarms_enabled: false }, notifications: { new_event: false } },
+  });
+});
+
+test("U18 返工：A 草稿对 B 与 401 游客不可见，/me 再次确认 A 后恢复", async ({ page }) => {
+  await session(page);
+  let currentId: string | null = "synthetic-account-a";
+  await page.route("**/api/v2/me", (route) =>
+    currentId
+      ? route.fulfill({ json: accountSummary(currentId) })
+      : route.fulfill({
+          status: 401,
+          json: { error: { code: "unauthorized", reason: "no_session" } },
+        }),
+  );
+  let reads = 0;
+  await page.route("**/api/v2/me/subscription", (route) => {
+    reads += 1;
+    return route.fulfill({ json: snapshot() });
+  });
+  await page.goto("/subscription");
+  await expect(page.locator("#cloud-state")).toContainText("版本 1");
+  await change(page);
+  await expect(page.locator("#local-draft-status")).toContainText("有待保存草稿");
+  currentId = "synthetic-account-b";
+  await page.reload();
+  await expect(page.locator("#cloud-state")).toContainText("版本 1");
+  await expect(page.locator("#local-draft-status")).toContainText("本机草稿就绪");
+  await expect(page.locator('input[name="new_event"]')).not.toBeChecked();
+  currentId = null;
+  const beforeGuest = reads;
+  await page.reload();
+  await expect(page.locator("#local-draft-status")).toContainText("本机草稿就绪");
+  await expect(page.locator('input[name="new_event"]')).not.toBeChecked();
+  expect(reads).toBe(beforeGuest);
+  await expect(page.locator("#save-comparison")).toBeHidden();
+  currentId = "synthetic-account-a";
+  await page.reload();
+  await expect(page.locator("#save-comparison")).toBeVisible();
+  await expect(page.locator('input[name="new_event"]')).toBeChecked();
+  expect((await rows(page)).map((row) => row.key)).toEqual(["user:synthetic-account-a"]);
+});
+
+test("U18 返工：/me 确认期间的编辑保留且迟到身份不跨账号", async ({ page }) => {
+  await session(page);
+  let release: (() => void) | undefined;
+  const pending = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  let hold = true;
+  await page.route("**/api/v2/me", async (route) => {
+    if (hold) await pending;
+    await route.fulfill({ json: accountSummary("synthetic-account-a") });
+  });
+  let reads = 0;
+  await page.route("**/api/v2/me/subscription", (route) => {
+    reads += 1;
+    return route.fulfill({ json: snapshot() });
+  });
+  await page.goto("/subscription");
+  await change(page);
+  expect(reads).toBe(0);
+  release?.();
+  await expect(page.locator("#save-comparison")).toBeVisible();
+  await expect(page.locator('input[name="new_event"]')).toBeChecked();
+  await expect(page.locator("#local-draft-status")).toContainText("有待保存草稿");
+  hold = false;
+  // 另一条独立延迟响应覆盖未知身份的生命周期防线。
+  await page.route("**/api/v2/me", async (route) => {
+    await new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    await route.fulfill({ json: accountSummary("synthetic-account-a") });
+  });
+  await page.reload();
+  await identity(page, null);
+  const response = page.waitForResponse((response) => response.url().endsWith("/api/v2/me"));
+  release?.();
+  await response;
+  await drainBrowser(page);
+  await expect(page.locator("#local-draft-status")).toContainText("尚未确认账号身份");
+  await expect(page.locator('input[name="new_event"]')).not.toBeChecked();
 });

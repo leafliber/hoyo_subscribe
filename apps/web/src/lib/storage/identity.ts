@@ -3,7 +3,7 @@ import type { DraftIdentity } from "./drafts";
 /**
  * F3 接线点：认证模块在服务端确认 user_id 后发布 confirmed；退出/切换开始先发布 unknown。
  * 此事件不认证用户，不授予 API 权限；不得从 Cookie、邮箱或本机缓存推导 user_id。
- * 当前 /me 不返回 user_id，故当前已登录页面不会自行发布 confirmed。
+ * 订阅页以只读 /me 的成功响应确认身份；F3 负责退出/切换开始的 unknown。
  */
 export const DRAFT_IDENTITY_EVENT = "hoyo:draft-identity";
 export function publishDraftIdentity(identity: DraftIdentity): void {
@@ -18,4 +18,21 @@ export function readDraftIdentityEvent(event: Event): DraftIdentity | null {
     return { status: "confirmed", userId: value.userId };
   }
   return null;
+}
+
+/** 只提取分键身份，不留存账号摘要、脱敏邮箱或通道状态；失败不退化为游客。 */
+export async function readConfirmedDraftIdentity(): Promise<DraftIdentity> {
+  try {
+    const response = await fetch("/api/v2/me", { credentials: "same-origin", cache: "no-store" });
+    if (response.status === 401) return { status: "guest" };
+    if (response.status !== 200) return { status: "unknown" };
+    const summary: unknown = await response.json();
+    if (typeof summary !== "object" || summary === null) return { status: "unknown" };
+    const userId = (summary as { user_id?: unknown }).user_id;
+    return typeof userId === "string" && userId.trim()
+      ? { status: "confirmed", userId }
+      : { status: "unknown" };
+  } catch {
+    return { status: "unknown" };
+  }
 }
