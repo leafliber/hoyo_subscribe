@@ -126,9 +126,220 @@ export const PublicStatusResponseSchema = z.strictObject({
     }),
   ),
 });
+export type PublicCatalogResponse = z.infer<typeof PublicCatalogResponseSchema>;
+export type PublicSourceStatus = z.infer<typeof PublicSourceStatusSchema>;
 export type PublicPublication = z.infer<typeof PublicPublicationSchema>;
 export type PublicCache = z.infer<typeof PublicCacheSchema>;
 export type PublicScheduleNode = z.infer<typeof PublicScheduleNodeSchema>;
 export type PublicEventsResponse = z.infer<typeof PublicEventsResponseSchema>;
 export type PublicEventDetailResponse = z.infer<typeof PublicEventDetailResponseSchema>;
 export type PublicStatusResponse = z.infer<typeof PublicStatusResponseSchema>;
+
+// 公开表现和窗口判断的单一定义源；Worker 只执行查询与传输。
+import { PUBLIC_CACHE_FRESH, PUBLIC_READ_LIMITS, SUPPORTED_SCOPE } from "./params/registry";
+import type { PublicSnapshotNode } from "./public-calendar";
+import {
+  BROWSE_DEFAULT_RANGE,
+  BROWSE_RANGES,
+  type BrowseRange,
+  browseDate,
+  browseWindow,
+} from "./schedule-browse";
+
+export function publicCache(publication: PublicPublication | null, now: number): PublicCache {
+  const freshUntil =
+    publication === null ? now : publication.publishedAt + PUBLIC_CACHE_FRESH * 1000;
+  return { generatedAt: now, freshUntil, stale: publication === null || now >= freshUntil };
+}
+
+/** 不把 ICS tombstone（删除补偿）误称为官方取消；它只能在变更区域出现。 */
+export function publicNode(
+  node: PublicSnapshotNode,
+  noticePublishedAt: number | null = null,
+  evidence: { node: string; change: string | null } | null = null,
+): PublicScheduleNode {
+  const { projection: p, patch } = node;
+  const kind = patch?.kind === "postponed_unknown" ? "pending" : patch?.kind;
+  return PublicScheduleNodeSchema.parse({
+    id: p.milestone_id,
+    eventId: p.event_id,
+    title: p.event.title,
+    game: node.game,
+    eventType: p.event.event_type,
+    nodeType: p.milestone.node_type,
+    status: node.tombstone ? "retracted" : p.event.status,
+    time: p.milestone.time,
+    evidence: evidence?.node ?? p.milestone.time.raw_expression,
+    noticePublishedAt,
+    change:
+      patch === null
+        ? null
+        : {
+            kind,
+            explanation: patch.fact_reason,
+            historicalTime: patch.old_time,
+            currentTime:
+              node.tombstone || p.event.status === "cancelled" || p.event.status === "retracted"
+                ? null
+                : p.milestone.time,
+            retainUntil: patch.retain_until,
+            evidence: evidence?.change ?? evidence?.node ?? p.milestone.time.raw_expression,
+          },
+  });
+}
+
+export function publicNodeInWindow(
+  node: PublicSnapshotNode,
+  range: BrowseRange,
+  now: number,
+): boolean {
+  if (node.tombstone) return false;
+  const { start, end } = browseWindow(range, now);
+  const time = node.projection.milestone.time;
+  if (time.precision === "unknown") return true;
+  if (time.precision === "datetime")
+    return time.utc_ms >= start && (end === null || time.utc_ms < end);
+  return time.date >= browseDate(start) && (end === null || time.date < browseDate(end));
+}
+
+/** 优先未来的确切节点，其次日期节点，最后待定；不据时钟宣称实际进行中。 */
+export function publicImportantNode(
+  nodes: readonly PublicScheduleNode[],
+  now: number,
+): string | null {
+  const current = nodes.filter((n) => n.status !== "cancelled" && n.status !== "retracted");
+  const exact = current
+    .filter((n) => n.time.precision === "datetime" && n.time.utc_ms >= now)
+    .sort(
+      (a, b) =>
+        (a.time.precision === "datetime" ? a.time.utc_ms : 0) -
+          (b.time.precision === "datetime" ? b.time.utc_ms : 0) || a.id.localeCompare(b.id),
+    );
+  const dated = current
+    .filter((n) => n.time.precision === "date" && n.time.date >= browseDate(now))
+    .sort(
+      (a, b) =>
+        (a.time.precision === "date" ? a.time.date : "").localeCompare(
+          b.time.precision === "date" ? b.time.date : "",
+        ) || a.id.localeCompare(b.id),
+    );
+  return (
+    exact[0]?.id ?? dated[0]?.id ?? current.find((n) => n.time.precision === "unknown")?.id ?? null
+  );
+}
+
+export function publicSourceStatus(
+  game: PublicStatusResponse["sources"][number]["game"],
+  rows: readonly { last_success_at: number | null; verification_state: string }[],
+  reviewCount: number,
+): PublicStatusResponse["sources"][number] {
+  const unavailable = rows.some((r) => r.verification_state.startsWith("maintenance-required"));
+  const unknown =
+    rows.length === 0 ||
+    rows.some((r) => r.last_success_at === null || r.verification_state !== "verified-working");
+  const knownTimes = rows.map((r) => r.last_success_at);
+  return {
+    game,
+    verifiedAt:
+      knownTimes.length === 0 || knownTimes.some((t) => t === null)
+        ? null
+        : Math.min(...(knownTimes as number[])),
+    verificationState: unavailable ? "unavailable" : unknown ? "unknown" : "verified",
+    degradationReasons: unavailable ? ["maintenance_required"] : unknown ? ["not_verified"] : [],
+    reviewCount,
+  };
+}
+
+/** 只取已批准且逐字段匹配本代事实的证据片段；不把候选载荷暴露给浏览者。 */
+export function publicEvidence(
+  node: PublicSnapshotNode,
+  approvedProposal: unknown,
+): { node: string; change: string | null } | null {
+  const proposal = z
+    .object({
+      events: z.array(
+        z.object({
+          title: z.string(),
+          event_type: EventTypeSchema,
+          status: EventStatusSchema,
+          status_evidence: z.object({ quote: z.string() }).nullable(),
+          milestones: z.array(
+            z.object({
+              milestone_key: z.string(),
+              node_type: NodeTypeSchema,
+              time: TimeValueSchema,
+              time_evidence: z.object({ quote: z.string() }),
+            }),
+          ),
+        }),
+      ),
+    })
+    .safeParse(approvedProposal);
+  if (!proposal.success) return null;
+  const p = node.projection;
+  for (const event of proposal.data.events) {
+    if (
+      event.title !== p.event.title ||
+      event.event_type !== p.event.event_type ||
+      event.status !== p.event.status
+    )
+      continue;
+    const milestone = event.milestones.find(
+      (m) =>
+        m.milestone_key === p.milestone.milestone_key &&
+        m.node_type === p.milestone.node_type &&
+        JSON.stringify(m.time) === JSON.stringify(TimeValueSchema.parse(p.milestone.time)),
+    );
+    if (milestone || event.status_evidence !== null)
+      return {
+        node: milestone?.time_evidence.quote ?? p.milestone.time.raw_expression,
+        change: event.status_evidence?.quote ?? null,
+      };
+  }
+  return null;
+}
+
+const PublicCursorSchema = z.strictObject({
+  generation: z.int().positive(),
+  start: Timestamp,
+  range: z.enum(BROWSE_RANGES.map((r) => r.id)),
+  games: z.array(GameIdSchema).max(SUPPORTED_SCOPE.games.length),
+  after: z.string().max(PUBLIC_READ_LIMITS.queryBytes),
+});
+export type PublicCursor = z.infer<typeof PublicCursorSchema>;
+export function encodePublicCursor(cursor: PublicCursor): string {
+  return btoa(encodeURIComponent(JSON.stringify(PublicCursorSchema.parse(cursor))));
+}
+export function decodePublicCursor(raw: string): PublicCursor | null {
+  try {
+    return PublicCursorSchema.parse(JSON.parse(decodeURIComponent(atob(raw))));
+  } catch {
+    return null;
+  }
+}
+export function parsePublicSelection(params: URLSearchParams, now: number) {
+  const range = params.get("range") ?? BROWSE_DEFAULT_RANGE;
+  if (!BROWSE_RANGES.some((r) => r.id === range)) return null;
+  const gameInput = params.get("games");
+  const values =
+    gameInput === null ? [...SUPPORTED_SCOPE.games] : gameInput === "" ? [] : gameInput.split(",");
+  if (
+    values.some((g) => !GameIdSchema.safeParse(g).success) ||
+    new Set(values).size !== values.length
+  )
+    return null;
+  const games = SUPPORTED_SCOPE.games.filter((g) => values.includes(g));
+  return { range: range as BrowseRange, games, window: browseWindow(range as BrowseRange, now) };
+}
+export function publicCursorMatches(
+  cursor: PublicCursor,
+  selection: NonNullable<ReturnType<typeof parsePublicSelection>>,
+  generation: number,
+): boolean {
+  return (
+    cursor.generation === generation &&
+    cursor.start === selection.window.start &&
+    cursor.range === selection.range &&
+    JSON.stringify(cursor.games) === JSON.stringify(selection.games)
+  );
+}

@@ -7,9 +7,10 @@
 //   响应体是固定形状的全局字段，与具体邮箱无关。
 // - 读侧失败关闭：开关行缺失/损坏时公布 registration_open = false（与准入读同一口径）。
 
+import { PublicStatusResponseSchema } from "@hoyo/contracts";
 import { environmentMailAvailable } from "../../mail/provider/environment";
+import { publicResponse, readPublicStatus, validatePublicQuery } from "../../public/read";
 import type { ShellRoute } from "../../shell";
-import { jsonResponse } from "../../shell";
 import { readRegistrationOpen } from "./registration";
 
 export const statusRoute: ShellRoute = {
@@ -18,10 +19,14 @@ export const statusRoute: ShellRoute = {
   domain: "public",
   write: false,
   handler: async (ctx) => {
+    validatePublicQuery(ctx.url);
     const registrationOpen = await readRegistrationOpen(ctx.env.DB);
-    return jsonResponse({
-      registration_open: registrationOpen,
-      mail_sending_available: await environmentMailAvailable(ctx.env),
-    });
+    return publicResponse(
+      PublicStatusResponseSchema.parse({
+        ...(await readPublicStatus(ctx.env.DB)),
+        registration_open: registrationOpen,
+        mail_sending_available: await environmentMailAvailable(ctx.env),
+      }),
+    );
   },
 };

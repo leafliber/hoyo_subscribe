@@ -4,8 +4,18 @@
 // 测试在真实 workerd + miniflare D1 上执行（@cloudflare/vitest-pool-workers），
 // 与部署引擎一致；本地 D1 与生产 D1 的差异以 P0-01 证据（d1-conditional-tx）为准。
 import { env } from "cloudflare:test";
+import { PUBLIC_READ_LIMITS } from "@hoyo/contracts";
 import { beforeAll, describe, expect, it } from "vitest";
 import { NEXT_OCCURRENCE_ALARM_SQL, START_DUE_OCCURRENCE_SQL } from "../mail/occurrences/expand";
+import {
+  PUBLIC_CHANGES_SQL,
+  PUBLIC_DETAIL_SQL,
+  PUBLIC_HEAD_SQL,
+  PUBLIC_NOTICE_SQL,
+  PUBLIC_PAGE_SQL,
+  PUBLIC_PENDING_SQL,
+  PUBLIC_SOURCES_SQL,
+} from "../public/queries";
 import {
   EXPECTED_DDL_INVARIANTS,
   EXPECTED_ENUM_CHECKS,
@@ -1750,3 +1760,146 @@ describe("A-P1-DB D1 schema、索引与迁移框架", () => {
     }
   }, 120_000);
 });
+
+// P3-14：只追加公共热路径基准，生产 SQL 直接导入，历史增长不能扩大单页读量。
+
+it("A-P3-PUBLIC 当前代次/分片/详情/变更/来源/缺口/证据：增加 2000 条无关历史后 rows_read 不涨", async () => {
+  const current = await query<{ id: string }>(PUBLIC_HEAD_SQL);
+  const snapshot = current[0]?.id;
+  expect(snapshot).toBeDefined();
+  await run(
+    "UPDATE public_snapshot_nodes SET node_json = ? WHERE snapshot_id = ? AND milestone_id = 'm_001'",
+    JSON.stringify({
+      game: "genshin",
+      projection: { event_id: "e_001" },
+      patch: { retain_until: T0 + DAY },
+    }),
+    snapshot,
+  );
+  await run(
+    "INSERT INTO sources (source_id,game,region,adapter,approved_hosts_json,verified_publishers_json,cursor_json,poll_policy_json,verification_state,created_at,updated_at) VALUES ('p314-live','genshin','cn','synthetic','[]','[]','{}','{}','verified-working',?,?)",
+    T0,
+    T0,
+  );
+  const queries = [
+    { name: "head", sql: PUBLIC_HEAD_SQL, args: [] },
+    {
+      name: "page",
+      sql: PUBLIC_PAGE_SQL,
+      args: [PUBLIC_READ_LIMITS.nodeBytes, snapshot, "", PUBLIC_READ_LIMITS.scanPage + 1],
+    },
+    {
+      name: "detail",
+      sql: PUBLIC_DETAIL_SQL,
+      args: [PUBLIC_READ_LIMITS.nodeBytes, snapshot, "e_001", PUBLIC_READ_LIMITS.detailNodes + 1],
+    },
+    {
+      name: "changes",
+      sql: PUBLIC_CHANGES_SQL,
+      args: [
+        PUBLIC_READ_LIMITS.nodeBytes,
+        snapshot,
+        "genshin",
+        T0,
+        PUBLIC_READ_LIMITS.recentChanges + 1,
+      ],
+    },
+    {
+      name: "sources",
+      sql: PUBLIC_SOURCES_SQL,
+      args: ["genshin", PUBLIC_READ_LIMITS.sourcesPerGame + 1],
+    },
+    { name: "pending", sql: PUBLIC_PENDING_SQL, args: [PUBLIC_READ_LIMITS.pendingCandidates + 1] },
+    {
+      name: "notice",
+      sql: PUBLIC_NOTICE_SQL,
+      args: [
+        PUBLIC_READ_LIMITS.nodeBytes,
+        JSON.stringify([{ id: "m_001", eventId: "e_001", projection: "{}" }]),
+        T0,
+        T0,
+      ],
+    },
+  ];
+  const baseline = await Promise.all(queries.map((q) => measure(q.sql, ...q.args)));
+  await insertRows(
+    "public_snapshots",
+    ["id", "generation", "state", "created_at"],
+    Array.from({ length: 2000 }, (_, i) => [
+      `p314_history_${i}`,
+      10000 + i,
+      "superseded",
+      T0 - DAY,
+    ]),
+  );
+  await insertRows(
+    "public_snapshot_nodes",
+    ["snapshot_id", "milestone_id", "node_json"],
+    Array.from({ length: 2000 }, (_, i) => [
+      `p314_history_${i}`,
+      "m_001",
+      JSON.stringify({
+        game: "genshin",
+        projection: { event_id: "e_001" },
+        patch: { retain_until: T0 + DAY },
+      }),
+    ]),
+  );
+  await insertRows(
+    "candidates",
+    ["id", "proposal_json", "review_status", "created_at", "updated_at"],
+    Array.from({ length: 2000 }, (_, i) => [
+      `p314_review_${i}`,
+      "{}",
+      "approved",
+      T0 - DAY,
+      T0 - DAY,
+    ]),
+  );
+  await insertRows(
+    "sources",
+    [
+      "source_id",
+      "game",
+      "region",
+      "adapter",
+      "approved_hosts_json",
+      "verified_publishers_json",
+      "cursor_json",
+      "poll_policy_json",
+      "verification_state",
+      "created_at",
+      "updated_at",
+    ],
+    Array.from({ length: 2000 }, (_, i) => [
+      `p314_source_${i}`,
+      "unrelated",
+      "cn",
+      "synthetic",
+      "[]",
+      "[]",
+      "{}",
+      "{}",
+      "unknown",
+      T0,
+      T0,
+    ]),
+  );
+  await insertRows(
+    "evidence",
+    ["id", "event_id", "milestone_id", "article_version_id", "block_ref", "created_at"],
+    Array.from({ length: 2000 }, (_, i) => [
+      `p314_ev_${i}`,
+      "e_001",
+      "m_001",
+      "av_001",
+      "blocks/0",
+      T0 + DAY + i,
+    ]),
+  );
+  for (const [i, q] of queries.entries()) {
+    const actual = await measure(q.sql, ...q.args);
+    console.info(`[A-P3-PUBLIC] ${q.name}: baseline=${baseline[i]}, history=${actual}`);
+    expect(actual, q.name).toBeLessThanOrEqual(baseline[i] ?? 0);
+  }
+}, 120_000);
