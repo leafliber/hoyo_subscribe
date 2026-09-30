@@ -675,4 +675,26 @@ describe("A-P3-ICS 公共构建查询数上界", () => {
       await env.DB.prepare("DROP TRIGGER synthetic_snapshot_failure").run();
     }
   }, 60_000);
+  it("压低构建查询预算在写入 building 前拒绝，不清待办或发布半代", async () => {
+    const at = T0 + 1_000 * day;
+    const before = await one("SELECT COUNT(*) AS n FROM public_snapshots");
+    const nodesBefore = await one("SELECT COUNT(*) AS n FROM public_snapshot_nodes");
+    await queue(at);
+    const original = Object.getOwnPropertyDescriptor(PUBLIC_SNAPSHOT_WRITE_PROFILE, "queryLimit");
+    if (!original) throw new Error("缺少工程查询预算");
+    try {
+      Object.defineProperty(PUBLIC_SNAPSHOT_WRITE_PROFILE, "queryLimit", { value: 1 });
+      await expect(buildPublicSnapshot(env.DB, at + 1)).rejects.toThrow(
+        "too many SQL statements: public snapshot chunk budget",
+      );
+      expect(await one("SELECT COUNT(*) AS n FROM public_snapshots")).toEqual(before);
+      expect(await one("SELECT COUNT(*) AS n FROM public_snapshot_nodes")).toEqual(nodesBefore);
+      expect(
+        await one("SELECT dispatch_state FROM outbox WHERE dedupe_key=?", `test:${at}`),
+      ).toEqual({ dispatch_state: "pending" });
+    } finally {
+      Object.defineProperty(PUBLIC_SNAPSHOT_WRITE_PROFILE, "queryLimit", original);
+    }
+    expect((await buildPublicSnapshot(env.DB, at + 2)).outcome).toBe("built");
+  });
 });
