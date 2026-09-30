@@ -1,3 +1,4 @@
+// P4-03 所有者补充授权：公开全局邮件故障状态，无按邮箱信息。
 // GET /api/v2/status：全局公开状态（任务卡 P2-01 交付物三；主方案 §4.2、§8.2）。
 //
 // 合同约束：
@@ -6,6 +7,7 @@
 //   响应体是固定形状的全局字段，与具体邮箱无关。
 // - 读侧失败关闭：开关行缺失/损坏时公布 registration_open = false（与准入读同一口径）。
 
+import { environmentMailAvailable } from "../../mail/provider/environment";
 import type { ShellRoute } from "../../shell";
 import { jsonResponse } from "../../shell";
 import { readRegistrationOpen } from "./registration";
@@ -17,6 +19,9 @@ export const statusRoute: ShellRoute = {
   write: false,
   handler: async (ctx) => {
     const registrationOpen = await readRegistrationOpen(ctx.env.DB);
-    return jsonResponse({ registration_open: registrationOpen });
+    return jsonResponse({
+      registration_open: registrationOpen,
+      mail_sending_available: await environmentMailAvailable(ctx.env),
+    });
   },
 };

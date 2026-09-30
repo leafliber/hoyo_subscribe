@@ -1,0 +1,39 @@
+
+ RUN  v4.1.11 /Users/cassia/.codex/worktrees/p4-03-mail-outbox/hoyo_subscribe/apps/worker
+
+stdout | src/storage/schema.test.ts > A-P1-DB D1 schema、索引与迁移框架 > A-P4-OUTBOX nextAlarm 与起步查询塞入大量历史后 rows_read 不涨
+[A-P4-OUTBOX] nextAlarm: baseline=33, +2000 expanded rows_read=2033
+
+ ❯ src/storage/schema.test.ts (7 tests | 1 failed | 6 skipped) 151ms
+     × A-P4-OUTBOX nextAlarm 与起步查询塞入大量历史后 rows_read 不涨 53ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  src/storage/schema.test.ts > A-P1-DB D1 schema、索引与迁移框架 > A-P4-OUTBOX nextAlarm 与起步查询塞入大量历史后 rows_read 不涨
+AssertionError: nextAlarm expanded: expected 2033 to be 33 // Object.is equality
+
+- Expected
++ Received
+
+- 33
++ 2033
+
+ ❯ src/storage/schema.test.ts:1748:48
+    1746|           `[A-P4-OUTBOX] ${q.name}: baseline=${baseline[i]}, +2000 ${h…
+    1747|         );
+    1748|         expect(actual, `${q.name} ${history}`).toBe(baseline[i]);
+       |                                                ^
+    1749|       }
+    1750|     }
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 6 skipped (7)
+   Start at  18:16:13
+   Duration  1.20s (transform 398ms, setup 0ms, import 828ms, tests 151ms, environment 0ms)
+
+undefined
+/Users/cassia/.codex/worktrees/p4-03-mail-outbox/hoyo_subscribe/apps/worker:
+[ERR_PNPM_RECURSIVE_EXEC_FIRST_FAIL] Command failed with exit code 1: vitest run src/storage/schema.test.ts -t '塞入大量历史'

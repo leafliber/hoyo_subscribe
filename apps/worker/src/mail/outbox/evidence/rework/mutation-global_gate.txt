@@ -1,0 +1,41 @@
+
+ RUN  v4.1.11 /Users/cassia/.codex/worktrees/p4-03-mail-outbox/hoyo_subscribe/apps/worker
+
+stdout | src/executors/delivery/runtime.test.ts > A-P4-OUTBOX Delivery 执行器 > 全局失败分级 terminal=true，下一 watchdog 重试或 failed 停止
+{"ts":1790763247598,"level":"error","event":"delivery_tick_failed","reason_code":"sql_binding_limit"}
+
+ ❯ src/executors/delivery/runtime.test.ts (9 tests | 1 failed | 8 skipped) 25ms
+     × 全局失败分级 terminal=true，下一 watchdog 重试或 failed 停止 7ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  src/executors/delivery/runtime.test.ts > A-P4-OUTBOX Delivery 执行器 > 全局失败分级 terminal=true，下一 watchdog 重试或 failed 停止
+AssertionError: expected { value_json: 'true' } to deeply equal { value_json: 'false' }
+
+- Expected
++ Received
+
+  {
+-   "value_json": "false",
++   "value_json": "true",
+  }
+
+ ❯ src/executors/delivery/runtime.test.ts:142:11
+    140|             "SELECT value_json FROM system_state WHERE key='mail_sendi…
+    141|           ).first(),
+    142|         ).toEqual({ value_json: "false" });
+       |           ^
+    143|         await expect(requireMailAvailable(env.DB)).rejects.toThrow();
+    144|         const configured = {
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 8 skipped (9)
+   Start at  18:14:06
+   Duration  1.01s (transform 356ms, setup 0ms, import 761ms, tests 25ms, environment 0ms)
+
+undefined
+/Users/cassia/.codex/worktrees/p4-03-mail-outbox/hoyo_subscribe/apps/worker:
+[ERR_PNPM_RECURSIVE_EXEC_FIRST_FAIL] Command failed with exit code 1: vitest run src/executors/delivery/runtime.test.ts -t '全局失败分级 terminal=true'

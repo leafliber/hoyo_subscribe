@@ -652,6 +652,11 @@ export const EXPECTED_INDEXES: Record<string, ExpectedIndex> = {
   idx_jobs_lease_expiry: { table: "jobs", columns: ["lease_expires_at"] },
   idx_outbox_dispatch: { table: "outbox", columns: ["dispatch_state", "created_at"] },
   idx_occurrences_due: { table: "occurrences", columns: ["due_at"], partial: true },
+  idx_occurrences_unexpanded_expiry: {
+    table: "occurrences",
+    columns: ["expires_at", "due_at", "id"],
+    partial: true,
+  },
   idx_occurrences_expiry: { table: "occurrences", columns: ["expires_at"] },
   idx_occurrences_event: { table: "occurrences", columns: ["event_id", "schedule_revision"] },
   idx_mail_outbox_pending_payload: {

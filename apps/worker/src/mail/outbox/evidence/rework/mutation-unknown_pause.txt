@@ -1,0 +1,52 @@
+
+ RUN  v4.1.11 /Users/cassia/.codex/worktrees/p4-03-mail-outbox/hoyo_subscribe/apps/worker
+
+stdout | src/mail/outbox/outbox.test.ts > A-P4-OUTBOX timeout 仅该封 unknown，开关保持开放且下一封能发
+{"ts":1790763241843,"level":"error","event":"mail_provider_failed","reason_code":"provider_unknown","count":1}
+
+stdout | src/mail/outbox/outbox.test.ts > A-P4-OUTBOX throw 仅该封 unknown，开关保持开放且下一封能发
+{"ts":1790763241852,"level":"error","event":"mail_provider_failed","reason_code":"provider_unknown","count":1}
+
+stdout | src/mail/outbox/outbox.test.ts > A-P4-OUTBOX missing_id 仅该封 unknown，开关保持开放且下一封能发
+{"ts":1790763241857,"level":"error","event":"mail_provider_failed","reason_code":"provider_unknown","count":1}
+
+ ❯ src/mail/outbox/outbox.test.ts (47 tests | 3 failed | 44 skipped) 44ms
+   × A-P4-OUTBOX timeout 仅该封 unknown，开关保持开放且下一封能发 13ms
+   × A-P4-OUTBOX throw 仅该封 unknown，开关保持开放且下一封能发 5ms
+   × A-P4-OUTBOX missing_id 仅该封 unknown，开关保持开放且下一封能发 6ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 3 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  src/mail/outbox/outbox.test.ts > A-P4-OUTBOX timeout 仅该封 unknown，开关保持开放且下一封能发
+ FAIL  src/mail/outbox/outbox.test.ts > A-P4-OUTBOX throw 仅该封 unknown，开关保持开放且下一封能发
+ FAIL  src/mail/outbox/outbox.test.ts > A-P4-OUTBOX missing_id 仅该封 unknown，开关保持开放且下一封能发
+AssertionError: expected "vi.fn()" to not be called at all, but actually been called 1 times
+
+Received:
+
+  1st vi.fn() call:
+
+    Array []
+
+
+Number of calls: 1
+
+ ❯ src/mail/outbox/outbox.test.ts:852:23
+    850|     expect(await row(first)).toMatchObject({ status: "unknown", attemp…
+    851|     expect(await budget()).toEqual({ reserved: 0, settled: 0, uncertai…
+    852|     expect(pause).not.toHaveBeenCalled();
+       |                       ^
+    853|     expect(await mailAvailable(env.DB)).toBe(true);
+    854|     const next = await seed();
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/3]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  3 failed | 44 skipped (47)
+   Start at  18:14:00
+   Duration  1.10s (transform 356ms, setup 0ms, import 765ms, tests 44ms, environment 0ms)
+
+undefined
+/Users/cassia/.codex/worktrees/p4-03-mail-outbox/hoyo_subscribe/apps/worker:
+[ERR_PNPM_RECURSIVE_EXEC_FIRST_FAIL] Command failed with exit code 1: vitest run src/mail/outbox/outbox.test.ts -t '仅该封 unknown'

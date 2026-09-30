@@ -1,3 +1,4 @@
+// P4-03 所有者补充授权：状态响应新增全局邮件故障字段的对应断言。
 // A-P2-PREAUTH · 注册准入：全局开关、/status 公布与路由清单（任务卡 P2-01 交付物三）。
 //
 // 覆盖：
@@ -91,7 +92,7 @@ describe("A-P2-PREAUTH 全局注册开关（§4.2 /status 公布 registration_op
       waitUntil() {},
     } as unknown as ExecutionContext);
     expect(res.status).toBe(200);
-    expect(await res.json()).toEqual({ registration_open: false });
+    expect(await res.json()).toEqual({ registration_open: false, mail_sending_available: false });
   });
 
   it("写入 true 后读侧与 /status 公布 true；写回 false 再关闭", async () => {
@@ -100,7 +101,7 @@ describe("A-P2-PREAUTH 全局注册开关（§4.2 /status 公布 registration_op
     const res = await worker.fetch(new Request("https://app.test/api/v2/status"), env, {
       waitUntil() {},
     } as unknown as ExecutionContext);
-    expect(await res.json()).toEqual({ registration_open: true });
+    expect(await res.json()).toEqual({ registration_open: true, mail_sending_available: false });
     await writeRegistrationOpen(env.DB, false, T0);
     expect(await readRegistrationOpen(env.DB)).toBe(false);
   });
