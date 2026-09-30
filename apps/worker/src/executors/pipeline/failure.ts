@@ -8,6 +8,7 @@ export interface PipelineFailure {
   readonly reason:
     | "sql_binding_limit"
     | "sql_statement_limit"
+    | "sql_value_limit"
     | "invalid_data"
     | "transient_or_unknown";
 }
@@ -16,6 +17,8 @@ export function classifyPipelineFailure(error: unknown): PipelineFailure {
   let current = error;
   while (current instanceof Error && !visited.has(current)) {
     visited.add(current);
+    if (/SQLITE_TOOBIG|string or blob too big/i.test(current.message))
+      return { terminal: true, reason: "sql_value_limit" };
     if (/too many SQL variables|too many (?:bound|bind(?:ing)?) parameters/i.test(current.message))
       return { terminal: true, reason: "sql_binding_limit" };
     if (

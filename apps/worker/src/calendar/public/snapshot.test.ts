@@ -8,7 +8,9 @@ import {
   NONCRITICAL_PUBLICATION_PAUSE_STATE_KEY,
   PUBLIC_CACHE_FRESH,
   PUBLIC_SNAPSHOT_PENDING_STATE_KEY,
+  PUBLIC_SNAPSHOT_WRITE_PROFILE,
   type PublicCalendarProjection,
+  publicSnapshotJsonChunks,
   SNAPSHOT_REBUILD_TOPIC,
   TimeValueSchema,
 } from "@hoyo/contracts";
@@ -251,11 +253,19 @@ describe("A-P3-PATCH 公共快照与共享更正层", () => {
       .bind(nodeId)
       .run();
     await queue(T0 + 5 * day);
+    // 删除必须由发布端先推进同一 milestone 的权威版本，构建器不自行取号。
+    await expect(buildPublicSnapshot(env.DB, T0 + 5 * day + 1)).rejects.toThrow(
+      "删除缺少权威公共版本推进",
+    );
+    await env.DB.prepare("UPDATE milestones SET public_ical_revision=6, updated_at=? WHERE id=?")
+      .bind(T0 + 5 * day, nodeId)
+      .run();
     expect((await buildPublicSnapshot(env.DB, T0 + 5 * day + 1)).outcome).toBe("built");
     const current = await readCurrentPublicSnapshot(env.DB, T0 + 5 * day + 1);
     expect(current?.nodes).toHaveLength(1);
     expect(current?.nodes[0]?.tombstone).toBe(true);
     expect(current?.nodes[0]?.patch?.kind).toBe("deleted");
+    expect(current?.nodes[0]?.public_ical_revision).toBe(6);
     expect(
       (await readCurrentPublicSnapshot(env.DB, (current?.nodes[0]?.patch?.retain_until ?? 0) + 1))
         ?.nodes,
@@ -265,10 +275,10 @@ describe("A-P3-PATCH 公共快照与共享更正层", () => {
   it("节点恢复沿用身份并替换删除补偿", async () => {
     await env.DB.prepare(`INSERT INTO calendar_projections
       (milestone_id, event_id, public_ical_revision, projection_json, updated_at)
-      VALUES (?, ?, 6, ?, ?)`)
+      VALUES (?, ?, 7, ?, ?)`)
       .bind(nodeId, eventId, JSON.stringify(projection(T0 + 180 * day)), T0 + 6 * day)
       .run();
-    await env.DB.prepare("UPDATE milestones SET public_ical_revision = 6 WHERE id = ?")
+    await env.DB.prepare("UPDATE milestones SET public_ical_revision = 7 WHERE id = ?")
       .bind(nodeId)
       .run();
     await env.DB.prepare("UPDATE events SET status = 'scheduled' WHERE id = ?").bind(eventId).run();
@@ -278,6 +288,7 @@ describe("A-P3-PATCH 公共快照与共享更正层", () => {
     expect(current?.nodes).toHaveLength(1);
     expect(current?.nodes[0]?.projection.milestone_id).toBe(nodeId);
     expect(current?.nodes[0]?.patch?.kind).toBe("restored");
+    expect(current?.nodes[0]?.public_ical_revision).toBe(7);
     expect(current?.nodes[0]?.tombstone).toBe(false);
   });
 
@@ -450,5 +461,240 @@ describe("A-P3-PATCH 公共快照与共享更正层", () => {
       nodes_deleted: 0,
       snapshot_deleted: false,
     });
+  });
+});
+
+// P3-06 获准跨卡负载回归：超过原实现单次 1,000 条语句的形状。
+describe("A-P3-ICS 公共构建查询数上界", () => {
+  it("1200 个真实尺寸节点超过 2 MB，节点和更正分块后完整原子发布", async () => {
+    const size = 1200;
+    const at = T0 + 400 * day;
+    const nodes = Array.from({ length: size }, (_, i) => ({
+      ...projection(at + day),
+      event: {
+        ...projection(at + day).event,
+        title: "官".repeat(20),
+        summary: "活".repeat(150),
+        official_url: "https://webstatic.mihoyo.com/ys/event/e20260930preview/index.html",
+      },
+      milestone_id: `bulk-${i}`,
+      milestone: { ...projection(at + day).milestone, milestone_key: `bulk-${i}` },
+    }));
+    for (const chunk of publicSnapshotJsonChunks(nodes)) {
+      await env.DB.prepare(`INSERT INTO milestones (id, event_id, milestone_key, node_type, title,
+      time_exact_ms, source_timezone, raw_expression, time_basis, time_precision,
+      public_ical_revision, human_locked, created_at, updated_at)
+      SELECT json_extract(value, '$.milestone_id'), ?, json_extract(value, '$.milestone.milestone_key'),
+      'start', '合成', ?, 'UTC', '明确', 'official_explicit', 'datetime', 1, 0, ?, ? FROM json_each(?)`)
+        .bind(eventId, at + day, at, at, chunk)
+        .run();
+      await env.DB.prepare(`INSERT INTO calendar_projections
+      SELECT json_extract(value, '$.milestone_id'), ?, 1, value, ? FROM json_each(?)`)
+        .bind(eventId, at, chunk)
+        .run();
+    }
+    let queries = 0,
+      nodeWrites = 0,
+      patchWrites = 0,
+      maxParamBytes = 0;
+    const counted = new Proxy(env.DB, {
+      get(target, property) {
+        if (property === "prepare")
+          return (sql: string) => {
+            queries++;
+            if (sql.startsWith("INSERT INTO public_snapshot_nodes")) nodeWrites++;
+            if (
+              sql.startsWith("UPDATE calendar_patches") ||
+              sql.startsWith("INSERT INTO calendar_patches")
+            )
+              patchWrites++;
+            const stmt = target.prepare(sql);
+            return new Proxy(stmt, {
+              get(statement, key) {
+                if (key === "bind")
+                  return (...args: unknown[]) => {
+                    for (const value of args)
+                      if (typeof value === "string")
+                        maxParamBytes = Math.max(
+                          maxParamBytes,
+                          new TextEncoder().encode(value).length,
+                        );
+                    return statement.bind(...args);
+                  };
+                const value = Reflect.get(statement, key);
+                return typeof value === "function" ? value.bind(statement) : value;
+              },
+            });
+          };
+        const value = Reflect.get(target, property);
+        return typeof value === "function" ? value.bind(target) : value;
+      },
+    });
+    await queue(at);
+    expect((await buildPublicSnapshot(counted, at)).outcome).toBe("built");
+    expect(queries).toBeLessThanOrEqual(18 + nodeWrites + patchWrites);
+    expect(maxParamBytes).toBeLessThanOrEqual(PUBLIC_SNAPSHOT_WRITE_PROFILE.chunkBytes);
+    expect((await readCurrentPublicSnapshot(env.DB, at))?.nodes).toHaveLength(size + 1);
+    await env.DB.prepare(`UPDATE calendar_projections SET
+      projection_json = json_set(projection_json, '$.milestone.time.utc_ms', ?),
+      public_ical_revision = public_ical_revision + 1, updated_at = ? WHERE milestone_id LIKE 'bulk-%'`)
+      .bind(at + 2 * day, at + 1)
+      .run();
+    await queue(at + 1);
+    queries = 0;
+    nodeWrites = 0;
+    patchWrites = 0;
+    maxParamBytes = 0;
+    expect((await buildPublicSnapshot(counted, at + 1)).outcome).toBe("built");
+    expect(queries).toBeLessThanOrEqual(18 + nodeWrites + patchWrites);
+    expect(maxParamBytes).toBeLessThanOrEqual(PUBLIC_SNAPSHOT_WRITE_PROFILE.chunkBytes);
+    expect(
+      (await readCurrentPublicSnapshot(env.DB, at + 1))?.nodes.filter(
+        (n) => n.patch?.kind === "rescheduled",
+      ),
+    ).toHaveLength(size);
+    const result = await readCurrentPublicSnapshot(env.DB, at + 1, true);
+    const totalBytes = new TextEncoder().encode(JSON.stringify(result?.nodes)).length;
+    expect(totalBytes).toBeGreaterThan(PUBLIC_SNAPSHOT_WRITE_PROFILE.singleValueBytes);
+    expect(nodeWrites).toBeGreaterThan(1);
+    expect(patchWrites).toBeGreaterThan(2);
+    expect(queries).toBeLessThan(PUBLIC_SNAPSHOT_WRITE_PROFILE.queryLimit);
+    console.log(
+      JSON.stringify({
+        event: "p3_06_build_bytes",
+        nodes: size,
+        queries,
+        nodeWrites,
+        patchWrites,
+        maxParamBytes,
+        totalBytes,
+      }),
+    );
+  }, 60_000);
+  it("记录整代复制和回收的 D1 rows_written，包含节点索引维护", async () => {
+    const current = await one<{ id: string; node_count: number }>(
+      "SELECT id,node_count FROM public_snapshots WHERE state='current'",
+    );
+    expect(current).not.toBeNull();
+    const id = "synthetic-cost-snapshot";
+    await env.DB.prepare(
+      "INSERT INTO public_snapshots(id,generation,state,created_at) VALUES (?,999999,'building',?)",
+    )
+      .bind(id, T0)
+      .run();
+    try {
+      const insert = await env.DB.prepare(
+        "INSERT INTO public_snapshot_nodes SELECT ?,milestone_id,node_json FROM public_snapshot_nodes WHERE snapshot_id=?",
+      )
+        .bind(id, current?.id)
+        .run();
+      const remove = await env.DB.prepare("DELETE FROM public_snapshot_nodes WHERE snapshot_id=?")
+        .bind(id)
+        .run();
+      console.log(
+        JSON.stringify({
+          event: "p3_06_snapshot_write_cost",
+          nodes: current?.node_count,
+          insert_rows_written: insert.meta.rows_written,
+          delete_rows_written: remove.meta.rows_written,
+        }),
+      );
+      expect(insert.meta.changes).toBe(current?.node_count);
+      expect(remove.meta.changes).toBe(current?.node_count);
+      expect(insert.meta.rows_written).toBe((current?.node_count ?? 0) * 3);
+      // 本地 workerd 对 DELETE 的统计只计主表；生产预算仍按官方索引规则保守估算。
+      expect(remove.meta.rows_written).toBe(current?.node_count);
+    } finally {
+      await env.DB.prepare("DELETE FROM public_snapshots WHERE id=?").bind(id).run();
+    }
+  });
+  it("中间节点块写入报错只回收 building，不暴露半代或吞掉待办", async () => {
+    const at = T0 + 400 * day + 2;
+    const previous = await readCurrentPublicSnapshot(env.DB, at);
+    await queue(at);
+    await env.DB.prepare(`CREATE TRIGGER synthetic_node_chunk_failure BEFORE INSERT ON public_snapshot_nodes
+      WHEN NEW.milestone_id='bulk-500' BEGIN SELECT RAISE(ABORT,'synthetic chunk'); END`).run();
+    try {
+      await expect(buildPublicSnapshot(env.DB, at)).rejects.toThrow();
+      expect((await readCurrentPublicSnapshot(env.DB, at))?.generation).toBe(previous?.generation);
+      expect(await one("SELECT id FROM public_snapshots WHERE state='building'")).toBeNull();
+      expect(
+        await one<{ n: number }>(
+          "SELECT COUNT(*) AS n FROM public_snapshot_nodes n WHERE NOT EXISTS (SELECT 1 FROM public_snapshots s WHERE s.id=n.snapshot_id)",
+        ),
+      ).toEqual({ n: 0 });
+      expect(
+        await one<{ n: number }>(
+          "SELECT COUNT(*) AS n FROM outbox WHERE dispatch_state='pending' AND topic=?",
+          SNAPSHOT_REBUILD_TOPIC,
+        ),
+      ).toEqual({ n: 1 });
+    } finally {
+      await env.DB.prepare("DROP TRIGGER synthetic_node_chunk_failure").run();
+    }
+  });
+  it("最终 CAS 未命中时所有效果零写入；数据库错误整批回滚", async () => {
+    const at = T0 + 400 * day + 3;
+    const previous = await readCurrentPublicSnapshot(env.DB, at);
+    await env.DB.prepare(
+      `UPDATE calendar_projections SET projection_json=json_set(projection_json,'$.milestone.time.utc_ms',?), public_ical_revision=public_ical_revision+1,updated_at=? WHERE milestone_id LIKE 'bulk-%'`,
+    )
+      .bind(at + 3 * day, at)
+      .run();
+    const patchesBefore = await one<{ n: number }>("SELECT COUNT(*) AS n FROM calendar_patches");
+    await queue(at);
+    let raced = false;
+    const racing = new Proxy(env.DB, {
+      get(target, property) {
+        if (property === "batch")
+          return async (statements: D1PreparedStatement[]) => {
+            if (!raced) {
+              raced = true;
+              await target
+                .prepare("UPDATE system_state SET updated_at = updated_at + 1 WHERE key = ?")
+                .bind(PUBLIC_SNAPSHOT_PENDING_STATE_KEY)
+                .run();
+            }
+            return target.batch(statements);
+          };
+        const value = Reflect.get(target, property);
+        return typeof value === "function" ? value.bind(target) : value;
+      },
+    });
+    expect((await buildPublicSnapshot(racing, at)).outcome).toBe("condition_missed");
+    expect((await readCurrentPublicSnapshot(env.DB, at))?.generation).toBe(previous?.generation);
+    expect(await one("SELECT id FROM public_snapshots WHERE state = 'building'")).toBeNull();
+    await env.DB.prepare(`CREATE TRIGGER synthetic_snapshot_failure BEFORE UPDATE ON outbox
+      WHEN NEW.dispatch_state = 'dispatched' BEGIN SELECT RAISE(ABORT, 'synthetic'); END`).run();
+    try {
+      await expect(buildPublicSnapshot(env.DB, at + 1)).rejects.toThrow();
+      expect((await readCurrentPublicSnapshot(env.DB, at))?.generation).toBe(previous?.generation);
+      expect(await one("SELECT id FROM public_snapshots WHERE state = 'building'")).toBeNull();
+      expect(await one("SELECT COUNT(*) AS n FROM calendar_patches")).toEqual(patchesBefore);
+    } finally {
+      await env.DB.prepare("DROP TRIGGER synthetic_snapshot_failure").run();
+    }
+  }, 60_000);
+  it("压低构建查询预算在写入 building 前拒绝，不清待办或发布半代", async () => {
+    const at = T0 + 1_000 * day;
+    const before = await one("SELECT COUNT(*) AS n FROM public_snapshots");
+    const nodesBefore = await one("SELECT COUNT(*) AS n FROM public_snapshot_nodes");
+    await queue(at);
+    const original = Object.getOwnPropertyDescriptor(PUBLIC_SNAPSHOT_WRITE_PROFILE, "queryLimit");
+    if (!original) throw new Error("缺少工程查询预算");
+    try {
+      Object.defineProperty(PUBLIC_SNAPSHOT_WRITE_PROFILE, "queryLimit", { value: 1 });
+      await expect(buildPublicSnapshot(env.DB, at + 1)).rejects.toThrow(
+        "too many SQL statements: public snapshot chunk budget",
+      );
+      expect(await one("SELECT COUNT(*) AS n FROM public_snapshots")).toEqual(before);
+      expect(await one("SELECT COUNT(*) AS n FROM public_snapshot_nodes")).toEqual(nodesBefore);
+      expect(
+        await one("SELECT dispatch_state FROM outbox WHERE dedupe_key=?", `test:${at}`),
+      ).toEqual({ dispatch_state: "pending" });
+    } finally {
+      Object.defineProperty(PUBLIC_SNAPSHOT_WRITE_PROFILE, "queryLimit", original);
+    }
+    expect((await buildPublicSnapshot(env.DB, at + 2)).outcome).toBe("built");
   });
 });
