@@ -26,6 +26,8 @@
 | `send_email` 绑定限定发件地址 | P4-03 | §2.2 | `AUTH_MAILER` / `BIZ_MAILER` 各配 `allowed_sender_addresses`，只放本用途地址（由 P4-03 写进 `wrangler.jsonc`） |
 | ~~Workers AI 可用性确认~~ **已解决（2026-09-22）** | P0-03 | — | 可用性与 10,000 Neurons/日免费额度已查实；此前按 entitlements 判断是看错了信号。见 `docs/evidence/p0/platform-facts.md` |
 | 带 Workers AI 推理权限的 API token（或 `wrangler login`） | P0-03 | — | **仅在决定做 P0-03 计费基线时需要**。本机 wrangler 当前未登录；测思考 token 分布需要约 30–50 次真实推理调用，落在单日免费额度内 |
+| 邮件服务端配置 `AUTH_MAIL_FROM`、`BIZ_MAIL_FROM`、`SITE_ORIGIN`（P4-03 合入后生效） | P4-03 | §2.2 | 普通变量，不是秘密。两个发件地址须与 `wrangler.jsonc` 里各自的 `allowed_sender_addresses` 一致；`SITE_ORIGIN` 是稳定的 HTTPS origin。缺任一项，邮件按未配置失败关闭 |
+| 邮件发送开关 `mail_sending_available`（P4-03 合入后生效） | P4-03 | §2.3 | **默认关闭**：关闭时认证入口返回暂不可用，后台也不外发。P5-01 的开关管理上线前，由所有者按 P4-03 README 写明的命令手动打开 |
 
 ## 3. 待取得的实测值
 
@@ -34,3 +36,5 @@
 | `MODEL_MAX_INPUT` / `MODEL_MAX_BILLED_OUTPUT` | P0-03 | 未填写；依赖它们的能力默认关闭 |
 | 目标 Cloudflare 环境对官方来源的可达性复测 | P3-01 | 本机 E2 已通过；Workers 侧 E3 未做（§2.4 要求） |
 | `PLATFORM_MAIL_DAY_LIMIT` 的后续变动 | ADR-0003 | 当前实测 1,000；平台调整时须重跑 `params:verify` |
+| 认证域的真实送达时延 | P0-05 / P4-03 | 未测。业务域取证时第二封 43 分钟才送达，而 `OTP_TTL` 为 10 分钟；开放登录前要在认证域实测 |
+| DKIM 签名是否覆盖退订头 | P0-05 / P4-06 | 未核；P4-06 验收前要有 |
