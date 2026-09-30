@@ -1736,8 +1736,9 @@ describe("A-P1-DB D1 schema、索引与迁移框架", () => {
       },
     });
     const measure = async () => {
+      await run("UPDATE calendar_feeds SET last_feed_poll_at=NULL WHERE token_hash=?", hash);
       samples.length = 0;
-      const state = await readFeedState(measured, hash);
+      const state = await readFeedState(measured, hash, now);
       expect(state).not.toBeNull();
       if (state)
         expect(await recordFeedOutput(measured, hash, state, 2, 10, now, false)).toBe(true);

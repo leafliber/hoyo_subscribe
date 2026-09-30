@@ -170,6 +170,7 @@ export const EXPECTED_TABLES: Record<string, readonly string[]> = {
   public_snapshot_nodes: ["snapshot_id", "milestone_id", "node_json"],
   // 数据组 4：用户
   users: [
+    "calendar_revocation_version",
     "id",
     "order",
     "status",
@@ -352,6 +353,7 @@ export const EXPECTED_TABLES: Record<string, readonly string[]> = {
   ],
   // 数据组 9：Feed
   calendar_feeds: [
+    "last_management_operation",
     "user_id",
     "namespace",
     "state",
@@ -743,6 +745,8 @@ export const EXPECTED_UNIQUE_CONSTRAINTS: Record<string, readonly string[][]> = 
 
 /** 不变式触发器（合同显式不变式的数据库层落点）。 */
 export const EXPECTED_TRIGGERS: readonly string[] = [
+  "trg_feed_activity_merge",
+  "trg_feed_revoke",
   "trg_article_versions_immutable",
   "trg_account_email_change_invalidate",
   "trg_account_delete_invalidate",

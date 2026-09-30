@@ -14,6 +14,7 @@ export * from "./account-lifecycle";
 export * from "./budget/decision";
 export * from "./budget/mutations";
 export * from "./budget/pools";
+export * from "./calendar-management";
 export * from "./calendar-nodes";
 export * from "./calendar-view-change";
 export * from "./challenge-purposes";
