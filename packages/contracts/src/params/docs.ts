@@ -23,6 +23,7 @@ const SECTION_TITLES: Record<ParamMeta["section"], string> = {
 const STATUS_LABELS: Record<ParamMeta["status"], string> = {
   baseline: "基线",
   "adr-0003": "ADR-0003 修订",
+  "adr-0005": "ADR-0005 增补",
   measured: "平台实测",
   "measured-ref": "实测引用",
   "pending-p0": "P0 待定",

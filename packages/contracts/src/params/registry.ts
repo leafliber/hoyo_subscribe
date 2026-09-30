@@ -519,6 +519,9 @@ export const EVENT_EVIDENCE_TTL = 31_536_000 as const;
 /** 通道同意关闭后的最小脱敏记录保留（附录原值 180 天）；平台抑制另按其规则，不自动到期解封。附录 A.5；§4.7。 */
 export const CONSENT_AUDIT_AFTER_CLOSE = 15_552_000 as const;
 
+/** 管理员写操作的审计记录保留（180 天）；附录原文没有这一项，ADR-0005 增补（所有者 2026-09-30 决定）。附录 A.5；§8.1 第 14 组。 */
+export const ADMIN_AUDIT_TTL = 15_552_000 as const;
+
 /** 独立加密备份间隔（附录原值 7 天）。附录 A.5；§10.3。 */
 export const BACKUP_INTERVAL = 604_800 as const;
 
@@ -667,6 +670,7 @@ export const PARAMS = {
   UNREFERENCED_VERSION_TTL,
   EVENT_EVIDENCE_TTL,
   CONSENT_AUDIT_AFTER_CLOSE,
+  ADMIN_AUDIT_TTL,
   BACKUP_INTERVAL,
   BACKUP_COPIES,
 } as const;
@@ -674,10 +678,11 @@ export const PARAMS = {
 /** 等式校验与测试注入用的参数值快照类型。 */
 export type ParamValues = typeof PARAMS;
 
-/** 参数状态：基线值 / ADR-0003 修订 / 平台实测 / 引用实测文件 / P0 待定 / 界面预选 / 策略描述。 */
+/** 参数状态：基线值 / ADR-0003 修订 / ADR-0005 增补 / 平台实测 / 引用实测文件 / P0 待定 / 界面预选 / 策略描述。 */
 export type ParamStatus =
   | "baseline"
   | "adr-0003"
+  | "adr-0005"
   | "measured"
   | "measured-ref"
   | "pending-p0"
@@ -1498,6 +1503,12 @@ export const PARAM_META: Readonly<Record<keyof ParamValues, ParamMeta>> = {
     unit: "秒（原文 180 天）",
     description: "通道同意关闭后的最小脱敏记录；平台抑制不自动到期解封",
     status: "baseline",
+  },
+  ADMIN_AUDIT_TTL: {
+    section: "A.5",
+    unit: "秒（ADR-0005 取 180 天）",
+    description: "管理员写操作的审计记录保留；到期按索引分页清理，审计不含秘密",
+    status: "adr-0005",
   },
   BACKUP_INTERVAL: {
     section: "A.5",
