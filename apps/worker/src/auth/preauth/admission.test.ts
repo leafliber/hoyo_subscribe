@@ -245,9 +245,11 @@ function fakeTurnstile(result: TurnstileCheckResult = "passed", singleUse = fals
   return { verifier, calls };
 }
 
+// 只记录可外发路径；占位挑战与真实配额由 challenges.test.ts 覆盖。
 function recordingEffect() {
   const contexts: ChallengeAndMailTaskContext[] = [];
   const effect: CreateChallengeAndMailTask = async (ctx) => {
+    if (ctx.sendEligible === false) return;
     contexts.push(ctx);
   };
   return { effect, contexts };
@@ -256,6 +258,7 @@ function recordingEffect() {
 function writingEffect() {
   const contexts: ChallengeAndMailTaskContext[] = [];
   const effect: CreateChallengeAndMailTask = async (ctx) => {
+    if (ctx.sendEligible === false) return;
     contexts.push(ctx);
     // 第 7 步替身：按 P2-02 将要落库的最小形状写挑战与发信任务（真实验证码生成不在本卡）。
     await ctx.db.batch([
@@ -919,7 +922,7 @@ describe("A-P2-PREAUTH Turnstile 单次验证（[R09]，用过即废）", () => 
 // —— 并发不超卖（真实 D1） ——
 
 describe("A-P2-PREAUTH 并发预占不超卖（§4.2 同一规范邮箱共享有限预占）", () => {
-  it("同一邮箱 8 路并发申请：恰好 1 条 reserved、计数 +1、效果至多一次", async () => {
+  it("同一邮箱 8 路并发申请：恰好 1 条 reserved、计数 +1、共享同一预占（真实挑战守卫另测）", async () => {
     await writeRegistrationOpen(env.DB, true, T0);
     await seedCapacity(ACCOUNTS_TOTAL_CAPACITY_KEY, 0);
     const email = "race@conc.test";
@@ -959,7 +962,8 @@ describe("A-P2-PREAUTH 并发预占不超卖（§4.2 同一规范邮箱共享有
       ),
     ).toBe(1);
     expect(await capacityValue(ACCOUNTS_TOTAL_CAPACITY_KEY)).toBe(1);
-    expect(effect.contexts.length).toBe(1);
+    expect(effect.contexts.length).toBe(8);
+    expect(new Set(effect.contexts.map((ctx) => ctx.reservationId)).size).toBe(1);
     expect(effect.contexts[0]?.emailKey).toBe(emailKey);
   }, 30_000);
 

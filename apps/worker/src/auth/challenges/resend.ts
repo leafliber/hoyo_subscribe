@@ -14,8 +14,8 @@
 //   并发重发都不会产生第二份有效码（CAS 输家幂等返回）。
 //
 // 配额与预算：重发是认证意图（A.2「登录、重发及重新验证合计」），发送间隔 OTP_COOLDOWN
-// 与当日合计 EMAIL_AUTH_INTENTS_DAY 以 mail_outbox 的真实发送行为计数（申请创建挑战行
-// 与首次发送一一对应，重发只加 outbox 行——以此口径把两类意图都计入同邮箱上限）。
+// 与当日合计 EMAIL_AUTH_INTENTS_DAY 共用 preauth/quota 快照：两表首发 + 独立重发意图。
+// 占位挑战参与冷却、日限与错码扣次，永远不生成 outbox、不占用预算。
 // 预算走 P1-07 认证日池 existing_auth（auth_resend 意图）；当日剩余 <= MAIL_AUTH_FLOOR
 // 时 decideMailIntent 拒绝——认证降级期间**全部重发暂停**（§7.2），仅既有账号首次登录
 // 仍放行（其判定在准入管线，不经本模块）。
@@ -25,34 +25,30 @@
 // 发送载荷清除后仍可重发，列缺失/损坏一律失败关闭，login 失败关闭语义保留。
 
 import {
-  AUTH_MAIL_POOLS,
   canonicalizeEmail,
   decideMailIntent,
-  EMAIL_AUTH_INTENTS_DAY,
-  type MailPool,
   OTP_ATTEMPTS,
-  OTP_COOLDOWN,
-  OUTBOX_UNRESERVED_PERIOD_KEY,
+  planMailReservation,
   utcDayPeriod,
 } from "@hoyo/contracts";
 import { ApiError, jsonResponse, parseCookieHeader } from "../../shell";
-import { conditionalCommit } from "../../storage/cas";
 import type { Keyring } from "../../storage/crypto/keyring";
 import { computeEmailKey, macOtpVerification } from "../../storage/crypto/mac";
 import { generateOtpCode } from "../../storage/crypto/random";
 import {
+  insertUsageRowStatement,
+  type MailLedgerStatement,
+  mailBudgetCapacityPredicate,
   readMailDayLedger,
-  reserveMailBudget,
-  transitionMailReservation,
+  releaseUnsentAuthReservationsStatement,
+  reserveMailPoolStatement,
 } from "../../storage/ledger/mail-ledger";
 import type { PreauthContext } from "../preauth/cookie";
 import { PREAUTH_COOKIE_NAME, verifyPreauthCookieValue } from "../preauth/cookie";
+import { authQuotaGuard, decideAuthQuota, readAuthQuotaSnapshot } from "../preauth/quota";
 import { decryptDeliveryAddress } from "./delivery";
 import { asEnvelopeBytes, encryptOtpPayload, OTP_PAYLOAD_KIND } from "./payload";
 import { renewPreauthCookieForContext } from "./renewal";
-
-/** 秒→毫秒（注册表秒值的换算，不引入第二份常量）。 */
-const MS_PER_SECOND = 1_000;
 
 /** mail_outbox.priority：同 create-challenge（认证邮件最高优先级，阶梯语义属 P4-03）。 */
 const AUTH_MAIL_PRIORITY = 0;
@@ -82,31 +78,6 @@ interface ChallengeRow {
   readonly delivery_address_ciphertext: ArrayBuffer | Uint8Array | null;
 }
 
-/** 重发侧的发送行为快照（mail_outbox 真实行；排除从未外发的 skipped）。 */
-interface SendIntentsSnapshot {
-  readonly lastSendAt: number | null;
-  readonly sendsToday: number;
-}
-
-async function readSendIntents(
-  db: D1Database,
-  emailKey: string,
-  now: number,
-): Promise<SendIntentsSnapshot> {
-  const dayStart = utcDayPeriod(now).startMs;
-  const row = await db
-    .prepare(
-      `SELECT max(created_at) AS last, sum(CASE WHEN created_at >= ? THEN 1 ELSE 0 END) AS today
-         FROM mail_outbox
-        WHERE payload_ref IN (SELECT id FROM auth_challenges WHERE email_key = ?)
-          AND purpose IN (${AUTH_MAIL_POOLS.map((pool) => `'${pool}'`).join(", ")})
-          AND status <> 'skipped'`,
-    )
-    .bind(dayStart, emailKey)
-    .first<{ last: number | null; today: number | null }>();
-  return { lastSendAt: row?.last ?? null, sendsToday: row?.today ?? 0 };
-}
-
 async function loadLatestOpenChallenge(
   db: D1Database,
   preauthId: string,
@@ -129,31 +100,6 @@ async function loadLatestOpenChallenge(
   );
 }
 
-/** 终止前的旧发送任务（持有当日预留、尚未外发；重发成功后逐条归还预算）。 */
-interface PriorReservationRow {
-  readonly id: string;
-  readonly pool: MailPool;
-  readonly periodKey: string;
-}
-
-async function readPriorReservations(
-  db: D1Database,
-  challengeId: string,
-): Promise<PriorReservationRow[]> {
-  const rows = await db
-    .prepare(
-      `SELECT id, purpose, period_key FROM mail_outbox
-        WHERE payload_ref = ? AND status IN ('pending', 'leased') AND period_key <> ?`,
-    )
-    .bind(challengeId, OUTBOX_UNRESERVED_PERIOD_KEY)
-    .all<{ id: string; purpose: MailPool; period_key: string }>();
-  return (rows.results ?? []).map((row) => ({
-    id: row.id,
-    pool: row.purpose,
-    periodKey: row.period_key,
-  }));
-}
-
 /**
  * 重发只认挑战创建时独立加密的实际投递串。login 与 signup 均不能从请求地址
  * 或发送载荷回退；发送后载荷按 §4.3 清空仍须可重发。失败发生在预算预占前。
@@ -163,14 +109,16 @@ async function resolveResendAddress(
   keys: Keyring,
   challenge: ChallengeRow,
 ): Promise<string> {
+  // 所有用途均做同形查询；占位只参与折叠，永不解析为可投递地址。
+  const user = await db
+    .prepare("SELECT email_version, status FROM users WHERE id = ?")
+    .bind(challenge.recipient_user_id)
+    .first<{ email_version: number; status: string }>();
+  if (challenge.purpose === "equalization") return "";
   if (challenge.purpose === "login") {
     if (challenge.recipient_user_id === null) {
       throw new Error("login 用途重发未找到已验证账号（失败关闭）");
     }
-    const user = await db
-      .prepare("SELECT email_version, status FROM users WHERE id = ?")
-      .bind(challenge.recipient_user_id)
-      .first<{ email_version: number; status: string }>();
     if (
       user === null ||
       user.email_version !== challenge.address_version ||
@@ -232,17 +180,23 @@ export async function runResendOtp(deps: ResendOtpDeps, input: ResendOtpInput): 
 
   const emailKey = await computeEmailKey(deps.keys.emailLookup(), canonical.canonical);
 
-  // —— 重发侧配额（同邮箱发送间隔与当日合计；口径见文件头） ——
-  const intents = await readSendIntents(deps.db, emailKey, now);
-  if (intents.lastSendAt !== null && intents.lastSendAt + OTP_COOLDOWN * MS_PER_SECOND > now) {
+  const replay = await deps.db
+    .prepare("SELECT id FROM auth_resend_intents WHERE preauth_id = ? AND idempotency_key = ?")
+    .bind(preauth.context.preauthId, input.idempotencyKey)
+    .first();
+  if (replay !== null) return finalizeResend(deps, preauth.context, now);
+  const snapshot = await readAuthQuotaSnapshot(deps.db, emailKey, now);
+  const quota = decideAuthQuota(
+    { ...snapshot, emailOpenChallenges: 0, globalOpenChallenges: 0 },
+    now,
+  );
+  if (!quota.ok)
     throw new ApiError("rate_limited", {
       code: "rate_limited",
-      retry_after_ms: intents.lastSendAt + OTP_COOLDOWN * MS_PER_SECOND - now,
+      ...(quota.rejection.reason === "cooldown"
+        ? { retry_after_ms: quota.rejection.retryAfterMs }
+        : {}),
     });
-  }
-  if (intents.sendsToday >= EMAIL_AUTH_INTENTS_DAY) {
-    throw new ApiError("rate_limited", { code: "rate_limited" });
-  }
 
   // —— 目标挑战（本上下文、本邮箱最新一条开放挑战；不是码错类失败） ——
   const challenge = await loadLatestOpenChallenge(
@@ -278,27 +232,11 @@ export async function runResendOtp(deps: ResendOtpDeps, input: ResendOtpInput): 
 
   // —— 网络重试幂等：同一 (preauth_id, idempotency_key) 的重发只旋转一次 ——
   const scopedKey = scopedOutboxIdempotencyKey(preauth.context.preauthId, input.idempotencyKey);
-  const replay = await deps.db
-    .prepare("SELECT id FROM mail_outbox WHERE idempotency_key = ?")
-    .bind(scopedKey)
-    .first();
-  if (replay !== null) {
-    return finalizeResend(deps, preauth.context, now);
-  }
-
-  // —— 投递地址解析（§4.1：login 失败关闭，绝不按请求地址改投）。
-  //    在预算预占**之前**：失败关闭路径零写入、零预算占用（无挂靠预占无泄漏）。 ——
+  const quotaGuard = authQuotaGuard(emailKey, now, "resend");
+  const intentId = crypto.randomUUID();
+  const eligible = challenge.purpose !== "equalization";
+  // 投递地址不可用仍在任何写入之前失败关闭；占位的空地址只用于丢弃的加密工作。
   const address = await resolveResendAddress(deps.db, deps.keys, challenge);
-
-  // —— 预算预占（先无挂靠预占；旋转失配即归还，账面不丢） ——
-  const reservation = await reserveMailBudget(deps.db, {
-    intent: "auth_resend",
-    period,
-    now,
-  });
-  if (reservation.outcome === "condition_missed") {
-    throw new ApiError("rate_limited", { code: "rate_limited" });
-  }
 
   // —— 新码 + 新 MAC（六元组以旋转后的 generation 计算）+ 新载荷 ——
   const newGeneration = challenge.generation + 1;
@@ -318,100 +256,93 @@ export async function runResendOtp(deps: ResendOtpDeps, input: ResendOtpInput): 
     code,
     address,
   });
-  const priorReservations = await readPriorReservations(deps.db, challenge.id);
-
-  // —— 原子旋转：CAS on generation（并发重发输家不产生第二份有效码） ——
-  const rotation = await conditionalCommit(deps.db, {
-    guard: {
-      sql: `UPDATE auth_challenges SET generation = ?, mac = ?, updated_at = ?
-             WHERE id = ? AND generation = ? AND consumed_at IS NULL AND aborted_at IS NULL AND deadline > ?
-               AND (purpose <> 'login' OR EXISTS (
-                 SELECT 1 FROM users u WHERE u.id = ? AND u.email_key = auth_challenges.email_key
-                   AND u.email_version = auth_challenges.address_version AND u.status = 'active'
-               ))`,
-      params: [
+  // 预算阈值仍由 contracts 的唯一规则源提供；将预占、旋转、意图、outbox 和旧预留
+  // 归还放进一个 D1 batch，避免占位路径另开短路，也不让它短暂占用预算。
+  const plan = planMailReservation("auth_resend");
+  const capacity = mailBudgetCapacityPredicate(plan, period.key);
+  const accepted = "EXISTS (SELECT 1 FROM auth_resend_intents WHERE id = ?)";
+  const prepareLedger = (statement: MailLedgerStatement) =>
+    deps.db.prepare(statement.sql).bind(...statement.params);
+  const rotation = await deps.db.batch([
+    prepareLedger(insertUsageRowStatement(plan.pool, period, now)),
+    deps.db
+      .prepare(`UPDATE auth_challenges SET generation = ?, mac = ?, updated_at = ?
+      WHERE id = ? AND generation = ? AND consumed_at IS NULL AND aborted_at IS NULL AND deadline > ?
+        AND attempts < ? AND (purpose <> 'login' OR EXISTS (
+          SELECT 1 FROM users u WHERE u.id = ? AND u.email_key = auth_challenges.email_key
+            AND u.email_version = auth_challenges.address_version AND u.status = 'active'))
+        AND ${quotaGuard.sql}
+        AND ${capacity.sql}`)
+      .bind(
         newGeneration,
-        mac,
+        eligible ? mac : "never-authorize",
         now,
         challenge.id,
         challenge.generation,
         now,
+        OTP_ATTEMPTS,
         challenge.recipient_user_id,
-      ],
-    },
-    effects: [
-      {
-        kind: "insert",
-        table: "mail_outbox",
-        columns: [
-          "id",
-          "purpose",
-          "priority",
-          "period_key",
-          "recipient_user_id",
-          "address_version",
-          "payload_kind",
-          "payload_ref",
-          "payload_ciphertext",
-          "status",
-          "idempotency_key",
-          "created_at",
-          "updated_at",
-        ],
-        rows: [
-          [
-            outboxId,
-            decision.pool,
-            AUTH_MAIL_PRIORITY,
-            period.key,
-            challenge.recipient_user_id,
-            challenge.address_version,
-            OTP_PAYLOAD_KIND,
-            challenge.id,
-            payload,
-            "pending",
-            scopedKey,
-            now,
-            now,
-          ],
-        ],
-      },
-      // P2-03：发送后载荷/状态已清时没有旧 pending 行；CAS 原语要求每项 update
-      // 守卫命中后必命中至少一行，故只在读到旧预留时附加这项。
-      ...(priorReservations.length > 0
-        ? ([
-            {
-              kind: "update",
-              table: "mail_outbox",
-              set: {
-                status: "superseded",
-                payload_ciphertext: null,
-                updated_at: now,
-              },
-              where: {
-                sql: "payload_ref = ? AND status IN ('pending', 'leased') AND id <> ?",
-                params: [challenge.id, outboxId],
-              },
-            },
-          ] as const)
-        : []),
-    ],
-  });
+        ...quotaGuard.params,
+        ...capacity.params,
+      ),
+    deps.db
+      .prepare(`INSERT INTO auth_resend_intents (id,email_key,preauth_id,idempotency_key,created_at)
+      SELECT ?,?,?,?,? WHERE changes() = 1`)
+      .bind(intentId, emailKey, preauth.context.preauthId, input.idempotencyKey, now),
+    // 后续效果都由本次唯一意图 ID 守卫，不依赖可以合法为零行的 outbox 写入。
+    prepareLedger(
+      reserveMailPoolStatement(
+        { pool: plan.pool, periodKey: period.key, now },
+        { sql: accepted, params: [intentId] },
+        eligible ? 1 : 0,
+      ),
+    ),
+    deps.db
+      .prepare(`INSERT INTO mail_outbox (id,purpose,priority,period_key,recipient_user_id,address_version,
+      payload_kind,payload_ref,payload_ciphertext,status,idempotency_key,created_at,updated_at)
+      SELECT ?,?,?,?,?,?,?,?,?,'pending',?,?,? WHERE ? AND ${accepted}`)
+      .bind(
+        outboxId,
+        plan.pool,
+        AUTH_MAIL_PRIORITY,
+        period.key,
+        challenge.recipient_user_id,
+        challenge.address_version,
+        OTP_PAYLOAD_KIND,
+        challenge.id,
+        payload,
+        scopedKey,
+        now,
+        now,
+        eligible ? 1 : 0,
+        intentId,
+      ),
+    prepareLedger(
+      releaseUnsentAuthReservationsStatement(challenge.id, outboxId, now, {
+        sql: `? AND ${accepted}`,
+        params: [eligible ? 1 : 0, intentId],
+      }),
+    ),
+    deps.db
+      .prepare(`UPDATE mail_outbox SET status = 'superseded', payload_ciphertext = NULL, updated_at = ?
+      WHERE payload_ref = ? AND id <> ? AND status IN ('pending','leased') AND ? AND ${accepted}`)
+      .bind(now, challenge.id, outboxId, eligible ? 1 : 0, intentId),
+  ]);
 
-  if (rotation.outcome === "condition_missed") {
+  if (rotation[1]?.meta.changes !== 1) {
     // CAS 输家：并发请求已旋转，或挑战刚被消费/终止/到期。
-    await transitionMailReservation(
-      deps.db,
-      { pool: decision.pool, periodKey: period.key, now },
-      "release",
-    );
     const replayed = await deps.db
-      .prepare("SELECT id FROM mail_outbox WHERE idempotency_key = ?")
-      .bind(scopedKey)
+      .prepare("SELECT id FROM auth_resend_intents WHERE preauth_id = ? AND idempotency_key = ?")
+      .bind(preauth.context.preauthId, input.idempotencyKey)
       .first();
     if (replayed !== null) {
       return finalizeResend(deps, preauth.context, now);
     }
+    if (
+      decideMailIntent("auth_resend", await readMailDayLedger(deps.db, period.key)).decision ===
+      "reject"
+    )
+      throw new ApiError("rate_limited", { code: "rate_limited" });
     const stillOpen = await loadLatestOpenChallenge(
       deps.db,
       preauth.context.preauthId,
@@ -426,15 +357,6 @@ export async function runResendOtp(deps: ResendOtpDeps, input: ResendOtpInput): 
       code: "validation",
       fields: [{ path: "email", reason: "no_open_challenge" }],
     });
-  }
-
-  // —— 旧任务预留归还（superseded 属从未外发，§9.1 release；失配即已归还，幂等） ——
-  for (const prior of priorReservations) {
-    await transitionMailReservation(
-      deps.db,
-      { pool: prior.pool, periodKey: prior.periodKey, now },
-      "release",
-    );
   }
 
   return finalizeResend(deps, preauth.context, now);

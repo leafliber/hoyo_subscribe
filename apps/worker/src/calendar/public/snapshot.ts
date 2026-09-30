@@ -1,4 +1,5 @@
 // P3-06 获准跨卡改动：整代保留历史投影（保证未来自然进入及更正对比），集合 SQL 固定构建语句数。
+// P3-11 获准跨卡改动：回收条件纳入 generation 小于 current 的残留 building。
 // P3-05 · 可调用的公共完整代次构建入口；P3-11 负责调度，P3-06 负责个人 ICS。
 // 主方案 §6.3、附录 A.3。只读 P3-04 投影，不修改其发布器。
 import {
@@ -220,13 +221,15 @@ export type PublicSnapshotReclaimResult =
       readonly snapshot_deleted: boolean;
     };
 
-// 保留 current 和最新一条 superseded；building 不参与回收。代次可能因失败构建有缺号。
-const reclaimableSnapshotSql = `state = 'superseded' AND generation < (
+// 保留 current 和最新一条 superseded；只有低于 current 的 building 已不可能提交。
+const reclaimableSnapshotSql = `((state = 'building' AND generation < (
+  SELECT generation FROM public_snapshots WHERE state = 'current'
+)) OR (state = 'superseded' AND generation < (
   SELECT MAX(previous.generation) FROM public_snapshots AS previous
   WHERE previous.state = 'superseded' AND previous.generation < (
     SELECT generation FROM public_snapshots WHERE state = 'current'
   )
-)`;
+)))`;
 
 /** P3-11 定时调用：一页最多删除 maxNodes 个旧代节点，清空后删除代次行。 */
 export async function reclaimSupersededPublicSnapshotPage(

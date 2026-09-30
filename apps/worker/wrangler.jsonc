@@ -1,9 +1,11 @@
+// P3-11 获准跨卡接线：WATCHDOG_INTERVAL 派生的 Cron，scheduled 测试校验一致性。
 // P1-01 占位部署配置（任务卡 P1-01）。
 // 所有绑定均为占位值，不指向任何生产资源；真实资源名与 ID 由所有者在部署时创建并替换。
 // 开发/预览环境不连接生产用户发送链（主方案 §10.5）。
 // 注意：修改绑定后运行 pnpm --filter @hoyo/worker run types 重新生成 worker-configuration.d.ts。
 {
   "$schema": "node_modules/wrangler/config-schema.json",
+  "triggers": { "crons": ["*/10 * * * *"] },
   "name": "hoyo-subscribe-worker",
   "main": "src/index.ts",
   // compatibility_date 与 Wrangler 版本一起固定，不随手升级（ENGINEERING.md §2）。

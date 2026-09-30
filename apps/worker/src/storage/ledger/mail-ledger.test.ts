@@ -22,15 +22,21 @@ import {
   type MailPool,
   type MailPoolOccupancy,
   OUTBOX_UNRESERVED_PERIOD_KEY,
+  planMailReservation,
   utcDayPeriod,
 } from "@hoyo/contracts";
 import { beforeAll, describe, expect, it } from "vitest";
 import { type ConditionalCommitOutcome, conditionalCommit } from "../cas";
 import { splitSqlStatements } from "../split-sql";
 import {
+  insertUsageRowStatement,
   type MailBudgetPeriod,
+  type MailLedgerStatement,
+  mailBudgetCapacityPredicate,
   readMailDayLedger,
+  releaseUnsentAuthReservationsStatement,
   reserveMailBudget,
+  reserveMailPoolStatement,
   rolloverUnsentOutboxReservation,
   transitionMailReservation,
 } from "./mail-ledger";
@@ -982,5 +988,195 @@ describe("A-P1-BUDGET 废止项负向断言（ADR-0003：不得出现 envelope /
       },
     });
     expect(outcome).toEqual({ outcome: "condition_missed" });
+  });
+});
+
+function prepareLedger(statement: MailLedgerStatement): D1PreparedStatement {
+  return env.DB.prepare(statement.sql).bind(...statement.params);
+}
+
+describe("A-P1-BUDGET P2-09 可组合账本构造", () => {
+  it("L1 插入构造幂等且区分池行与用户行，不覆盖已有占用", async () => {
+    const day = period(2028, 1, 1);
+    const userId = "composable-user";
+    await insertUser(userId);
+    await env.DB.batch([
+      prepareLedger(insertUsageRowStatement("base_business", day, T0)),
+      prepareLedger(insertUsageRowStatement("base_business", day, T0, userId)),
+    ]);
+    expect(await poolOccupancy("base_business", day.key)).toEqual({
+      reserved: 0,
+      settled: 0,
+      uncertain: 0,
+    });
+    await seedUsageRow("base_business", day.key, { reserved: 1, settled: 2, uncertain: 3 });
+    await seedUsageRow("base_business", day.key, { reserved: 4 }, userId);
+    await env.DB.batch([
+      prepareLedger(insertUsageRowStatement("base_business", day, T0)),
+      prepareLedger(insertUsageRowStatement("base_business", day, T0, userId)),
+    ]);
+    expect(await poolOccupancy("base_business", day.key)).toEqual({
+      reserved: 1,
+      settled: 2,
+      uncertain: 3,
+    });
+    expect(await poolOccupancy("base_business", day.key, userId)).toEqual({
+      reserved: 4,
+      settled: 0,
+      uncertain: 0,
+    });
+  });
+
+  it("L2 容量构造与 contracts 判定一致，覆盖池上限、认证合计和用户日机会", async () => {
+    const userId = "composable-capacity";
+    await insertUser(userId);
+    const intents = [
+      "auth_resend",
+      "signup_auth",
+      "base_routine_or_announce",
+      "urgent_important_change",
+    ] as const;
+    for (const [i, intent] of intents.entries()) {
+      const day = period(2028, 2, i + 1);
+      const plan = planMailReservation(intent);
+      for (const pool of [
+        "existing_auth",
+        "new_registration",
+        "base_business",
+        "urgent_business",
+      ] as const) {
+        await prepareLedger(insertUsageRowStatement(pool, day, T0)).run();
+      }
+      if (plan.userDayLimit !== undefined)
+        await prepareLedger(insertUsageRowStatement(plan.pool, day, T0, userId)).run();
+      const capacity = mailBudgetCapacityPredicate(plan, day.key, userId);
+      async function check() {
+        const result = await env.DB.prepare(
+          `SELECT CASE WHEN ${capacity.sql} THEN 1 ELSE 0 END AS ok`,
+        )
+          .bind(...capacity.params)
+          .first<{ ok: number }>();
+        const expected =
+          decideMailIntent(intent, await readMailDayLedger(env.DB, day.key, userId)).decision ===
+          "approve";
+        expect(result?.ok, intent).toBe(expected ? 1 : 0);
+      }
+      await check();
+      for (const total of [plan.rowOccupancyLimit - 1, plan.rowOccupancyLimit]) {
+        await seedUsageRow(plan.pool, day.key, { reserved: 1, uncertain: 1, settled: total - 2 });
+        await check();
+      }
+      await seedUsageRow(plan.pool, day.key, {});
+      if (plan.authTotalLimit !== undefined) {
+        await seedUsageRow("new_registration", day.key, { reserved: 1 });
+        for (const total of [plan.authTotalLimit - 1, plan.authTotalLimit]) {
+          await seedUsageRow("existing_auth", day.key, { settled: total - 1 });
+          await check();
+        }
+      }
+      if (plan.userDayLimit !== undefined) {
+        for (const total of [plan.userDayLimit - 1, plan.userDayLimit]) {
+          await seedUsageRow(plan.pool, day.key, { reserved: total }, userId);
+          await check();
+        }
+      }
+    }
+  });
+
+  it("L3 预占构造尊重守卫、零增量和同批回滚，最后一格不能重复占用", async () => {
+    const day = period(2028, 3, 1);
+    const plan = planMailReservation("auth_resend");
+    await prepareLedger(insertUsageRowStatement(plan.pool, day, T0)).run();
+    const ref = { pool: plan.pool, periodKey: day.key, now: T0 };
+    const capacity = mailBudgetCapacityPredicate(plan, day.key);
+    await prepareLedger(reserveMailPoolStatement(ref, { sql: "?", params: [0] })).run();
+    await prepareLedger(reserveMailPoolStatement(ref, capacity, 0)).run();
+    expect(await poolOccupancy(plan.pool, day.key)).toEqual({
+      reserved: 0,
+      settled: 0,
+      uncertain: 0,
+    });
+    await expect(
+      env.DB.batch([
+        prepareLedger(reserveMailPoolStatement(ref, capacity)),
+        env.DB.prepare(
+          "INSERT INTO usage_periods SELECT * FROM usage_periods WHERE pool = ? AND period_key = ?",
+        ).bind(plan.pool, day.key),
+      ]),
+    ).rejects.toThrow(/UNIQUE/);
+    expect((await poolOccupancy(plan.pool, day.key)).reserved).toBe(0);
+    await seedUsageRow(plan.pool, day.key, { settled: MAIL_AUTH_DAY - MAIL_AUTH_FLOOR - 1 });
+    const attempts = await env.DB.batch([
+      prepareLedger(reserveMailPoolStatement(ref, capacity)),
+      prepareLedger(reserveMailPoolStatement(ref, capacity)),
+    ]);
+    expect(attempts.map((result) => result.meta.changes)).toEqual([1, 0]);
+    expect(await poolOccupancy(plan.pool, day.key)).toEqual({
+      reserved: 1,
+      settled: MAIL_AUTH_DAY - MAIL_AUTH_FLOOR - 1,
+      uncertain: 0,
+    });
+  });
+
+  it("L4 归还构造按旧池旧日匹配，排除新任务、其他任务、已外发与未挂账行", async () => {
+    const day = period(2028, 4, 2);
+    const oldDay = period(2028, 4, 1);
+    const payload = "composable-release";
+    const newId = "composable-release-new";
+    await seedUsageRow("existing_auth", day.key, { reserved: 4, settled: 1, uncertain: 1 });
+    await seedUsageRow("new_registration", oldDay.key, { reserved: 1 });
+    await seedUsageRow("base_business", day.key, { reserved: 1 });
+    const fixtures = [
+      { id: newId, status: "pending" },
+      { id: "composable-release-pending", status: "pending" },
+      { id: "composable-release-leased", status: "leased" },
+      { id: "composable-release-other", status: "pending", payload: "other" },
+      { id: "composable-release-accepted", status: "accepted" },
+      { id: "composable-release-unknown", status: "unknown" },
+      { id: "composable-release-calling", status: "calling_provider" },
+      {
+        id: "composable-release-unreserved",
+        status: "pending",
+        periodKey: OUTBOX_UNRESERVED_PERIOD_KEY,
+      },
+      {
+        id: "composable-release-old",
+        status: "pending",
+        purpose: "new_registration",
+        periodKey: oldDay.key,
+      },
+      { id: "composable-release-business", status: "pending", purpose: "base_business" },
+    ];
+    for (const item of fixtures) {
+      await insertOutbox({ purpose: "existing_auth", periodKey: day.key, ...item });
+      await run(
+        "UPDATE mail_outbox SET payload_ref = ? WHERE id = ?",
+        item.payload ?? payload,
+        item.id,
+      );
+    }
+    await prepareLedger(
+      releaseUnsentAuthReservationsStatement(payload, newId, T0, { sql: "?", params: [0] }),
+    ).run();
+    expect((await poolOccupancy("existing_auth", day.key)).reserved).toBe(4);
+    for (let retry = 0; retry < 2; retry++) {
+      await env.DB.batch([
+        prepareLedger(
+          releaseUnsentAuthReservationsStatement(payload, newId, T0, { sql: "?", params: [1] }),
+        ),
+        env.DB.prepare("UPDATE mail_outbox SET status = 'superseded' WHERE id IN (?, ?, ?)").bind(
+          "composable-release-pending",
+          "composable-release-leased",
+          "composable-release-old",
+        ),
+      ]);
+      expect(await poolOccupancy("existing_auth", day.key)).toEqual({
+        reserved: 2,
+        settled: 1,
+        uncertain: 1,
+      });
+      expect((await poolOccupancy("new_registration", oldDay.key)).reserved).toBe(0);
+      expect((await poolOccupancy("base_business", day.key)).reserved).toBe(1);
+    }
   });
 });

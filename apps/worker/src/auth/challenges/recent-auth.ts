@@ -2,13 +2,9 @@
 // 当前地址从 users 受控密文读取；新地址取用户本次明确提交的投递形态。两者的 MAC
 // 都绑定挑战 ID、用途、email_key、地址版本和代次，成功后只产生会话绑定的一次性证明。
 import {
-  AUTH_CHALLENGES_MAX,
-  AUTH_CHALLENGES_PER_EMAIL,
   canonicalizeEmail,
-  EMAIL_AUTH_INTENTS_DAY,
   EMAIL_VERIFY_ATTEMPTS_HOUR,
   OTP_ATTEMPTS,
-  OTP_COOLDOWN,
   OTP_DIGITS,
   OTP_TTL,
   OUTBOX_UNRESERVED_PERIOD_KEY,
@@ -25,7 +21,7 @@ import type { Keyring } from "../../storage/crypto/keyring";
 import { computeEmailKey, macOtpVerification, verifyOtpMac } from "../../storage/crypto/mac";
 import { generateOtpCode } from "../../storage/crypto/random";
 import { reserveMailBudget } from "../../storage/ledger/mail-ledger";
-import { type AuthQuotaSnapshot, decideAuthQuota, intentsDayStartMs } from "../preauth/quota";
+import { authQuotaGuard, decideAuthQuota, readAuthQuotaSnapshot } from "../preauth/quota";
 import type { ApproximateRateGate } from "../preauth/rate-gate";
 import type { TurnstileVerifier } from "../preauth/turnstile";
 import { targetForAction } from "../recent-auth/target";
@@ -33,7 +29,6 @@ import { decryptDeliveryAddress } from "./delivery";
 import { asEnvelopeBytes, encryptOtpPayload, OTP_PAYLOAD_KIND } from "./payload";
 
 const SECOND = 1_000;
-const HOUR = 3_600 * SECOND;
 const AUTH_MAIL_PRIORITY = 0;
 const INITIAL_GENERATION = 0;
 
@@ -71,50 +66,6 @@ interface ChallengeRow {
 
 function invalidProof(): ApiError {
   return new ApiError("unauthorized", { code: "unauthorized", reason: "recent_auth_required" });
-}
-
-/** P2-01 的配额形状，统计原登录/注册和本卡最近认证两张挑战表。 */
-async function readCombinedQuota(
-  db: D1Database,
-  emailKey: string,
-  now: number,
-): Promise<AuthQuotaSnapshot> {
-  const dayStart = intentsDayStartMs(now);
-  const [email, openEmail, openGlobal] = await Promise.all([
-    db
-      .prepare(`SELECT sum(intents) AS intents, max(last) AS last FROM (
-      SELECT count(*) AS intents,max(created_at) AS last FROM auth_challenges
-        WHERE email_key = ? AND created_at >= ?
-      UNION ALL
-      SELECT count(*) AS intents,max(created_at) AS last FROM recent_auth_challenges
-        WHERE email_key = ? AND created_at >= ?)`)
-      .bind(emailKey, dayStart, emailKey, dayStart)
-      .first<{ intents: number; last: number | null }>(),
-    db
-      .prepare(`SELECT sum(c) AS c FROM (
-      SELECT count(*) AS c FROM auth_challenges WHERE email_key = ?
-        AND consumed_at IS NULL AND aborted_at IS NULL AND deadline > ?
-      UNION ALL
-      SELECT count(*) AS c FROM recent_auth_challenges WHERE email_key = ?
-        AND consumed_at IS NULL AND aborted_at IS NULL AND deadline > ?)`)
-      .bind(emailKey, now, emailKey, now)
-      .first<{ c: number }>(),
-    db
-      .prepare(`SELECT sum(c) AS c FROM (
-      SELECT count(*) AS c FROM auth_challenges WHERE consumed_at IS NULL
-        AND aborted_at IS NULL AND deadline > ?
-      UNION ALL
-      SELECT count(*) AS c FROM recent_auth_challenges WHERE consumed_at IS NULL
-        AND aborted_at IS NULL AND deadline > ?)`)
-      .bind(now, now)
-      .first<{ c: number }>(),
-  ]);
-  return {
-    emailIntentsToday: email?.intents ?? 0,
-    emailLastIntentAt: email?.last ?? null,
-    emailOpenChallenges: openEmail?.c ?? 0,
-    globalOpenChallenges: openGlobal?.c ?? 0,
-  };
 }
 
 function quotaError(decision: ReturnType<typeof decideAuthQuota>): ApiError {
@@ -203,7 +154,7 @@ export async function startRecentOtp(
     });
   }
   admission.rateGate.recordIntent(canonical.canonical, now);
-  const quota = decideAuthQuota(await readCombinedQuota(db, emailKey, now), now);
+  const quota = decideAuthQuota(await readAuthQuotaSnapshot(db, emailKey, now), now);
   if (!quota.ok) throw quotaError(quota);
   const challengeId = crypto.randomUUID();
   const outboxId = crypto.randomUUID();
@@ -222,6 +173,7 @@ export async function startRecentOtp(
     code,
     address,
   });
+  const quotaGuard = authQuotaGuard(emailKey, now);
   try {
     const inserted = await conditionalCommit(db, {
       guard: {
@@ -231,19 +183,7 @@ export async function startRecentOtp(
             WHERE u.id = sessions.user_id AND u.status = 'active'
             AND u.email_version = ? AND u.auth_epoch = sessions.auth_epoch
             AND u.recovery_epoch = sessions.recovery_epoch)
-          AND (SELECT count(*) FROM auth_challenges WHERE email_key = ? AND created_at >= ?)
-            + (SELECT count(*) FROM recent_auth_challenges WHERE email_key = ? AND created_at >= ?) < ?
-          AND max(coalesce((SELECT max(created_at) FROM auth_challenges WHERE email_key = ?),0),
-            coalesce((SELECT max(created_at) FROM recent_auth_challenges WHERE email_key = ?),0))
-            + ? <= ?
-          AND (SELECT count(*) FROM auth_challenges WHERE email_key = ? AND consumed_at IS NULL
-            AND aborted_at IS NULL AND deadline > ?)
-            + (SELECT count(*) FROM recent_auth_challenges WHERE email_key = ?
-              AND consumed_at IS NULL AND aborted_at IS NULL AND deadline > ?) < ?
-          AND (SELECT count(*) FROM auth_challenges WHERE consumed_at IS NULL
-            AND aborted_at IS NULL AND deadline > ?)
-            + (SELECT count(*) FROM recent_auth_challenges WHERE consumed_at IS NULL
-              AND aborted_at IS NULL AND deadline > ?) < ?`,
+          AND ${quotaGuard.sql}`,
         params: [
           now,
           session.sessionId,
@@ -252,23 +192,7 @@ export async function startRecentOtp(
           now,
           now,
           user.email_version,
-          emailKey,
-          intentsDayStartMs(now),
-          emailKey,
-          intentsDayStartMs(now),
-          EMAIL_AUTH_INTENTS_DAY,
-          emailKey,
-          emailKey,
-          OTP_COOLDOWN * SECOND,
-          now,
-          emailKey,
-          now,
-          emailKey,
-          now,
-          AUTH_CHALLENGES_PER_EMAIL,
-          now,
-          now,
-          AUTH_CHALLENGES_MAX,
+          ...quotaGuard.params,
         ],
       },
       effects: [
@@ -349,7 +273,7 @@ export async function startRecentOtp(
       ],
     });
     if (inserted.outcome !== "committed") {
-      throw quotaError(decideAuthQuota(await readCombinedQuota(db, emailKey, now), now));
+      throw quotaError(decideAuthQuota(await readAuthQuotaSnapshot(db, emailKey, now), now));
     }
   } catch (error) {
     if (
@@ -419,16 +343,10 @@ export async function verifyRecentOtp(
     .bind(challengeId, session.userId, session.sessionId)
     .first<ChallengeRow>();
   if (row === null || row.deadline <= now || row.attempts >= OTP_ATTEMPTS) throw invalidProof();
-  const recent = await db
-    .prepare(`SELECT
-      coalesce((SELECT sum(attempts) FROM auth_challenges
-        WHERE email_key = ? AND updated_at >= ?),0)
-      + coalesce((SELECT sum(attempts) FROM recent_auth_challenges
-        WHERE email_key = ? AND updated_at >= ?),0) AS total`)
-    .bind(row.email_key, now - HOUR, row.email_key, now - HOUR)
-    .first<{ total: number }>();
-  if ((recent?.total ?? 0) >= EMAIL_VERIFY_ATTEMPTS_HOUR)
+  const recent = await readAuthQuotaSnapshot(db, row.email_key, now);
+  if (recent.verifyAttempts >= EMAIL_VERIFY_ATTEMPTS_HOUR)
     throw new ApiError("rate_limited", { code: "rate_limited" });
+  const verifyGuard = authQuotaGuard(row.email_key, now, "verify");
   const matched = await verifyOtpMac(
     keys.otpMac(),
     {
@@ -444,8 +362,8 @@ export async function verifyRecentOtp(
   if (!matched) {
     await db
       .prepare(`UPDATE recent_auth_challenges SET attempts = attempts + 1, updated_at = ?
-      WHERE id = ? AND consumed_at IS NULL AND aborted_at IS NULL AND deadline > ? AND attempts < ?`)
-      .bind(now, row.id, now, OTP_ATTEMPTS)
+      WHERE id = ? AND consumed_at IS NULL AND aborted_at IS NULL AND deadline > ? AND attempts < ? AND ${verifyGuard.sql}`)
+      .bind(now, row.id, now, OTP_ATTEMPTS, ...verifyGuard.params)
       .run();
     throw invalidProof();
   }
@@ -460,7 +378,7 @@ export async function verifyRecentOtp(
           AND s.state = 'active' AND s.expires_at > ? AND s.absolute_expires_at > ?
           AND u.status = 'active' AND s.auth_epoch = u.auth_epoch
           AND s.recovery_epoch = u.recovery_epoch
-          AND u.email_version = recent_auth_challenges.address_version)`,
+          AND u.email_version = recent_auth_challenges.address_version) AND ${verifyGuard.sql}`,
       params: [
         now,
         now,
@@ -473,6 +391,7 @@ export async function verifyRecentOtp(
         session.sessionTokenHash,
         now,
         now,
+        ...verifyGuard.params,
       ],
     },
     effects: [

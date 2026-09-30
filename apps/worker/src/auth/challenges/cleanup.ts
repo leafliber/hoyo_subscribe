@@ -5,10 +5,16 @@
 // superseded）已在创建失败路径与重发旋转中即时清除。本模块补齐**过期**这条：
 // 挑战截止已过、密文仍在的 outbox 行 → status 'expired' + payload_ciphertext 置空，
 // 并归还其从未外发的当日预留（§9.1 release）。EXPIRED_AUTH_CLEANUP（24h）是清理
-// 最迟时间——**过期即不能授权**，本原语只负责密文与预算的兜底回收，不延长任何授权。
-// 挂接点（Cron/队列）属 P4/P5 任务卡；本卡交付原语并以测试钉住行为。
+// 最迟时间——**过期即不能授权**；窗口结束后删除挑战行，不延长任何授权。
+// 定时挂接归 P3-11；本卡交付原语及全部窗口结束后的物理删除。
 
-import { type MailPool, OUTBOX_UNRESERVED_PERIOD_KEY } from "@hoyo/contracts";
+import {
+  type MailPool,
+  OTP_COOLDOWN,
+  OTP_TTL,
+  OUTBOX_UNRESERVED_PERIOD_KEY,
+  utcDayPeriod,
+} from "@hoyo/contracts";
 import { transitionMailReservation } from "../../storage/ledger/mail-ledger";
 
 /** 一条待回收的过期发送行（及其预算归属）。 */
@@ -27,35 +33,42 @@ export interface ExpiredPayloadCleanupResult {
 /**
  * 清除截止已过挑战的验证码密文并归还预留（幂等）。
  * 过期即不能授权（EXPIRED_AUTH_CLEANUP 只是清理最迟时间）；本原语不改动挑战行的
- * 授权语义，只回收密文与预算。
+ * 授权语义；回收密文与预算后，删除所有保留窗口均已结束的挑战。
  */
 export async function clearExpiredOtpPayloads(
   db: D1Database,
   now: number,
 ): Promise<ExpiredPayloadCleanupResult> {
+  await db
+    .prepare("DELETE FROM auth_resend_intents WHERE created_at < ?")
+    .bind(Math.min(utcDayPeriod(now).startMs, now - Math.max(OTP_TTL, OTP_COOLDOWN) * 1_000))
+    .run();
   const expired = await db
     .prepare(
       `SELECT o.id, o.purpose AS pool, o.period_key AS periodKey FROM mail_outbox o
          JOIN auth_challenges c ON c.id = o.payload_ref
         WHERE c.deadline <= ? AND c.consumed_at IS NULL AND c.aborted_at IS NULL
+          AND o.payload_ciphertext IS NOT NULL
+        UNION
+        SELECT o.id, o.purpose AS pool, o.period_key AS periodKey FROM mail_outbox o
+         JOIN recent_auth_challenges c ON c.outbox_id = o.id
+        WHERE c.deadline <= ? AND c.consumed_at IS NULL AND c.aborted_at IS NULL
           AND o.payload_ciphertext IS NOT NULL`,
     )
-    .bind(now)
+    .bind(now, now)
     .all<ExpiredOutboxRow>();
   const rows = expired.results ?? [];
-  if (rows.length === 0) {
-    return { cleared: 0, budgetReleased: 0 };
-  }
-  await db.batch(
-    rows.map((row) =>
-      db
-        .prepare(
-          `UPDATE mail_outbox SET status = 'expired', payload_ciphertext = NULL, updated_at = ?
+  if (rows.length > 0)
+    await db.batch(
+      rows.map((row) =>
+        db
+          .prepare(
+            `UPDATE mail_outbox SET status = 'expired', payload_ciphertext = NULL, updated_at = ?
             WHERE id = ? AND payload_ciphertext IS NOT NULL`,
-        )
-        .bind(now, row.id),
-    ),
-  );
+          )
+          .bind(now, row.id),
+      ),
+    );
   let released = 0;
   for (const row of rows) {
     if (row.periodKey === OUTBOX_UNRESERVED_PERIOD_KEY) {
@@ -70,5 +83,19 @@ export async function clearExpiredOtpPayloads(
       released += 1;
     }
   }
+  // 日意图、冷却、小时错误、挑战截止与完成回执全部结束才能删行。
+  // 在载荷与预算清理之后运行，避免留下失去挑战关联的待发验证码。
+  const createdBefore = Math.min(utcDayPeriod(now).startMs, now - OTP_COOLDOWN * 1_000);
+  const attemptsBefore = now - 3_600 * 1_000;
+  await db.batch([
+    db
+      .prepare(`DELETE FROM auth_challenges WHERE created_at < ? AND updated_at < ?
+      AND deadline <= ? AND (receipt_expires_at IS NULL OR receipt_expires_at <= ?)`)
+      .bind(createdBefore, attemptsBefore, now, now),
+    db
+      .prepare(`DELETE FROM recent_auth_challenges WHERE created_at < ? AND updated_at < ?
+      AND deadline <= ?`)
+      .bind(createdBefore, attemptsBefore, now),
+  ]);
   return { cleared: rows.length, budgetReleased: released };
 }

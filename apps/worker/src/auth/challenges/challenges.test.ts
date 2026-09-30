@@ -19,10 +19,15 @@
 
 import { env } from "cloudflare:test";
 import {
+  ACCOUNT_MAX_STORED,
+  AUTH_CHALLENGES_MAX,
+  AUTH_CHALLENGES_PER_EMAIL,
   AUTH_COMPLETION_TTL,
   assertResponsesFolded,
   authDayTotalLimit,
   BUDGET_PERIOD_KIND,
+  EMAIL_AUTH_INTENTS_DAY,
+  EMAIL_VERIFY_ATTEMPTS_HOUR,
   MAIL_AUTH_FLOOR,
   OTP_ATTEMPTS,
   OTP_COOLDOWN,
@@ -31,23 +36,28 @@ import {
   PREAUTH_MARGIN,
   PREAUTH_MIN_TTL,
   SECRET_BITS,
+  SESSION_IDLE_TTL,
   utcDayPeriod,
 } from "@hoyo/contracts";
-import { beforeAll, describe, expect, it } from "vitest";
+import { beforeAll, describe, expect, it, vi } from "vitest";
 import { writeRegistrationOpen } from "../../accounts/admission/registration";
 import { allocateUserOrder } from "../../accounts/users/order";
 import { createApiShell, mintCsrfToken, parseCookieHeader, type ShellRoute } from "../../shell";
 import { randomBytes, testKeyring } from "../../shell/test-support";
 import { encryptField } from "../../storage/crypto/aead";
 import { computeEmailKey, macOtpVerification } from "../../storage/crypto/mac";
+import { readMailDayLedger, transitionMailReservation } from "../../storage/ledger/mail-ledger";
 import { splitSqlStatements } from "../../storage/split-sql";
+import { makePendingSession } from "../consume/session";
 import { mintPreauthCookieValue, PREAUTH_COOKIE_NAME } from "../preauth/cookie";
 import { runPreauthAdmission } from "../preauth/pipeline";
+import { authQuotaGuard, authQuotaSql, readAuthQuotaSnapshot } from "../preauth/quota";
 import type { ApproximateRateGate, RateGateDecision } from "../preauth/rate-gate";
 import type { TurnstileVerifier } from "../preauth/turnstile";
 import { clearExpiredOtpPayloads } from "./cleanup";
-import { createChallengeAndMailTask } from "./create-challenge";
+import { createAdmittedChallengeAndMailTask } from "./create-challenge";
 import { decryptOtpPayload } from "./payload";
+import { startRecentOtp, verifyRecentOtp } from "./recent-auth";
 import { runResendOtp } from "./resend";
 import { makeChallengeRoutes } from "./routes";
 import { runVerifyOtp } from "./verify";
@@ -187,7 +197,7 @@ function localShell(): ReturnType<typeof createApiShell> {
             keys: await testKeyring,
             rateGate: allowAllGate(),
             turnstile: passTurnstile,
-            effect: createChallengeAndMailTask,
+            effect: createAdmittedChallengeAndMailTask,
             now: clock,
           },
           {
@@ -589,9 +599,13 @@ describe("A-P2-OTP 申请与幂等", () => {
     // 跨日四路径正文/状态一致（Set-Cookie 含时间因素，只做同时刻配对比较）。
     assertResponsesFolded(a, c);
     assertResponsesFolded(a, d);
-    // 不发路径零落库（未生成实际发信任务）。
-    expect((await challengesOf(await emailKeyOf(budgetOut))).length).toBe(0);
-    expect((await challengesOf(await emailKeyOf(closed))).length).toBe(0);
+    // P2-09：不发路径只留占位挑战，无实际发信任务。
+    for (const email of [budgetOut, closed]) {
+      const rows = await challengesOf(await emailKeyOf(email));
+      expect(rows).toHaveLength(1);
+      expect(rows[0].purpose).toBe("equalization");
+      expect(await outboxOf(rows[0].id)).toHaveLength(0);
+    }
   });
 
   it("网络重试幂等：同键并发申请只建一个挑战；冷却后同键重放不建新发送意图", async () => {
@@ -742,7 +756,7 @@ describe("A-P2-OTP 重发", () => {
     expect(good.status).toBe(200);
   });
 
-  it("认证池 floor 降级：重发暂停（429）、既有账号首次登录仍放行、新注册发信暂停零落库", async () => {
+  it("认证池 floor 降级：重发暂停（429）、既有账号首次登录仍放行、新注册发信暂停只留占位", async () => {
     isolateDay();
     const login = freshEmail("floor-login");
     await seedUser(login, login);
@@ -765,10 +779,12 @@ describe("A-P2-OTP 重发", () => {
     expect(blocked.status).toBe(429);
     expect((await challengesOf(emailKey, ctx.id))[0].generation).toBe(0);
 
-    // 新注册发信同样暂停：响应折叠 202，但零落库。
+    // 新注册发信同样暂停：响应折叠 202，只有占位挑战。
     const folded = await apply({ email: signup, idempotencyKey: "f-2", preauthValue: ctx.value });
     expect(folded.status).toBe(202);
-    expect((await challengesOf(await emailKeyOf(signup))).length).toBe(0);
+    const shadow = (await challengesOf(await emailKeyOf(signup)))[0];
+    expect(shadow.purpose).toBe("equalization");
+    expect(await outboxOf(shadow.id)).toHaveLength(0);
 
     // 账本只记了首次登录那一次（floor 下注册/重发都不产生新占用）。
     expect(await usageOf("existing_auth", utcDayPeriod(clockMs).key)).toBe(
@@ -1168,4 +1184,854 @@ describe("A-P2-OTP 密码学与清除", () => {
     );
     expect(verified.status).toBe(200);
   });
+});
+
+describe("A-P2-PREAUTH A-P2-OTP P2-09 回归", () => {
+  it("注册关闭时第二次申请对已注册和未知邮箱同形（跨 isolate）", async () => {
+    isolateDay();
+    const registered = freshEmail("p209-known");
+    const unknown = freshEmail("p209-unknown");
+    await seedUser(registered, registered);
+    await writeRegistrationOpen(env.DB, false, clockMs);
+    try {
+      expect((await apply({ email: registered })).status).toBe(202);
+      expect((await apply({ email: unknown })).status).toBe(202);
+      clockMs += SECOND;
+      const a = await apply({ email: registered });
+      const b = await apply({ email: unknown });
+      expect([a.status, b.status]).toEqual([429, 429]);
+      expect(await a.text()).toBe(await b.text());
+    } finally {
+      await writeRegistrationOpen(env.DB, true, clockMs);
+    }
+  });
+
+  it.each([2 * 3_600 * SECOND, 30 * 60 * SECOND])(
+    "错误尝试窗口按一小时计算：历史距离 %i ms",
+    async (age) => {
+      isolateDay();
+      const email = freshEmail("p209-window");
+      const emailKey = await emailKeyOf(email);
+      for (let i = 0; i < EMAIL_VERIFY_ATTEMPTS_HOUR / OTP_ATTEMPTS; i++) {
+        await run(
+          "INSERT INTO auth_challenges (id,purpose,email_key,address_version,preauth_id,mac,attempts,deadline,created_at,updated_at) VALUES (?, 'login', ?, 1, 'seed', 'seed', ?, ?, ?, ?)",
+          crypto.randomUUID(),
+          emailKey,
+          OTP_ATTEMPTS,
+          clockMs - age,
+          clockMs - age,
+          clockMs - age,
+        );
+      }
+      const res = await verify({ email, code: "1".repeat(OTP_DIGITS) });
+      expect(res.status).toBe(age > 3_600 * SECOND ? 400 : 429);
+      if (age > 3_600 * SECOND) expect(await fieldReason(res)).toBe("no_open_challenge");
+    },
+  );
+});
+
+/** 只创建本地已登录会话，供三种认证意图交叉测试。 */
+async function recentOwner(email: string) {
+  const user = await seedUser(email, email);
+  const session = await makePendingSession(clockMs);
+  await run(
+    `INSERT INTO sessions (id,user_id,token_hash,state,label,platform_hint,issued_at,
+    absolute_expires_at,expires_at,renewed_at,auth_epoch,recovery_epoch,created_at,updated_at)
+    VALUES (?,?,?,'active',?,?,?,?,?,?,0,0,?,?)`,
+    session.id,
+    user.id,
+    session.tokenHash,
+    session.label,
+    session.platformHint,
+    clockMs,
+    session.absoluteExpiresAt,
+    Math.min(clockMs + SESSION_IDLE_TTL * SECOND, session.absoluteExpiresAt),
+    clockMs,
+    clockMs,
+    clockMs,
+  );
+  return { userId: user.id, sessionId: session.id, sessionTokenHash: session.tokenHash };
+}
+
+async function recentStart(owner: Awaited<ReturnType<typeof recentOwner>>) {
+  return startRecentOtp(
+    env.DB,
+    await testKeyring,
+    owner,
+    "account_delete",
+    "current",
+    undefined,
+    crypto.randomUUID(),
+    clockMs,
+    { rateGate: allowAllGate(), turnstile: passTurnstile, turnstileToken: "synthetic" },
+  );
+}
+
+async function shape(response: Response) {
+  return { status: response.status, body: await response.text() };
+}
+
+describe("A-P2-PREAUTH A-P2-OTP P2-09 序列与交叉配额", () => {
+  it.each(["closed", "full", "signup-paused"] as const)(
+    "%s：后续申请、重发、错码与当日上限逐项同形",
+    async (state) => {
+      isolateDay();
+      const known = freshEmail("known-sequence");
+      const unknown = freshEmail("unknown-sequence");
+      await seedUser(known, known);
+      if (state === "closed") await writeRegistrationOpen(env.DB, false, clockMs);
+      if (state === "full")
+        await run(
+          "UPDATE capacity_state SET value = ? WHERE key = 'accounts_total'",
+          ACCOUNT_MAX_STORED,
+        );
+      if (state === "signup-paused") await seedAuthOccupancy(authDayTotalLimit() - MAIL_AUTH_FLOOR);
+      try {
+        const ctx = await preauthContext();
+        const pair = async (send: (email: string) => Promise<Response>, status: number) => {
+          const a = await shape(await send(known));
+          const b = await shape(await send(unknown));
+          expect(a.status).toBe(status);
+          expect(b).toEqual(a);
+        };
+        await pair((email) => apply({ email, preauthValue: ctx.value }), 202);
+        const knownRow = (await challengesOf(await emailKeyOf(known)))[0];
+        const unknownRow = (await challengesOf(await emailKeyOf(unknown)))[0];
+        expect(unknownRow.purpose).toBe("equalization");
+        expect(await outboxOf(unknownRow.id)).toHaveLength(0);
+        expect(unknownRow.reservation_id).toBeNull();
+        const reservations = await query<{ c: number }>(
+          "SELECT count(*) AS c FROM admission_reservations WHERE email_key = ?",
+          await emailKeyOf(unknown),
+        );
+        expect(reservations[0].c).toBe(0);
+        clockMs += SECOND;
+        await pair((email) => apply({ email, preauthValue: ctx.value }), 429);
+        clockMs += OTP_COOLDOWN * SECOND;
+        await pair(
+          (email) =>
+            resend({
+              email,
+              preauthValue: ctx.value,
+              idempotencyKey: `resend-${email === known ? "known" : "unknown"}`,
+            }),
+          state === "signup-paused" ? 429 : 202,
+        );
+        const code = (await latestPayload(knownRow.id)).code;
+        const wrong = `${code[0] === "0" ? "1" : "0"}${code.slice(1)}`;
+        for (let i = 0; i <= OTP_ATTEMPTS; i++) {
+          await pair((email) => verify({ email, preauthValue: ctx.value, code: wrong }), 400);
+        }
+        let count = state === "signup-paused" ? 1 : 2;
+        for (; count < EMAIL_AUTH_INTENTS_DAY; count++) {
+          clockMs += (OTP_TTL + 1) * SECOND;
+          // 重新签发上下文避免长序列被 Cookie 的 TTL 提前阻断。
+          await pair((email) => apply({ email }), 202);
+        }
+        clockMs += OTP_COOLDOWN * SECOND;
+        await pair((email) => apply({ email }), 429);
+        await pair((email) => resend({ email, idempotencyKey: crypto.randomUUID() }), 429);
+        const unknownQuota = await readAuthQuotaSnapshot(
+          env.DB,
+          await emailKeyOf(unknown),
+          clockMs,
+        );
+        expect(unknownQuota.emailIntentsToday).toBe(EMAIL_AUTH_INTENTS_DAY);
+      } finally {
+        await writeRegistrationOpen(env.DB, true, clockMs);
+        if (state === "full")
+          await run("UPDATE capacity_state SET value = 0 WHERE key = 'accounts_total'");
+      }
+    },
+  );
+
+  it("登录首发加重发达到日限后申请和最近认证均拒绝，重发后申请仍冷却", async () => {
+    isolateDay();
+    const email = freshEmail("resend-budget");
+    const owner = await recentOwner(email);
+    const ctx = await preauthContext();
+    expect((await apply({ email, preauthValue: ctx.value })).status).toBe(202);
+    for (let i = 1; i < EMAIL_AUTH_INTENTS_DAY; i++) {
+      clockMs += OTP_COOLDOWN * SECOND;
+      expect(
+        (await resend({ email, preauthValue: ctx.value, idempotencyKey: `r-${i}` })).status,
+      ).toBe(202);
+      expect((await apply({ email })).status).toBe(429);
+    }
+    // payload_ref 清掉仍不得退还意图额度。
+    await run(
+      "UPDATE mail_outbox SET payload_ref = NULL, payload_ciphertext = NULL WHERE recipient_user_id = ?",
+      owner.userId,
+    );
+    clockMs += OTP_COOLDOWN * SECOND;
+    expect((await apply({ email })).status).toBe(429);
+    await expect(recentStart(owner)).rejects.toMatchObject({ code: "rate_limited" });
+    expect(
+      (await readAuthQuotaSnapshot(env.DB, await emailKeyOf(email), clockMs)).emailIntentsToday,
+    ).toBe(EMAIL_AUTH_INTENTS_DAY);
+  });
+
+  it("最近认证用满日限后登录和重发均拒绝；反向登录用满后最近认证拒绝", async () => {
+    for (const mode of ["recent", "login"]) {
+      isolateDay();
+      const email = freshEmail(mode);
+      const owner = await recentOwner(email);
+      for (let i = 0; i < EMAIL_AUTH_INTENTS_DAY; i++) {
+        if (mode === "recent") await recentStart(owner);
+        else expect((await apply({ email })).status).toBe(202);
+        clockMs += (OTP_TTL + 1) * SECOND;
+      }
+      expect((await apply({ email })).status).toBe(429);
+      expect((await resend({ email, idempotencyKey: "cap" })).status).toBe(429);
+      await expect(recentStart(owner)).rejects.toMatchObject({ code: "rate_limited" });
+    }
+  });
+
+  it("最近认证自身的有效挑战计入邮箱上限，登录和最近认证都不能再创建", async () => {
+    isolateDay();
+    const email = freshEmail("recent-open");
+    const owner = await recentOwner(email);
+    for (let i = 0; i < AUTH_CHALLENGES_PER_EMAIL; i++) {
+      await recentStart(owner);
+      clockMs += OTP_COOLDOWN * SECOND;
+    }
+    expect((await apply({ email })).status).toBe(429);
+    await expect(recentStart(owner)).rejects.toMatchObject({ code: "rate_limited" });
+    expect(
+      (await readAuthQuotaSnapshot(env.DB, await emailKeyOf(email), clockMs)).emailOpenChallenges,
+    ).toBe(AUTH_CHALLENGES_PER_EMAIL);
+  });
+
+  it("两表合计全站有效挑战达到上限时不创建新挑战", async () => {
+    isolateDay();
+    const email = freshEmail("global");
+    const owner = await recentOwner(email);
+    await recentStart(owner);
+    await run(
+      `WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i+1 FROM n WHERE i < ?)
+      INSERT INTO auth_challenges (id,purpose,email_key,address_version,preauth_id,mac,deadline,created_at,updated_at)
+      SELECT ? || i,'login',? || i,0,'global','seed',?,?,? FROM n`,
+      AUTH_CHALLENGES_MAX - 1,
+      `global-${email}-`,
+      `global-key-${email}-`,
+      clockMs + OTP_TTL * SECOND,
+      clockMs,
+      clockMs,
+    );
+    clockMs += OTP_COOLDOWN * SECOND;
+    const other = freshEmail("global-other");
+    expect((await apply({ email: other })).status).toBe(202);
+    expect(await challengesOf(await emailKeyOf(other))).toHaveLength(0);
+    await expect(recentStart(owner)).rejects.toMatchObject({ code: "rate_limited" });
+  });
+
+  it.each([2 * 3_600 * SECOND, 30 * 60 * SECOND])(
+    "最近认证错误尝试也约束两条校验路径：历史距离 %i ms",
+    async (age) => {
+      isolateDay();
+      const email = freshEmail("recent-attempts");
+      const owner = await recentOwner(email);
+      const recentId = await recentStart(owner);
+      clockMs += OTP_COOLDOWN * SECOND;
+      const ctx = await preauthContext();
+      expect((await apply({ email, preauthValue: ctx.value })).status).toBe(202);
+      const login = (await challengesOf(await emailKeyOf(email)))[0];
+      const correct = (await latestPayload(login.id)).code;
+      const wrong = `${correct[0] === "0" ? "1" : "0"}${correct.slice(1)}`;
+      const recentCode = (await latestPayload(recentId)).code;
+      const recentWrong = `${recentCode[0] === "0" ? "1" : "0"}${recentCode.slice(1)}`;
+      for (let i = 0; i < EMAIL_VERIFY_ATTEMPTS_HOUR / OTP_ATTEMPTS; i++) {
+        await run(
+          `INSERT INTO recent_auth_challenges
+        (id,user_id,session_id,idempotency_key,action,role,target_digest,email_key,address_version,mac,attempts,deadline,outbox_id,created_at,updated_at)
+        SELECT ?,user_id,session_id,? ,action,role,target_digest,email_key,address_version,mac,?,?,outbox_id,?,?
+        FROM recent_auth_challenges WHERE id = ?`,
+          crypto.randomUUID(),
+          crypto.randomUUID(),
+          OTP_ATTEMPTS,
+          clockMs - age,
+          clockMs - age,
+          clockMs - age,
+          recentId,
+        );
+      }
+      expect((await verify({ email, preauthValue: ctx.value, code: wrong })).status).toBe(
+        age > 3_600 * SECOND ? 400 : 429,
+      );
+      await expect(
+        verifyRecentOtp(env.DB, await testKeyring, owner, recentId, recentWrong, clockMs),
+      ).rejects.toMatchObject({ code: age > 3_600 * SECOND ? "unauthorized" : "rate_limited" });
+    },
+  );
+
+  it("不同上下文并发申请只受理一次；申请和最近认证竞争同一邮箱冷却", async () => {
+    isolateDay();
+    const email = freshEmail("race");
+    const owner = await recentOwner(email);
+    const results = await Promise.all([
+      apply({ email }),
+      apply({ email }),
+      recentStart(owner).then(
+        () => ({ status: 202 }),
+        () => ({ status: 429 }),
+      ),
+    ]);
+    expect(results.filter((r) => r.status === 202)).toHaveLength(1);
+    expect(
+      (await readAuthQuotaSnapshot(env.DB, await emailKeyOf(email), clockMs)).emailIntentsToday,
+    ).toBe(1);
+  });
+});
+
+describe("A-P2-PREAUTH P2-09 SQL 折叠与边界", () => {
+  it("真实效果四条申请路径数据库语句形状与数量一致", async () => {
+    isolateDay();
+    const paths: string[][] = [];
+    for (const state of ["known", "signup", "closed", "full"]) {
+      const email = freshEmail(`shape-${state}`);
+      if (state === "known") await seedUser(email, email);
+      await writeRegistrationOpen(env.DB, state !== "closed", clockMs);
+      await run(
+        "UPDATE capacity_state SET value = ? WHERE key = 'accounts_total'",
+        state === "full" ? ACCOUNT_MAX_STORED : 0,
+      );
+      const statements: string[] = [];
+      const db = new Proxy(env.DB, {
+        get(target, prop) {
+          if (prop === "prepare")
+            return (sql: string) => {
+              statements.push(sql);
+              return target.prepare(sql);
+            };
+          const value = Reflect.get(target, prop, target);
+          return typeof value === "function" ? value.bind(target) : value;
+        },
+      });
+      try {
+        const req = await buildRequest("/api/v2/auth/challenges", { email }, {});
+        const res = await runPreauthAdmission(
+          {
+            db,
+            keys: await testKeyring,
+            rateGate: allowAllGate(),
+            turnstile: passTurnstile,
+            effect: createAdmittedChallengeAndMailTask,
+            now: clock,
+          },
+          { request: req, email, turnstileToken: "synthetic", idempotencyKey: crypto.randomUUID() },
+        );
+        expect(res.status).toBe(202);
+        paths.push(statements);
+      } finally {
+        await writeRegistrationOpen(env.DB, true, clockMs);
+        await run("UPDATE capacity_state SET value = 0 WHERE key = 'accounts_total'");
+      }
+    }
+    for (const statements of paths) expect(statements).toEqual(paths[0]);
+  });
+
+  it("跨 UTC 日仍保留重发冷却；同键重发重放不再扣额度", async () => {
+    isolateDay();
+    clockMs = utcDayPeriod(clockMs).endMsExclusive - OTP_COOLDOWN * SECOND;
+    const email = freshEmail("day-boundary");
+    await seedUser(email, email);
+    const ctx = await preauthContext();
+    expect((await apply({ email, preauthValue: ctx.value })).status).toBe(202);
+    clockMs += OTP_COOLDOWN * SECOND;
+    expect((await resend({ email, preauthValue: ctx.value, idempotencyKey: "retry" })).status).toBe(
+      202,
+    );
+    expect((await resend({ email, preauthValue: ctx.value, idempotencyKey: "retry" })).status).toBe(
+      202,
+    );
+    expect(
+      (await readAuthQuotaSnapshot(env.DB, await emailKeyOf(email), clockMs)).emailIntentsToday,
+    ).toBe(1);
+    expect((await apply({ email })).status).toBe(429);
+  });
+});
+
+function tracingDb() {
+  const sql: string[] = [];
+  const trips: string[] = [];
+  function wrap(stmt: D1PreparedStatement): D1PreparedStatement {
+    return new Proxy(stmt, {
+      get(target, prop) {
+        if (prop === "bind") return (...args: unknown[]) => wrap(target.bind(...args));
+        const value = Reflect.get(target, prop, target);
+        if (["first", "all", "run", "raw"].includes(String(prop)))
+          return (...args: unknown[]) => {
+            trips.push(String(prop));
+            return value.apply(target, args);
+          };
+        return typeof value === "function" ? value.bind(target) : value;
+      },
+    });
+  }
+  const db = new Proxy(env.DB, {
+    get(target, prop) {
+      if (prop === "prepare")
+        return (query: string) => {
+          sql.push(query);
+          return wrap(target.prepare(query));
+        };
+      if (prop === "batch")
+        return (statements: D1PreparedStatement[]) => {
+          trips.push("batch");
+          return target.batch(statements);
+        };
+      const value = Reflect.get(target, prop, target);
+      return typeof value === "function" ? value.bind(target) : value;
+    },
+  });
+  return { db, sql, trips };
+}
+
+describe("A-P2-PREAUTH A-P2-OTP P2-09 返工", () => {
+  it("R1 配额快照及守卫的 rows_read 不随无关历史行增长", async () => {
+    isolateDay();
+    const email = freshEmail("r1");
+    const owner = await recentOwner(email);
+    const recentId = await recentStart(owner);
+    clockMs += OTP_COOLDOWN * SECOND;
+    expect((await apply({ email })).status).toBe(202);
+    clockMs += OTP_COOLDOWN * SECOND;
+    const key = await emailKeyOf(email);
+    const snapshot = authQuotaSql(key, clockMs);
+    const guard = authQuotaGuard(key, clockMs);
+    async function measure() {
+      const read = await env.DB.prepare(snapshot.sql)
+        .bind(...snapshot.params)
+        .all();
+      const checked = await env.DB.prepare(
+        `UPDATE capacity_state SET updated_at = ? WHERE key = 'accounts_total' AND ${guard.sql}`,
+      )
+        .bind(clockMs, ...guard.params)
+        .run();
+      expect(checked.meta.changes).toBe(1);
+      expect(read.meta.rows_read).toBeTypeOf("number");
+      expect(checked.meta.rows_read).toBeTypeOf("number");
+      return { snapshot: read.meta.rows_read, guard: checked.meta.rows_read, result: read.results };
+    }
+    await run(
+      "INSERT INTO auth_resend_intents (id,email_key,preauth_id,idempotency_key,created_at) VALUES (?,'baseline-other','history',?,?)",
+      crypto.randomUUID(),
+      crypto.randomUUID(),
+      clockMs - 3 * 24 * 3_600 * SECOND,
+    );
+    // 两张挑战表先各有一条索引范围外历史，避免空范围/索引末端的固定探测差。
+    const baselineAt = clockMs - 3 * 24 * 3_600 * SECOND;
+    await run(
+      `INSERT INTO auth_challenges (id,purpose,email_key,address_version,preauth_id,mac,deadline,consumed_at,created_at,updated_at)
+      VALUES (?,'login','~baseline',0,'history','seed',?,?,?,?)`,
+      crypto.randomUUID(),
+      baselineAt,
+      baselineAt,
+      baselineAt,
+      baselineAt,
+    );
+    await run(
+      `INSERT INTO recent_auth_challenges (id,user_id,session_id,idempotency_key,action,role,target_digest,email_key,address_version,mac,deadline,outbox_id,consumed_at,created_at,updated_at)
+      SELECT ?,user_id,session_id,?,action,role,target_digest,'~baseline',address_version,mac,?,outbox_id,?,?,?
+      FROM recent_auth_challenges WHERE id = ?`,
+      crypto.randomUUID(),
+      crypto.randomUUID(),
+      baselineAt,
+      baselineAt,
+      baselineAt,
+      baselineAt,
+      recentId,
+    );
+    const before = await measure();
+    const historyRows = 2_000;
+    const historyAt = clockMs - 3 * 24 * 3_600 * SECOND;
+    await run(
+      `WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i+1 FROM n WHERE i < ?)
+      INSERT INTO auth_challenges (id,purpose,email_key,address_version,preauth_id,mac,attempts,deadline,consumed_at,created_at,updated_at)
+      SELECT ? || i,'login',? || i,0,'history','seed',1,?,?,?,? FROM n`,
+      historyRows,
+      `auth-${recentId}-`,
+      `auth-key-${recentId}-`,
+      historyAt,
+      historyAt,
+      historyAt,
+      historyAt,
+    );
+    await run(
+      `WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i+1 FROM n WHERE i < ?)
+      INSERT INTO recent_auth_challenges (id,user_id,session_id,idempotency_key,action,role,target_digest,email_key,address_version,mac,attempts,deadline,outbox_id,consumed_at,created_at,updated_at)
+      SELECT ? || i,c.user_id,c.session_id,? || i,c.action,c.role,c.target_digest,? || i,c.address_version,c.mac,1,?,c.outbox_id,?,?,?
+      FROM n, recent_auth_challenges c WHERE c.id = ?`,
+      historyRows,
+      `recent-${recentId}-`,
+      `idem-${recentId}-`,
+      `recent-key-${recentId}-`,
+      historyAt,
+      historyAt,
+      historyAt,
+      historyAt,
+      recentId,
+    );
+    await run(
+      `WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i+1 FROM n WHERE i < ?)
+      INSERT INTO auth_resend_intents (id,email_key,preauth_id,idempotency_key,created_at)
+      SELECT ? || i,? || i,'history',? || i,? FROM n`,
+      historyRows,
+      `resend-${recentId}-`,
+      `resend-key-${recentId}-`,
+      `idem-${recentId}-`,
+      historyAt,
+    );
+    const after = await measure();
+    console.info(
+      "P2-09 R1 rows_read",
+      JSON.stringify({
+        historyRowsPerTable: historyRows,
+        before: { snapshot: before.snapshot, guard: before.guard },
+        after: { snapshot: after.snapshot, guard: after.guard },
+      }),
+    );
+    expect(after.result).toEqual(before.result);
+    expect(after.snapshot).toBe(before.snapshot);
+    expect(after.guard).toBe(before.guard);
+  });
+
+  it.each(["closed", "full"])("R2 %s 重发的 SQL 形状、数量和数据库往返一致", async (state) => {
+    isolateDay();
+    const known = freshEmail("r2-known");
+    const unknown = freshEmail("r2-unknown");
+    await seedUser(known, known);
+    const ctx = await preauthContext();
+    await writeRegistrationOpen(env.DB, state !== "closed", clockMs);
+    if (state === "full")
+      await run(
+        "UPDATE capacity_state SET value = ? WHERE key = 'accounts_total'",
+        ACCOUNT_MAX_STORED,
+      );
+    try {
+      // apply 的效果是生产 createAdmittedChallengeAndMailTask。
+      expect((await apply({ email: known, preauthValue: ctx.value })).status).toBe(202);
+      expect((await apply({ email: unknown, preauthValue: ctx.value })).status).toBe(202);
+      const unknownId = (await challengesOf(await emailKeyOf(unknown)))[0].id;
+      for (const oldMail of ["pending", "cleared"]) {
+        if (oldMail === "cleared") {
+          const row = (await challengesOf(await emailKeyOf(known)))[0];
+          // 模拟发信结果已结清，不再有可归还的旧预留。
+          await run(
+            "UPDATE usage_periods SET settled = settled + reserved, reserved = 0 WHERE period_key = ?",
+            utcDayPeriod(clockMs).key,
+          );
+          await run(
+            "UPDATE mail_outbox SET status = 'accepted', payload_ciphertext = NULL WHERE payload_ref = ?",
+            row.id,
+          );
+        }
+        clockMs += OTP_COOLDOWN * SECOND;
+        const traces = [];
+        const responses = [];
+        for (const email of [known, unknown]) {
+          const trace = tracingDb();
+          const req = await buildRequest(
+            "/api/v2/auth/challenges/resend",
+            { email, preauthValue: ctx.value },
+            {},
+          );
+          const budgetBefore = await usageOf("existing_auth", utcDayPeriod(clockMs).key);
+          const res = await runResendOtp(
+            { db: trace.db, keys: await testKeyring, now: clock },
+            { request: req, email, idempotencyKey: `${oldMail}-${email === known ? "k" : "u"}` },
+          );
+          responses.push(await shape(res));
+          traces.push({ sql: trace.sql, trips: trace.trips });
+          if (email === unknown) {
+            expect(await usageOf("existing_auth", utcDayPeriod(clockMs).key)).toBe(budgetBefore);
+            expect(await outboxOf(unknownId)).toHaveLength(0);
+          }
+        }
+        console.info(
+          "P2-09 R2 trace",
+          JSON.stringify({
+            state,
+            oldMail,
+            known: { statements: traces[0].sql.length, trips: traces[0].trips.length },
+            unknown: { statements: traces[1].sql.length, trips: traces[1].trips.length },
+          }),
+        );
+        expect(responses[0].status).toBe(202);
+        expect(responses[1]).toEqual(responses[0]);
+        expect(traces[1]).toEqual(traces[0]);
+      }
+    } finally {
+      await writeRegistrationOpen(env.DB, true, clockMs);
+      await run("UPDATE capacity_state SET value = 0 WHERE key = 'accounts_total'");
+    }
+  });
+
+  it("R3 真挑战与占位错码校验执行相同次数 HMAC", async () => {
+    isolateDay();
+    const known = freshEmail("r3-known");
+    const unknown = freshEmail("r3-unknown");
+    await seedUser(known, known);
+    const ctx = await preauthContext();
+    await writeRegistrationOpen(env.DB, false, clockMs);
+    try {
+      await apply({ email: known, preauthValue: ctx.value });
+      await apply({ email: unknown, preauthValue: ctx.value });
+      const challenge = (await challengesOf(await emailKeyOf(known)))[0];
+      const code = (await latestPayload(challenge.id)).code;
+      const wrong = `${code[0] === "0" ? "1" : "0"}${code.slice(1)}`;
+      const counts: number[] = [];
+      for (const email of [known, unknown]) {
+        const req = await buildRequest(
+          "/api/v2/auth/challenges/verify",
+          { email, preauthValue: ctx.value },
+          {},
+        );
+        const spy = vi.spyOn(crypto.subtle, "verify");
+        try {
+          await expect(
+            runVerifyOtp(
+              { db: env.DB, keys: await testKeyring, now: clock },
+              { request: req, email, code: wrong },
+            ),
+          ).rejects.toMatchObject({ code: "validation" });
+          counts.push(spy.mock.calls.length);
+        } finally {
+          spy.mockRestore();
+        }
+      }
+      // 一次 Cookie HMAC + 一次 OTP HMAC，不能仅让两边都不校验来通过。
+      expect(counts).toEqual([2, 2]);
+    } finally {
+      await writeRegistrationOpen(env.DB, true, clockMs);
+    }
+  });
+
+  it("R4 当日清理后首发和重发仍计入日限，跨日过窗口才删除", async () => {
+    isolateDay();
+    const email = freshEmail("r4-day");
+    await seedUser(email, email);
+    const ctx = await preauthContext();
+    await apply({ email, preauthValue: ctx.value });
+    for (let i = 1; i < EMAIL_AUTH_INTENTS_DAY; i++) {
+      clockMs += OTP_COOLDOWN * SECOND;
+      expect(
+        (await resend({ email, preauthValue: ctx.value, idempotencyKey: `r4-${i}` })).status,
+      ).toBe(202);
+    }
+    const key = await emailKeyOf(email);
+    clockMs += 2 * 3_600 * SECOND;
+    await clearExpiredOtpPayloads(env.DB, clockMs);
+    expect((await readAuthQuotaSnapshot(env.DB, key, clockMs)).emailIntentsToday).toBe(
+      EMAIL_AUTH_INTENTS_DAY,
+    );
+    expect((await apply({ email })).status).toBe(429);
+    expect(await challengesOf(key)).toHaveLength(1);
+    clockMs = utcDayPeriod(clockMs).endMsExclusive + SECOND;
+    await clearExpiredOtpPayloads(env.DB, clockMs);
+    expect(await challengesOf(key)).toHaveLength(0);
+    expect(await query("SELECT id FROM auth_resend_intents WHERE email_key = ?", key)).toHaveLength(
+      0,
+    );
+  });
+
+  it("R4 跨日冷却内的重发意图不能清理", async () => {
+    isolateDay();
+    clockMs = utcDayPeriod(clockMs).endMsExclusive - (OTP_COOLDOWN + 1) * SECOND;
+    const email = freshEmail("r4-midnight");
+    await seedUser(email, email);
+    const ctx = await preauthContext();
+    await apply({ email, preauthValue: ctx.value });
+    clockMs += OTP_COOLDOWN * SECOND;
+    await resend({ email, preauthValue: ctx.value, idempotencyKey: "r4-last" });
+    clockMs += 2 * SECOND;
+    const key = await emailKeyOf(email);
+    await clearExpiredOtpPayloads(env.DB, clockMs);
+    expect(await query("SELECT id FROM auth_resend_intents WHERE email_key = ?", key)).toHaveLength(
+      1,
+    );
+    expect((await apply({ email })).status).toBe(429);
+    clockMs += Math.max(OTP_TTL, OTP_COOLDOWN) * SECOND;
+    await clearExpiredOtpPayloads(env.DB, clockMs);
+    expect(await query("SELECT id FROM auth_resend_intents WHERE email_key = ?", key)).toHaveLength(
+      0,
+    );
+  });
+
+  it.each(["auth_challenges", "recent_auth_challenges"])(
+    "R4 %s 仅在所有窗口均结束后删行",
+    async (table) => {
+      isolateDay();
+      const email = freshEmail("r4-windows");
+      const owner = await recentOwner(email);
+      const recentId = await recentStart(owner);
+      const old = utcDayPeriod(clockMs).startMs - 3 * 24 * 3_600 * SECOND;
+      const cases = [
+        "expired",
+        "day",
+        "cooldown",
+        "attempts",
+        "deadline",
+        ...(table === "auth_challenges" ? ["receipt"] : []),
+      ];
+      const ids: string[] = [];
+      for (const kind of cases) {
+        const id = crypto.randomUUID();
+        ids.push(id);
+        const created = kind === "day" ? clockMs : kind === "cooldown" ? clockMs - 2 * SECOND : old;
+        const updated = kind === "attempts" ? clockMs - SECOND : old;
+        const deadline = kind === "deadline" ? clockMs + OTP_TTL * SECOND : old;
+        if (table === "auth_challenges") {
+          await run(
+            `INSERT INTO auth_challenges (id,purpose,email_key,address_version,preauth_id,mac,attempts,deadline,created_at,updated_at,receipt_expires_at)
+          VALUES (?,'equalization',?,0,'retention','never-authorize',1,?,?,?,?)`,
+            id,
+            await emailKeyOf(email),
+            deadline,
+            created,
+            updated,
+            kind === "receipt" ? clockMs + AUTH_COMPLETION_TTL * SECOND : null,
+          );
+        } else {
+          await run(
+            `INSERT INTO recent_auth_challenges (id,user_id,session_id,idempotency_key,action,role,target_digest,email_key,address_version,mac,attempts,deadline,outbox_id,created_at,updated_at)
+          SELECT ?,user_id,session_id,?,action,role,target_digest,email_key,address_version,mac,1,?,outbox_id,?,?
+          FROM recent_auth_challenges WHERE id=?`,
+            id,
+            id,
+            deadline,
+            created,
+            updated,
+            recentId,
+          );
+        }
+      }
+      await clearExpiredOtpPayloads(env.DB, clockMs);
+      const alive = async () =>
+        (
+          await query<{ id: string }>(
+            `SELECT id FROM ${table} WHERE id IN (SELECT value FROM json_each(?))`,
+            JSON.stringify(ids),
+          )
+        )
+          .map((r) => r.id)
+          .sort();
+      expect(await alive()).toEqual(ids.slice(1).sort());
+      clockMs = utcDayPeriod(clockMs).endMsExclusive + SECOND;
+      await clearExpiredOtpPayloads(env.DB, clockMs);
+      expect(await alive()).toEqual([]);
+    },
+  );
+});
+
+it("A-P2-OTP R2 重发守卫失配和 SQL 失败均不留下发信或预算副作用", async () => {
+  for (const mode of ["miss", "sql-error"]) {
+    isolateDay();
+    const email = freshEmail("r2-atomic");
+    await seedUser(email, email);
+    const ctx = await preauthContext();
+    await apply({ email, preauthValue: ctx.value });
+    const key = await emailKeyOf(email);
+    const challenge = (await challengesOf(key))[0];
+    const oldOutbox = await outboxOf(challenge.id);
+    const budget = await usageOf("existing_auth", utcDayPeriod(clockMs).key);
+    clockMs += OTP_COOLDOWN * SECOND;
+    const operationKey = crypto.randomUUID();
+    const db = new Proxy(env.DB, {
+      get(target, prop) {
+        if (prop === "batch")
+          return async (statements: D1PreparedStatement[]) => {
+            if (mode === "miss") {
+              await run(
+                "UPDATE auth_challenges SET attempts = ? WHERE id = ?",
+                OTP_ATTEMPTS,
+                challenge.id,
+              );
+              return target.batch(statements);
+            }
+            return target.batch([
+              ...statements,
+              target
+                .prepare(`INSERT INTO auth_resend_intents (id,email_key,preauth_id,idempotency_key,created_at)
+          SELECT id,email_key,preauth_id,idempotency_key,created_at FROM auth_resend_intents WHERE preauth_id = ? AND idempotency_key = ?`)
+                .bind(ctx.id, operationKey),
+            ]);
+          };
+        const value = Reflect.get(target, prop, target);
+        return typeof value === "function" ? value.bind(target) : value;
+      },
+    });
+    const request = await buildRequest(
+      "/api/v2/auth/challenges/resend",
+      { email, preauthValue: ctx.value },
+      {},
+    );
+    const outcome = runResendOtp(
+      { db, keys: await testKeyring, now: clock },
+      { request, email, idempotencyKey: operationKey },
+    );
+    if (mode === "sql-error") await expect(outcome).rejects.toThrow(/UNIQUE/);
+    else await outcome;
+    expect((await challengesOf(key))[0].generation).toBe(challenge.generation);
+    expect(await outboxOf(challenge.id)).toEqual(oldOutbox);
+    expect(await usageOf("existing_auth", utcDayPeriod(clockMs).key)).toBe(budget);
+    expect(await query("SELECT id FROM auth_resend_intents WHERE email_key = ?", key)).toHaveLength(
+      0,
+    );
+  }
+});
+
+describe("A-P2-OTP P2-09 复核旧预留归还", () => {
+  it.each(["pending", "leased", "accepted"])(
+    "R5 旧信 %s：只归还未外发预留，重试不重复占用",
+    async (status) => {
+      isolateDay();
+      const email = freshEmail("r5-release");
+      await seedUser(email, email);
+      const ctx = await preauthContext();
+      expect((await apply({ email, preauthValue: ctx.value })).status).toBe(202);
+      const challenge = (await challengesOf(await emailKeyOf(email)))[0];
+      const old = (await outboxOf(challenge.id))[0];
+      const day = utcDayPeriod(clockMs).key;
+      expect((await readMailDayLedger(env.DB, day)).pools.existing_auth).toEqual({
+        reserved: 1,
+        settled: 0,
+        uncertain: 0,
+      });
+      if (status === "accepted") {
+        // 只在本地模拟外发结果；accepted 消耗额度，不代表送达或已读。
+        expect(
+          await transitionMailReservation(
+            env.DB,
+            { pool: "existing_auth", periodKey: day, now: clockMs },
+            "settle",
+          ),
+        ).toEqual({ outcome: "committed" });
+        await run(
+          "UPDATE mail_outbox SET status = 'accepted', payload_ciphertext = NULL WHERE id = ?",
+          old.id,
+        );
+      } else {
+        await run("UPDATE mail_outbox SET status = ? WHERE id = ?", status, old.id);
+      }
+      clockMs += OTP_COOLDOWN * SECOND;
+      for (let retry = 0; retry < 2; retry++) {
+        expect(
+          (await resend({ email, preauthValue: ctx.value, idempotencyKey: "r5-resend" })).status,
+        ).toBe(202);
+        expect((await readMailDayLedger(env.DB, day)).pools.existing_auth).toEqual({
+          reserved: 1,
+          settled: status === "accepted" ? 1 : 0,
+          uncertain: 0,
+        });
+        const outbox = await outboxOf(challenge.id);
+        expect(outbox).toHaveLength(2);
+        expect(outbox.find((row) => row.id === old.id)).toMatchObject({
+          status: status === "accepted" ? "accepted" : "superseded",
+          payload_ciphertext: null,
+        });
+        expect(outbox.filter((row) => row.status === "pending")).toHaveLength(1);
+      }
+    },
+  );
 });
