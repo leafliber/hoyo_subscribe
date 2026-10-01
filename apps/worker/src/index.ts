@@ -1,3 +1,4 @@
+// P4-07 获准接线：仅挂载受控 Queue 处理器。
 // P3-06 获准跨卡：只挂载个人 Feed handler，沿用外壳协议路径。
 // P4-03 所有者补充授权：仅注入认证故障门与 outbox 提交后的唤醒钩子。
 // P3-11 获准跨卡接线：导出 Cron scheduled 处理器；不依赖 waitUntil 保存待办。
@@ -26,6 +27,7 @@ import { makeRecoveryRoutes } from "./auth/recovery/routes";
 import { sessionAuthenticator } from "./auth/sessions/authenticator";
 import { makeSessionRoutes } from "./auth/sessions/routes";
 import { makeFeedHandler } from "./calendar/feed/handler";
+import { queue } from "./mail/feedback";
 import { mailAdmissionHook } from "./mail/provider/admission";
 import { publicRoutes } from "./public/routes";
 import { scheduled } from "./scheduled";
@@ -138,6 +140,7 @@ function getShell(env: Env): Shell {
 }
 
 export default {
+  queue,
   scheduled,
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     if (new URL(request.url).pathname === "/") {
