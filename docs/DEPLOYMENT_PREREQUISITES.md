@@ -36,6 +36,8 @@
 | 管理员 Access 入口 `ADMIN_ACCESS_ISSUER`、`ADMIN_ACCESS_AUD`（可选，P3-10 合入后生效） | P3-10 | §8.3 | 前者形如 `https://<team>.cloudflareaccess.com`，后者是管理员应用的 Audience。两项都配了才开启 Access 换会话入口，缺一即关闭。Access 应用**只保护 `/api/v2/admin/*`**，不得给 `/feeds/u/*` 加交互登录墙 |
 | 管理员入口的边缘限速（P3-10 合入后生效） | P3-10 | §8.3、[R16] | 代码里的近似限速只挡单个 isolate 内的突发。`/api/v2/admin/session/*` 要在边缘另配按 IP 的限速 |
 | 登录页 Turnstile 站点密钥 `PUBLIC_TURNSTILE_SITE_KEY`（F3-01 合入后生效） | F3-01 | §4.2 | 构建期的公开变量，与 Worker 的 `TURNSTILE_SECRET_KEY` 配对，站点域名要在 Turnstile 的允许列表里。没配时登录页失败关闭，无法申请验证码 |
+| 正式 D1 应用迁移 | P1-04 起各卡；本批 P3-10 | §8.1；`ENGINEERING.md` §6 | 上线前、以及之后每次带迁移的发布前，按编号顺序把 `migrations/` 应用到正式 D1。当前最新是 0024（P3-10，管理员审计到期清理的部分索引，只加索引）。代码先于迁移上线时，依赖新表或新索引的路径会报错 |
+| 站点静态资源随 Worker 部署（P5-05 合入后生效） | P5-05 | §2.1 | 网页构建产物与 Worker 同一个项目部署（`wrangler.jsonc` 的 `assets`）。站点域名的路由要让静态页面、`/api/*`、`/feeds/*`、`/unsubscribe/*` 都进这个 Worker 项目；详情直达靠构建产物里的 `_redirects`，不要另加平台侧的重写规则 |
 
 ## 3. 待取得的实测值
 
