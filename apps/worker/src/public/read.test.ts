@@ -1,5 +1,6 @@
 import { env } from "cloudflare:test";
 import {
+  BROWSE_RANGES,
   browseWindow,
   PUBLIC_READ_LIMITS as LIMITS,
   PUBLIC_CACHE_FRESH,
@@ -146,7 +147,7 @@ describe("A-P3-PUBLIC 真实本地 D1 公共闭环", () => {
       expect(await env.DB.prepare(`SELECT COUNT(*) AS n FROM ${table}`).first("n")).toBe(0);
     expect(status.headers.has("set-cookie")).toBe(false);
   });
-  it("日期、预计、待定原样；窗口从今日起，游戏筛选；取消与撤回不混淆", async () => {
+  it("日期、预计、待定原样；窗口附带昨天，游戏筛选；取消与撤回不混淆", async () => {
     const nodes = [
       makeNode("date"),
       makeNode("estimate"),
@@ -184,10 +185,64 @@ describe("A-P3-PUBLIC 真实本地 D1 公共闭环", () => {
     const response = PublicEventsResponseSchema.parse(
       await (await readEvents(env.DB, url("events?range=all&games=genshin"), NOW)).json(),
     );
-    expect(response.nodes.map((n) => n.id)).toEqual(["date", "estimate", "unknown"]);
+    expect(response.nodes.map((n) => n.id)).toEqual(["date", "estimate", "unknown", "yesterday"]);
     expect(response.nodes[0]?.time).not.toHaveProperty("utc_ms");
     expect(response.nodes[1]?.time.time_basis).toBe("official_estimate");
     expect(response.nextCursor).toBeNull();
+  });
+  it.each(BROWSE_RANGES)("P3-16 $id 只补昨天的节点并返回昨天边界", async ({ id }) => {
+    const today = makeNode("today");
+    const yesterday = makeNode("yesterday");
+    const beforeYesterday = makeNode("before-yesterday");
+    yesterday.projection.milestone.time = TimeValueSchema.parse({
+      ...yesterday.projection.milestone.time,
+      utc_ms: Date.parse("2026-09-29T00:00:00+08:00"),
+    });
+    beforeYesterday.projection.milestone.time = TimeValueSchema.parse({
+      ...beforeYesterday.projection.milestone.time,
+      utc_ms: Date.parse("2026-09-28T23:59:59.999+08:00"),
+    });
+    await seedNodes([today, yesterday, beforeYesterday]);
+    const response = await readEvents(env.DB, url(`events?range=${id}`), NOW);
+    const result = PublicEventsResponseSchema.parse(await response.json());
+    expect(result.nodes.map((n) => n.id)).toEqual(["today", "yesterday"]);
+    expect(result.window).toEqual(browseWindow(id, NOW));
+    expect(result.window.yesterday).toBe(Date.parse("2026-09-29T00:00:00+08:00"));
+    expect(result.recentChanges).toEqual([]);
+    expect(result.recentChangesTruncated).toBe(false);
+    expect(result.nextCursor).toBeNull();
+  });
+  it("P3-16 昨天与今天共用身份分页流，跨页不遗漏也不重复", async () => {
+    const nodes = Array.from({ length: LIMITS.scanPage + 2 }, (_, i) => {
+      const n = makeNode(`band-${String(i).padStart(4, "0")}`);
+      if (i % 2 === 0) {
+        n.projection.milestone.time = TimeValueSchema.parse({
+          ...n.projection.milestone.time,
+          utc_ms: Date.parse("2026-09-29T23:59:59.999+08:00"),
+        });
+      }
+      return n;
+    });
+    await seedNodes(nodes);
+    let cursor: string | null = null;
+    const seen: string[] = [];
+    let pages = 0;
+    do {
+      const query = new URLSearchParams({ range: "today" });
+      if (cursor !== null) query.set("cursor", cursor);
+      const result = PublicEventsResponseSchema.parse(
+        await (await readEvents(env.DB, url(`events?${query}`), NOW)).json(),
+      );
+      expect(result.window).toEqual(browseWindow("today", NOW));
+      expect(result.publication.generation).toBe(1);
+      seen.push(...result.nodes.map((n) => n.id));
+      cursor = result.nextCursor;
+      pages++;
+      if (pages > nodes.length) throw new Error("游标未推进");
+    } while (cursor !== null);
+    expect(pages).toBeGreaterThan(1);
+    expect(seen).toEqual(nodes.map((n) => n.projection.milestone_id));
+    expect(new Set(seen).size).toBe(nodes.length);
   });
   it("近期更正不受未来窗口隐藏、过期消失、列表详情状态相同，HTML 只作字符串", async () => {
     const changes = ["rescheduled", "cancelled", "retracted", "postponed_unknown"] as const;
