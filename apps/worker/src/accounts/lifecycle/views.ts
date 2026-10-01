@@ -1,13 +1,7 @@
 // F2-04 返工获准跨卡：仅在 readAccountSummary 返回 user_id，供已确认身份的本机草稿分键。
-// P2-07：D3 草案 §1.2/§2.10 的本人摘要与可分享偏好导出。
+// P2-10：D3 §1.2/§2.10 的本人事实摘要；动作与临期提示由 contracts 在浏览器推导。
 // 视图只读主状态，未知通道显式 unknown；导出不包含邮箱、任何凭证、URL 或通道同意。
-import {
-  ACCOUNT_ACTIONS,
-  type AccountAction,
-  type ActionAvailability,
-  RECENT_AUTH_TTL,
-  SESSION_EXPIRY_NOTICE,
-} from "@hoyo/contracts";
+import { type AccountRecentAuth, type AccountSummary, AccountSummarySchema } from "@hoyo/contracts";
 import { decryptDeliveryAddress } from "../../auth/challenges/delivery";
 import { asEnvelopeBytes } from "../../auth/challenges/payload";
 import { targetForAction } from "../../auth/recent-auth/target";
@@ -16,8 +10,6 @@ import type { ShellAuth } from "../../shell/domains";
 import { ApiError } from "../../shell/errors";
 import type { Keyring } from "../../storage/crypto/keyring";
 import { readSubscription } from "../subscription/service";
-
-const SECOND = 1_000;
 
 interface AccountRow {
   email_ciphertext: ArrayBuffer | Uint8Array;
@@ -32,67 +24,51 @@ function maskEmail(address: string): string {
   return `${address[0]}***${address.slice(at)}`;
 }
 
-/** 与账号页和其他私人视图共用的服务端动作表计算入口。 */
-export async function accountActions(
+/** 只提取当前会话可用的证明到期时间；不向客户端披露 ID、方法或目标摘要。 */
+async function readRecentAuth(
   db: D1Database,
   auth: Extract<ShellAuth, { domain: "user" }>,
   now: number,
-): Promise<Record<AccountAction, ActionAvailability>> {
+): Promise<AccountRecentAuth> {
   const proofRows =
     (
       await db
-        .prepare(`SELECT p.action, p.role, p.target_digest
+        .prepare(`SELECT p.action, p.role, p.target_digest, p.expires_at
     FROM recent_auth_proofs p WHERE p.user_id = ? AND p.session_id = ?
       AND p.consumed_at IS NULL AND p.expires_at > ?`)
         .bind(auth.userId, auth.sessionId, now)
-        .all<{ action: string; role: string; target_digest: string }>()
+        .all<{ action: string; role: string; target_digest: string; expires_at: number }>()
     ).results ?? [];
   const rotateDigest = (await targetForAction("recovery_code_rotate")).digest;
   const deleteDigest = (await targetForAction("account_delete")).digest;
-  const has = (action: string, digest: string) =>
-    proofRows.some(
-      (row) => row.action === action && row.role === "current" && row.target_digest === digest,
+  const latest = (times: number[]): number | null =>
+    times.length === 0 ? null : Math.max(...times);
+  const expiresAt = (action: string, digest: string) =>
+    latest(
+      proofRows
+        .filter(
+          (row) => row.action === action && row.role === "current" && row.target_digest === digest,
+        )
+        .map((row) => row.expires_at),
     );
-  const emailReady = proofRows.some(
-    (row) =>
-      row.action === "email_change" &&
-      row.role === "current" &&
-      proofRows.some(
-        (other) =>
-          other.action === "email_change" &&
-          other.role === "new_address" &&
-          other.target_digest === row.target_digest,
-      ),
+  // 每对证明取较早到期；多组可用证明取最长可用期，避免数据库行顺序影响结果。
+  const emailExpiries = proofRows.flatMap((row) =>
+    row.action === "email_change" && row.role === "current"
+      ? proofRows
+          .filter(
+            (other) =>
+              other.action === "email_change" &&
+              other.role === "new_address" &&
+              other.target_digest === row.target_digest,
+          )
+          .map((other) => Math.min(row.expires_at, other.expires_at))
+      : [],
   );
-  const recoveryLoginRecent = await db
-    .prepare(`SELECT 1 AS ready FROM auth_challenges c
-    JOIN sessions s ON s.id = c.pending_session_id WHERE s.id = ? AND s.user_id = ?
-      AND c.purpose = 'recovery' AND c.consumed_at IS NOT NULL
-      AND s.activated_at BETWEEN ? AND ?`)
-    .bind(auth.sessionId, auth.userId, now - RECENT_AUTH_TTL * SECOND, now)
-    .first<{ ready: number }>();
-  const unavailable: ActionAvailability = { allowed: false, reason: "recent_auth_required" };
-  const allowed: ActionAvailability = { allowed: true };
-  const restricted: ActionAvailability = { allowed: false, reason: "recovery_code_unconfirmed" };
-  const result: Record<AccountAction, ActionAvailability> = {
-    save_subscription: auth.recoveryCodeRequired ? restricted : allowed,
-    export_data: allowed,
-    email_change: auth.recoveryCodeRequired ? restricted : emailReady ? allowed : unavailable,
-    recovery_code_rotate: auth.recoveryCodeRequired
-      ? restricted
-      : has("recovery_code_rotate", rotateDigest)
-        ? allowed
-        : unavailable,
-    account_delete:
-      has("account_delete", deleteDigest) ||
-      (auth.recoveryCodeRequired && recoveryLoginRecent?.ready === 1)
-        ? allowed
-        : unavailable,
+  return {
+    email_change: latest(emailExpiries),
+    recovery_code_rotate: expiresAt("recovery_code_rotate", rotateDigest),
+    account_delete: expiresAt("account_delete", deleteDigest),
   };
-  // 编译期与运行时均保证闭合动作表，不让新增动作静默缺字段。
-  if (Object.keys(result).length !== ACCOUNT_ACTIONS.length)
-    throw new Error("account_actions_incomplete");
-  return result;
 }
 
 export async function readAccountSummary(
@@ -100,7 +76,7 @@ export async function readAccountSummary(
   keys: Keyring,
   auth: ShellAuth,
   now: number,
-): Promise<unknown> {
+): Promise<AccountSummary> {
   if (auth.kind !== "session" || auth.domain !== "user") {
     throw new ApiError("unauthorized", { code: "unauthorized", reason: "no_session" });
   }
@@ -143,8 +119,15 @@ export async function readAccountSummary(
     auth.userId,
     asEnvelopeBytes(account.email_ciphertext),
   );
-  return {
+  const recoveryLogin = await db
+    .prepare(`SELECT s.activated_at FROM auth_challenges c
+    JOIN sessions s ON s.id = c.pending_session_id WHERE s.id = ? AND s.user_id = ?
+      AND c.purpose = 'recovery' AND c.consumed_at IS NOT NULL`)
+    .bind(auth.sessionId, auth.userId)
+    .first<{ activated_at: number | null }>();
+  return AccountSummarySchema.parse({
     user_id: auth.userId,
+    server_time: now,
     email: { masked: maskEmail(address), email_version: account.email_version },
     recovery_code_saved: saved,
     recovery_code_generation: recovery?.generation ?? null,
@@ -153,7 +136,7 @@ export async function readAccountSummary(
       state: session.state,
       expires_at: session.expires_at,
       absolute_expires_at: session.absolute_expires_at,
-      expiry_notice: session.expires_at - now <= SESSION_EXPIRY_NOTICE * SECOND,
+      recovery_login_at: recoveryLogin?.activated_at ?? null,
       recovery_code_required: auth.recoveryCodeRequired,
     },
     channels: {
@@ -171,8 +154,8 @@ export async function readAccountSummary(
       push: { state: "unknown" },
     },
     reclaim_grace_until: account.reclaim_grace_until,
-    actions: await accountActions(db, auth, now),
-  };
+    recent_auth: await readRecentAuth(db, auth, now),
+  });
 }
 
 export async function exportPreferences(db: D1Database, userId: string): Promise<unknown> {

@@ -27,6 +27,8 @@ import { makeRecoveryRoutes } from "./auth/recovery/routes";
 import { sessionAuthenticator } from "./auth/sessions/authenticator";
 import { makeSessionRoutes } from "./auth/sessions/routes";
 import { makeFeedHandler } from "./calendar/feed/handler";
+import { calendarLifecycle, pauseCalendar } from "./calendar/manage/hooks";
+import { makeCalendarRoutes } from "./calendar/manage/routes";
 import { emailLifecycleHook, emailSafetyPauseHook } from "./mail/channel/hooks";
 import { makeEmailChannelRoutes } from "./mail/channel/routes";
 import { queue } from "./mail/feedback";
@@ -128,12 +130,13 @@ function getShell(env: Env): Shell {
         // P2-05：public 恢复动作与 active 会话的新码交付；通道暂停效果由各通道卡挂入。
         ...makeRecoveryRoutes({
           keys: () => getKeyring(env as Env & ShellSecrets),
-          pauseHooks: [emailSafetyPauseHook],
+          pauseHooks: [pauseCalendar, emailSafetyPauseHook],
         }),
+        ...makeCalendarRoutes(() => getKeyring(env as Env & ShellSecrets)),
         ...makeEmailChannelRoutes({ keys: () => getKeyring(env as Env & ShellSecrets) }),
         ...makeSubscriptionRoutes(),
         ...makeLifecycleRoutes({
-          hooks: [emailLifecycleHook],
+          hooks: [calendarLifecycle, emailLifecycleHook],
           mail: mailAdmissionHook,
           keys: () => getKeyring(env as Env & ShellSecrets),
           rateGate: authRateGate,
