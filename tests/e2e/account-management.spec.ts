@@ -1,3 +1,5 @@
+import { readFile } from "node:fs/promises";
+import { expect, type Page, test } from "@playwright/test";
 import {
   type AccountSummary,
   buildApiErrorBody,
@@ -5,8 +7,7 @@ import {
   SESSION_ABSOLUTE_TTL,
   SESSION_IDLE_TTL,
   SESSION_RENEW_INTERVAL,
-} from "@hoyo/contracts";
-import { expect, type Page, test } from "@playwright/test";
+} from "../../packages/contracts/src/index";
 
 // All account facts, identifiers, CSRF values and proof inputs are synthetic E2 fixtures.
 const serverTime = Date.UTC(2030, 0, 1);
@@ -176,6 +177,10 @@ async function setup(page: Page, summary: Record<string, unknown> = facts()) {
         json: {
           format: "hoyo-preferences",
           subscription: { state: "uninitialized", config: null },
+          // Synthetic sentinels: the browser must not download the entire API response.
+          recovery_code: "synthetic-export-private-code",
+          feed_url: "https://example.invalid/synthetic-private-feed",
+          account: { user_id: "synthetic-export-private-owner" },
         },
       });
     return route.fulfill({ status: 404, json: {} });
@@ -441,13 +446,66 @@ test("U14a 身份变化丢弃迟到的账号摘要，不恢复旧用户私人视
   await expect(page.locator("#account-email")).toHaveText("未知");
 });
 
-test("U14a 导出从专用端点下载，不写本地账号或凭据缓存", async ({ page }) => {
+test("U14a 导出从专用端点下载，不写本地账号或凭据缓存", async ({ page }, testInfo) => {
   await setup(page);
   await open(page);
   const download = page.waitForEvent("download");
   await page.locator("#account-export").click();
-  expect((await download).suggestedFilename()).toBe("hoyo-preferences.json");
+  const file = await download;
+  expect(file.suggestedFilename()).toBe("hoyo-preferences.json");
+  const savedPath = testInfo.outputPath("hoyo-preferences.json");
+  await file.saveAs(savedPath);
+  expect(JSON.parse(await readFile(savedPath, "utf8"))).toEqual({
+    format: "hoyo-preferences",
+    subscription: { state: "uninitialized", config: null },
+  });
   expect(
     await page.evaluate(() => ({ local: { ...localStorage }, session: { ...sessionStorage } })),
   ).toEqual({ local: {}, session: {} });
 });
+
+for (const [name, path] of [
+  ["设备列表", "me/sessions"],
+  ["邮件租期", "me/email-channel"],
+  ["导出", "me/export"],
+] as const) {
+  test(`U14a U24 身份失效后的迟到${name}响应不恢复私人视图或触发下载`, async ({ page }) => {
+    await setup(page);
+    await page.addInitScript(() => {
+      const createObjectURL = URL.createObjectURL.bind(URL);
+      URL.createObjectURL = (blob: Blob | MediaSource) => {
+        document.documentElement.dataset.createdDownload = "true";
+        return createObjectURL(blob);
+      };
+    });
+    if (path === "me/export") await open(page);
+    let entered = false;
+    let release: () => void = () => {};
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    await page.route(`**/api/v2/${path}`, async (route) => {
+      entered = true;
+      await held;
+      await route.fallback();
+    });
+    if (path === "me/export") await page.locator("#account-export").click();
+    else await page.goto("/account");
+    await expect.poll(() => entered).toBe(true);
+    await page.evaluate(() => {
+      const channel = new BroadcastChannel("hoyo-draft-identity");
+      channel.postMessage("invalidate");
+      channel.close();
+    });
+    await expect(page.locator("#account-result")).toContainText("身份已变化");
+    release();
+    // The operation releases its busy state only after the delayed response has been processed.
+    await expect(page.locator("#account-refresh")).toBeEnabled();
+    await expect(page.locator("#account-email")).toHaveText("未知");
+    await expect(page.locator("#account-lease")).toHaveText("未知");
+    await expect(page.locator("#account-sessions li")).toHaveCount(0);
+    await expect(page.locator("#account-result")).toContainText("身份已变化");
+    await expect(page.locator("#account-export")).toBeDisabled();
+    await expect(page.locator("html")).not.toHaveAttribute("data-created-download", "true");
+  });
+}
