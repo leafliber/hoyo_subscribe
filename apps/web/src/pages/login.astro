@@ -1,25 +1,57 @@
 ---
+import { OTP_ATTEMPTS, OTP_COOLDOWN, OTP_DIGITS, OTP_TTL } from "@hoyo/contracts";
 import FormField from "../components/FormField.astro";
 import Layout from "./_Layout.astro";
+import "../features/auth/login.css";
+
+const sitekey = import.meta.env.PUBLIC_TURNSTILE_SITE_KEY ?? "";
 ---
 <Layout title="登录">
-  <h1>登录</h1>
-  <p class="skeleton-note">页面骨架：验证码登录流程由 F3 轮交付。此表单仅承载「标签持续可见」的可访问性基线。</p>
-  <form class="form-narrow" novalidate>
-    <FormField
-      id="login-email"
-      label="邮箱地址"
-      type="email"
-      placeholder="you@example.com"
-      hint="用于接收登录验证码"
-      autocomplete="email"
-    />
-    <button class="button" type="button" id="login-request-otp">发送验证码</button>
-  </form>
-  <script>
-    import { announce } from "../components/status";
-    document.getElementById("login-request-otp")?.addEventListener("click", () => {
-      announce("骨架页：验证码发送由 F3 轮交付", "info");
-    });
-  </script>
+  <div id="login" class="login-panel" data-sitekey={sitekey}>
+    <p class="field-hint">账号 · 邮箱验证码</p>
+    <h1>登录 HoYo日历</h1>
+    <p>登录后可以继续处理订阅草稿。登录本身不会保存设置或开启任何接收方式。</p>
+    <p id="auth-service" role="status">正在读取全局注册与邮件服务状态。</p>
+    <form id="email-form" class="form-narrow" novalidate>
+      <FormField id="login-email" label="邮箱地址" type="email" placeholder="you@example.com"
+        hint="本站按大小写折叠识别邮箱，但保留点号、加号和标签。登录输入不会修改已验证的投递地址。首版支持 ASCII 邮箱。" autocomplete="email" />
+      <div id="turnstile"></div>
+      <p id="turnstile-status" class="field-hint"></p>
+      <button class="button" type="submit" id="login-request-otp">发送验证码</button>
+    </form>
+    <section id="code-section" hidden aria-labelledby="code-title">
+      <h2 id="code-title">输入验证码</h2>
+      <p>符合条件的请求将发送验证码。邮件可能晚到；没收到可以稍后重发。</p>
+      <p class="field-hint">部分邮箱会显示“由 bounces@cf-bounce.auth.hoyo.airo.cc 代发”，这是 Cloudflare 使用的退信域。请核对认证发件域 auth.hoyo.airo.cc。</p>
+      <p id="challenge-time"></p>
+      <p class="field-hint">验证码为 {OTP_DIGITS} 位，有效期 {OTP_TTL / 60} 分钟，重发至少间隔 {OTP_COOLDOWN} 秒。每次挑战最多允许 {OTP_ATTEMPTS} 次错误尝试；无法查询剩余次数。重发不延长最初期限，也不重置累计错误次数。</p>
+      <form id="code-form" novalidate>
+        <div class="field"><label for="login-code">验证码</label>
+          <input id="login-code" name="code" type="text" inputmode="numeric" autocomplete="one-time-code" maxlength={OTP_DIGITS} aria-describedby="code-hint" />
+          <p id="code-hint" class="field-hint">可以整段粘贴验证码。</p>
+        </div>
+        <div class="auth-actions"><button class="button" id="verify" type="submit">确认验证码</button>
+          <button class="button" id="resend" type="button">重新发送验证码</button></div>
+      </form>
+    </section>
+    <section id="pending-section" hidden aria-labelledby="pending-title">
+      <h2 id="pending-title">还差一步：激活当前浏览器</h2>
+      <p>当前会话待激活，普通账号权限尚不可用。确认后才占用登录设备名额。</p>
+      <p id="completion-time"></p>
+      <p id="session-notice"></p>
+      <FormField id="device-label" label="当前设备名称（可选）" hint="使用便于辨认的名称；不要填写邮箱等私人信息。" />
+      <fieldset id="device-selection" hidden><legend>选择要撤销的旧会话</legend><p>名额已满或所选会话已变化，请重新选择。不会自动退出其他设备；撤销登录会话不等于关闭该设备的浏览器通知。</p><p id="session-lag"></p><div id="session-list"></div></fieldset>
+      <button class="button" id="activate" type="button">激活当前浏览器</button>
+    </section>
+    <p id="auth-result" role="status" tabindex="-1"></p>
+    <div class="auth-actions">
+      <button class="button" id="retry-auth" type="button" hidden>核对结果</button>
+      <button class="button" id="cancel-wait" type="button" hidden>停止等待并核对结果</button>
+      <button class="button" id="restart-auth" type="button" hidden>重新建立登录流程 / 更换邮箱</button>
+    </div>
+    <p id="auth-help" hidden><a href="/recover">使用恢复码</a> · <a href="/status">查看服务状态</a></p>
+    <p id="login-done" hidden><a class="button" id="continue-login" href="/subscription">继续处理订阅</a></p>
+    <noscript><p>验证码登录需要启用 JavaScript；公开日程仍可浏览。</p></noscript>
+  </div>
+  <script>import "../features/auth/login";</script>
 </Layout>

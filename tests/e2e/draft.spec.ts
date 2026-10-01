@@ -531,7 +531,13 @@ test("U18 返工：已登录离线草稿按 /me 身份落盘，联网只提示�
   expect(page.url()).not.toContain("synthetic-account-a");
 });
 
-for (const failure of ["503", "network", "invalid-user-id"] as const) {
+for (const failure of [
+  "503",
+  "network",
+  "invalid-user-id",
+  "missing-user-id",
+  "empty-user-id",
+] as const) {
   test(`U18 返工：/me ${failure} 保持 unknown，编辑不落盘也不带入游客空间`, async ({ page }) => {
     const writes = await watchEffects(page);
     await session(page);
@@ -539,6 +545,12 @@ for (const failure of ["503", "network", "invalid-user-id"] as const) {
       if (failure === "network") return route.abort("failed");
       if (failure === "invalid-user-id")
         return route.fulfill({ json: { ...accountSummary("synthetic-account-a"), user_id: null } });
+      if (failure === "missing-user-id") {
+        const { user_id: _userId, ...summary } = accountSummary("synthetic-account-a");
+        return route.fulfill({ json: summary });
+      }
+      if (failure === "empty-user-id")
+        return route.fulfill({ json: { ...accountSummary("synthetic-account-a"), user_id: "" } });
       return route.fulfill({ status: 503, json: { error: { code: "temporarily_unavailable" } } });
     });
     await page.route("**/api/v2/me/subscription", (route) => route.fulfill({ json: snapshot() }));
