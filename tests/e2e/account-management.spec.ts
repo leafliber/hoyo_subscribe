@@ -70,7 +70,10 @@ async function setup(page: Page, summary: Record<string, unknown> = facts()) {
     logout: "success",
     revoke: "success",
     deletion: "success",
-    exportHeld: false,
+    export: "success",
+    renewal: "success",
+    renewed: true,
+    requests: [] as string[],
   };
   await page.addInitScript(() => {
     document.addEventListener("hoyo:draft-identity", () => {
@@ -80,6 +83,7 @@ async function setup(page: Page, summary: Record<string, unknown> = facts()) {
   await page.route("**/api/v2/**", async (route) => {
     const req = route.request();
     const path = new URL(req.url()).pathname.replace("/api/v2/", "");
+    state.requests.push(`${req.method()} ${path}`);
     const unauthorized = () =>
       route.fulfill({
         status: 401,
@@ -137,6 +141,17 @@ async function setup(page: Page, summary: Record<string, unknown> = facts()) {
       }
       return route.fulfill({ json: { logged_out: true } });
     }
+    if (path === "auth/renew") {
+      if (state.renewal === "reject")
+        return route.fulfill({ status: 503, json: buildApiErrorBody("temporarily_unavailable") });
+      if (state.renewal === "lost") return route.abort();
+      return route.fulfill({
+        json:
+          state.renewal === "malformed"
+            ? {}
+            : { renewed: state.renewed, expires_at: serverTime + SESSION_IDLE_TTL * second },
+      });
+    }
     if (path.startsWith("me/sessions/") && req.method() === "DELETE") {
       if (state.revoke === "reject")
         return route.fulfill({
@@ -149,7 +164,9 @@ async function setup(page: Page, summary: Record<string, unknown> = facts()) {
       const id = path.split("/").at(-1);
       state.rows = state.rows.filter((row) => row.id !== id);
       if (id === "synthetic-current") state.ended = true;
-      return state.revoke === "lost" ? route.abort() : route.fulfill({ json: { revoked: true } });
+      return state.revoke === "lost"
+        ? route.abort()
+        : route.fulfill({ json: state.revoke === "malformed" ? {} : { revoked: true } });
     }
     if (path === "me/recent-auth/recovery") {
       (state.summary.recent_auth as AccountSummary["recent_auth"]).account_delete =
@@ -172,7 +189,11 @@ async function setup(page: Page, summary: Record<string, unknown> = facts()) {
         ? route.abort()
         : route.fulfill({ json: { state: "deleting" } });
     }
-    if (path === "me/export")
+    if (path === "me/export") {
+      if (state.export === "reject")
+        return route.fulfill({ status: 503, json: buildApiErrorBody("temporarily_unavailable") });
+      if (state.export === "lost") return route.abort();
+      if (state.export === "malformed") return route.fulfill({ json: {} });
       return route.fulfill({
         json: {
           format: "hoyo-preferences",
@@ -183,6 +204,7 @@ async function setup(page: Page, summary: Record<string, unknown> = facts()) {
           account: { user_id: "synthetic-export-private-owner" },
         },
       });
+    }
     return route.fulfill({ status: 404, json: {} });
   });
   return state;
@@ -376,6 +398,7 @@ test("U29 server_time 校正、用途证明和明确确认，deleting 不是清�
   expect(write?.invalidated).toBe(true);
   expect(write?.body).toEqual({ confirm: true, proof_id: "synthetic-delete-proof" });
   expect(state.writes[0].body.action).toBe("account_delete");
+  expect(state.writes.filter((write) => write.path === "auth/renew")).toEqual([]);
   await page.screenshot({ path: testInfo.outputPath("deleting.png"), fullPage: true });
 });
 
@@ -509,3 +532,201 @@ for (const [name, path] of [
     await expect(page.locator("html")).not.toHaveAttribute("data-created-download", "true");
   });
 }
+
+const renewalOperations = [
+  {
+    name: "偏好下载",
+    button: "#account-export",
+    path: "me/export",
+    mode: "export",
+    completed: "已生成订阅偏好下载",
+  },
+  {
+    name: "撤销其他会话",
+    button: "#account-sessions li:last-child button",
+    path: "me/sessions/synthetic-other",
+    mode: "revoke",
+    completed: "会话撤销已确认",
+  },
+] as const;
+
+for (const operation of renewalOperations) {
+  for (const renewed of [true, false]) {
+    test(`U14a U24 ${operation.name}成功只续期一次，服务端 renewed=${renewed}`, async ({
+      page,
+    }) => {
+      const state = await setup(page);
+      state.renewed = renewed;
+      await open(page);
+      const download = operation.mode === "export" ? page.waitForEvent("download") : null;
+      await page.locator(operation.button).click();
+      if (download) expect((await download).suggestedFilename()).toBe("hoyo-preferences.json");
+      await expect(page.locator("#account-refresh")).toBeEnabled();
+      await expect(page.locator("#account-result")).toContainText(operation.completed);
+      const renewals = state.writes.filter((write) => write.path === "auth/renew");
+      expect(renewals).toEqual([
+        {
+          path: "auth/renew",
+          method: "POST",
+          body: {},
+          csrf: "synthetic-session-csrf",
+          invalidated: false,
+        },
+      ]);
+      expect(state.requests.indexOf("POST auth/renew")).toBeGreaterThan(
+        state.requests.indexOf(
+          `${operation.mode === "export" ? "GET" : "DELETE"} ${operation.path}`,
+        ),
+      );
+      expect(state.requests.filter((request) => request.startsWith("POST auth/"))).toEqual([
+        "POST auth/renew",
+      ]);
+    });
+  }
+
+  for (const mode of ["reject", "lost", "malformed"]) {
+    test(`U14a U24 ${operation.name}原请求 ${mode} 不续期，即使补读确认目标已撤销`, async ({
+      page,
+    }) => {
+      const state = await setup(page);
+      state[operation.mode] = mode;
+      await open(page);
+      const reads = state.meReads;
+      await page.locator(operation.button).click();
+      await expect(page.locator("#account-refresh")).toBeEnabled();
+      await expect(page.locator("#account-result")).toContainText(
+        operation.mode === "export"
+          ? "导出未确认"
+          : mode === "reject"
+            ? "撤销未执行"
+            : "目标会话已不在有效列表",
+      );
+      expect(state.meReads).toBeGreaterThan(reads);
+      expect(state.writes.filter((write) => write.path === "auth/renew")).toEqual([]);
+    });
+
+    test(`U14a U24 ${operation.name}成功后的续期 ${mode} 不覆盖原操作成功，也不重试认证`, async ({
+      page,
+    }) => {
+      const state = await setup(page);
+      state.renewal = mode;
+      await open(page);
+      const reads = state.meReads;
+      await page.locator(operation.button).click();
+      await expect(page.locator("#account-refresh")).toBeEnabled();
+      await expect(page.locator("#account-result")).toContainText(operation.completed);
+      await expect(page.locator("#account-result")).toContainText("会话续期未确认");
+      expect(state.meReads).toBeGreaterThan(reads);
+      expect(state.writes.filter((write) => write.path.startsWith("auth/"))).toHaveLength(1);
+      expect(state.writes.at(-1)?.path).toBe("auth/renew");
+    });
+  }
+
+  for (const change of ["broadcast", "cookie"]) {
+    test(`U14a U24 ${operation.name}迟到成功遇到身份 ${change} 变化不续新身份`, async ({
+      page,
+      context,
+    }) => {
+      const state = await setup(page);
+      await open(page);
+      let entered = false;
+      let release = () => {};
+      const held = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      await page.route(`**/api/v2/${operation.path}`, async (route) => {
+        entered = true;
+        await held;
+        await route.fallback();
+      });
+      await page.locator(operation.button).click();
+      await expect.poll(() => entered).toBe(true);
+      expect(state.writes.filter((write) => write.path === "auth/renew")).toEqual([]);
+      state.summary = { ...facts(), user_id: "synthetic-new-account" };
+      state.rows[0].id = "synthetic-new-session";
+      await context.addCookies([
+        {
+          name: "__Host-hoyo_csrf",
+          value: "synthetic-new-identity-csrf",
+          url: "https://127.0.0.1",
+          secure: true,
+          sameSite: "Lax",
+        },
+      ]);
+      if (change === "broadcast") {
+        await page.evaluate(() => {
+          const channel = new BroadcastChannel("hoyo-draft-identity");
+          channel.postMessage("invalidate");
+          channel.close();
+        });
+        await expect(page.locator("#account-result")).toContainText("身份已变化");
+      }
+      release();
+      await expect(page.locator("#account-refresh")).toBeEnabled();
+      expect(state.writes.filter((write) => write.path === "auth/renew")).toEqual([]);
+      await page.locator("#account-refresh").click();
+      await expect(page.locator("#account-refresh")).toBeEnabled();
+      expect(state.writes.filter((write) => write.path.startsWith("auth/"))).toEqual([]);
+    });
+  }
+
+  test(`U14a U24 ${operation.name}续期迟到失败不能覆盖新身份提示或补读旧操作`, async ({ page }) => {
+    const state = await setup(page);
+    state.renewal = "reject";
+    await open(page);
+    const reads = state.meReads;
+    let entered = false;
+    let release = () => {};
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    await page.route("**/api/v2/auth/renew", async (route) => {
+      entered = true;
+      await held;
+      await route.fallback();
+    });
+    await page.locator(operation.button).click();
+    await expect.poll(() => entered).toBe(true);
+    await page.evaluate(() => {
+      const channel = new BroadcastChannel("hoyo-draft-identity");
+      channel.postMessage("invalidate");
+      channel.close();
+    });
+    await expect(page.locator("#account-result")).toContainText("身份已变化");
+    release();
+    await expect(page.locator("#account-refresh")).toBeEnabled();
+    await expect(page.locator("#account-result")).toContainText("身份已变化");
+    await expect(page.locator("#account-email")).toHaveText("未知");
+    expect(state.meReads).toBe(reads);
+    expect(state.writes.filter((write) => write.path === "auth/renew")).toHaveLength(1);
+  });
+}
+
+test("U24 成功撤销当前会话不续期、不重新认证", async ({ page }) => {
+  const state = await setup(page);
+  await open(page);
+  await page.getByRole("button", { name: "撤销当前会话", exact: true }).click();
+  await expect(page.locator("#account-refresh")).toBeEnabled();
+  await expect(page.locator("#account-result")).toContainText("会话撤销已确认");
+  expect(state.writes.map((write) => write.path)).toEqual(["me/sessions/synthetic-current"]);
+});
+
+test("U14a 加载、手动读取、重新加载、返回前台和超过续期间隔均不续期", async ({ page }) => {
+  const state = await setup(page);
+  await page.clock.install();
+  await open(page);
+  await page.locator("#account-refresh").click();
+  await expect(page.locator("#account-refresh")).toBeEnabled();
+  await page.reload();
+  await expect(page.locator("#account-refresh")).toBeEnabled();
+  await page.clock.fastForward(SESSION_RENEW_INTERVAL * second + second);
+  const reads = state.meReads;
+  await page.evaluate(() => {
+    document.dispatchEvent(new Event("visibilitychange"));
+    window.dispatchEvent(new Event("focus"));
+    window.dispatchEvent(new PageTransitionEvent("pageshow", { persisted: true }));
+  });
+  await expect.poll(() => state.meReads).toBeGreaterThan(reads);
+  await expect(page.locator("#account-refresh")).toBeEnabled();
+  expect(state.writes).toEqual([]);
+});

@@ -10,7 +10,7 @@ import { closeDialog } from "../../../components/dialog";
 import { announce } from "../../../components/status";
 import { feedbackForFailure } from "../../../lib/errors/feedback";
 import { publishDraftIdentity } from "../../../lib/storage/identity";
-import { object, request, type Session, sessions } from "../api";
+import { csrfToken, object, request, type Session, sessions } from "../api";
 import { revokeSession } from "./api";
 
 const el = (id: string) => document.getElementById(id) as HTMLElement;
@@ -227,6 +227,56 @@ async function run(operation: () => Promise<void>): Promise<void> {
   }
 }
 
+function actionIdentity() {
+  return {
+    epoch,
+    userId: summary?.user_id,
+    sessionId: rows.find((row) => row.is_current)?.id,
+    csrf: csrfToken(),
+  };
+}
+function sameActionIdentity(identity: ReturnType<typeof actionIdentity>): boolean {
+  return (
+    identity.epoch === epoch &&
+    identity.userId !== undefined &&
+    identity.userId === summary?.user_id &&
+    identity.sessionId !== undefined &&
+    rows.some((row) => row.is_current && row.state === "active" && row.id === identity.sessionId) &&
+    identity.csrf !== "" &&
+    identity.csrf === csrfToken()
+  );
+}
+async function renewAfterAction(
+  identity: ReturnType<typeof actionIdentity>,
+  completed: string,
+): Promise<void> {
+  // Only a confirmed explicit operation reaches here. Never renew another identity
+  // when its cookie changes before a cross-tab invalidation message is delivered.
+  if (!sameActionIdentity(identity)) return;
+  message(completed);
+  try {
+    const reply = await request("auth/renew", {});
+    if (
+      reply.status !== 200 ||
+      typeof reply.body.renewed !== "boolean" ||
+      !Number.isSafeInteger(reply.body.expires_at)
+    )
+      throw new Error("unknown_renewal");
+    // renewed=false is normal: the server alone decides the renewal interval.
+  } catch {
+    if (!sameActionIdentity(identity)) return;
+    // Re-read rejected/unknown writes, but do not turn the completed operation into a failure.
+    if (!(await refresh())) return;
+    if (
+      summary &&
+      (summary.user_id !== identity.userId ||
+        rows.find((row) => row.is_current)?.id !== identity.sessionId)
+    )
+      return;
+    message(`${completed} 会话续期未确认，请核对会话状态；已完成的操作不受影响。`);
+  }
+}
+
 async function logout(pause: boolean): Promise<void> {
   closeDialog(false);
   invalidate();
@@ -259,6 +309,7 @@ async function logout(pause: boolean): Promise<void> {
 }
 
 async function revoke(row: Session): Promise<void> {
+  const identity = actionIdentity();
   if (row.is_current) {
     invalidate();
     proofId = undefined;
@@ -266,8 +317,10 @@ async function revoke(row: Session): Promise<void> {
   const turn = epoch;
   message("正在撤销会话；不会自动撤销其 Push 绑定。");
   let result = "会话撤销已确认；未撤销其 Push 绑定。";
+  let confirmed = false;
   try {
     await revokeSession(row.id);
+    confirmed = true;
   } catch (error) {
     if (turn !== epoch) return;
     result = `撤销${isApiErrorBody(error) ? "未执行" : "结果未知"}。${explanation(error)}`;
@@ -280,6 +333,8 @@ async function revoke(row: Session): Promise<void> {
         result = "核对确认当前会话已失效；未撤销其 Push 绑定。";
     }
   }
+  if (turn !== epoch) return;
+  if (confirmed && !row.is_current) await renewAfterAction(identity, result);
   if (turn !== epoch) return;
   if (!(await refresh())) return;
   message(result);
@@ -341,9 +396,11 @@ async function deleteAccount(): Promise<void> {
 
 async function exportData(): Promise<void> {
   const turn = epoch;
+  const identity = actionIdentity();
+  const completed = "已生成订阅偏好下载；不含恢复码或通道授权。";
   try {
     const reply = await request("me/export");
-    if (turn !== epoch) return;
+    if (!sameActionIdentity(identity)) return;
     if (
       reply.status !== 200 ||
       reply.body.format !== "hoyo-preferences" ||
@@ -367,12 +424,14 @@ async function exportData(): Promise<void> {
     link.download = "hoyo-preferences.json";
     link.click();
     URL.revokeObjectURL(url);
-    message("已生成订阅偏好下载；不含恢复码或通道授权。");
+    message(completed);
   } catch (error) {
     if (turn !== epoch) return;
     if (!(await refresh())) return;
     message(`导出未确认。${explanation(error)}`);
+    return;
   }
+  await renewAfterAction(identity, completed);
 }
 
 button("account-refresh").addEventListener(
