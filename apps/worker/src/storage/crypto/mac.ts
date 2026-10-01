@@ -111,6 +111,19 @@ export async function computeEmailKey(
   return toHex(await hmacSign(key, utf8Encode(canonicalEmail)));
 }
 
+/** P4-07：精确投递地址键；调用侧传 deliveryAddressForm，保留本地部分大小写。
+ * 与账号身份键共享 lookup 用途材料，但以固定标签隔离消息空间。
+ * 编码保持与 4b36dfb 的抑制键一致，不需要重写既有地址键。
+ */
+export async function computeExactAddressKey(
+  key: EmailLookupKey,
+  deliveryAddress: string,
+): Promise<string> {
+  return toHex(
+    await hmacSign(key, utf8Encode(JSON.stringify(["suppression-address:v1", deliveryAddress]))),
+  );
+}
+
 // —— 预认证 Cookie MAC（§4.3 前半；P2-01 验收增补的独立用途 preauth-cookie） ——
 
 /**

@@ -549,6 +549,28 @@ export interface ExpectedIndex {
 
 /** 显式 CREATE INDEX（不含 UNIQUE 约束产生的 sqlite_autoindex_*）。 */
 export const EXPECTED_INDEXES: Record<string, ExpectedIndex> = {
+  // P3-14 复核授权：0021 公共读热路径索引。
+  idx_public_nodes_event: {
+    table: "public_snapshot_nodes",
+    columns: ["snapshot_id", "json_extract(node_json, '$.projection.event_id')", "milestone_id"],
+    expression: true,
+  },
+  idx_public_nodes_changes: {
+    table: "public_snapshot_nodes",
+    columns: [
+      "snapshot_id",
+      "json_extract(node_json, '$.game')",
+      "json_extract(node_json, '$.patch.retain_until')",
+      "milestone_id",
+    ],
+    expression: true,
+    partial: true,
+  },
+  idx_public_evidence_node_time: {
+    table: "evidence",
+    columns: ["milestone_id", "created_at", "id"],
+  },
+  idx_public_sources_scope: { table: "sources", columns: ["game", "region", "source_id"] },
   idx_recent_auth_challenges_email: {
     table: "recent_auth_challenges",
     columns: ["email_key", "created_at"],
@@ -696,6 +718,16 @@ export const EXPECTED_INDEXES: Record<string, ExpectedIndex> = {
   idx_deliveries_dedupe_components: {
     table: "deliveries",
     columns: ["milestone_id", "schedule_revision", "rule_id", "channel", "target_ref"],
+  },
+  idx_mail_feedback_completed_cleanup: {
+    table: "mail_feedback",
+    columns: ["created_at", "id"],
+    partial: true,
+  },
+  idx_mail_feedback_unmatched_cleanup: {
+    table: "mail_feedback",
+    columns: ["created_at", "id"],
+    partial: true,
   },
   idx_mail_feedback_message: { table: "mail_feedback", columns: ["message_id"] },
   idx_mail_feedback_outbox: { table: "mail_feedback", columns: ["mail_outbox_id"] },

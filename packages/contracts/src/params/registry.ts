@@ -287,6 +287,20 @@ export const CAL_PATCH_GLOBAL_MAX = 10_000 as const;
 /** 公共快照新鲜窗口。附录 A.3；§6.4。 */
 export const PUBLIC_CACHE_FRESH = 300 as const;
 
+/** P3-14 工程保护：公共扫描按页，超限明确失败，不把残缺详情/计数当完整结果。
+ * 近期变更期限复用共享更正层 retain_until（CAL_PATCH_MIN_DAYS/TAIL_DAYS），不另设 TTL。
+ */
+export const PUBLIC_READ_LIMITS = {
+  scanPage: 100,
+  recentChanges: 20,
+  detailNodes: 1000,
+  sourcesPerGame: 16,
+  pendingCandidates: 1000,
+  nodeBytes: 8192,
+  responseBytes: 524288,
+  queryBytes: 4096,
+} as const;
+
 /** P3-06 / ENGINEERING §5.4：工程分块策略及 D1 平台边界，不改变业务窗口/更正保留期。 */
 export const PUBLIC_SNAPSHOT_WRITE_PROFILE = {
   chunkBytes: 262_144,
@@ -505,6 +519,9 @@ export const EVENT_EVIDENCE_TTL = 31_536_000 as const;
 /** 通道同意关闭后的最小脱敏记录保留（附录原值 180 天）；平台抑制另按其规则，不自动到期解封。附录 A.5；§4.7。 */
 export const CONSENT_AUDIT_AFTER_CLOSE = 15_552_000 as const;
 
+/** 管理员写操作的审计记录保留（180 天）；附录原文没有这一项，ADR-0005 增补（所有者 2026-09-30 决定）。附录 A.5；§8.1 第 14 组。 */
+export const ADMIN_AUDIT_TTL = 15_552_000 as const;
+
 /** 独立加密备份间隔（附录原值 7 天）。附录 A.5；§10.3。 */
 export const BACKUP_INTERVAL = 604_800 as const;
 
@@ -586,6 +603,7 @@ export const PARAMS = {
   CAL_PATCH_TAIL_DAYS,
   CAL_PATCH_GLOBAL_MAX,
   PUBLIC_CACHE_FRESH,
+  PUBLIC_READ_LIMITS,
   PUBLIC_SNAPSHOT_WRITE_PROFILE,
   FEED_MAX_STALE,
   REMINDER_GRACE,
@@ -652,6 +670,7 @@ export const PARAMS = {
   UNREFERENCED_VERSION_TTL,
   EVENT_EVIDENCE_TTL,
   CONSENT_AUDIT_AFTER_CLOSE,
+  ADMIN_AUDIT_TTL,
   BACKUP_INTERVAL,
   BACKUP_COPIES,
 } as const;
@@ -659,10 +678,11 @@ export const PARAMS = {
 /** 等式校验与测试注入用的参数值快照类型。 */
 export type ParamValues = typeof PARAMS;
 
-/** 参数状态：基线值 / ADR-0003 修订 / 平台实测 / 引用实测文件 / P0 待定 / 界面预选 / 策略描述。 */
+/** 参数状态：基线值 / ADR-0003 修订 / ADR-0005 增补 / 平台实测 / 引用实测文件 / P0 待定 / 界面预选 / 策略描述。 */
 export type ParamStatus =
   | "baseline"
   | "adr-0003"
+  | "adr-0005"
   | "measured"
   | "measured-ref"
   | "pending-p0"
@@ -1081,6 +1101,13 @@ export const PARAM_META: Readonly<Record<keyof ParamValues, ParamMeta>> = {
     description: "公共更正记录保护值；接近上限告警并暂停非关键扩大",
     status: "baseline",
   },
+  PUBLIC_READ_LIMITS: {
+    section: "A.3",
+    unit: "混合（条/字节）",
+    status: "strategy",
+    description: "P3-14 公共读 API 的扫描页、变更数、详情、来源、待审聚合与字节保护",
+    note: "近期变更期限使用共享更正层 retain_until；响应超限分页，单节点/详情超限报不可用，状态聚合超限为未知，不截断冒充完整",
+  },
   PUBLIC_SNAPSHOT_WRITE_PROFILE: {
     section: "A.3",
     unit: "字节 / 查询",
@@ -1476,6 +1503,12 @@ export const PARAM_META: Readonly<Record<keyof ParamValues, ParamMeta>> = {
     unit: "秒（原文 180 天）",
     description: "通道同意关闭后的最小脱敏记录；平台抑制不自动到期解封",
     status: "baseline",
+  },
+  ADMIN_AUDIT_TTL: {
+    section: "A.5",
+    unit: "秒（ADR-0005 取 180 天）",
+    description: "管理员写操作的审计记录保留；到期按索引分页清理，审计不含秘密",
+    status: "adr-0005",
   },
   BACKUP_INTERVAL: {
     section: "A.5",

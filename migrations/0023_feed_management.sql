@@ -1,4 +1,4 @@
--- P3-07：暂取当前 main 的下一个编号；若 P3-14 先合入，改为 0022。
+-- P3-07：当前迁移编号为 0023；0021 为 P3-14，0022 为 P4-07。
 -- 一条 Feed 只保留最后一次操作指纹；更早重试用 expected_generation 拒绝，不能再次换证。
 ALTER TABLE calendar_feeds ADD COLUMN last_management_operation TEXT;
 

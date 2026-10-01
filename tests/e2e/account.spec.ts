@@ -1,3 +1,4 @@
+// F2-04 获准跨卡：仅将证据截图写入改为显式环境变量启用。
 // P2-07 获准跨卡接缝：最近认证原因的文案覆盖换邮箱、轮换和删除。
 // P2-05 合并接缝：F1-04 的穷尽期望同步恢复码保存与最近认证两个原因。
 import { mkdirSync } from "node:fs";
@@ -172,7 +173,11 @@ test("U27 全站横幅不遮挡恢复、停用、退订、登出、紧急停用�
     await button.click();
     await expect(button).toHaveAttribute("data-clicked", "true");
   }
-  const folder = resolve("tests/e2e/evidence/f1-04");
+  const folder = resolve(
+    process.env.HOYO_E2E_WRITE_EVIDENCE === "1"
+      ? "tests/e2e/evidence/f1-04"
+      : "tests/e2e/test-results/f1-04",
+  );
   mkdirSync(folder, { recursive: true });
   const viewport = info.project.name.startsWith("mobile") ? "mobile" : "desktop";
   await page.screenshot({ path: `${folder}/${viewport}-fault-banner.png`, fullPage: true });

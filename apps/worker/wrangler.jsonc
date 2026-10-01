@@ -33,10 +33,18 @@
   },
   "migrations": [{ "tag": "v1", "new_sqlite_classes": ["PipelineDO", "DeliveryDO"] }],
 
-  // Queue：仅承接邮件反馈，不保存数月后的提醒（主方案 §2.1）。队列为占位名，非生产资源。
+  // Queue：仅承接邮件反馈，不保存数月后的提醒（主方案 §2.1）。这里只声明配置，不操作远端资源。
   "queues": {
-    "producers": [{ "binding": "MAIL_FEEDBACK_QUEUE", "queue": "mail-feedback" }],
-    "consumers": [{ "queue": "mail-feedback" }]
+    // P4-07：FEEDBACK_BATCH / FEEDBACK_MAX_RETRIES 的声明式投影，feedback 配置测试防漂移。
+    // 仅本地声明；所有者上线前替换 HTTP pull 消费者并准备 DLQ，本卡不操作资源。
+    "consumers": [
+      {
+        "queue": "hoyo-mail-events",
+        "max_batch_size": 10,
+        "max_retries": 8,
+        "dead_letter_queue": "hoyo-mail-events-dlq"
+      }
+    ]
   },
 
   // 原生 send_email 是唯一首版发送路径；认证与业务使用不同发件子域（主方案 §2.2）。

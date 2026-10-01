@@ -6,6 +6,7 @@ import { describe, expect, it } from "vitest";
 import { Keyring } from "./keyring";
 import {
   computeEmailKey,
+  computeExactAddressKey,
   computePurposeMac,
   macOtpVerification,
   type OtpMacBinding,
@@ -134,5 +135,30 @@ describe("A-P1-CRYPTO · 通用用途 MAC（csrf / vapid / admin / recovery-epoc
     const ring = await testRing();
     expect(await verifyPurposeMac(ring.csrf(), "csrf:probe", "x", "??invalid??")).toBe(false);
     expect(await verifyPurposeMac(ring.csrf(), "csrf:probe", "x", "a=b")).toBe(false);
+  });
+});
+
+describe("A-P4-FEEDBACK 精确投递地址 HMAC", () => {
+  it("确定性且键字节与 4b36dfb 的旧 wrapper 相同", async () => {
+    const key = (await testRing()).emailLookup();
+    const address = "Synthetic.User@example.com";
+    const actual = await computeExactAddressKey(key, address);
+    expect(await computeExactAddressKey(key, address)).toBe(actual);
+    // 仅作为旧版本兼容性 oracle；生产不再违反 computeEmailKey 的 canonical 输入约定。
+    expect(actual).toBe(
+      await computeEmailKey(key, JSON.stringify(["suppression-address:v1", address])),
+    );
+  });
+  it("保留本地部分大小写，不扩展成账号身份范围", async () => {
+    const key = (await testRing()).emailLookup();
+    expect(await computeExactAddressKey(key, "Synthetic.User@example.com")).not.toBe(
+      await computeExactAddressKey(key, "synthetic.user@example.com"),
+    );
+  });
+  it("用途标签隔离相同字符串的账号身份键", async () => {
+    const key = (await testRing()).emailLookup();
+    expect(await computeExactAddressKey(key, "synthetic.user@example.com")).not.toBe(
+      await computeEmailKey(key, "synthetic.user@example.com"),
+    );
   });
 });

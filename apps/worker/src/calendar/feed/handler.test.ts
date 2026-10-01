@@ -353,6 +353,53 @@ describe("A-P3-ICS Feed HTTP 读路径与完整快照", () => {
     expect(response.status).toBe(503);
     expect(await response.json()).toMatchObject({ calendar: { reason: "shrink_guard" } });
   });
+  it("展示时间早于事实时间：更正到期重新进入，兜底上界覆盖事实时间退出", async () => {
+    const factAt = T + (FEED_FUTURE_DAYS + CAL_PATCH_MIN_DAYS) * day;
+    const values = nodes().map((old) => {
+      const fact = node(old.projection.milestone_id, factAt);
+      const next = {
+        ...fact,
+        projection: {
+          ...fact.projection,
+          event: { ...fact.projection.event, status: "cancelled" as const },
+        },
+      };
+      return {
+        ...next,
+        public_ical_revision: 2,
+        patch: decideCalendarPatch(old.projection, next.projection, null, T),
+      };
+    });
+    const exit = (Math.floor(factAt / day) + FEED_PAST_DAYS + 1) * day;
+    await snapshot(values);
+    const initial = await events(await request());
+    expect(initial).toHaveLength(values.length);
+    expect(initial.every((event) => event.startDate.toJSDate().getTime() === T)).toBe(true);
+    expect(await one("SELECT last_served_natural_exit_at FROM calendar_feeds")).toEqual({
+      last_served_natural_exit_at: exit,
+    });
+    at = values[0]?.patch?.retain_until ?? 0;
+    expect(at).toBeLessThan(exit);
+    await fresh();
+    const reentered = await events(await request());
+    expect(reentered).toHaveLength(values.length);
+    expect(reentered.every((event) => event.startDate.toJSDate().getTime() === factAt)).toBe(true);
+    expect(reentered.map((event) => [event.uid, event.sequence])).toEqual(
+      initial.map((event) => [event.uid, event.sequence]),
+    );
+    await replaceAndReclaim([]);
+    for (const instant of [at, exit - 1]) {
+      at = instant;
+      await fresh();
+      expect((await request()).status).toBe(503);
+      expect(await one("SELECT last_served_natural_exit_at FROM calendar_feeds")).toEqual({
+        last_served_natural_exit_at: exit,
+      });
+    }
+    at = exit;
+    await fresh();
+    expect(await events(await request())).toHaveLength(0);
+  });
   it("基线已回收、到期墓碑与自然滑出证据已清掉，差额超比例时等到自然退出上界", async () => {
     const values = expiryBaseline();
     const exit = feedNaturalExitAt(personalCalendarNodes(config, values, T), T);

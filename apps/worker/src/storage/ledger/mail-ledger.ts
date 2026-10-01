@@ -1,3 +1,4 @@
+// P4-04 验收方 2026-09-30 授权：只抽出并导出预留/转换构造，原入口复用，预算语义不变。
 // 邮件预算账本（任务卡 P1-07，验收 ID A-P1-BUDGET）。
 //
 // 合同依据：主方案 §9.1（settled + reserved + uncertain 均占当日额度；四池划分）、
@@ -216,18 +217,13 @@ export async function reserveMailBudget(
     condition,
   );
 
-  const effects: GuardedEffect[] = [];
-  if (withUser && plan.userId !== undefined) {
-    effects.push({
-      kind: "update",
-      table: "usage_periods",
-      set: { reserved: { sql: "reserved + 1" }, updated_at: plan.now },
-      where: {
-        sql: "pool = ? AND period_kind = ? AND period_key = ? AND user_id = ?",
-        params: [reservation.pool, BUDGET_PERIOD_KIND, plan.period.key, plan.userId],
-      },
-    });
-  }
+  // 池行已由 guard 预留，只复用构造中的用户效果。
+  const effects = reserveMailBudgetEffects({
+    pool: reservation.pool,
+    periodKey: plan.period.key,
+    now: plan.now,
+    ...(withUser ? { userId: plan.userId } : {}),
+  }).slice(1);
   if (outboxId !== undefined) {
     effects.push({
       kind: "update",
@@ -313,8 +309,8 @@ export async function transitionMailReservation(
   transition: MailReservationTransition,
 ): Promise<ConditionalCommitOutcome> {
   const identity = poolRowIdentitySql(ref.pool, ref.periodKey);
-  const requires = transitionRequires(transition);
-  const userId = ref.userId;
+  // 原入口由池行充当 guard，用户效果自身仍检查源占用；保持原有行为。
+  const source = mailReservationTransitionPredicate({ ...ref, userId: undefined }, transition);
   return conditionalCommit(db, {
     guard: {
       sql: `UPDATE usage_periods SET ${Object.entries(transitionAssignments(transition, ref.now))
@@ -322,24 +318,62 @@ export async function transitionMailReservation(
           typeof value === "object" ? `"${column}" = (${value.sql})` : `"${column}" = ?`,
         )
         .join(", ")}
-        WHERE ${identity.sql} AND ${requires.column} >= ${requires.minimum}`,
-      params: [ref.now, ...identity.params],
+        WHERE ${identity.sql} AND (${source.sql})`,
+      params: [ref.now, ...identity.params, ...source.params],
     },
-    effects:
-      userId === undefined
-        ? []
-        : [
-            {
-              kind: "update",
-              table: "usage_periods",
-              set: transitionAssignments(transition, ref.now),
-              where: {
-                sql: `pool = ? AND period_kind = ? AND period_key = ? AND user_id = ? AND ${requires.column} >= ${requires.minimum}`,
-                params: [ref.pool, BUDGET_PERIOD_KIND, ref.periodKey, userId],
-              },
-            },
-          ],
+    effects: mailReservationTransitionEffects(ref, transition).slice(1),
   });
+}
+
+/** 纯构造：容量必须已在同一提交的守卫中检查；顺序为池行、可选用户行。 */
+export function reserveMailBudgetEffects(ref: MailReservationRef): GuardedEffect[] {
+  return usageRowEffects(ref, { reserved: { sql: "reserved + 1" }, updated_at: ref.now });
+}
+
+/** 源占用在同一守卫中检查，包含可选的用户行；不承担预算或状态决策。 */
+export function mailReservationTransitionPredicate(
+  ref: MailReservationRef,
+  transition: MailReservationTransition,
+): MailLedgerStatement {
+  const requires = transitionRequires(transition);
+  const predicates = usageRowEffects(ref, {}).map((effect) => {
+    return {
+      sql: `EXISTS (SELECT 1 FROM usage_periods WHERE ${effect.where.sql} AND ${requires.column} >= ${requires.minimum})`,
+      params: [...(effect.where.params ?? [])],
+    };
+  });
+  return {
+    sql: predicates.map((p) => p.sql).join(" AND "),
+    params: predicates.flatMap((p) => p.params),
+  };
+}
+
+export function mailReservationTransitionEffects(
+  ref: MailReservationRef,
+  transition: MailReservationTransition,
+): GuardedEffect[] {
+  const requires = transitionRequires(transition);
+  return usageRowEffects(ref, transitionAssignments(transition, ref.now)).map((effect) => ({
+    ...effect,
+    where: {
+      ...effect.where,
+      sql: `${effect.where.sql} AND ${requires.column} >= ${requires.minimum}`,
+    },
+  }));
+}
+function usageRowEffects(
+  ref: MailReservationRef,
+  set: Extract<GuardedEffect, { kind: "update" }>["set"],
+): Extract<GuardedEffect, { kind: "update" }>[] {
+  return [undefined, ...(ref.userId === undefined ? [] : [ref.userId])].map((userId) => ({
+    kind: "update",
+    table: "usage_periods",
+    set,
+    where: {
+      sql: "pool = ? AND period_kind = ? AND period_key = ? AND user_id IS ?",
+      params: [ref.pool, BUDGET_PERIOD_KIND, ref.periodKey, userId ?? null],
+    },
+  }));
 }
 
 export interface RolloverUnsentOutboxPlan {

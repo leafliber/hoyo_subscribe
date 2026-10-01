@@ -31,6 +31,7 @@ export * from "./params/docs";
 export * from "./params/registry";
 export * from "./params/verify";
 export * from "./personal-calendar";
+export * from "./public-api";
 export * from "./public-calendar";
 export * from "./public-calendar-batches";
 export * from "./publishing";
