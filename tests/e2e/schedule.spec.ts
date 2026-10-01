@@ -400,3 +400,33 @@ test("U04 首页公开证据也是文本；近期变更截断不宣称完整历�
   await page.locator(".recent-changes summary").click();
   await expect(page.locator(".recent-changes")).toContainText("不是完整变更历史");
 });
+
+test("U18 公开离线提示使用 API 副本时间，没有已注册的 Service Worker", async ({
+  page,
+  context,
+}) => {
+  await page.goto("/");
+  await complete(page);
+  await context.setOffline(true);
+  const warning = page.locator("#schedule-results > div > .data-warning");
+  await expect(warning).toContainText("离线");
+  await expect(warning).toContainText("实际缓存时间 2026-09-22 12:30 · UTC+8");
+  await expect(page.locator('[data-node="morning"]')).toBeVisible();
+  expect(
+    await page.evaluate(async () => (await navigator.serviceWorker.getRegistrations()).length),
+  ).toBe(0);
+});
+
+test("U05 首次读取失败且没有副本时，不声称离线可读", async ({ page, context }) => {
+  await page.route("**/api/v2/**", (route) => route.abort("internetdisconnected"));
+  for (const path of ["/", "/events/evt_morning"]) {
+    await context.setOffline(false);
+    await page.goto(path);
+    const root = page.locator(path === "/" ? "#schedule-results" : "#event-detail");
+    await expect(root).toContainText("尚无可展示的公共副本");
+    await context.setOffline(true);
+    await expect(root).not.toContainText("实际缓存时间");
+    await expect(root).not.toContainText("副本仍保留");
+    await expect(root.locator("[data-node], .event-detail, [data-empty]")).toHaveCount(0);
+  }
+});

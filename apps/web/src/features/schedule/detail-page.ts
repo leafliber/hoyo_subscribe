@@ -35,7 +35,9 @@ if (target) {
         el("a", { href: "/" }, "返回日程"),
       );
     else if (failure)
-      nodes.push(el("p", { class: "data-warning", role: "status" }, loadFeedback(failure)));
+      nodes.push(
+        el("p", { class: "data-warning", role: "status" }, loadFeedback(failure, current !== null)),
+      );
     if (busy) nodes.push(el("p", { role: "status" }, "正在读取最新已发布事实…"));
     const refresh = button(failure ? "重试加载" : "重新检查", "refresh");
     refresh.disabled = busy || Date.now() < retryAt || eventId === null;

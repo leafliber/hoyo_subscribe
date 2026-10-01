@@ -114,14 +114,16 @@ function renderDay(
       ),
   );
 }
-export function loadFeedback(error: unknown) {
+export function loadFeedback(error: unknown, hasCopy = false) {
   if (error instanceof PublicReadError && error.status === 409)
     return "发布代次再次变化，请重新加载。";
   if (error instanceof PublicReadError && error.body) {
     const feedback = feedbackForFailure(error.body, { affectedOperation: "公开日程读取" });
     return `${feedback.title}。${feedback.nextStep}`;
   }
-  return "加载失败，已显示的日程仍保留。请检查网络后重试。";
+  return hasCopy
+    ? "加载失败，已显示的日程仍保留。请检查网络后重试。"
+    : "加载失败，尚无可展示的公共副本。请检查网络后重试。";
 }
 export function renderResults(state: ScheduleLoadState, filters: BrowseFilters) {
   const root = el("div");
@@ -135,7 +137,7 @@ export function renderResults(state: ScheduleLoadState, filters: BrowseFilters) 
       el(
         "p",
         { class: "data-warning" },
-        `目录或来源状态读取失败；已读取的公共副本仍保留。${loadFeedback(state.metadataError)}`,
+        `目录或来源状态读取失败。${state.catalog || state.status ? "已读取的目录或来源副本仍保留。" : "尚无目录或来源副本。"}${loadFeedback(state.metadataError, state.pages.length > 0)}`,
       ),
     );
   if (first) {
@@ -328,7 +330,7 @@ function loadRow(state: ScheduleLoadState) {
       state.phase === "loading"
         ? "正在加载日程…"
         : state.phase === "failed"
-          ? loadFeedback(state.error)
+          ? loadFeedback(state.error, state.pages.length > 0)
           : "已显示完当前范围",
     ),
   );

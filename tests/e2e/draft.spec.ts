@@ -241,22 +241,6 @@ test("U18 存储失败不伪称已落盘，清空必选项的中间草稿可恢�
   await expect(page.locator("#local-draft-status")).not.toContainText("仅保存在本机");
 });
 
-test("U18 公开离线提示使用真实样例缓存时间，没有已注册的 Service Worker", async ({
-  page,
-  context,
-}) => {
-  await page.goto("/");
-  const before = await page.locator(".data-freshness").textContent();
-  await context.setOffline(true);
-  const warning = page.locator(".data-warning");
-  await expect(warning).toContainText("实际缓存时间");
-  const timestamp = (await warning.textContent())?.split("实际缓存时间 ")[1]?.split(" · UTC+8")[0];
-  expect(before).toContain(timestamp);
-  expect(
-    await page.evaluate(async () => (await navigator.serviceWorker.getRegistrations()).length),
-  ).toBe(0);
-});
-
 test("U18 缓存策略仅接受精确白名单公开资源，拒绝私人请求", () => {
   const origin = "https://synthetic.invalid";
   const paths = [
