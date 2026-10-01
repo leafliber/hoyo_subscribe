@@ -667,7 +667,12 @@ describe("A-P3-ICS Feed HTTP 读路径与完整快照", () => {
           if (key === "prepare")
             return (sql: string) => {
               const stmt = target.prepare(sql);
-              if (!sql.startsWith("UPDATE calendar_feeds SET")) return stmt;
+              // P3-07 活动 UPDATE 不属于最终输出 CAS；竞态只注入原有输出事实写入。
+              if (
+                !sql.startsWith("UPDATE calendar_feeds SET") ||
+                !sql.includes("last_output_at = ?")
+              )
+                return stmt;
               return new Proxy(stmt, {
                 get(s, k) {
                   if (k === "bind")
