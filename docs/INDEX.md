@@ -21,7 +21,7 @@
 | [DEPLOYMENT_PREREQUISITES.md](DEPLOYMENT_PREREQUISITES.md) | 各卡产生的「需所有者执行」项汇总：secrets、平台配置、待取得实测值 |
 | [D2_CALENDAR_PREVIEW.md](D2_CALENDAR_PREVIEW.md) | 前端 §13 待确认项 D2 的答案：实际日历预览、启用时的版本核对、公开变更数据（**2026-09-30 所有者审定**；F2-02 正式预览与 F3-04 开通体验以它为准） |
 | [D3_STATE_VIEWS.md](D3_STATE_VIEWS.md) | 前端 §13 待确认项 D3 的答案：状态视图与操作结果（**2026-09-30 所有者审定**，§1.2 改为浏览器推导；F3 联调以它为准） |
-| [tasks/](tasks/) | 每阶段的任务卡：P0–P6（后端与管线）、F1–F5（前端轮次） |
+| [tasks/](tasks/) | 每阶段的任务卡：P0–P6（后端与管线）、F1–F5（前端轮次）、F6（管理端，`tasks/F6.md`） |
 | [adr/](adr/) | 变更合同的决策记录；改动禁止清单中的任何一条都必须先有 ADR |
 
 ## 阅读顺序

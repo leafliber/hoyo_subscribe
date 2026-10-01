@@ -1,3 +1,4 @@
+// P3-10 返工获准跨卡：登记 0024 管理员审计到期部分索引。
 // P3-06 获准跨卡：仅登记 0019 的 Feed 输出事实与完整代次清单列。
 // P2-07 获准跨卡改动：登记 0017 最近认证表及账号终止触发器。
 // P2-05 授权跨卡改动：登记恢复会话标记、停用幂等水位与尝试双窗表。
@@ -747,6 +748,11 @@ export const EXPECTED_INDEXES: Record<string, ExpectedIndex> = {
   idx_admission_reservations_expiry: { table: "admission_reservations", columns: ["expires_at"] },
   idx_admin_sessions_expiry: { table: "admin_sessions", columns: ["expires_at"] },
   idx_audit_log_expiry: { table: "audit_log", columns: ["expires_at"] },
+  idx_audit_log_admin_expiry: {
+    table: "audit_log",
+    columns: ["expires_at", "id"],
+    partial: true,
+  },
   idx_audit_log_created: { table: "audit_log", columns: ["created_at"] },
 };
 

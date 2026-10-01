@@ -1,3 +1,4 @@
+// P3-10 所有者追加授权：管理员发布可绑定已审版本，并在原条件提交中追加审计；钩子同时检查节点字节预算。
 // P3-11 获准跨卡改动：仅透传 backfill 入参到通知 outbox，历史导入不得群发。
 // P3-04 · 一次条件提交发布事实。只有本模块写事实、修订、投影与快照待更新 outbox。
 // P4-01 获准跨卡改动：仅随同一条件提交追加通知发布 outbox，不改变原发布判定和事实写入。
@@ -12,6 +13,7 @@ import {
   PUBLIC_SNAPSHOT_PENDING_STATE_KEY,
   PUBLISH_ACTOR_PATH,
   PUBLISH_CHANGE_KIND,
+  type PublicCalendarProjection,
   type PublicEventFacts,
   type PublicMilestoneFacts,
   type PublishActorPath,
@@ -100,6 +102,14 @@ interface PlannedEvent {
 export type PublishOutcome =
   | { readonly outcome: "published"; readonly event_ids: readonly string[] }
   | { readonly outcome: "unchanged" | "stale" | "locked" | "condition_missed" };
+
+/** 准备阶段只校验并返回效果；不得在这里提前写库。原有调用者不传此选项。 */
+export interface PublishHooks {
+  readonly expectedUpdatedAt?: number;
+  readonly prepareEffects?: (
+    projections: readonly PublicCalendarProjection[],
+  ) => Promise<readonly GuardedEffect[]>;
+}
 
 interface ManualAction {
   readonly reason: string;
@@ -221,8 +231,9 @@ export async function publishApprovedCandidate(
   candidateId: string,
   nowMs: number,
   backfill = false,
+  hooks: PublishHooks = {},
 ): Promise<PublishOutcome> {
-  return publishCandidate(db, candidateId, nowMs, null, backfill);
+  return publishCandidate(db, candidateId, nowMs, null, backfill, hooks);
 }
 
 /** 带理由的人工修订，可修改 human_locked 对象；修订后锁定相关对象。 */
@@ -231,9 +242,10 @@ export async function publishManualCorrection(
   candidateId: string,
   reason: string,
   nowMs: number,
+  hooks: PublishHooks = {},
 ): Promise<PublishOutcome> {
   requireReason(reason);
-  return publishCandidate(db, candidateId, nowMs, { reason });
+  return publishCandidate(db, candidateId, nowMs, { reason }, false, hooks);
 }
 
 /** 显式建立跨公告业务关联；标题相似永远不会调用此路径。 */
@@ -243,10 +255,11 @@ export async function associateApprovedCandidate(
   targetEventId: string,
   reason: string,
   nowMs: number,
+  hooks: PublishHooks = {},
 ): Promise<PublishOutcome> {
   requireReason(reason);
   if (!targetEventId) throw new Error("关联目标不能为空");
-  return publishCandidate(db, candidateId, nowMs, { reason, targetEventId });
+  return publishCandidate(db, candidateId, nowMs, { reason, targetEventId }, false, hooks);
 }
 
 /** 本站纠错撤回独立于官方取消；理由保存在不可变修订里。 */
@@ -255,9 +268,10 @@ export async function retractWithApprovedCandidate(
   candidateId: string,
   reason: string,
   nowMs: number,
+  hooks: PublishHooks = {},
 ): Promise<PublishOutcome> {
   requireReason(reason);
-  return publishCandidate(db, candidateId, nowMs, { reason, retract: true });
+  return publishCandidate(db, candidateId, nowMs, { reason, retract: true }, false, hooks);
 }
 
 async function publishCandidate(
@@ -266,8 +280,11 @@ async function publishCandidate(
   nowMs: number,
   manual: ManualAction | null,
   backfill = false,
+  hooks: PublishHooks = {},
 ): Promise<PublishOutcome> {
   const candidate = await loadCandidate(db, candidateId);
+  if (hooks.expectedUpdatedAt !== undefined && candidate.updated_at !== hooks.expectedUpdatedAt)
+    return { outcome: "condition_missed" };
   if (candidate.review_status !== "approved") throw new Error("只有已批准候选可发布");
   if (await alreadyLinked(db, candidateId)) return { outcome: "unchanged" };
   if (
@@ -526,6 +543,20 @@ async function publishCandidate(
         END
       )
   )`);
+  if (hooks.prepareEffects !== undefined) {
+    effects.push(
+      ...(await hooks.prepareEffects(
+        changed.flatMap((event) =>
+          event.nodes.map((node) => ({
+            event_id: event.id,
+            milestone_id: node.id,
+            event: event.facts,
+            milestone: node.facts,
+          })),
+        ),
+      )),
+    );
+  }
   const result = await conditionalCommit(db, {
     guard: {
       sql: `UPDATE candidates SET updated_at = updated_at WHERE id = ? AND updated_at = ?

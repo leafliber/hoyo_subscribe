@@ -1,7 +1,10 @@
+// P3-10 获准跨卡：只追加管理员审计到期清理，一轮 MATCH_PAGE，不改系统审计。
 // P3-11：按已有导出名接 P2；不修改 P2-09 正在返工的挑战清理。
+
 import { ACCOUNT_DELETING_STATUS, MATCH_PAGE } from "@hoyo/contracts";
 import { releaseExpiredRegistration } from "../accounts/admission/registration";
 import { cleanupDeletedAccountPage } from "../accounts/lifecycle/cleanup";
+import { cleanupAdminAuditPage } from "../admin/audit";
 import { clearExpiredOtpPayloads } from "../auth/challenges/cleanup";
 import { clearExpiredAuthMaterials } from "../auth/consume/cleanup";
 import { cleanupExpiredPendingSessions } from "../auth/sessions/lifecycle";
@@ -37,6 +40,7 @@ export const cleanupTasks = {
         .run();
     }
   },
+  adminAudit: cleanupAdminAuditPage,
 };
 export async function runCleanup(
   db: D1Database,

@@ -443,9 +443,9 @@ test("U19 导入文件的迟到读取在身份切换后丢弃", async ({ page })
 // 与 readAccountSummary 返回值对齐；仅 user_id 是草稿模块实际消费的字段。
 function accountSummary(userId: string) {
   const now = Date.now();
-  const unavailable = { allowed: false, reason: "recent_auth_required" };
   return {
     user_id: userId,
+    server_time: now,
     email: { masked: "s***@example.invalid", email_version: 1 },
     recovery_code_saved: true,
     recovery_code_generation: 1,
@@ -454,7 +454,7 @@ function accountSummary(userId: string) {
       state: "active",
       expires_at: now + SESSION_IDLE_TTL * 1000,
       absolute_expires_at: now + SESSION_ABSOLUTE_TTL * 1000,
-      expiry_notice: false,
+      recovery_login_at: null,
       recovery_code_required: false,
     },
     channels: {
@@ -463,12 +463,10 @@ function accountSummary(userId: string) {
       push: { state: "unknown" },
     },
     reclaim_grace_until: null,
-    actions: {
-      save_subscription: { allowed: true },
-      export_data: { allowed: true },
-      email_change: unavailable,
-      recovery_code_rotate: unavailable,
-      account_delete: unavailable,
+    recent_auth: {
+      email_change: null,
+      recovery_code_rotate: null,
+      account_delete: null,
     },
   };
 }
@@ -531,7 +529,13 @@ test("U18 返工：已登录离线草稿按 /me 身份落盘，联网只提示�
   expect(page.url()).not.toContain("synthetic-account-a");
 });
 
-for (const failure of ["503", "network", "invalid-user-id"] as const) {
+for (const failure of [
+  "503",
+  "network",
+  "invalid-user-id",
+  "missing-user-id",
+  "empty-user-id",
+] as const) {
   test(`U18 返工：/me ${failure} 保持 unknown，编辑不落盘也不带入游客空间`, async ({ page }) => {
     const writes = await watchEffects(page);
     await session(page);
@@ -539,6 +543,12 @@ for (const failure of ["503", "network", "invalid-user-id"] as const) {
       if (failure === "network") return route.abort("failed");
       if (failure === "invalid-user-id")
         return route.fulfill({ json: { ...accountSummary("synthetic-account-a"), user_id: null } });
+      if (failure === "missing-user-id") {
+        const { user_id: _userId, ...summary } = accountSummary("synthetic-account-a");
+        return route.fulfill({ json: summary });
+      }
+      if (failure === "empty-user-id")
+        return route.fulfill({ json: { ...accountSummary("synthetic-account-a"), user_id: "" } });
       return route.fulfill({ status: 503, json: { error: { code: "temporarily_unavailable" } } });
     });
     await page.route("**/api/v2/me/subscription", (route) => route.fulfill({ json: snapshot() }));

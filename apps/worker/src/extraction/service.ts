@@ -1,6 +1,8 @@
+// P3-10 所有者追加授权：HTTP 并发修正使用统一条件守卫；写操作可同批追加审计。
 // P3-03 · 候选审核队列领域服务。只写 extraction_runs/candidates/evidence；
 // events/milestones/发布修订由 P3-04 条件提交，本模块不越界。
 import { API_BODY_MAX_BYTES, type ReviewStatus } from "@hoyo/contracts";
+import { conditionalCommit, type GuardedEffect } from "../storage/cas";
 import {
   candidateEvidenceRefs,
   loadStoredArticleVersion,
@@ -35,10 +37,35 @@ export interface CandidateRecord {
   readonly updatedAtMs: number;
 }
 
+/** HTTP 客户端绑定读取版本；调用者提供审计效果，领域层不持管理员秘密。 */
+export interface CandidateWriteOptions {
+  readonly expectedUpdatedAt?: number;
+  readonly auditEffect?: GuardedEffect;
+}
+
+export class CandidateValidationError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "CandidateValidationError";
+  }
+}
+
+export class CandidateConflictError extends Error {
+  constructor() {
+    super("候选已并发改变");
+    this.name = "CandidateConflictError";
+  }
+}
+
+function checkExpected(current: CandidateRow, options: CandidateWriteOptions): void {
+  if (options.expectedUpdatedAt !== undefined && current.updated_at !== options.expectedUpdatedAt)
+    throw new CandidateConflictError();
+}
+
 function requireProposal(input: unknown, article: StoredArticleVersion): CandidateProposal {
   const result = validateCandidateAgainstArticle(input, article);
   if (!result.success) {
-    throw new Error(
+    throw new CandidateValidationError(
       `候选校验失败：${result.issues.map((issue) => `${issue.path}: ${issue.message}`).join("; ")}`,
     );
   }
@@ -50,12 +77,12 @@ function preserveKeysOnRevision(previous: CandidateProposal, next: CandidateProp
   for (const [index, priorEvent] of previous.events.entries()) {
     const event = next.events[index];
     if (event.event_key !== priorEvent.event_key) {
-      throw new Error("修正候选不得改动已有 event_key；改期不换 Event 身份");
+      throw new CandidateValidationError("修正候选不得改动已有 event_key；改期不换 Event 身份");
     }
     if (priorEvent.milestones.length !== event.milestones.length) continue;
     for (const [nodeIndex, priorNode] of priorEvent.milestones.entries()) {
       if (event.milestones[nodeIndex].milestone_key !== priorNode.milestone_key) {
-        throw new Error("修正候选不得改动已有 milestone_key；改期不换节点身份");
+        throw new CandidateValidationError("修正候选不得改动已有 milestone_key；改期不换节点身份");
       }
     }
   }
@@ -115,14 +142,17 @@ async function targetEventId(
         region: string;
       }>();
     if (row === null || row.game !== article.game || row.region !== article.region) {
-      throw new Error("更正目标 Event 不存在或与文章来源区域不一致");
+      throw new CandidateValidationError("更正目标 Event 不存在或与文章来源区域不一致");
     }
     onlyTarget = onlyTarget === null ? target : "";
   }
   return proposal.events.length === 1 && onlyTarget !== "" ? onlyTarget : null;
 }
 
-async function findCandidateById(db: D1Database, candidateId: string): Promise<CandidateRow> {
+export async function findCandidateById(
+  db: D1Database,
+  candidateId: string,
+): Promise<CandidateRow> {
   const row = await db
     .prepare(
       `SELECT c.id, c.run_id, c.proposal_json, c.review_status, c.updated_at,
@@ -132,7 +162,7 @@ async function findCandidateById(db: D1Database, candidateId: string): Promise<C
     .bind(candidateId)
     .first<CandidateRow>();
   if (row === null || row.article_version_id === null)
-    throw new Error("候选不存在或缺少 ArticleVersion 证据");
+    throw new CandidateValidationError("候选不存在或缺少 ArticleVersion 证据");
   return row;
 }
 
@@ -142,6 +172,7 @@ export async function createManualCandidate(
   articleVersionId: string,
   input: unknown,
   nowMs: number,
+  audit?: (candidateId: string) => D1PreparedStatement,
 ): Promise<CandidateRecord> {
   const article = await loadStoredArticleVersion(db, articleVersionId);
   const proposal = requireProposal(input, article);
@@ -156,6 +187,7 @@ export async function createManualCandidate(
       )
       .bind(candidateId, eventId, JSON.stringify(proposal), nowMs, nowMs),
     ...evidenceStatements(db, candidateId, articleVersionId, proposal, nowMs),
+    ...(audit === undefined ? [] : [audit(candidateId)]),
   ]);
   return {
     candidateId,
@@ -178,28 +210,74 @@ export async function reviseCandidate(
   candidateId: string,
   input: unknown,
   nowMs: number,
+  options: CandidateWriteOptions = {},
 ): Promise<CandidateRecord> {
   const current = await findCandidateById(db, candidateId);
-  if (current.review_status !== "pending") throw new Error("只有待审核候选可修正");
-  if (nowMs <= current.updated_at) throw new Error("修正时间必须晚于上次修改");
+  checkExpected(current, options);
+  if (current.review_status !== "pending") throw new CandidateConflictError();
+  if (nowMs <= current.updated_at) throw new CandidateValidationError("修正时间必须晚于上次修改");
   const article = await loadStoredArticleVersion(db, current.article_version_id);
   const proposal = requireProposal(input, article);
   const previous = parseCandidateProposal(JSON.parse(current.proposal_json));
   if (!previous.success) throw new Error("保存的旧候选未通过统一 Schema");
   preserveKeysOnRevision(previous.data, proposal);
   const eventId = await targetEventId(db, proposal, article);
-  // PipelineDO 是单写者。批次一次改候选、换证据；run_id=NULL 表示人工已接管。
-  const results = await db.batch([
-    db
-      .prepare(
-        `UPDATE candidates SET run_id = NULL, event_id = ?, proposal_json = ?, updated_at = ?
-          WHERE id = ? AND review_status = 'pending' AND updated_at = ?`,
-      )
-      .bind(eventId, JSON.stringify(proposal), nowMs, candidateId, current.updated_at),
-    db.prepare("DELETE FROM evidence WHERE candidate_id = ?").bind(candidateId),
-    ...evidenceStatements(db, candidateId, article.articleVersionId, proposal, nowMs),
-  ]);
-  if (results[0]?.meta?.changes !== 1) throw new Error("候选已并发改变，修正未生效");
+  // 每条删除只命中一个已读证据，避免 changes() 链被多行 DELETE 截断。
+  const evidence = (
+    await db
+      .prepare("SELECT id FROM evidence WHERE candidate_id = ?")
+      .bind(candidateId)
+      .all<{ id: string }>()
+  ).results;
+  const refs = [...candidateEvidenceRefs(proposal)];
+  if (refs.length === 0) refs.push("blocks/0");
+  const result = await conditionalCommit(db, {
+    guard: {
+      sql: `UPDATE candidates SET run_id = NULL, event_id = ?, proposal_json = ?, updated_at = ?
+        WHERE id = ? AND review_status = 'pending' AND updated_at = ?
+        AND (SELECT count(*) FROM evidence WHERE candidate_id = candidates.id) = ?
+        AND NOT EXISTS (SELECT 1 FROM json_each(?) old WHERE NOT EXISTS
+          (SELECT 1 FROM evidence WHERE id = old.value AND candidate_id = candidates.id))`,
+      params: [
+        eventId,
+        JSON.stringify(proposal),
+        nowMs,
+        candidateId,
+        current.updated_at,
+        evidence.length,
+        JSON.stringify(evidence.map((row) => row.id)),
+      ],
+    },
+    effects: [
+      ...evidence.map(
+        (row): GuardedEffect => ({
+          kind: "delete",
+          table: "evidence",
+          where: { sql: "id = ?", params: [row.id] },
+        }),
+      ),
+      ...refs.map(
+        (ref): GuardedEffect => ({
+          kind: "insert",
+          table: "evidence",
+          columns: [
+            "id",
+            "candidate_id",
+            "event_id",
+            "milestone_id",
+            "article_version_id",
+            "block_ref",
+            "created_at",
+          ],
+          rows: [
+            [crypto.randomUUID(), candidateId, null, null, article.articleVersionId, ref, nowMs],
+          ],
+        }),
+      ),
+      ...(options.auditEffect === undefined ? [] : [options.auditEffect]),
+    ],
+  });
+  if (result.outcome === "condition_missed") throw new CandidateConflictError();
   return {
     candidateId,
     articleVersionId: article.articleVersionId,
@@ -223,6 +301,7 @@ export async function decideCandidate(
   reviewer: string,
   reason: string,
   nowMs: number,
+  options: CandidateWriteOptions = {},
 ): Promise<CandidateRecord> {
   if (
     reviewer.length === 0 ||
@@ -230,24 +309,25 @@ export async function decideCandidate(
     reason.length === 0 ||
     reason.length > API_BODY_MAX_BYTES
   )
-    throw new Error("审核者与理由必须是非空且长度受限的字符串");
+    throw new CandidateValidationError("审核者与理由必须是非空且长度受限的字符串");
   const current = await findCandidateById(db, candidateId);
-  if (current.review_status !== "pending") throw new Error("候选已经裁定");
+  checkExpected(current, options);
+  if (current.review_status !== "pending") throw new CandidateConflictError();
   const article = await loadStoredArticleVersion(db, current.article_version_id);
   const proposal = requireProposal(JSON.parse(current.proposal_json), article);
   if (decision === "approved" && proposal.classification === "uncertain") {
-    throw new Error("有未解缺口或歧义的候选不能批准");
+    throw new CandidateValidationError("有未解缺口或歧义的候选不能批准");
   }
-  if (nowMs <= current.updated_at) throw new Error("裁定时间必须晚于上次修改");
-  const result = await db
-    .prepare(
-      `UPDATE candidates SET run_id = NULL, review_status = ?, reviewer = ?, decision_reason = ?,
-                             decided_at = ?, updated_at = ?
-        WHERE id = ? AND review_status = 'pending' AND updated_at = ?`,
-    )
-    .bind(decision, reviewer, reason, nowMs, nowMs, candidateId, current.updated_at)
-    .run();
-  if (result.meta.changes !== 1) throw new Error("候选已并发改变，裁定未生效");
+  if (nowMs <= current.updated_at) throw new CandidateValidationError("裁定时间必须晚于上次修改");
+  const result = await conditionalCommit(db, {
+    guard: {
+      sql: `UPDATE candidates SET run_id = NULL, review_status = ?, reviewer = ?, decision_reason = ?,
+        decided_at = ?, updated_at = ? WHERE id = ? AND review_status = 'pending' AND updated_at = ?`,
+      params: [decision, reviewer, reason, nowMs, nowMs, candidateId, current.updated_at],
+    },
+    effects: options.auditEffect === undefined ? [] : [options.auditEffect],
+  });
+  if (result.outcome === "condition_missed") throw new CandidateConflictError();
   return record({ ...current, run_id: null, review_status: decision, updated_at: nowMs }, article);
 }
 
