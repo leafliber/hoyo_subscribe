@@ -1,8 +1,0 @@
-pnpm install --frozen-lockfile => exit 0
-pnpm lint => exit 0
-pnpm typecheck => exit 0
-pnpm params:verify => exit 0
-pnpm migrate:check => exit 0
-pnpm test => exit 0
-pnpm build => exit 0
-pnpm test:e2e => exit 0

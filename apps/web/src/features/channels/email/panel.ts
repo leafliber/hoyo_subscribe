@@ -19,7 +19,7 @@ import {
   saveBeforeEmail,
 } from "./subscription";
 
-/** Explicit mount: no auto-discovery, no changes to the subscription page outside this card. */
+/** Mounted only after the subscription page confirms identity and the saved snapshot. */
 export function mountEmailChannel(root: HTMLElement, host: EmailSubscriptionHost) {
   return new EmailPanel(root, host);
 }
@@ -275,6 +275,9 @@ class EmailPanel {
     try {
       const state = await readEmail();
       if (!this.current()) return false;
+      if (state.subscription.revision < (this.host.machine().getSnapshot()?.revision ?? 0)) {
+        throw new Error("stale_email_subscription");
+      }
       this.state = state;
       return true;
     } catch (error) {
@@ -284,6 +287,13 @@ class EmailPanel {
       this.message(`无法读取邮件状态。${feedback.title}。${feedback.nextStep}`);
       return false;
     }
+  }
+  savedVersionChanged(): void {
+    if (!this.current()) return;
+    // Saving through this panel continues by reading a fresh disclosure in prepare().
+    if (this.busy) return;
+    this.state = null;
+    void this.refresh();
   }
   async refresh(): Promise<void> {
     if (!this.current() || this.busy) return;

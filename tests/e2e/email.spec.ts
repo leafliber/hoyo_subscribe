@@ -1,3 +1,7 @@
+import { mkdir } from "node:fs/promises";
+import path from "node:path";
+import { expect, type Page, type Route, test } from "@playwright/test";
+import type { EmailUpdate, EmailView } from "../../apps/web/src/features/channels/email/api";
 import {
   buildApiErrorBody,
   CALENDAR_ALARMS_DEFAULT,
@@ -9,6 +13,7 @@ import {
   EMAIL_CONSENT_VERSION,
   type EmailChannelBlockReason,
   emailChannelRefusal,
+  emailSeatLeaseExpiresAt,
   MAIL_ROUTINE_SEATS_MAX,
   MAIL_SEAT_LEASE,
   MAIL_SEATS_MAX,
@@ -17,10 +22,7 @@ import {
   parseSubscriptionConfig,
   SUBSCRIPTION_SCHEMA_VERSION,
   SUPPORTED_SCOPE_REGIONS,
-} from "@hoyo/contracts";
-import { expect, type Page, type Route, test } from "@playwright/test";
-import type { Draft, Phase, SubscriptionSaveMachine } from "../../subscription/save/machine";
-import type { EmailUpdate, EmailView } from "./api";
+} from "../../packages/contracts/src";
 
 // All account data is synthetic and masked; no live mail or account is used.
 const parsed = parseSubscriptionConfig("initialized", {
@@ -74,22 +76,40 @@ function facts(): WireView {
     },
   };
 }
-declare global {
-  interface Window {
-    emailTest: {
-      machine: SubscriptionSaveMachine;
-      edit(): void;
-      panel: { refresh(): Promise<void>; dispose(): void };
-    };
+/** Synthetic API result with the same visible audit/lease fields as P4-05. */
+function applyUpdate(state: WireView, body: EmailUpdate) {
+  state.enabled = body.enabled ?? state.enabled;
+  state.routine_enabled = state.enabled && (body.routine_enabled ?? state.routine_enabled);
+  state.channel_revision++;
+  for (const layer of ["seat", "routine"] as const) {
+    const requested = layer === "seat" ? body.enabled : body.routine_enabled;
+    if (requested === undefined) continue;
+    if (requested) {
+      state.consent[layer] = {
+        version: state.disclosure.consent_version,
+        enabled_at: state.server_time,
+        last_event: { action: "enable", created_at: state.server_time },
+      };
+    } else state.consent[layer].last_event = { action: "disable", created_at: state.server_time };
+  }
+  if (body.enabled === true) {
+    state.lease.expires_at = emailSeatLeaseExpiresAt(state.server_time);
+    state.lease.last_renewed_at = state.server_time;
+    state.lease.last_renewed_reason = "explicit_consent";
+    state.remaining.seat = MAIL_SEATS_MAX - 1;
   }
 }
-async function mount(
+async function openSubscription(
   page: Page,
   options: {
     state?: WireView;
     dirty?: boolean;
     write?: (route: Route, body: EmailUpdate, state: WireView) => Promise<void>;
     saveConflict?: boolean;
+    waitForReady?: boolean;
+    beforeAccount?: Promise<void>;
+    beforeSubscription?: Promise<void>;
+    read?: (route: Route, state: WireView, count: number) => Promise<void>;
   } = {},
 ) {
   const state = options.state ?? facts();
@@ -105,14 +125,16 @@ async function mount(
       secure: true,
     },
   ]);
-  await page.route("**/email-fixture", (route) =>
-    route.fulfill({
-      contentType: "text/html",
-      body: '<html lang="zh-CN"><head><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="stylesheet" href="/src/styles/tokens.css"></head><body><main id="email-root"></main></body></html>',
-    }),
-  );
+  await page.route("**/api/v2/me", async (route) => {
+    await options.beforeAccount;
+    await route.fulfill({ json: { user_id: "synthetic-account-a" } });
+  });
   await page.route("**/api/v2/me/subscription", async (route) => {
-    if (route.request().method() === "GET") return route.fulfill({ json: state.subscription });
+    if (route.request().method() === "GET") {
+      const subscription = structuredClone(state.subscription);
+      await options.beforeSubscription;
+      return route.fulfill({ json: subscription });
+    }
     const body = route.request().postDataJSON();
     saves.push(body);
     if (options.saveConflict)
@@ -133,6 +155,7 @@ async function mount(
   await page.route("**/api/v2/me/email-channel", async (route) => {
     if (route.request().method() === "GET") {
       reads++;
+      if (options.read) return options.read(route, structuredClone(state), reads);
       return route.fulfill({ json: state });
     }
     expect(route.request().method()).toBe("PUT");
@@ -140,54 +163,28 @@ async function mount(
     const body = route.request().postDataJSON() as EmailUpdate;
     writes.push(body);
     if (options.write) return options.write(route, body, state);
-    state.enabled = body.enabled ?? state.enabled;
-    state.routine_enabled = state.enabled && (body.routine_enabled ?? state.routine_enabled);
-    state.channel_revision++;
+    applyUpdate(state, body);
     await route.fulfill({ json: { result: "completed", state } });
   });
-  await page.goto("/email-fixture");
-  await page.evaluate(
-    async ({ base, dirty }) => {
-      const machinePath = "/src/features/subscription/save/machine.ts";
-      const panelPath = "/src/features/channels/email/panel.ts";
-      const { SubscriptionSaveMachine } = (await import(
-        machinePath
-      )) as typeof import("../../subscription/save/machine");
-      const { mountEmailChannel } = (await import(panelPath)) as typeof import("./panel");
-      let draft: Draft = structuredClone(base);
-      let phase: Phase = "guest";
-      const machine = new SubscriptionSaveMachine({
-        readDraft: () => draft,
-        applyDraft: (value) => {
-          draft = value;
-        },
-        render: (value) => {
-          phase = value;
-        },
-        compare() {},
-        validation() {},
-      });
-      await machine.start();
-      const edit = () => {
-        draft = { ...draft, notifications: { ...draft.notifications, rule_ids: [] } };
-        machine.edited();
-      };
-      if (dirty) edit();
-      const root = document.getElementById("email-root");
-      if (!root) throw new Error("fixture_missing");
-      const panel = mountEmailChannel(root, {
-        machine: () => machine,
-        readDraft: () => draft,
-        phase: () => phase,
-        current: () => true,
-        save: () => machine.save(),
-      });
-      window.emailTest = { machine, panel, edit };
-      await panel.refresh();
-    },
-    { base, dirty: options.dirty ?? false },
-  );
+  await page.goto("/subscription");
+  if (options.waitForReady !== false)
+    await expect(part(page, "message")).toContainText("已读取当前邮件状态");
+  if (options.dirty) await editRules(page);
   return { state, writes, saves, reads: () => reads };
+}
+async function editRules(page: Page) {
+  for (const input of await page.locator('input[name="rule_ids"]').all()) {
+    if (await input.isChecked()) await input.uncheck();
+  }
+}
+async function screenshot(page: Page, name: string, fullPage = false) {
+  const target =
+    process.env.HOYO_E2E_WRITE_EVIDENCE === "1"
+      ? path.join("tests/e2e/evidence/f4-01", `${test.info().project.name}-${name}.png`)
+      : test.info().outputPath(`${name}.png`);
+  await mkdir(path.dirname(target), { recursive: true });
+  if (fullPage) await page.screenshot({ path: target, fullPage: true });
+  else await page.locator("#mail-channel").screenshot({ path: target });
 }
 const part = (page: Page, name: string) => page.locator(`[data-email="${name}"]`);
 async function consent(page: Page, routine = false) {
@@ -198,7 +195,7 @@ async function consent(page: Page, routine = false) {
 }
 
 test("U22b 席位和常规层默认关闭；只同意席位，版本来自 GET，发送暂停独立显示", async ({ page }) => {
-  const run = await mount(page);
+  const run = await openSubscription(page);
   await expect(part(page, "facts")).toContainText("发送暂停");
   await expect(part(page, "routine-start")).toBeDisabled();
   await part(page, "seat-start").click();
@@ -222,13 +219,13 @@ test("U22b 席位和常规层默认关闭；只同意席位，版本来自 GET�
     },
   ]);
   await expect(part(page, "facts")).toContainText("发送暂停");
-  await page.screenshot({ path: test.info().outputPath("seat-only.png"), fullPage: true });
+  await screenshot(page, "seat-only");
 });
 
 test("U22b 两层分别同意；子名额竞争导致 partial，逐项保留真实结果", async ({ page }) => {
-  const run = await mount(page, {
+  const run = await openSubscription(page, {
     write: async (route, _body, state) => {
-      state.enabled = true;
+      applyUpdate(state, { ..._body, routine_enabled: undefined });
       state.routine_enabled = false;
       state.remaining.routine = 0;
       await route.fulfill({
@@ -247,12 +244,12 @@ test("U22b 两层分别同意；子名额竞争导致 partial，逐项保留真�
   expect(run.writes[0]?.routine_consent_version).toBe(EMAIL_CONSENT_VERSION);
   await expect(part(page, "routine-start")).toBeDisabled();
   await expect(part(page, "routine-reason")).toContainText("名额已满");
-  await page.screenshot({ path: test.info().outputPath("partial.png"), fullPage: true });
+  await screenshot(page, "partial");
 });
 
 for (const kind of ["conflict", "validation"] as const)
   test(`U22 ${kind} 后重读邮箱/订阅/同意版本并重新确认，不自动重试`, async ({ page }) => {
-    const run = await mount(page, {
+    const run = await openSubscription(page, {
       write: async (route, _body, state) => {
         state.channel_revision++;
         state.email.email_version++;
@@ -292,29 +289,24 @@ for (const kind of ["conflict", "validation"] as const)
     });
   });
 
-test("U22 按 contracts 全部受阻原因置灰，写入拒绝优先使用 blocked_reason", async ({ page }) => {
+test("U22 按 contracts 受阻原因置灰，写入拒绝优先使用 blocked_reason", async ({ page }) => {
   const cases: Array<[EmailChannelBlockReason, Partial<EmailView>]> = [
     ["pending_activation", { session_state: "pending" }],
     ["recovery_code_unconfirmed", { recovery_code_required: true }],
     ["recovery_code_not_saved", { recovery_code_saved: false }],
-    [
-      "subscription_uninitialized",
-      { subscription_state: "uninitialized", subscription: { revision: 0, config: null } },
-    ],
     ["address_suppressed", { deliverability: "suppressed" }],
     ["deliverability_unknown", { deliverability: "unknown" }],
     ["capacity_full", { remaining: { seat: 0, routine: 0 } }],
     ["capacity_unknown", { remaining: { seat: "unknown", routine: "unknown" } }],
   ];
-  const run = await mount(page, {
+  const run = await openSubscription(page, {
     write: async (route) =>
       route.fulfill({ status: 401, json: emailChannelRefusal("recovery_code_not_saved", "seat") }),
   });
   await consent(page);
   await expect(part(page, "message")).toContainText("请先保存并确认当前恢复码");
-  for (const [reason, patch] of cases) {
+  for (const [_reason, patch] of cases) {
     Object.assign(run.state, facts(), patch);
-    if (reason === "subscription_uninitialized") run.state.subscription.state = "uninitialized";
     await part(page, "refresh").click();
     await expect(part(page, "message")).toContainText("已读取当前邮件状态");
     await expect(part(page, "seat-start")).toBeDisabled();
@@ -336,7 +328,7 @@ test("U22 同意关闭、租期、投诉抑制、全站预算可并存；关闭�
     enabled_at: state.server_time,
     last_event: { action: "disable", created_at: state.server_time },
   };
-  const run = await mount(page, { state });
+  const run = await openSubscription(page, { state });
   await expect(page.getByRole("region", { name: "同意与主动关闭" })).toContainText("已关闭");
   await expect(part(page, "facts")).toContainText("投诉");
   await expect(part(page, "facts")).toContainText("预算受限");
@@ -354,7 +346,7 @@ test("U22 同意关闭、租期、投诉抑制、全站预算可并存；关闭�
 });
 
 test("U22 断网但已写入时只 GET 核对；缺字段不显示正常或可开启", async ({ page }) => {
-  const run = await mount(page, {
+  const run = await openSubscription(page, {
     write: async (route, _body, state) => {
       state.enabled = true;
       await route.abort();
@@ -376,7 +368,7 @@ for (const save of [false, true])
   test(`U11 真实保存状态机接邮件：${save ? "保存后继续" : "使用已保存设置"}只展示已保存版本`, async ({
     page,
   }) => {
-    const run = await mount(page, { dirty: true });
+    const run = await openSubscription(page, { dirty: true });
     await part(page, "seat-start").click();
     await expect(part(page, "draft-choice")).toBeVisible();
     await part(page, save ? "save-continue" : "use-saved").click();
@@ -391,7 +383,7 @@ for (const save of [false, true])
   });
 
 test("U11 保存冲突不打开同意、不提交邮件", async ({ page }) => {
-  const run = await mount(page, { dirty: true, saveConflict: true });
+  const run = await openSubscription(page, { dirty: true, saveConflict: true });
   await part(page, "seat-start").click();
   await part(page, "save-continue").click();
   await expect(part(page, "message")).toContainText("请先处理保存结果或冲突");
@@ -404,7 +396,7 @@ test("U22 身份失效清除私人视图，旧响应不重现；不写本机存�
   const pending = new Promise<void>((resolve) => {
     release = resolve;
   });
-  await mount(page, {
+  await openSubscription(page, {
     write: async (route, _body, state) => {
       await pending;
       state.enabled = true;
@@ -417,9 +409,9 @@ test("U22 身份失效清除私人视图，旧响应不重现；不写本机存�
       new CustomEvent("hoyo:draft-identity", { detail: { status: "unknown" } }),
     ),
   );
-  await expect(page.locator("#email-root")).toContainText("已清除邮件状态");
+  await expect(page.locator("#mail-channel")).toContainText("未展示邮件状态");
   release?.();
-  await expect(page.locator("#email-root")).not.toContainText("example.invalid");
+  await expect(page.locator("#mail-channel")).not.toContainText("example.invalid");
   expect(
     await page.evaluate(() => ({ local: localStorage.length, session: sessionStorage.length })),
   ).toEqual({ local: 0, session: 0 });
@@ -430,7 +422,7 @@ test("U22b 已有席位时单独开启与关闭常规层；键盘明确确认且
   state.enabled = true;
   // Service disclosures are facts, even when they differ from bundled defaults.
   state.disclosure.daily_limits.routine = MAIL_USER_BASE_DAY + 1;
-  const run = await mount(page, { state });
+  const run = await openSubscription(page, { state });
   await part(page, "routine-start").focus();
   await page.keyboard.press("Enter");
   await expect(part(page, "seat-label")).toBeHidden();
@@ -459,7 +451,7 @@ test("U22b 已有席位时单独开启与关闭常规层；键盘明确确认且
 });
 
 test("U22 拒绝后的重读失败保持未知，不沿用旧同意；重新读取也不提交", async ({ page }) => {
-  const run = await mount(page, {
+  const run = await openSubscription(page, {
     write: async (route) => {
       await page.route("**/api/v2/me/email-channel", (next) => next.abort());
       await route.fulfill({
@@ -475,4 +467,191 @@ test("U22 拒绝后的重读失败保持未知，不沿用旧同意；重新读�
   await part(page, "refresh").click();
   await expect(part(page, "message")).toContainText("无法读取邮件状态");
   expect(run.writes).toHaveLength(1);
+});
+
+function gate() {
+  let release = () => {};
+  const promise = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  return { promise, release };
+}
+async function identity(page: Page, userId: string | null) {
+  await page.evaluate(
+    (userId) =>
+      document.dispatchEvent(
+        new CustomEvent("hoyo:draft-identity", {
+          detail: userId ? { status: "confirmed", userId } : { status: "unknown" },
+        }),
+      ),
+    userId,
+  );
+}
+
+test("U22 正式页首次加载等待身份和已保存版本，不把未知显示为关闭", async ({ page }) => {
+  const account = gate();
+  const subscription = gate();
+  const run = await openSubscription(page, {
+    beforeAccount: account.promise,
+    beforeSubscription: subscription.promise,
+    waitForReady: false,
+  });
+  await expect(page.locator("#mail-channel")).toContainText("状态尚未读取");
+  expect(run.reads()).toBe(0);
+  account.release();
+  await expect(page.locator("#draft-state")).toContainText("正在读取云端设置");
+  expect(run.reads()).toBe(0);
+  await expect(page.locator("#mail-channel")).not.toContainText("已关闭");
+  subscription.release();
+  await expect(part(page, "message")).toContainText("已读取当前邮件状态");
+  expect(run.reads()).toBe(1);
+  expect(run.writes).toEqual([]);
+  expect(run.saves).toEqual([]);
+});
+
+test("U22 正式页已开启事实覆盖占位，恢复码未保存不能开启也不会默认写订阅", async ({ page }) => {
+  const state = facts();
+  state.enabled = true;
+  state.recovery_code_saved = false;
+  const run = await openSubscription(page, { state });
+  await expect(part(page, "seat-status")).toHaveText("已开启");
+  await expect(part(page, "routine-start")).toBeDisabled();
+  await expect(part(page, "routine-reason")).toContainText("请先保存并确认当前恢复码");
+  await expect(page.locator("#change-summary")).not.toContainText("接收方式尚未开启");
+  await screenshot(page, "recovery-blocked");
+  expect(run.writes).toEqual([]);
+  expect(run.saves).toEqual([]);
+});
+
+for (const next of [false, true])
+  test(`U22 正式页${next ? "换账号" : "退出"}立即清理，迟到邮件 GET 不能恢复旧视图`, async ({
+    page,
+  }) => {
+    const late = gate();
+    const done = gate();
+    const run = await openSubscription(page, {
+      read: async (route, state, count) => {
+        if (count === 2) {
+          await late.promise;
+          await route.fulfill({ json: state });
+          done.release();
+        } else await route.fulfill({ json: state });
+      },
+    });
+    await part(page, "refresh").click();
+    await expect.poll(run.reads).toBe(2);
+    await identity(page, null);
+    await expect(page.locator("#mail-channel")).toContainText("未展示邮件状态");
+    await expect(page.locator("#mail-channel")).not.toContainText("s***@example.invalid");
+    if (next) {
+      run.state.email.masked = "b***@example.invalid";
+      await identity(page, "synthetic-account-b");
+      await expect(part(page, "facts")).toContainText("b***@example.invalid");
+    }
+    late.release();
+    await done.promise;
+    await page.evaluate(
+      () =>
+        new Promise<void>((resolve) =>
+          requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
+        ),
+    );
+    await expect(page.locator("#mail-channel")).not.toContainText("s***@example.invalid");
+    if (next) await expect(part(page, "facts")).toContainText("b***@example.invalid");
+    else await expect(page.locator("#mail-channel")).toContainText("未展示邮件状态");
+  });
+
+test("U22 首次邮件 GET 未完成时切换身份，旧请求不能占据新实例", async ({ page }) => {
+  const late = gate();
+  const done = gate();
+  const run = await openSubscription(page, {
+    waitForReady: false,
+    read: async (route, state, count) => {
+      if (count === 1) await late.promise;
+      await route.fulfill({ json: state });
+      if (count === 1) done.release();
+    },
+  });
+  await expect.poll(run.reads).toBe(1);
+  await identity(page, null);
+  run.state.email.masked = "b***@example.invalid";
+  await identity(page, "synthetic-account-b");
+  await expect(part(page, "facts")).toContainText("b***@example.invalid");
+  late.release();
+  await done.promise;
+  await page.evaluate(
+    () =>
+      new Promise<void>((resolve) =>
+        requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
+      ),
+  );
+  await expect(part(page, "facts")).not.toContainText("s***@example.invalid");
+});
+
+test("U22 跨标签身份失效立即清空；重新确认后重读；页面保存更新邮件摘要版本", async ({ page }) => {
+  const run = await openSubscription(page);
+  await page.evaluate(() => {
+    const channel = new BroadcastChannel("hoyo-draft-identity");
+    channel.postMessage("invalidate");
+    channel.close();
+  });
+  await expect(page.locator("#mail-channel")).toContainText("未展示邮件状态");
+  await identity(page, "synthetic-account-a");
+  await expect(part(page, "message")).toContainText("已读取当前邮件状态");
+  await editRules(page);
+  await page.getByRole("button", { name: "保存订阅", exact: true }).click();
+  await expect(page.locator("#cloud-state")).toContainText("版本 2");
+  await expect(part(page, "message")).toContainText("已读取当前邮件状态");
+  await part(page, "seat-start").click();
+  await expect(part(page, "disclosure")).toContainText("已保存内容（版本 2）");
+  await expect(part(page, "disclosure")).toContainText("提前提醒：未选择");
+  expect(run.writes).toEqual([]);
+});
+
+test("U22 未初始化账号先保存一次；初始草稿预选不产生邮件同意", async ({ page }) => {
+  const state = facts();
+  state.subscription_state = "uninitialized";
+  state.subscription = { state: "uninitialized", revision: 0, config: null };
+  const run = await openSubscription(page, { state });
+  await expect(part(page, "seat-reason")).toContainText("先保存一次订阅内容");
+  await expect(part(page, "seat-start")).toBeDisabled();
+  expect(run.writes).toEqual([]);
+  expect(run.saves).toEqual([]);
+});
+
+test("U22 E2 正式构建页确认布局：完整页面无横向溢出，主要操作可见可触控", async ({ page }) => {
+  await openSubscription(page);
+  await part(page, "seat-start").click();
+  await part(page, "seat-consent").check();
+  await expect(part(page, "confirmation")).toBeVisible();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(
+    true,
+  );
+  for (const name of ["confirm", "cancel-confirm", "seat-start", "seat-stop", "refresh"]) {
+    const box = await part(page, name).boundingBox();
+    expect(box?.height).toBeGreaterThanOrEqual(44);
+  }
+  await screenshot(page, "confirmation-page", true);
+});
+
+test("U22 同账号保存更新之后迟到的旧邮件快照保持未知，重读后使用新版本", async ({ page }) => {
+  const late = gate();
+  const run = await openSubscription(page, {
+    waitForReady: false,
+    read: async (route, state, count) => {
+      if (count === 1) await late.promise;
+      await route.fulfill({ json: state });
+    },
+  });
+  await expect.poll(run.reads).toBe(1);
+  await editRules(page);
+  await page.getByRole("button", { name: "保存订阅", exact: true }).click();
+  await expect(page.locator("#cloud-state")).toContainText("版本 2");
+  late.release();
+  await expect(part(page, "facts")).toContainText("邮件状态未知");
+  await expect(part(page, "seat-start")).toBeDisabled();
+  await part(page, "refresh").click();
+  await expect(part(page, "message")).toContainText("已读取当前邮件状态");
+  await part(page, "seat-start").click();
+  await expect(part(page, "disclosure")).toContainText("已保存内容（版本 2）");
 });

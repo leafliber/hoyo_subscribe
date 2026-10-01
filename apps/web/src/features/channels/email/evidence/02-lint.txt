@@ -1,2 +1,0 @@
-$ biome check .
-Checked 431 files in 387ms. No fixes applied.

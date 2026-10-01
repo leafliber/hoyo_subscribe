@@ -1,6 +1,0 @@
-[WebServer] (node:42522) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
-[WebServer] (Use `node --trace-warnings ...` to show where the warning was created)
-[WebServer] $ astro dev --host 127.0.0.1 --port 4184
-[WebServer] (node:42545) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
-[WebServer] (Use `node --trace-warnings ...` to show where the warning was created)
-Error: Process from config.webServer exited early.
