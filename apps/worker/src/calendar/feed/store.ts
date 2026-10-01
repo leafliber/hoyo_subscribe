@@ -2,10 +2,12 @@
 import {
   FEED_MAX_STALE,
   type FeedDiagnostic,
+  feedActivityCutoff,
   SECRET_BITS,
   type SubscriptionConfig,
   subscriptionConfigSchemaFor,
 } from "@hoyo/contracts";
+import { recordActivityFailure } from "../../accounts/activity/telemetry";
 import { fromBase64Url, toBase64Url, toHex, utf8Encode } from "../../storage/crypto/bytes";
 
 export interface FeedState {
@@ -35,18 +37,34 @@ export async function hashFeedToken(token: string): Promise<string | null> {
   return toHex(new Uint8Array(await crypto.subtle.digest("SHA-256", utf8Encode(token))));
 }
 /** 每次请求、包括热缓存/HEAD/304，都从主库核验；不接受 Cookie 或缓存身份。 */
-export async function readFeedState(db: D1Database, hash: string): Promise<FeedState | null> {
+export async function readFeedState(
+  db: D1Database,
+  hash: string,
+  now = Date.now(),
+): Promise<FeedState | null> {
+  // 授权谓词仍为 P3-06 的原文；UPDATE 与只读重查共用，失败时绝不返回缓存身份。
+  const authorized = `FROM calendar_feeds f JOIN users u ON u.id = f.user_id JOIN user_subscriptions s ON s.user_id = f.user_id
+    WHERE f.token_hash = ? AND f.state = 'enabled' AND u.status = 'active'
+      AND f.recovery_epoch = u.recovery_epoch AND s.state = 'initialized'`;
+  try {
+    await db
+      .prepare(`UPDATE calendar_feeds SET last_feed_poll_at = ?
+      WHERE user_id IN (SELECT f.user_id ${authorized})
+        AND (last_feed_poll_at IS NULL OR last_feed_poll_at <= ?)`)
+      .bind(now, hash, feedActivityCutoff(now))
+      .run();
+  } catch {
+    await recordActivityFailure(db, now);
+  }
   return db
     .prepare(`SELECT f.user_id, f.namespace, f.token_generation, f.view_revision, f.changed_at,
     f.recovery_epoch, f.last_served_node_count, f.last_served_view_revision,
     f.last_served_generation, f.last_served_at, f.last_served_natural_exit_at, f.last_guard_blocked_at,
-    s.revision, s.schema_version, s.scope_json, s.calendar_json, s.notifications_json
-    FROM calendar_feeds f JOIN users u ON u.id = f.user_id JOIN user_subscriptions s ON s.user_id = f.user_id
-    WHERE f.token_hash = ? AND f.state = 'enabled' AND u.status = 'active'
-      AND f.recovery_epoch = u.recovery_epoch AND s.state = 'initialized'`)
+    s.revision, s.schema_version, s.scope_json, s.calendar_json, s.notifications_json ${authorized}`)
     .bind(hash)
     .first<FeedState>();
 }
+
 export function feedConfig(state: FeedState): SubscriptionConfig {
   return subscriptionConfigSchemaFor("initialized").parse({
     schema_version: state.schema_version,

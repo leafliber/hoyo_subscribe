@@ -14,6 +14,7 @@
 | `CRYPTO_OTP_PEPPER` | P1-06 / P1-08 | OTP MAC 独立 pepper（§4.3 双根） | 同上 |
 | `CRYPTO_UNSUBSCRIBE_KEY_ID` | P1-06 / P1-08 | 退订 token 的 key_id | 同上 |
 | `TURNSTILE_SECRET_KEY` | P2-01 | Turnstile 服务端 siteverify（[R09]） | 第 4 步失败关闭 |
+| `ADMIN_BOOTSTRAP_SECRET`（P3-10 合入后生效） | P3-10 | 管理员引导交换：只经 HTTPS POST 请求体提交，换取短期管理员会话。用 CSPRNG 生成 `SECRET_BITS` 位，存小写 hex；不进 URL、仓库、日志或前端环境变量 | 引导入口统一拒绝，管理员无法登录 |
 
 生成方式见 `docs/ENGINEERING.md` §4；**九个用途各自独立，不得复用同一份材料**（P2-01 新增第 9 个 `preauth-cookie`）。
 
@@ -32,6 +33,9 @@
 | ~~带 Workers AI 推理权限的 API token（或 `wrangler login`）~~ **首版不需要（2026-09-30）** | P0-03 | — | 所有者决定首版不带模型抽取，P0-03 不做。以后要加模型时再提供 |
 | 邮件服务端配置 `AUTH_MAIL_FROM`、`BIZ_MAIL_FROM`、`SITE_ORIGIN`（P4-03 合入后生效） | P4-03 | §2.2 | 普通变量，不是秘密。两个发件地址须与 `wrangler.jsonc` 里各自的 `allowed_sender_addresses` 一致；`SITE_ORIGIN` 是稳定的 HTTPS origin。缺任一项，邮件按未配置失败关闭 |
 | 邮件发送开关 `mail_sending_available`（P4-03 合入后生效） | P4-03 | §2.3 | **默认关闭**：关闭时认证入口返回暂不可用，后台也不外发。P5-01 的开关管理上线前，由所有者按 P4-03 README 写明的命令手动打开 |
+| 管理员 Access 入口 `ADMIN_ACCESS_ISSUER`、`ADMIN_ACCESS_AUD`（可选，P3-10 合入后生效） | P3-10 | §8.3 | 前者形如 `https://<team>.cloudflareaccess.com`，后者是管理员应用的 Audience。两项都配了才开启 Access 换会话入口，缺一即关闭。Access 应用**只保护 `/api/v2/admin/*`**，不得给 `/feeds/u/*` 加交互登录墙 |
+| 管理员入口的边缘限速（P3-10 合入后生效） | P3-10 | §8.3、[R16] | 代码里的近似限速只挡单个 isolate 内的突发。`/api/v2/admin/session/*` 要在边缘另配按 IP 的限速 |
+| 登录页 Turnstile 站点密钥 `PUBLIC_TURNSTILE_SITE_KEY`（F3-01 合入后生效） | F3-01 | §4.2 | 构建期的公开变量，与 Worker 的 `TURNSTILE_SECRET_KEY` 配对，站点域名要在 Turnstile 的允许列表里。没配时登录页失败关闭，无法申请验证码 |
 
 ## 3. 待取得的实测值
 
