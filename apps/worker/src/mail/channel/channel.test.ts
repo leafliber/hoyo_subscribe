@@ -16,6 +16,8 @@ import {
 import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { changeEmail, markAccountDeleting } from "../../accounts/lifecycle/service";
 import { saveSubscription } from "../../accounts/subscription/service";
+import { asEnvelopeBytes, decryptOtpPayload } from "../../auth/challenges/payload";
+import { startRecentOtp } from "../../auth/challenges/recent-auth";
 import { mintPreauthCookieValue } from "../../auth/preauth/cookie";
 import { proveWithRecoveryCode } from "../../auth/recent-auth/proof";
 import { targetForAction } from "../../auth/recent-auth/target";
@@ -806,6 +808,160 @@ describe("A-P4-CONSENT 两层同意 API", () => {
       clock.mockRestore();
     }
   });
+  it.each(["account_delete", "email_change"] as const)(
+    "Worker index 实际挂载生命周期 hooks：%s 关闭邮件并处理同一用户日历",
+    async (action) => {
+      const f = await ready();
+      await enable(f, { routine_enabled: true });
+      expect(await channelRow(env.DB, f.userId)).toMatchObject({
+        enabled: 1,
+        routine_enabled: 1,
+        lease_expires_at: emailSeatLeaseExpiresAt(now),
+        last_renewed_at: now,
+        last_renewed_reason: "explicit_consent",
+      });
+      const master = randomBytes(SECRET_BITS / 8),
+        pepper = randomBytes(SECRET_BITS / 8);
+      const keys = await Keyring.create({
+        masterSecret: master,
+        otpPepper: pepper,
+        unsubscribeMacCurrentKeyId: "synthetic",
+      });
+      const ciphertext = await encryptField(
+        keys.fieldEncryption(),
+        { type: "delivery-email-address", id: f.userId },
+        f.email,
+      );
+      await run("UPDATE users SET email_ciphertext=? WHERE id=?", ciphertext, f.userId);
+      const runtime = {
+        ...env,
+        CRYPTO_MASTER_SECRET: toHex(master),
+        CRYPTO_OTP_PEPPER: toHex(pepper),
+        CRYPTO_UNSUBSCRIBE_KEY_ID: "synthetic",
+      };
+      const calendar = await mutateCalendar(
+        env.DB,
+        keys,
+        f.session,
+        "enable",
+        0,
+        crypto.randomUUID(),
+        now,
+      );
+      expect(calendar.address_state).toBe("enabled");
+      const clock = vi.spyOn(Date, "now").mockReturnValue(now);
+      try {
+        const csrf = await mintCsrfToken(
+          keys.csrf(),
+          f.session.sessionTokenHash,
+          randomBytes(SECRET_BITS / 8),
+        );
+        const post = (path: string, body: unknown) =>
+          worker.fetch(
+            new Request(`https://app.test/api/v2/me/${path}`, {
+              method: "POST",
+              headers: {
+                origin: "https://app.test",
+                "content-type": "application/json",
+                cookie: `${USER_SESSION_COOKIE_NAME}=${f.token}; ${CSRF_COOKIE_NAME}=${csrf}`,
+                [CSRF_HEADER_NAME]: csrf,
+              },
+              body: JSON.stringify(body),
+            }),
+            runtime,
+            fakeExecutionContext,
+          );
+        const targetEmail =
+          action === "email_change" ? `New${crypto.randomUUID()}@example.test` : undefined;
+        const current = await post("recent-auth/recovery", {
+          action,
+          target_email: targetEmail,
+          recovery_id: f.recoveryId,
+          secret: f.recoverySecret,
+        });
+        expect(current.status).toBe(200);
+        const { proof_id: currentProof } = await current.json<{ proof_id: string }>();
+        if (action === "account_delete") {
+          const deleted = await post("delete", { proof_id: currentProof, confirm: true });
+          expect(deleted.status).toBe(200);
+          expect(await deleted.json()).toEqual({ state: "deleting" });
+          expect(await first("SELECT status FROM users WHERE id=?", f.userId)).toEqual({
+            status: "deleting",
+          });
+        } else {
+          // 仅本地创建挑战/加密 outbox；准入使用替身，不唤醒发送器或调用外部服务。
+          // 新邮箱证明由真实 Worker 校验 OTP 生成，不直接插入 recent_auth_proofs。
+          const challenge = await startRecentOtp(
+            env.DB,
+            keys,
+            f.session,
+            action,
+            "new_address",
+            targetEmail,
+            crypto.randomUUID(),
+            now,
+            {
+              rateGate: { check: () => ({ allowed: true }), recordIntent: () => {} },
+              turnstile: { verify: async () => "passed" },
+              turnstileToken: "synthetic",
+            },
+          );
+          const outbox = await first<{
+            id: string;
+            payload_ciphertext: ArrayBuffer | Uint8Array;
+          }>("SELECT id,payload_ciphertext FROM mail_outbox WHERE payload_ref=?", challenge);
+          if (outbox === null) throw new Error("missing_synthetic_outbox");
+          const payload = await decryptOtpPayload(
+            keys.fieldEncryption(),
+            outbox.id,
+            asEnvelopeBytes(outbox.payload_ciphertext),
+          );
+          const verified = await post("recent-auth/challenges/verify", {
+            challenge_id: challenge,
+            code: payload.code,
+          });
+          expect(verified.status).toBe(200);
+          const { proof_id: newProof } = await verified.json<{ proof_id: string }>();
+          const changed = await post("email-change", {
+            target_email: targetEmail,
+            current_proof_id: currentProof,
+            new_proof_id: newProof,
+          });
+          expect(changed.status).toBe(200);
+          const result = await changed.json<{ email_version: number }>();
+          expect(result.email_version).toBe(2);
+          expect(await channelRow(env.DB, f.userId)).toMatchObject({
+            address_version: result.email_version,
+            consent_version: 0,
+            last_renewed_at: null,
+            last_renewed_reason: null,
+          });
+        }
+        expect(await channelRow(env.DB, f.userId)).toMatchObject({
+          enabled: 0,
+          routine_enabled: 0,
+          lease_expires_at: null,
+        });
+        expect((await audit(f)).map(({ layer, action }) => [layer, action])).toEqual([
+          ["seat", "enable"],
+          ["routine", "enable"],
+          ["seat", "disable"],
+          ["routine", "disable"],
+        ]);
+        expect(
+          await first<{ state: string; token_generation: number }>(
+            "SELECT state,token_generation FROM calendar_feeds WHERE user_id=?",
+            f.userId,
+          ),
+        ).toEqual({
+          state: action === "account_delete" ? "disabled" : "enabled",
+          token_generation: calendar.token_generation + (action === "account_delete" ? 1 : 0),
+        });
+      } finally {
+        clock.mockRestore();
+      }
+    },
+  );
   it("只用外部日历且网页登录已过期：后台续租不要求网页请求，也不释放到期席位", async () => {
     const f = await ready();
     await enable(f);
