@@ -1,6 +1,7 @@
 // P4-01 · 主方案 §5.3、§7.1：同一套匹配和发送前复核条件，按兴趣与通道各自生效时间判定。
 import {
   changeNotificationScope,
+  EMAIL_CONSENT_ENABLE_ACTION,
   type EventType,
   type GameId,
   getReminderRule,
@@ -49,8 +50,8 @@ export interface AudienceRow {
 export const AUDIENCE_SELECT = `SELECT u.id, u."order" AS user_order, u.status, u.email_binding_id, u.email_version,
   s.state AS subscription_state, s.revision AS subscription_revision, s.scope_json, s.calendar_json, s.notifications_json,
   c.enabled AS channel_enabled, c.routine_enabled, c.address_version AS channel_address_version, c.lease_expires_at,
-  (SELECT MAX(ce.created_at) FROM consent_events ce WHERE ce.user_id = u.id AND ce.email_binding_id = u.email_binding_id AND ce.layer = 'seat') AS seat_enabled_at,
-  (SELECT MAX(ce.created_at) FROM consent_events ce WHERE ce.user_id = u.id AND ce.email_binding_id = u.email_binding_id AND ce.layer = 'routine') AS routine_enabled_at,
+  (SELECT MAX(ce.created_at) FROM consent_events ce WHERE ce.user_id = u.id AND ce.email_binding_id = u.email_binding_id AND ce.layer = 'seat' AND ce.action = '${EMAIL_CONSENT_ENABLE_ACTION}') AS seat_enabled_at,
+  (SELECT MAX(ce.created_at) FROM consent_events ce WHERE ce.user_id = u.id AND ce.email_binding_id = u.email_binding_id AND ce.layer = 'routine' AND ce.action = '${EMAIL_CONSENT_ENABLE_ACTION}') AS routine_enabled_at,
   EXISTS (SELECT 1 FROM suppressions x WHERE x.email_binding_id = u.email_binding_id AND (x.expires_at IS NULL OR x.expires_at > ?)) AS suppressed
   FROM users u LEFT JOIN user_subscriptions s ON s.user_id = u.id LEFT JOIN email_channels c ON c.user_id = u.id`;
 

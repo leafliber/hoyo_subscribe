@@ -25,6 +25,7 @@ export * from "./enums";
 export * from "./errors/codes";
 export * from "./errors/existence";
 export * from "./errors/sampling";
+export * from "./mail-channel";
 export * from "./notification-scope";
 export * from "./params/docs";
 export * from "./params/registry";
