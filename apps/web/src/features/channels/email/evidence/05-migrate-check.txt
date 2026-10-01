@@ -1,0 +1,12 @@
+$ node scripts/migrate/check.mjs
+静态检查通过：24 个迁移（0001–0024），无禁止对象
+
+ RUN  v4.1.11 /Users/cassia/.codex/worktrees/f4-01-email-consent/hoyo_subscribe/apps/worker
+
+
+ Test Files  1 passed (1)
+      Tests  12 passed (12)
+   Start at  18:10:51
+   Duration  3.92s (transform 437ms, setup 0ms, import 917ms, tests 735ms, environment 1ms)
+
+migrate:check 通过：空库顺序重放全部迁移，schema 与索引符合预期，rows_read 基准见上方输出

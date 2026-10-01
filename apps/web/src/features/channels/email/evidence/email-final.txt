@@ -1,0 +1,44 @@
+[WebServer] (node:44662) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+[WebServer] (Use `node --trace-warnings ...` to show where the warning was created)
+[WebServer] $ astro dev --host 127.0.0.1 --port 4184 --ignore-lock
+[WebServer] (node:44674) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+[WebServer] (Use `node --trace-warnings ...` to show where the warning was created)
+
+Running 26 tests using 2 workers
+
+(node:44688) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:44687) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✓   2 [desktop] › apps/web/src/features/channels/email/email.spec.ts:200:1 › U22b 席位和常规层默认关闭；只同意席位，版本来自 GET，发送暂停独立显示 (557ms)
+  ✓   1 [desktop] › apps/web/src/features/channels/email/email.spec.ts:228:1 › U22b 两层分别同意；子名额竞争导致 partial，逐项保留真实结果 (571ms)
+  ✓   3 [desktop] › apps/web/src/features/channels/email/email.spec.ts:254:3 › U22 conflict 后重读邮箱/订阅/同意版本并重新确认，不自动重试 (540ms)
+  ✓   4 [desktop] › apps/web/src/features/channels/email/email.spec.ts:254:3 › U22 validation 后重读邮箱/订阅/同意版本并重新确认，不自动重试 (545ms)
+  ✓   6 [desktop] › apps/web/src/features/channels/email/email.spec.ts:327:1 › U22 同意关闭、租期、投诉抑制、全站预算可并存；关闭不改其他通道 (428ms)
+  ✓   7 [desktop] › apps/web/src/features/channels/email/email.spec.ts:356:1 › U22 断网但已写入时只 GET 核对；缺字段不显示正常或可开启 (423ms)
+  ✓   5 [desktop] › apps/web/src/features/channels/email/email.spec.ts:295:1 › U22 按 contracts 全部受阻原因置灰，写入拒绝优先使用 blocked_reason (882ms)
+  ✓   9 [desktop] › apps/web/src/features/channels/email/email.spec.ts:376:3 › U11 真实保存状态机接邮件：保存后继续只展示已保存版本 (395ms)
+  ✓   8 [desktop] › apps/web/src/features/channels/email/email.spec.ts:376:3 › U11 真实保存状态机接邮件：使用已保存设置只展示已保存版本 (418ms)
+  ✓  10 [desktop] › apps/web/src/features/channels/email/email.spec.ts:393:1 › U11 保存冲突不打开同意、不提交邮件 (337ms)
+  ✓  11 [desktop] › apps/web/src/features/channels/email/email.spec.ts:402:1 › U22 身份失效清除私人视图，旧响应不重现；不写本机存储 (401ms)
+  ✓  12 [desktop] › apps/web/src/features/channels/email/email.spec.ts:428:1 › U22b 已有席位时单独开启与关闭常规层；键盘明确确认且不重记席位同意 (402ms)
+  ✓  13 [desktop] › apps/web/src/features/channels/email/email.spec.ts:461:1 › U22 拒绝后的重读失败保持未知，不沿用旧同意；重新读取也不提交 (445ms)
+(node:44742) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:44758) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✓  14 [mobile] › apps/web/src/features/channels/email/email.spec.ts:200:1 › U22b 席位和常规层默认关闭；只同意席位，版本来自 GET，发送暂停独立显示 (577ms)
+  ✓  15 [mobile] › apps/web/src/features/channels/email/email.spec.ts:228:1 › U22b 两层分别同意；子名额竞争导致 partial，逐项保留真实结果 (570ms)
+  ✓  16 [mobile] › apps/web/src/features/channels/email/email.spec.ts:254:3 › U22 conflict 后重读邮箱/订阅/同意版本并重新确认，不自动重试 (519ms)
+  ✓  17 [mobile] › apps/web/src/features/channels/email/email.spec.ts:254:3 › U22 validation 后重读邮箱/订阅/同意版本并重新确认，不自动重试 (505ms)
+  ✓  19 [mobile] › apps/web/src/features/channels/email/email.spec.ts:327:1 › U22 同意关闭、租期、投诉抑制、全站预算可并存；关闭不改其他通道 (489ms)
+  ✓  18 [mobile] › apps/web/src/features/channels/email/email.spec.ts:295:1 › U22 按 contracts 全部受阻原因置灰，写入拒绝优先使用 blocked_reason (910ms)
+  ✓  20 [mobile] › apps/web/src/features/channels/email/email.spec.ts:356:1 › U22 断网但已写入时只 GET 核对；缺字段不显示正常或可开启 (460ms)
+  ✓  21 [mobile] › apps/web/src/features/channels/email/email.spec.ts:376:3 › U11 真实保存状态机接邮件：使用已保存设置只展示已保存版本 (452ms)
+  ✓  22 [mobile] › apps/web/src/features/channels/email/email.spec.ts:376:3 › U11 真实保存状态机接邮件：保存后继续只展示已保存版本 (432ms)
+  ✓  23 [mobile] › apps/web/src/features/channels/email/email.spec.ts:393:1 › U11 保存冲突不打开同意、不提交邮件 (338ms)
+  ✓  24 [mobile] › apps/web/src/features/channels/email/email.spec.ts:402:1 › U22 身份失效清除私人视图，旧响应不重现；不写本机存储 (383ms)
+  ✓  25 [mobile] › apps/web/src/features/channels/email/email.spec.ts:428:1 › U22b 已有席位时单独开启与关闭常规层；键盘明确确认且不重记席位同意 (446ms)
+  ✓  26 [mobile] › apps/web/src/features/channels/email/email.spec.ts:461:1 › U22 拒绝后的重读失败保持未知，不沿用旧同意；重新读取也不提交 (470ms)
+
+  26 passed (8.8s)

@@ -1,0 +1,16 @@
+$ pnpm -r --if-present run test
+Scope: 3 of 4 workspace projects
+packages/contracts test$ vitest run
+packages/contracts test:  RUN  v4.1.11 /Users/cassia/.codex/worktrees/f4-01-email-consent/hoyo_subscribe/packages/contracts
+packages/contracts test:  Test Files  29 passed (29)
+packages/contracts test:       Tests  242 passed (242)
+packages/contracts test:    Start at  18:10:56
+packages/contracts test:    Duration  700ms (transform 770ms, setup 0ms, import 2.00s, tests 231ms, environment 2ms)
+packages/contracts test: Done
+apps/worker test$ vitest run
+apps/worker test:  RUN  v4.1.11 /Users/cassia/.codex/worktrees/f4-01-email-consent/hoyo_subscribe/apps/worker
+apps/worker test:  Test Files  63 passed (63)
+apps/worker test:       Tests  896 passed (896)
+apps/worker test:    Start at  18:10:57
+apps/worker test:    Duration  18.91s (transform 7.48s, setup 0ms, import 83.19s, tests 38.09s, environment 6ms)
+apps/worker test: Done
