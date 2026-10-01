@@ -21,6 +21,7 @@ import { proveWithRecoveryCode } from "../../auth/recent-auth/proof";
 import { targetForAction } from "../../auth/recent-auth/target";
 import { runRecoveryAction } from "../../auth/recovery/action";
 import { sessionAuthenticator } from "../../auth/sessions/authenticator";
+import { mutateCalendar } from "../../calendar/manage/service";
 import worker from "../../index";
 import { CSRF_COOKIE_NAME, CSRF_HEADER_NAME, createApiShell, mintCsrfToken } from "../../shell";
 import { USER_SESSION_COOKIE_NAME } from "../../shell/domains";
@@ -624,6 +625,76 @@ describe("A-P4-CONSENT 两层同意 API", () => {
       expect(await channelRow(env.DB, f.userId)).toBeNull();
     }
   });
+  it("读取后地址被加入抑制，提交守卫拒绝开启且不写同意", async () => {
+    const f = await ready();
+    const request = await input(f);
+    const addressKey = await suppressionAddressKey((await testKeyring).emailLookup(), f.email);
+    const original = env.DB.batch.bind(env.DB);
+    const mock = vi.spyOn(env.DB, "batch").mockImplementationOnce(async (statements) => {
+      await run(
+        "INSERT INTO suppressions(id,address_key,email_binding_id,kind,read_only,created_at) VALUES (?,?,'synthetic-binding','complaint',1,?)",
+        crypto.randomUUID(),
+        addressKey,
+        now,
+      );
+      return original(statements);
+    });
+    try {
+      const response = await http(f, "PUT", request);
+      expect(mock).toHaveBeenCalledOnce();
+      expect(response.status).toBe(503);
+      expect(await response.json()).toMatchObject({
+        blocked_reason: "address_suppressed",
+        error: { code: "quota_paused", details: { scope: "address_suppressed" } },
+      });
+    } finally {
+      mock.mockRestore();
+    }
+    expect(await channelRow(env.DB, f.userId)).toBeNull();
+    expect(await audit(f)).toEqual([]);
+  });
+  it.each([undefined, EMAIL_CONSENT_VERSION + 1])(
+    "席位同意版本缺失或错误（%s）拒绝开启且不写同意",
+    async (version) => {
+      const f = await ready();
+      const response = await http(f, "PUT", await input(f, { seat_consent_version: version }));
+      expect(response.status).toBe(400);
+      expect(await response.json()).toMatchObject({
+        error: {
+          code: "validation",
+          details: {
+            fields: [{ path: "seat_consent_version", reason: "explicit_consent_required" }],
+          },
+        },
+      });
+      expect(await channelRow(env.DB, f.userId)).toBeNull();
+      expect(await audit(f)).toEqual([]);
+    },
+  );
+  it("GET 后通道在别处改过，旧 expected_revision 开启返回 409 且不生效", async () => {
+    const f = await ready();
+    const get = await http(f, "GET");
+    expect(get.status).toBe(200);
+    const view = await get.json<Awaited<ReturnType<typeof readEmailChannel>>>();
+    const request = {
+      enabled: true,
+      expected_revision: view.channel_revision,
+      email_version: view.email.email_version,
+      subscription_revision: view.subscription.revision,
+      seat_consent_version: EMAIL_CONSENT_VERSION,
+    };
+    await enable(f);
+    await updateEmailChannel(await deps(), f.session, { enabled: false }, now + 1);
+    const before = await channelRow(env.DB, f.userId);
+    const events = await audit(f);
+    expect(before?.channel_revision).toBeGreaterThan(view.channel_revision);
+    expect(before?.enabled).toBe(0);
+    const response = await http(f, "PUT", request);
+    expect(response.status).toBe(409);
+    expect(await response.json()).toMatchObject({ error: { code: "conflict" } });
+    expect(await channelRow(env.DB, f.userId)).toEqual(before);
+    expect(await audit(f)).toEqual(events);
+  });
   it("Worker index 实际挂载 GET/PUT 与紧急停用 hooks", async () => {
     const f = await ready();
     const master = randomBytes(SECRET_BITS / 8),
@@ -645,6 +716,16 @@ describe("A-P4-CONSENT 两层同意 API", () => {
       CRYPTO_OTP_PEPPER: toHex(pepper),
       CRYPTO_UNSUBSCRIBE_KEY_ID: "synthetic",
     };
+    const calendar = await mutateCalendar(
+      env.DB,
+      keys,
+      f.session,
+      "enable",
+      0,
+      crypto.randomUUID(),
+      now,
+    );
+    expect(calendar.address_state).toBe("enabled");
     const clock = vi.spyOn(Date, "now").mockReturnValue(now);
     try {
       const csrf = await mintCsrfToken(
@@ -714,6 +795,12 @@ describe("A-P4-CONSENT 两层同意 API", () => {
         fakeExecutionContext,
       );
       expect(stopped.status).toBe(200);
+      expect(
+        await first<{ state: string; token_generation: number }>(
+          "SELECT state,token_generation FROM calendar_feeds WHERE user_id=?",
+          f.userId,
+        ),
+      ).toEqual({ state: "disabled", token_generation: calendar.token_generation + 1 });
       expect(await channelRow(env.DB, f.userId)).toMatchObject({ enabled: 0, routine_enabled: 0 });
     } finally {
       clock.mockRestore();

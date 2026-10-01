@@ -84,6 +84,12 @@ export const UNAUTHORIZED_FEEDBACK: Readonly<Record<UnauthorizedReason, Feedback
     nextStep: "请先生成、保存并确认新恢复码，再继续操作。",
     action: "check_status",
   },
+  recovery_code_not_saved: {
+    title: "先确认保存恢复码",
+    explanation: "恢复码尚未完成保存确认，这次开启没有执行。",
+    nextStep: "请先保存并确认恢复码，再重新开启。",
+    action: "check_status",
+  },
   recent_auth_required: {
     title: "需要最近认证",
     explanation: "这次操作未执行，当前会话缺少有效的用途限定认证证明。",

@@ -42,6 +42,7 @@ test("U27 七类错误码与全部 UnauthorizedReason 都给出可执行下一�
     "session_expired",
     "pending_activation",
     "recovery_code_unconfirmed",
+    "recovery_code_not_saved",
     "recent_auth_required",
     "wrong_domain",
   ];
