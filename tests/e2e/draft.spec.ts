@@ -443,9 +443,9 @@ test("U19 导入文件的迟到读取在身份切换后丢弃", async ({ page })
 // 与 readAccountSummary 返回值对齐；仅 user_id 是草稿模块实际消费的字段。
 function accountSummary(userId: string) {
   const now = Date.now();
-  const unavailable = { allowed: false, reason: "recent_auth_required" };
   return {
     user_id: userId,
+    server_time: now,
     email: { masked: "s***@example.invalid", email_version: 1 },
     recovery_code_saved: true,
     recovery_code_generation: 1,
@@ -454,7 +454,7 @@ function accountSummary(userId: string) {
       state: "active",
       expires_at: now + SESSION_IDLE_TTL * 1000,
       absolute_expires_at: now + SESSION_ABSOLUTE_TTL * 1000,
-      expiry_notice: false,
+      recovery_login_at: null,
       recovery_code_required: false,
     },
     channels: {
@@ -463,12 +463,10 @@ function accountSummary(userId: string) {
       push: { state: "unknown" },
     },
     reclaim_grace_until: null,
-    actions: {
-      save_subscription: { allowed: true },
-      export_data: { allowed: true },
-      email_change: unavailable,
-      recovery_code_rotate: unavailable,
-      account_delete: unavailable,
+    recent_auth: {
+      email_change: null,
+      recovery_code_rotate: null,
+      account_delete: null,
     },
   };
 }
