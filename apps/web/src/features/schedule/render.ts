@@ -1,113 +1,341 @@
-import type { BrowseFilters, ScheduleDay, ScheduleNode, ScheduleSnapshot } from "@hoyo/contracts";
 import {
   BROWSE_RANGES,
   BROWSE_TIMEZONE,
+  type BrowseFilters,
   browseDate,
   browseTimestamp,
-  browseWindow,
   GAME_NAMES,
   nodeAction,
   nodeStatus,
   nodeTime,
-  selectSchedule,
+  type PublicScheduleNode,
+  type ScheduleDay,
+  selectScheduleCore,
 } from "@hoyo/contracts";
-/** 公告/标题均按纯文本转义；不执行来源 HTML。 */
-export function escapeHtml(value: string): string {
-  return value.replace(
-    /[&<>"']/g,
-    (char) =>
-      ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[char] ?? char,
+import { feedbackForFailure } from "../../lib/errors/feedback";
+import { PublicReadError } from "../../lib/public-api/client";
+import { button, cacheNotice, el, timeNode, timestamp } from "./dom";
+import type { ScheduleLoadState } from "./load";
+import { sourceFeedback } from "./source-status";
+
+export const changeLabels: Record<NonNullable<PublicScheduleNode["change"]>["kind"], string> = {
+  rescheduled: "安排已改期",
+  cancelled: "官方已取消",
+  retracted: "本站撤回：此前收录有误",
+  pending: "已延期，新时间待公布",
+  deleted: "本站删除节点（非官方取消）",
+  restored: "安排已恢复",
+  classification_corrected: "分类已更正",
+};
+export function renderChange(change: NonNullable<PublicScheduleNode["change"]>) {
+  return el(
+    "div",
+    {},
+    el("p", {}, changeLabels[change.kind]),
+    el("p", {}, change.explanation),
+    el(
+      "div",
+      { class: "change-times" },
+      change.historicalTime &&
+        el("div", { class: "historical-time" }, "原时间（历史）", timeNode(change.historicalTime)),
+      change.currentTime &&
+        el("div", { class: "current-time" }, "当前时间", timeNode(change.currentTime)),
+    ),
+    el("p", { class: "evidence-text" }, "公开依据：", change.evidence),
   );
 }
-export function renderNode(node: ScheduleNode, now: number): string {
-  const statuses = nodeStatus(node, now);
+export function renderNode(node: PublicScheduleNode, now: number) {
+  const fullTime = nodeTime(node);
   const exact =
     node.time.precision === "datetime" &&
     node.status !== "cancelled" &&
     node.status !== "retracted";
-  const fullTime = nodeTime(node);
-  const time = exact
-    ? `<time datetime="${new Date(node.time.precision === "datetime" ? node.time.utc_ms : now).toISOString()}"><span class="clock">${escapeHtml(fullTime.slice(-5))}</span><span class="absolute-date">${escapeHtml(fullTime.slice(0, -6))} · UTC+8</span></time>`
-    : `<span class="uncertain-time">${escapeHtml(fullTime)}</span>`;
-  return `<li class="schedule-node" data-node="${escapeHtml(node.id)}" data-precision="${node.time.precision}">
-    <div class="node-time">${time}</div>
-    <div class="node-content"><p class="node-action">${escapeHtml(nodeAction(node))}</p>
-    <a class="event-title" href="/events/${escapeHtml(node.id === "later" ? "sample" : encodeURIComponent(node.id))}">${escapeHtml(node.title)}</a>
-    <p class="node-meta"><span>${GAME_NAMES[node.game]}</span>${statuses.map((status) => `<span class="node-status">${escapeHtml(status)}</span>`).join("")}</p>
-    ${statuses.length || node.time.precision !== "datetime" ? `<details class="node-evidence"><summary>时间依据与说明</summary><p>${escapeHtml(node.evidence)}</p><p>原始表述：${escapeHtml(node.time.raw_expression)}</p><p>公告发布时间：${browseTimestamp(node.noticePublishedAt)} · UTC+8</p></details>` : ""}</div>
-  </li>`;
+  const time =
+    exact && node.time.precision === "datetime"
+      ? el(
+          "time",
+          { datetime: new Date(node.time.utc_ms).toISOString() },
+          el("span", { class: "clock" }, fullTime.slice(-5)),
+          el("span", { class: "absolute-date" }, `${fullTime.slice(0, -6)} · UTC+8`),
+        )
+      : el("span", { class: "uncertain-time" }, fullTime);
+  return el(
+    "li",
+    { class: "schedule-node", "data-node": node.id, "data-precision": node.time.precision },
+    el("div", { class: "node-time" }, time),
+    el(
+      "div",
+      { class: "node-content" },
+      el("p", { class: "node-action" }, nodeAction(node)),
+      el(
+        "a",
+        {
+          class: "event-title",
+          "data-focus": `${node.id}-title`,
+          href: `/events/${encodeURIComponent(node.eventId)}`,
+        },
+        node.title,
+      ),
+      el(
+        "p",
+        { class: "node-meta" },
+        el("span", {}, GAME_NAMES[node.game]),
+        ...nodeStatus(node, now).map((s) => el("span", { class: "node-status" }, s)),
+      ),
+      el(
+        "details",
+        { class: "node-evidence", "data-disclosure": node.id },
+        el("summary", { "data-focus": `${node.id}-evidence` }, "时间依据与说明"),
+        el("p", { class: "evidence-text" }, node.evidence),
+        el("p", {}, `原始表述：${node.time.raw_expression}`),
+        el("p", {}, `公告发布时间：${timestamp(node.noticePublishedAt)}`),
+      ),
+    ),
+  );
 }
-function renderDay(day: ScheduleDay, now: number, isYesterday = false): string {
-  const today = browseDate(now);
-  const label = day.date === today ? "今天" : day.date;
-  const heading = isYesterday
-    ? ""
-    : `<h3 class="day-heading"><span>${label}</span>${day.date === today ? `<span class="day-date">${day.date}</span>` : ""}<span class="day-count">${day.timed.length + day.dateOnly.length} 项安排</span></h3>`;
-  return `<section class="schedule-day" data-date="${day.date}">${heading}<ul class="timed-list">${day.timed.map((node) => renderNode(node, now)).join("")}</ul>${day.dateOnly.length ? `<div class="date-only"><h4>具体时刻未公布</h4><ul>${day.dateOnly.map((node) => renderNode(node, now)).join("")}</ul></div>` : ""}</section>`;
+function renderDay(
+  day: ScheduleDay<PublicScheduleNode>,
+  today: string,
+  now: number,
+  yesterday = false,
+) {
+  return el(
+    "section",
+    { class: "schedule-day", "data-date": day.date },
+    !yesterday &&
+      el("h3", { class: "day-heading" }, day.date === today ? `今天 ${day.date}` : day.date),
+    el("ul", { class: "timed-list" }, ...day.timed.map((node) => renderNode(node, now))),
+    day.dateOnly.length > 0 &&
+      el(
+        "div",
+        { class: "date-only" },
+        el("h4", {}, "具体时刻未公布"),
+        el("ul", {}, ...day.dateOnly.map((node) => renderNode(node, now))),
+      ),
+  );
 }
-export type LoadingState = "ready" | "loading" | "failed";
-export interface RenderOptions {
-  snapshot: ScheduleSnapshot;
-  filters: BrowseFilters;
-  now: number;
-  expanded: boolean;
-  loading: LoadingState;
-  offline: boolean;
-  stale: boolean;
+export function loadFeedback(error: unknown) {
+  if (error instanceof PublicReadError && error.status === 409)
+    return "发布代次再次变化，请重新加载。";
+  if (error instanceof PublicReadError && error.body) {
+    const feedback = feedbackForFailure(error.body, { affectedOperation: "公开日程读取" });
+    return `${feedback.title}。${feedback.nextStep}`;
+  }
+  return "加载失败，已显示的日程仍保留。请检查网络后重试。";
 }
-export function renderResults({
-  snapshot,
-  filters,
-  now,
-  expanded,
-  loading,
-  offline,
-  stale,
-}: RenderOptions): string {
-  const view = selectSchedule(snapshot, filters, now);
-  const firstDay = view.days[0]?.date;
-  // 按日期逐组展开，不创造第二份业务分页配额；隔离样例已完整在本地。
-  const shown = expanded ? view.days : view.days.filter((day) => day.date === firstDay);
-  const hasMore = shown.length < view.days.length;
-  const range = BROWSE_RANGES.find((item) => item.id === filters.range);
-  const emptyCopy = {
-    range: [
-      "这几天，留一点从容。",
-      "当前范围没有已发布日程",
-      "可以看看更远的安排，或通过「昨天」回看刚刚过去的节点。",
-    ],
-    filtered: [
-      "换个筛选，继续发现。",
-      "筛选没有匹配项",
-      "试着放宽游戏、事件类型或节点类型；这不会修改已保存的订阅。",
-    ],
-    source: [
-      "部分日程暂时无法确认。",
-      "来源暂不可用",
-      "来源访问异常，不能据此判断没有活动。请稍后重试或查看服务状态。",
-    ],
-    review: [
-      "有些安排，还在核对中。",
-      "仍有待审核缺口",
-      "仅公开待审核数量；未通过审核的内容不会作为日程展示。",
-    ],
-  };
-  const window = browseWindow(filters.range, now);
-  const nextRange = BROWSE_RANGES[BROWSE_RANGES.findIndex((item) => item.id === filters.range) + 1];
-  const broaden = nextRange
-    ? `<button class="button" data-action="widen" data-range="${nextRange.id}">试试${nextRange.label}</button>`
-    : "";
-  const empty = view.empty
-    ? `<section class="schedule-empty" data-empty="${view.empty}"><span class="empty-mark" aria-hidden="true">—</span><p class="empty-eyebrow">${emptyCopy[view.empty][1]}</p><h3>${emptyCopy[view.empty][0]}</h3><p>${emptyCopy[view.empty][2]}</p><div class="empty-actions">${view.empty === "range" ? broaden : view.empty === "filtered" ? '<button class="button" data-action="reset">放宽筛选</button>' : '<button class="button button--secondary" data-action="retry-source">重新检查</button><a href="/status">查看服务状态 →</a>'}</div></section>`
-    : "";
-  return `${view.changes.length ? `<details class="recent-changes"><summary><span>近期重要变更</span><span class="change-count">${view.changes.length} 项</span><span class="change-preview">改期、取消与待定安排</span></summary><ul>${view.changes.map((node) => `<li data-change="${escapeHtml(node.id)}"><p><strong>${escapeHtml(nodeStatus(node, now).join(" · ") || "安排已改期")}</strong> · ${GAME_NAMES[node.game]}</p><p>${escapeHtml(node.title)}</p><p>${escapeHtml(node.change?.explanation ?? "")}</p><p class="data-note">公告发布时间 ${browseTimestamp(node.noticePublishedAt)} · UTC+8</p></li>`).join("")}</ul><p class="data-note">以上均为 synthetic 公开依据样例，非官方事实。</p></details>` : ""}
-    ${offline || stale ? `<aside class="data-warning" role="status">${offline ? "离线" : "陈旧缓存"}：正在展示公共旧缓存。实际缓存时间 ${browseTimestamp(snapshot.capturedAt)} · UTC+8；恢复联网后请重新检查。</aside>` : ""}
-    ${view.unavailable.length && !view.empty ? `<aside class="data-warning">来源暂不可用：${view.unavailable.map((source) => GAME_NAMES[source.game]).join("、")}。已有公开条目保留，不能据此判断没有活动。</aside>` : ""}
-    ${view.review ? `<aside class="data-warning">仍有待审核缺口：${view.review} 项待核对（聚合信息）。</aside>` : ""}
-    <section class="timeline" aria-labelledby="timeline-title"><div class="timeline-heading"><h2 id="timeline-title" tabindex="-1">接下来的安排</h2><span>${range?.label} · ${view.count} 项</span></div><p class="window-caption">${filters.range === "all" ? "服务端已发布窗口全量" : `${browseDate(window.start)} 00:00 — ${browseDate(window.end ?? now)} 00:00（不含）`} · ${BROWSE_TIMEZONE}</p>${empty}
-    <div data-region="days">${shown.map((day) => renderDay(day, now)).join("")}</div>
-    ${!view.empty ? `<div class="load-row" role="status">${loading === "failed" ? '<p>加载失败，已显示的日程仍保留。</p><button class="button button--secondary" data-action="load">重试加载</button>' : loading === "loading" ? "<p>正在加载更多日程…</p>" : hasMore ? '<button class="button button--secondary" data-action="load">继续查看日程 ↓</button>' : "<p>已显示完当前范围</p>"}</div>` : ""}
-    ${view.pending.length ? `<section class="pending-area" data-region="pending"><h3>待定安排</h3><p class="data-note">日期尚未确定，另列于此。</p><ul>${view.pending.map((node) => renderNode(node, now)).join("")}</ul></section>` : ""}
-    <section class="yesterday-band" data-region="yesterday"><div class="band-content"><h3>昨天 <span>${view.yesterday.date} · 回看</span></h3>${view.yesterday.groups.length ? view.yesterday.groups.map((day) => renderDay(day, now, true)).join("") : '<p class="data-note">昨天没有符合当前筛选的已发布节点。</p>'}</div></section></section>
-    <details class="data-freshness"><summary>来源核验 ${view.verifiedAt === null ? "未选择游戏" : `${browseTimestamp(view.verifiedAt)} · UTC+8`}<span>详情 · synthetic</span></summary><dl><dt>来源成功核验时间（摘要取所选来源最早值）</dt><dd>${view.sources.map((source) => `${GAME_NAMES[source.game]}：${browseTimestamp(source.verifiedAt)} · UTC+8`).join("<br>") || "未选择游戏"}</dd><dt>发布代次时间</dt><dd>${browseTimestamp(snapshot.publishedAt)} · UTC+8（${snapshot.generation}）</dd><dt>公告发布时间</dt><dd>每条公告各自记录；在时间依据或重要变更中查看，不以页面刷新时间替代。</dd><dt>样例缓存时间</dt><dd>${browseTimestamp(snapshot.capturedAt)} · UTC+8</dd></dl><a href="/status">服务状态 →</a></details>`;
+export function renderResults(state: ScheduleLoadState, filters: BrowseFilters) {
+  const root = el("div");
+  const first = state.pages[0];
+  const now = Date.now();
+  const status = state.status;
+  const sources = status?.sources ?? null;
+  const gaps = status?.reviewGaps ?? filters.games.map((game) => ({ game, count: null }));
+  if (state.metadataFailed)
+    root.append(
+      el(
+        "p",
+        { class: "data-warning" },
+        `目录或来源状态读取失败；已读取的公共副本仍保留。${loadFeedback(state.metadataError)}`,
+      ),
+    );
+  if (first) {
+    const oldest = state.pages.reduce((a, b) =>
+      a.cache.freshUntil <= b.cache.freshUntil ? a : b,
+    ).cache;
+    const notice = cacheNotice(oldest);
+    if (notice) root.append(notice);
+    const view = selectScheduleCore(
+      {
+        nodes: state.pages.flatMap((page) => page.nodes),
+        recentChanges: first.recentChanges,
+        window: first.window,
+        sources,
+        reviewGaps: gaps,
+      },
+      filters,
+    );
+    if (view.changes.length)
+      root.append(
+        el(
+          "details",
+          { class: "recent-changes" },
+          el(
+            "summary",
+            {},
+            el("span", {}, "近期重要变更"),
+            el("span", { class: "change-count" }, `${view.changes.length} 项`),
+          ),
+          el(
+            "ul",
+            {},
+            ...view.changes.map((node) =>
+              el(
+                "li",
+                { "data-change": node.id },
+                el("a", { href: `/events/${encodeURIComponent(node.eventId)}` }, node.title),
+                node.change && renderChange(node.change),
+                el("p", {}, `公告发布时间 ${timestamp(node.noticePublishedAt)}`),
+              ),
+            ),
+          ),
+          first.recentChangesTruncated &&
+            el("p", { class: "data-note" }, "还有未列出的近期变更，此处不是完整变更历史。"),
+        ),
+      );
+    if (view.unavailable.length)
+      root.append(
+        el(
+          "p",
+          { class: "data-warning" },
+          "部分来源暂不可用；已有公开条目保留，不代表整个游戏不可用。",
+        ),
+      );
+    if (view.reviewUnknown || view.review)
+      root.append(
+        el(
+          "p",
+          { class: "data-warning" },
+          view.reviewUnknown
+            ? "审核缺口数量未知，不能确认没有待审核内容。"
+            : `仍有待审核缺口：${view.review} 项待核对（聚合信息）。`,
+        ),
+      );
+    const timeline = el(
+      "section",
+      { class: "timeline" },
+      el(
+        "div",
+        { class: "timeline-heading" },
+        el("h2", { id: "timeline-title", tabindex: "-1" }, "接下来的安排"),
+        el("span", {}, `${view.count} 项`),
+      ),
+      el(
+        "p",
+        { class: "window-caption" },
+        `${browseTimestamp(first.window.start)} — ${first.window.end === null ? "服务端已发布窗口末尾" : `${browseTimestamp(first.window.end)}（不含）`} · ${BROWSE_TIMEZONE}`,
+      ),
+    );
+    if (state.phase === "ready" && view.empty) {
+      const copy = {
+        range: "当前范围没有已发布日程",
+        filtered: "筛选没有匹配项",
+        source: "来源暂不可用",
+        review: view.reviewUnknown ? "审核缺口数量未知" : "仍有待审核缺口",
+        unknown: "来源状态未知，暂不能确认当前范围的数据情况",
+      };
+      const empty = el(
+        "section",
+        { class: "schedule-empty", "data-empty": view.empty },
+        el("h3", {}, copy[view.empty]),
+      );
+      const next =
+        BROWSE_RANGES[BROWSE_RANGES.findIndex((range) => range.id === filters.range) + 1];
+      if (view.empty === "range" && next) {
+        const action = button(`试试${next.label}`, "widen");
+        action.dataset.range = next.id;
+        empty.append(action);
+      } else
+        empty.append(
+          button(
+            view.empty === "filtered" ? "放宽筛选" : "重新检查",
+            view.empty === "filtered" ? "reset" : "refresh",
+          ),
+        );
+      timeline.append(empty);
+    }
+    timeline.append(
+      el(
+        "div",
+        { "data-region": "days" },
+        ...view.days.map((day) => renderDay(day, browseDate(first.window.start), now)),
+      ),
+    );
+    if (view.pending.length)
+      timeline.append(
+        el(
+          "section",
+          { class: "pending-area", "data-region": "pending" },
+          el("h3", {}, "待定安排"),
+          el("ul", {}, ...view.pending.map((node) => renderNode(node, now))),
+        ),
+      );
+    timeline.append(loadRow(state));
+    timeline.append(
+      el(
+        "section",
+        { class: "yesterday-band", "data-region": "yesterday" },
+        el(
+          "div",
+          { class: "band-content" },
+          el("h3", {}, `昨天 ${view.yesterday.date} · 回看`),
+          ...view.yesterday.groups.map((day) =>
+            renderDay(day, browseDate(first.window.start), now, true),
+          ),
+          !view.yesterday.groups.length &&
+            el(
+              "p",
+              { class: "data-note" },
+              state.phase === "ready"
+                ? "昨天没有符合当前筛选的已发布节点。"
+                : "昨天的节点仍待加载完成。",
+            ),
+        ),
+      ),
+    );
+    root.append(timeline);
+  } else root.append(loadRow(state));
+  const freshness = el(
+    "details",
+    { class: "data-freshness" },
+    el("summary", {}, "来源核验与数据时间"),
+  );
+  if (status) {
+    const notice = cacheNotice(status.cache, "来源状态");
+    if (notice) freshness.append(notice);
+  }
+  if (sources === null) freshness.append(el("p", {}, "来源状态未知"));
+  else if (!sources.length) freshness.append(el("p", {}, "当前没有登记来源"));
+  else
+    for (const source of sources.filter((source) => filters.games.includes(source.game)))
+      freshness.append(
+        el(
+          "p",
+          { "data-source": source.sourceId },
+          `${GAME_NAMES[source.game]} · ${source.sourceId}：${sourceFeedback(source).label}；来源成功核验时间：${timestamp(source.verifiedAt)}`,
+        ),
+      );
+  freshness.append(
+    el(
+      "p",
+      {},
+      `日程发布代次时间：${timestamp(first?.publication.publishedAt ?? null)}${first ? `（${first.publication.generation}）` : ""}`,
+    ),
+    el("p", {}, `目录发布代次时间：${timestamp(state.catalog?.publication?.publishedAt ?? null)}`),
+    el("p", {}, "公告发布时间：见各条目的时间依据，未知时间不会以页面刷新时间代替。"),
+    button("重新检查", "refresh"),
+    el("a", { href: "/status" }, "查看服务状态"),
+  );
+  root.append(freshness);
+  return root;
+}
+function loadRow(state: ScheduleLoadState) {
+  const row = el(
+    "div",
+    { class: "load-row", role: "status" },
+    el(
+      "p",
+      {},
+      state.phase === "loading"
+        ? "正在加载日程…"
+        : state.phase === "failed"
+          ? loadFeedback(state.error)
+          : "已显示完当前范围",
+    ),
+  );
+  if (state.phase === "failed") {
+    const retry = button("重试加载", "retry");
+    retry.disabled = Date.now() < state.retryAt;
+    row.append(retry);
+  }
+  return row;
 }

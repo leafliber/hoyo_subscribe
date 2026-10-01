@@ -25,6 +25,23 @@ const MIME_TYPES = {
   ".woff2": "font/woff2",
 };
 
+// F1-06 获准接线：规则只来自构建产物，不在服务器重复定义路由。
+const rewrites = (await readFile(path.join(DIST, "_redirects"), "utf8"))
+  .split(/\r?\n/)
+  .filter((line) => line.trim() && !line.trim().startsWith("#"))
+  .map((line) => {
+    const match = /^(\/[^\s*?#:]+)\*\s+(\/[^\s*?#:]+)\s+200$/.exec(line.trim());
+    if (
+      !match ||
+      match[1].startsWith("//") ||
+      match[2].startsWith("//") ||
+      match[2].split("/").some((part) => part === ".." || part === ".") ||
+      match[2].includes("\\")
+    )
+      throw new Error("E2E _redirects 仅支持站内 200 + 尾部通配改写");
+    return { prefix: match[1], target: match[2] };
+  });
+
 function portOwner() {
   const result = spawnSync("lsof", ["-nP", `-iTCP:${PORT}`, "-sTCP:LISTEN"], {
     encoding: "utf8",
@@ -50,7 +67,8 @@ async function serve(request, response) {
     return;
   }
 
-  const filePath = path.resolve(DIST, `.${pathname}`);
+  const rewritten = rewrites.find((rule) => pathname.startsWith(rule.prefix))?.target ?? pathname;
+  const filePath = path.resolve(DIST, `.${rewritten}`);
   if (filePath !== DIST && !filePath.startsWith(`${DIST}${path.sep}`)) {
     response.writeHead(403);
     response.end();

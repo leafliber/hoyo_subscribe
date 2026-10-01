@@ -34,7 +34,12 @@ export class PublicReadError extends Error {
 export class PublicApiClient {
   constructor(private readonly request: PublicFetch = (path, init) => fetch(path, init)) {}
 
-  private async read<T>(path: string, schema: { parse(value: unknown): T }, signal?: AbortSignal) {
+  private async read<T>(
+    path: string,
+    schema: { parse(value: unknown): T },
+    signal?: AbortSignal,
+    reload = false,
+  ) {
     let response: Response;
     try {
       response = await this.request(path, {
@@ -42,7 +47,7 @@ export class PublicApiClient {
         credentials: "omit",
         referrerPolicy: "no-referrer",
         redirect: "error",
-        cache: "no-cache",
+        cache: reload ? "reload" : "default",
         signal,
         headers: { Accept: "application/json" },
       });
@@ -69,28 +74,34 @@ export class PublicApiClient {
     }
   }
 
-  catalog(signal?: AbortSignal) {
-    return this.read("/api/v2/catalog", PublicCatalogResponseSchema, signal);
+  catalog(signal?: AbortSignal, reload = false) {
+    return this.read("/api/v2/catalog", PublicCatalogResponseSchema, signal, reload);
   }
 
-  events(selection: Pick<BrowseFilters, "games" | "range">, cursor?: string, signal?: AbortSignal) {
+  events(
+    selection: Pick<BrowseFilters, "games" | "range">,
+    cursor?: string,
+    signal?: AbortSignal,
+    reload = false,
+  ) {
     const params = new URLSearchParams({
       games: selection.games.join(","),
       range: selection.range,
     });
     if (cursor !== undefined) params.set("cursor", cursor);
-    return this.read(`/api/v2/events?${params}`, PublicEventsResponseSchema, signal);
+    return this.read(`/api/v2/events?${params}`, PublicEventsResponseSchema, signal, reload);
   }
 
-  detail(eventId: string, signal?: AbortSignal) {
+  detail(eventId: string, signal?: AbortSignal, reload = false) {
     return this.read(
       `/api/v2/events/${encodeURIComponent(eventId)}`,
       PublicEventDetailResponseSchema,
       signal,
+      reload,
     );
   }
 
-  status(signal?: AbortSignal) {
-    return this.read("/api/v2/status", PublicStatusResponseSchema, signal);
+  status(signal?: AbortSignal, reload = false) {
+    return this.read("/api/v2/status", PublicStatusResponseSchema, signal, reload);
   }
 }

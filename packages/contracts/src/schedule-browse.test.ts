@@ -173,3 +173,115 @@ it("U05 部分来源故障保留已发布节点，只标记受影响游戏", () 
     selectSchedule(data, { ...defaultBrowseFilters(), games: ["genshin"] }, now).unavailable,
   ).toEqual([]);
 });
+
+it("U03 U05 公共节点共用分组规则，窗口来自响应；昨天不计入当前空态", async () => {
+  const { selectScheduleCore, nodeAction, nodeTime, isDeadline } = await import(
+    "./schedule-browse"
+  );
+  const make = (id: string, ms: number): import("./public-api").PublicScheduleNode => ({
+    ...exact(id, ms),
+    eventId: "evt_synthetic",
+    noticePublishedAt: null,
+    change: null,
+  });
+  const input = {
+    nodes: [make("b", now), make("a", now), make("yesterday", start - 1)],
+    recentChanges: [],
+    window: browseWindow("3d", now),
+    sources: [],
+    reviewGaps: [],
+  };
+  const view = selectScheduleCore(input, defaultBrowseFilters());
+  expect(view.days[0].timed.map((node) => node.id)).toEqual(["a", "b"]);
+  expect(view.yesterday.groups[0].timed[0].id).toBe("yesterday");
+  expect(view.count).toBe(2);
+  expect(nodeAction(input.nodes[0])).toBe(nodeAction(exact("b", now)));
+  expect(nodeTime(input.nodes[0])).toBe(nodeTime(exact("b", now)));
+  expect(isDeadline(input.nodes[0])).toBe(isDeadline(exact("b", now)));
+  expect(
+    selectScheduleCore({ ...input, nodes: [make("yesterday", start - 1)] }, defaultBrowseFilters())
+      .empty,
+  ).toBe("range");
+  expect(
+    selectScheduleCore(
+      { ...input, nodes: [], reviewGaps: [{ game: "genshin", count: null }] },
+      defaultBrowseFilters(),
+    ).review,
+  ).toBeNull();
+  expect(
+    selectScheduleCore(
+      { ...input, nodes: [], reviewGaps: [{ game: "genshin", count: null }] },
+      defaultBrowseFilters(),
+    ).empty,
+  ).toBe("review");
+  expect(
+    selectScheduleCore({ ...input, nodes: [], sources: null }, defaultBrowseFilters()).empty,
+  ).toBe("unknown");
+});
+
+it("U03 公共节点六档沿用精度、稳定排序、动作与状态规则", async () => {
+  const { selectScheduleCore, nodeAction, nodeTime, isDeadline } = await import(
+    "./schedule-browse"
+  );
+  const convert = (node: ScheduleNode): import("./public-api").PublicScheduleNode => ({
+    ...node,
+    eventId: "evt_synthetic",
+    noticePublishedAt: null,
+    change: null,
+  });
+  for (const range of BROWSE_RANGES) {
+    const date: ScheduleNode = {
+      ...exact("date", start),
+      time: {
+        precision: "date",
+        date: DateOnlySchema.parse("2026-09-22"),
+        source_timezone: "UTC+8",
+        raw_expression: "9月22日",
+        time_basis: "official_explicit",
+      },
+    };
+    const unknown: ScheduleNode = {
+      ...exact("unknown", start),
+      time: {
+        precision: "unknown",
+        source_timezone: "UTC+8",
+        raw_expression: "待公布",
+        time_basis: "unresolved",
+      },
+    };
+    const legacy = [exact("b", now), date, unknown, exact("a", now), exact("yesterday", start - 1)];
+    const filters = { ...defaultBrowseFilters(), range: range.id };
+    const sample = selectSchedule(snapshot(legacy), filters, now);
+    const actual = selectScheduleCore(
+      {
+        nodes: legacy.map(convert),
+        recentChanges: [],
+        window: browseWindow(range.id, now),
+        sources: [],
+        reviewGaps: [],
+      },
+      filters,
+    );
+    expect(
+      actual.days.map((d) => ({
+        date: d.date,
+        timed: d.timed.map((n) => n.id),
+        dateOnly: d.dateOnly.map((n) => n.id),
+      })),
+    ).toEqual(
+      sample.days.map((d) => ({
+        date: d.date,
+        timed: d.timed.map((n) => n.id),
+        dateOnly: d.dateOnly.map((n) => n.id),
+      })),
+    );
+    expect(actual.pending.map((n) => n.id)).toEqual(sample.pending.map((n) => n.id));
+    expect(actual.count).toBe(sample.count);
+    for (const node of legacy) {
+      expect(nodeAction(convert(node))).toBe(nodeAction(node));
+      expect(nodeTime(convert(node))).toBe(nodeTime(node));
+      expect(nodeStatus(convert(node), now)).toEqual(nodeStatus(node, now));
+      expect(isDeadline(convert(node))).toBe(isDeadline(node));
+    }
+  }
+});

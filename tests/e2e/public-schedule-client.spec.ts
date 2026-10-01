@@ -2,6 +2,7 @@ import { expect, test } from "@playwright/test";
 import { sourceFeedback } from "../../apps/web/src/features/schedule/source-status";
 import { PublicApiClient, PublicReadError } from "../../apps/web/src/lib/public-api/client";
 import {
+  browseWindow,
   EVENT_TYPES,
   NODE_TYPES,
   type PublicSourceStatus,
@@ -49,7 +50,7 @@ test("U05 分页游标仅作不透明参数；空页的 nextCursor 不丢失", a
     return Response.json({
       publication: catalog.publication,
       cache: catalog.cache,
-      window: { start: now, end: null },
+      window: browseWindow("all", now),
       nodes: [],
       recentChanges: [],
       recentChangesTruncated: false,
