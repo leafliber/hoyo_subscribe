@@ -4,7 +4,7 @@
  * GET events: range= today|3d|7d|30d|90d|all，games=逗号分隔游戏，cursor=不透明游标。
  * 分页按稳定节点身份；页面内排序交给前端。空页仍可能有 nextCursor。
  * 同代游标含 UTC+8 浏览日起点；换代返回 conflict，客户端清空后重载。
- * all 仅指服务端当前有限代次内今天起的节点，绝非无限历史查询。
+ * all 仅指服务端当前有限代次内今天起的节点，外加昨天带，绝非无限历史查询。
  */
 import { z } from "zod";
 import {
@@ -68,7 +68,7 @@ export const PublicCatalogResponseSchema = z.strictObject({
 export const PublicEventsResponseSchema = z.strictObject({
   publication: PublicPublicationSchema,
   cache: PublicCacheSchema,
-  window: z.strictObject({ start: Timestamp, end: Timestamp.nullable() }),
+  window: z.strictObject({ start: Timestamp, end: Timestamp.nullable(), yesterday: Timestamp }),
   nodes: z.array(PublicScheduleNodeSchema),
   /** 只按游戏筛选，不随浏览日期隐藏；仅当前快照中仍在共享更正保留期的有限结果。 */
   recentChanges: z.array(PublicScheduleNodeSchema),
@@ -198,12 +198,18 @@ export function publicNodeInWindow(
   now: number,
 ): boolean {
   if (node.tombstone) return false;
-  const { start, end } = browseWindow(range, now);
+  const { start, end, yesterday } = browseWindow(range, now);
   const time = node.projection.milestone.time;
   if (time.precision === "unknown") return true;
   if (time.precision === "datetime")
-    return time.utc_ms >= start && (end === null || time.utc_ms < end);
-  return time.date >= browseDate(start) && (end === null || time.date < browseDate(end));
+    return (
+      (time.utc_ms >= yesterday && time.utc_ms < start) ||
+      (time.utc_ms >= start && (end === null || time.utc_ms < end))
+    );
+  return (
+    time.date === browseDate(yesterday) ||
+    (time.date >= browseDate(start) && (end === null || time.date < browseDate(end)))
+  );
 }
 
 /** 优先未来的确切节点，其次日期节点，最后待定；不据时钟宣称实际进行中。 */
