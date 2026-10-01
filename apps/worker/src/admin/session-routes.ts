@@ -1,4 +1,5 @@
 import { ADMIN_SESSION_TTL, SECRET_BITS } from "@hoyo/contracts";
+import { hashSessionToken } from "../auth/consume/session";
 import { PREAUTH_COOKIE_NAME, verifyPreauthCookieValue } from "../auth/preauth/cookie";
 import {
   ApiError,
@@ -9,8 +10,10 @@ import {
   type ShellRoute,
 } from "../shell";
 import { ADMIN_SESSION_COOKIE_NAME, type ShellAuth } from "../shell/domains";
+import { conditionalCommit } from "../storage/cas";
 import { generateSecretToken } from "../storage/crypto/random";
 import { verifyAccess } from "./access";
+import { auditEffect } from "./audit";
 import { issueAdminSession, verifyBootstrap } from "./session";
 import type { AdminDependencies } from "./types";
 
@@ -33,7 +36,7 @@ export function adminCsrfBinding({ auth }: { auth: ShellAuth }): Promise<string>
 
 /** 换会话先经现有 preauth 初始化取得浏览器 CSRF，登录操作也无免 CSRF 例外。 */
 export function makeAdminSessionRoutes(deps: AdminDependencies): ShellRoute[] {
-  return (["bootstrap", "access"] as const).map(
+  const routes = (["bootstrap", "access"] as const).map(
     (method): ShellRoute => ({
       method: "POST",
       pattern: `/api/v2/admin/session/${method}`,
@@ -108,4 +111,56 @@ export function makeAdminSessionRoutes(deps: AdminDependencies): ShellRoute[] {
       },
     }),
   );
+  // F6-01 获准补退出：此窄路由自行核对已签发的管理员 token 散列，允许已撤销会话
+  // 重放退出。不能走会拒绝 revoked_at 的普通 admin 鉴权，也不放宽其他管理路由。
+  const logoutBinding = async ({ request }: { request: Request }): Promise<string> => {
+    const token = parseCookieHeader(request.headers.get("cookie"), ADMIN_SESSION_COOKIE_NAME);
+    if (!token) throw new ApiError("unauthorized");
+    return hashSessionToken(token);
+  };
+  routes.push({
+    method: "POST",
+    pattern: "/api/v2/admin/session/logout",
+    domain: "public",
+    write: true,
+    bodySchema: { fields: {} },
+    csrfBinding: logoutBinding,
+    handler: async (ctx) => {
+      if (ctx.url.search) throw new ApiError("validation");
+      const tokenHash = await logoutBinding(ctx);
+      const now = (deps.now ?? Date.now)();
+      // hash 精确匹配已签发的高熵完整 token；用户 token、伪造 token 均无对应行。
+      const session = await ctx.env.DB.prepare(
+        "SELECT id, admin_id FROM admin_sessions WHERE token_hash = ? AND expires_at > ?",
+      )
+        .bind(tokenHash, now)
+        .first<{ id: string; admin_id: string }>();
+      if (!session) throw new ApiError("unauthorized");
+      await conditionalCommit(ctx.env.DB, {
+        guard: {
+          sql: "UPDATE admin_sessions SET revoked_at = ? WHERE id = ? AND revoked_at IS NULL",
+          params: [now, session.id],
+        },
+        effects: [
+          auditEffect({
+            actorId: session.admin_id,
+            action: "session_logout",
+            targetType: "admin_session",
+            targetId: session.id,
+            reason: "explicit_logout",
+            createdAt: now,
+          }),
+        ],
+      });
+      const response = jsonResponse({ logged_out: true });
+      response.headers.set("cache-control", "no-store");
+      response.headers.append(
+        "set-cookie",
+        `${ADMIN_SESSION_COOKIE_NAME}=; Secure; HttpOnly; SameSite=Strict; Path=/; Max-Age=0`,
+      );
+      // 共用 CSRF Cookie 不清除，避免影响用户页；它不单独授予任何会话权限。
+      return response;
+    },
+  });
+  return routes;
 }
