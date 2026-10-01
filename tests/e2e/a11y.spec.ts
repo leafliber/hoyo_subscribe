@@ -268,10 +268,12 @@ test("U28 状态播报：加载/保存/失败消息经 role=status 区域可被�
   await page.getByRole("button", { name: "模拟状态播报" }).click();
   await expect(region).toBeVisible();
   await expect(region).toContainText("示例：这条状态消息会被辅助技术播报");
-  // 登录骨架的按钮同样写入全局状态区，而不是无反馈或只靠 Toast
+  // 登录表单的真实校验提示仍须经全局 role=status 区域播报。
   await page.goto("/login");
   await page.getByRole("button", { name: "发送验证码" }).click();
-  await expect(page.locator("#global-status")).toContainText("骨架页：验证码发送由 F3 轮交付");
+  await expect(page.locator('#global-status[role="status"]')).toContainText(
+    "请检查邮箱格式，首版支持 ASCII 邮箱。",
+  );
 });
 
 // ---------------------------------------------------------------------------
