@@ -52,6 +52,9 @@ async function setup(page: Page, options: { loggedIn?: boolean; pages?: QueuePag
     detailFailure: false,
     loginStatus: 200,
     logoutStatus: 200,
+    logoutReply: { logged_out: true } as Record<string, unknown>,
+    logoutWait: Promise.resolve(),
+    logoutNetworkFailure: false,
     preauthWait: Promise.resolve(),
     write: null as ((route: Route, call: Call) => Promise<void>) | null,
   };
@@ -99,13 +102,15 @@ async function setup(page: Page, options: { loggedIn?: boolean; pages?: QueuePag
     if (!state.loggedIn)
       return route.fulfill({ status: 401, json: buildApiErrorBody("unauthorized") });
     if (path === "admin/session/logout") {
+      await state.logoutWait;
+      if (state.logoutNetworkFailure) return route.abort("failed");
       if (state.logoutStatus !== 200)
         return route.fulfill({
           status: state.logoutStatus,
           json: buildApiErrorBody("temporarily_unavailable"),
         });
-      state.loggedIn = false;
-      return route.fulfill({ json: { logged_out: true } });
+      if (state.logoutReply.logged_out === true) state.loggedIn = false;
+      return route.fulfill({ json: state.logoutReply });
     }
     if (path === "admin/review/queue") {
       if (state.queueFailure)
@@ -212,6 +217,7 @@ test.describe("A-F6-REVIEW", () => {
     await page.reload(); // 不依赖本地登录标志，直接查询管理接口。
     await expect(page.getByText("没有待审核的候选", { exact: true })).toBeVisible();
     await page.getByRole("button", { name: "退出管理端", exact: true }).click();
+    await expect(page.locator("#notice")).toHaveText("已退出管理端。");
     await expect(input).toBeVisible();
     expect(state.calls.at(-1)?.csrf).toBe("synthetic-admin");
     expect(state.calls.some((call) => call.path.startsWith("me"))).toBe(false);
@@ -452,6 +458,72 @@ test.describe("A-F6-REVIEW", () => {
     state.detailFailure = false;
     await page.getByRole("button", { name: "查看候选 synthetic-candidate", exact: true }).click();
     await expect(page.locator("#submit")).toBeEnabled();
+  });
+  for (const [label, reply] of [
+    ["缺字段", {}],
+    ["false", { logged_out: false }],
+    ["字符串", { logged_out: "true" }],
+    ["数字", { logged_out: 1 }],
+    ["null", { logged_out: null }],
+  ] as const) {
+    test(`退出回执 ${label} 不假成功，等待异步处理后的最终界面`, async ({ page }) => {
+      const state = await setup(page);
+      state.logoutReply = reply;
+      let releaseLogout = () => {};
+      state.logoutWait = new Promise<void>((resolve) => {
+        releaseLogout = resolve;
+      });
+      await openCandidate(page);
+      await page.locator("#logout").click();
+      await expect(page.locator("#logout")).toBeDisabled();
+      releaseLogout();
+      // 先等待响应处理产生的最终错误状态，不能用过早的否定断言充当通过。
+      await expect(page.locator("#notice")).toHaveText(
+        "请求未能确认完成，请重新读取后核对结果；不会自动重发写操作。",
+      );
+      await expect(page.locator("#logout")).toBeEnabled();
+      await expect(page.locator("#workspace")).toBeVisible();
+      await expect(page.locator("#login")).toBeHidden();
+      await expect(page.locator("#notice")).not.toContainText("已退出管理端");
+      expect(state.loggedIn).toBe(true);
+      expect(state.calls.filter((call) => call.path === "admin/session/logout")).toHaveLength(1);
+      await page.locator("#reload").click();
+      await expect(page.locator("#notice")).toHaveText("已重新读取队列。");
+      await expect(page.locator("#workspace")).toBeVisible();
+    });
+  }
+  test("退出网络失败保持未确认，退出收到 401 则要求重新登录", async ({ page }) => {
+    const state = await setup(page);
+    await openCandidate(page);
+    state.logoutNetworkFailure = true;
+    await page.locator("#logout").click();
+    await expect(page.locator("#notice")).toHaveText(
+      "请求未能确认完成，请重新读取后核对结果；不会自动重发写操作。",
+    );
+    await expect(page.locator("#workspace")).toBeVisible();
+    await expect(page.locator("#logout")).toBeEnabled();
+    state.logoutNetworkFailure = false;
+    state.loggedIn = false;
+    await page.locator("#logout").click();
+    await expect(page.locator("#notice")).toHaveText("需要重新登录管理端。");
+    await expect(page.locator("#login")).toBeVisible();
+    await expect(page.locator("#workspace")).toBeHidden();
+    await expect(page.locator("#notice")).not.toContainText("已退出管理端");
+  });
+  test.describe("非东八区浏览器", () => {
+    test.use({ timezoneId: "America/Los_Angeles" });
+    test("队列创建时间固定北京时间，保留日期、秒与源毫秒事实", async ({ page }) => {
+      await setup(page);
+      await page.goto("/admin/");
+      await expect(page.locator("#queue-state")).toHaveText("已读完队列，共 1 个待审核候选。");
+      expect(await page.evaluate(() => Intl.DateTimeFormat().resolvedOptions().timeZone)).toBe(
+        "America/Los_Angeles",
+      );
+      const createdAt = page.locator("#queue time");
+      await expect(createdAt).toHaveText("2030-03-18 01:46:40 · 北京时间 UTC+8");
+      await expect(createdAt).toHaveAttribute("datetime", "2030-03-17T17:46:40.000Z");
+      expect(Date.parse((await createdAt.getAttribute("datetime")) ?? "")).toBe(1_900_000_000_000);
+    });
   });
   test("无普通导航入口，页面 noindex 且帮助说明可见", async ({ page }) => {
     await setup(page, { loggedIn: false });

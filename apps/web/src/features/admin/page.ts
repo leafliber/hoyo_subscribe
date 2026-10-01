@@ -1,3 +1,4 @@
+import { BROWSE_TIMEZONE, browseTimestamp } from "@hoyo/contracts";
 import { AdminRequestError, request } from "./api";
 import type { CandidateDetail, PublicationReply, QueuePage, ReviewAction } from "./types";
 
@@ -192,7 +193,15 @@ async function loadQueue(): Promise<void> {
         );
         const li = document.createElement("li");
         const summary = document.createElement("p");
-        summary.textContent = `${new Date(row.created_at).toLocaleString("zh-CN")} · 来源 ${detail.article.sourceId} · 文章 ${detail.article.externalId} · ${detail.article.articleVersionId}`;
+        const createdAt = document.createElement("time");
+        const instant = new Date(row.created_at);
+        createdAt.dateTime = instant.toISOString();
+        // 日期与时分共用 contracts 的 UTC+8 展示；秒不受整小时时区偏移影响。
+        createdAt.textContent = `${browseTimestamp(row.created_at)}:${instant.getUTCSeconds().toString().padStart(2, "0")} · ${BROWSE_TIMEZONE}`;
+        summary.append(
+          createdAt,
+          ` · 来源 ${detail.article.sourceId} · 文章 ${detail.article.externalId} · ${detail.article.articleVersionId}`,
+        );
         const button = document.createElement("button");
         button.type = "button";
         button.className = "button button--secondary";
@@ -320,7 +329,8 @@ element("logout").addEventListener(
   "click",
   () =>
     void run(async () => {
-      await request("admin/session/logout", {});
+      const receipt = await request<{ logged_out?: unknown }>("admin/session/logout", {});
+      if (receipt.logged_out !== true) throw new Error("logout_not_confirmed");
       loggedOut();
       notice.textContent = "已退出管理端。";
     }),
