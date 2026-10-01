@@ -1,3 +1,4 @@
+// P3-10 获准跨卡：管理员身份携带独立会话 ID 与散列，供管理员 CSRF 绑定。
 // P2-05 授权跨卡改动：ShellAuth 加恢复会话能力标记，限制绑定会话而非用户状态。
 // P2-04 跨卡修正：统一 §4.5 的 Cookie 名，并让用户鉴权结果携带会话状态与
 // CSRF 绑定所需的 token 散列；pending 权限由 router 显式限制。
@@ -43,7 +44,14 @@ export type ShellAuth =
       /** P2-05：恢复登录会话在新码保存确认前的能力标记。 */
       readonly recoveryCodeRequired: boolean;
     }
-  | { readonly kind: "session"; readonly domain: "admin"; readonly adminId: string }
+  | {
+      readonly kind: "session";
+      readonly domain: "admin";
+      readonly adminId: string;
+      /** 旧外壳测试桩可省略；真实 admin 写路由缺失时失败关闭。 */
+      readonly sessionId?: string;
+      readonly sessionTokenHash?: string;
+    }
   | { readonly kind: "capability" }
   | { readonly kind: "none" };
 

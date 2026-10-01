@@ -1,3 +1,4 @@
+// P3-10 获准跨卡：组合两域鉴权器并挂管理员会话与审核路由；不创建平台资源。
 // P4-07 获准接线：仅挂载受控 Queue 处理器。
 // P3-06 获准跨卡：只挂载个人 Feed handler，沿用外壳协议路径。
 // P4-03 所有者补充授权：仅注入认证故障门与 outbox 提交后的唤醒钩子。
@@ -18,13 +19,17 @@ import { verifyParams } from "@hoyo/contracts";
 import { statusRoute } from "./accounts/admission/status";
 import { makeLifecycleRoutes } from "./accounts/lifecycle/routes";
 import { makeSubscriptionRoutes } from "./accounts/subscription/routes";
+import { makeAdminReviewRoutes } from "./admin/review";
+import { combinedAuthenticator } from "./admin/session";
+import { makeAdminSessionRoutes } from "./admin/session-routes";
+import type { AdminConfiguration } from "./admin/types";
 import { makeChallengeRoutes } from "./auth/challenges/routes";
 import { makeCompleteRoute } from "./auth/consume/routes";
 import { InMemoryAuthRateGate } from "./auth/preauth/rate-gate";
 import { makePreauthInitRoute } from "./auth/preauth/routes";
 import { siteverifyTurnstileVerifier } from "./auth/preauth/turnstile";
+import { InMemoryRecoverySourceGate } from "./auth/recovery/rate";
 import { makeRecoveryRoutes } from "./auth/recovery/routes";
-import { sessionAuthenticator } from "./auth/sessions/authenticator";
 import { makeSessionRoutes } from "./auth/sessions/routes";
 import { makeFeedHandler } from "./calendar/feed/handler";
 import { queue } from "./mail/feedback";
@@ -101,12 +106,19 @@ function getShell(env: Env): Shell {
     const authTurnstile = () =>
       siteverifyTurnstileVerifier((env as Env & ShellSecrets).TURNSTILE_SECRET_KEY ?? "");
     shell = createApiShell({
-      authenticator: sessionAuthenticator(env.DB),
+      authenticator: combinedAuthenticator(env.DB, () => getKeyring(env as Env & ShellSecrets)),
       feedHandler: makeFeedHandler(),
       // 秘密未注入时 getKeyring 抛错 → 写路由折叠为 temporarily_unavailable
       // （失败关闭）；读路径与 Feed 协议校验不受影响。
       csrfKey: () => getKeyring(env as Env & ShellSecrets).then((ring) => ring.csrf()),
       routes: [
+        ...makeAdminSessionRoutes({
+          keys: () => getKeyring(env as Env & ShellSecrets),
+          config: env as Env & AdminConfiguration,
+          // 独立实例：沿用高强度恢复凭证的已登记来源突发保护，不与用户恢复共用计数。
+          sourceGate: new InMemoryRecoverySourceGate(),
+        }),
+        ...makeAdminReviewRoutes(),
         // P2-01 挂载点：预认证初始化（CSRF 签发方，csrf:false 由路由自带）+ /status
         // 全局注册开关。
         makePreauthInitRoute({ keys: () => getKeyring(env as Env & ShellSecrets) }),
