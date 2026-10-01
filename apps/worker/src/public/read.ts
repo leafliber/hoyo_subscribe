@@ -217,7 +217,7 @@ export async function readEvents(db: D1Database, url: URL, now = Date.now()): Pr
   const response = {
     publication: state.publication,
     cache: publicCache(state.publication, now),
-    window: { start: selection.window.start, end: selection.window.end },
+    window: selection.window,
     nodes: [] as PublicScheduleNode[],
     recentChanges: selectedChanges.map(toPublic),
     recentChangesTruncated: changes.length > LIMITS.recentChanges,

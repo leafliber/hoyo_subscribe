@@ -37,7 +37,7 @@
 | 管理员入口的边缘限速（P3-10 合入后生效） | P3-10 | §8.3、[R16] | 代码里的近似限速只挡单个 isolate 内的突发。`/api/v2/admin/session/*` 要在边缘另配按 IP 的限速 |
 | 登录页 Turnstile 站点密钥 `PUBLIC_TURNSTILE_SITE_KEY`（F3-01 合入后生效） | F3-01 | §4.2 | 构建期的公开变量，与 Worker 的 `TURNSTILE_SECRET_KEY` 配对，站点域名要在 Turnstile 的允许列表里。没配时登录页失败关闭，无法申请验证码 |
 | 正式 D1 应用迁移 | P1-04 起各卡；本批 P3-10 | §8.1；`ENGINEERING.md` §6 | 上线前、以及之后每次带迁移的发布前，按编号顺序把 `migrations/` 应用到正式 D1。当前最新是 0024（P3-10，管理员审计到期清理的部分索引，只加索引）。代码先于迁移上线时，依赖新表或新索引的路径会报错 |
-| 站点静态资源随 Worker 部署（P5-05 合入后生效） | P5-05 | §2.1 | 网页构建产物与 Worker 同一个项目部署（`wrangler.jsonc` 的 `assets`）。站点域名的路由要让静态页面、`/api/*`、`/feeds/*`、`/unsubscribe/*` 都进这个 Worker 项目；详情直达靠构建产物里的 `_redirects`，不要另加平台侧的重写规则 |
+| 站点静态资源随 Worker 部署（P5-05 合入后生效） | P5-05 | §2.1 | 网页构建产物与 Worker 同一个项目部署（`wrangler.jsonc` 的 `assets`）。站点域名的路由要让静态页面、`/api/*`、`/feeds/*`、`/unsubscribe/*`、`/email/one-click/*` 都进这个 Worker 项目；详情直达靠构建产物里的 `_redirects`，不要另加平台侧的重写规则 |
 
 ## 3. 待取得的实测值
 
@@ -47,4 +47,4 @@
 | 目标 Cloudflare 环境对官方来源的可达性复测 | P3-01 | 本机 E2 已通过；Workers 侧 E3 未做（§2.4 要求） |
 | `PLATFORM_MAIL_DAY_LIMIT` 的后续变动 | ADR-0003 | 当前实测 1,000；平台调整时须重跑 `params:verify` |
 | 认证域的真实送达时延 | P0-05 / P4-03 | 未测。业务域取证时第二封 43 分钟才送达，而 `OTP_TTL` 为 10 分钟；开放登录前要在认证域实测 |
-| DKIM 签名是否覆盖退订头 | P0-05 / P4-06 | 未核；P4-06 验收前要有 |
+| DKIM 签名是否覆盖退订头 | P0-05 / P4-06 | 未核；P4-06 验收前要有。2026-10-01 的 #57 只复现本地外壳阻塞，不能作为此项证据。功能完成后由所有者取得真实收件，检查有效 DKIM-Signature 的 `h=` 同时覆盖 `List-Unsubscribe` 与 `List-Unsubscribe-Post`，登记方式和时间；本轮未授权发信 |
