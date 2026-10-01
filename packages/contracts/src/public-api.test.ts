@@ -11,7 +11,7 @@ import {
   publicSourceStatus,
 } from "./public-api";
 import type { PublicSnapshotNode } from "./public-calendar";
-import { browseWindow } from "./schedule-browse";
+import { BROWSE_RANGES, browseDate, browseWindow } from "./schedule-browse";
 import { TimeValueSchema } from "./time";
 
 const now = Date.parse("2026-09-30T12:00:00+08:00");
@@ -109,7 +109,7 @@ describe("A-P3-PUBLIC 公共读唯一纯函数", () => {
     );
   });
 
-  it("日期不补午夜、未知时间保持待定、all 也从今日起", () => {
+  it("日期不补午夜、未知时间保持待定、all 附带昨天", () => {
     const output = publicNode(node);
     expect(output.time.precision).toBe("date");
     expect(output.time).not.toHaveProperty("utc_ms");
@@ -119,7 +119,7 @@ describe("A-P3-PUBLIC 公共读唯一纯函数", () => {
       ...node.projection.milestone.time,
       date: "2026-09-29",
     });
-    expect(publicNodeInWindow(yesterday, "all", now)).toBe(false);
+    expect(publicNodeInWindow(yesterday, "all", now)).toBe(true);
     const unknown = structuredClone(node);
     unknown.projection.milestone.time = TimeValueSchema.parse({
       precision: "unknown",
@@ -128,6 +128,57 @@ describe("A-P3-PUBLIC 公共读唯一纯函数", () => {
       time_basis: "unresolved",
     });
     expect(publicNodeInWindow(unknown, "today", now)).toBe(true);
+  });
+  it.each(BROWSE_RANGES)("P3-16 $id 附带 UTC+8 昨天，保留原窗口与未知时间边界", ({ id }) => {
+    const window = browseWindow(id, now);
+    const sample = structuredClone(node);
+    for (const [utc_ms, expected] of [
+      [window.yesterday - 1, false],
+      [window.yesterday, true],
+      [window.start - 1, true],
+      [window.start, true],
+      ...(window.end === null
+        ? []
+        : [
+            [window.end - 1, true],
+            [window.end, false],
+          ]),
+    ] as [number, boolean][]) {
+      sample.projection.milestone.time = TimeValueSchema.parse({
+        precision: "datetime",
+        utc_ms,
+        source_timezone: "UTC+8",
+        raw_expression: "合成边界时刻",
+        time_basis: "official_explicit",
+      });
+      expect(publicNodeInWindow(sample, id, now), String(utc_ms)).toBe(expected);
+    }
+    for (const [date, expected] of [
+      ["2026-09-28", false],
+      ["2026-09-29", true],
+      ["2026-09-30", true],
+      ...(window.end === null ? [] : [[browseDate(window.end), false]]),
+    ] as [string, boolean][]) {
+      sample.projection.milestone.time = TimeValueSchema.parse({
+        ...node.projection.milestone.time,
+        date,
+      });
+      expect(publicNodeInWindow(sample, id, now), date).toBe(expected);
+    }
+    sample.projection.milestone.time = TimeValueSchema.parse({
+      precision: "unknown",
+      source_timezone: "UTC+8",
+      raw_expression: "时间待定",
+      time_basis: "unresolved",
+    });
+    expect(publicNodeInWindow(sample, id, now)).toBe(true);
+    sample.tombstone = true;
+    expect(publicNodeInWindow(sample, id, now)).toBe(false);
+    sample.projection.milestone.time = TimeValueSchema.parse({
+      ...node.projection.milestone.time,
+      date: "2026-09-29",
+    });
+    expect(publicNodeInWindow(sample, id, now)).toBe(false);
   });
   it("改期/取消/撤回/待定保留历史，删除不冒充官方取消", () => {
     for (const kind of [
@@ -227,13 +278,20 @@ describe("A-P3-PUBLIC 公共读唯一纯函数", () => {
     const body = {
       publication: { generation: 1, publishedAt: now },
       cache: publicCache({ generation: 1, publishedAt: now }, now),
-      window: { start: browseWindow("today", now).start, end: null },
+      window: browseWindow("today", now),
       nodes: [publicNode(node)],
       recentChanges: [],
       recentChangesTruncated: false,
       nextCursor: null,
     };
     expect(PublicEventsResponseSchema.safeParse(body).success).toBe(true);
+    expect(body.window.yesterday).toBe(Date.parse("2026-09-29T00:00:00+08:00"));
+    expect(
+      PublicEventsResponseSchema.safeParse({
+        ...body,
+        window: { start: body.window.start, end: body.window.end },
+      }).success,
+    ).toBe(false);
     expect(PublicEventsResponseSchema.safeParse({ ...body, token: "synthetic" }).success).toBe(
       false,
     );
