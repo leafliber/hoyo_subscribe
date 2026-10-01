@@ -15,18 +15,14 @@ export async function closeBusinessMail(
   now: number,
 ): Promise<boolean> {
   const results = await db.batch([
+    // 有效绑定判定与条件关闭同处 batch 事务；SELECT 不制造重复停止的写入。
+    db.prepare("SELECT id FROM users WHERE email_binding_id=? AND status='active'").bind(bindingId),
     db
-      .prepare(
-        "UPDATE users SET updated_at=updated_at WHERE email_binding_id=? AND status='active'",
-      )
-      .bind(bindingId),
-    db
-      .prepare(`INSERT INTO email_channels(user_id,address_version,created_at,updated_at)
-      SELECT id,email_version,?,? FROM users WHERE email_binding_id=? AND changes()=1
-      ON CONFLICT(user_id) DO UPDATE SET enabled=0,routine_enabled=0,lease_expires_at=NULL,
-        channel_revision=email_channels.channel_revision+1,updated_at=excluded.updated_at
-      WHERE email_channels.enabled<>0 OR email_channels.routine_enabled<>0 OR email_channels.lease_expires_at IS NOT NULL`)
-      .bind(now, now, bindingId),
+      .prepare(`UPDATE email_channels SET enabled=0,routine_enabled=0,lease_expires_at=NULL,
+        channel_revision=channel_revision+1,updated_at=?
+      WHERE user_id=(SELECT id FROM users WHERE email_binding_id=? AND status='active')
+        AND (enabled<>0 OR routine_enabled<>0 OR lease_expires_at IS NOT NULL)`)
+      .bind(now, bindingId),
     // 末句可写两行；前句零行说明已关闭，不制造重复退订审计或无界历史。
     db
       .prepare(`INSERT INTO consent_events(id,user_id,email_binding_id,layer,action,consent_version,context_json,created_at)
@@ -46,5 +42,5 @@ export async function closeBusinessMail(
         bindingId,
       ),
   ]);
-  return results[0].meta.changes === 1;
+  return results[0].results.length === 1;
 }

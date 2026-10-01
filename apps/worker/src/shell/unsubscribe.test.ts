@@ -78,6 +78,7 @@ describe("A-P4-UNSUB 封闭外壳协议", () => {
   });
   it.each([
     "/email/one-click-suffix/synthetic-secret",
+    "/email/one-clickXsynthetic-secret",
     "/email/one-click/synthetic-secret/extra",
     "/email/one-click/",
     "/email/one-click",
@@ -88,6 +89,7 @@ describe("A-P4-UNSUB 封闭外壳协议", () => {
     "/email/one-click/%252f",
     "/email/one-click/a%2Fb",
     "/unsubscribe-suffix/synthetic-secret",
+    "/unsubscribeXsynthetic-secret",
     "/unsubscribe/synthetic-secret/extra",
     "/unsubscribe/",
     "/unsubscribe/%2f",
@@ -258,6 +260,8 @@ describe("A-P4-UNSUB 有界表单结构", () => {
         pull(controller) {
           reads++;
           controller.enqueue(new Uint8Array(API_BODY_MAX_BYTES));
+          // 夹具自身有界：即使移除生产流上限，变异测试也会自行结束。
+          if (reads === 3) controller.close();
         },
         cancel() {
           cancelled = true;

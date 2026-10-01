@@ -97,7 +97,56 @@ function post(url: string, oneClick = true, multipart = false) {
   return new Request(url, { method: "POST", body });
 }
 
+// 仅观察真实 D1 batch 的元数据；不替换执行、事务或写入结果。
+function measuredDatabase() {
+  const writes: number[][] = [];
+  const db = new Proxy(env.DB, {
+    get(target, key) {
+      if (key === "batch")
+        return async (statements: D1PreparedStatement[]) => {
+          const results = await target.batch(statements);
+          writes.push(results.map((result) => result.meta.rows_written));
+          return results;
+        };
+      const value = Reflect.get(target, key);
+      return typeof value === "function" ? value.bind(target) : value;
+    },
+  });
+  return { db, writes };
+}
+
 describe("A-P4-UNSUB 当前绑定稳定退订", () => {
+  it.each([false, true])(
+    "重复停止零写入：one-click=%s，真实 D1 每句 rows_written 均为零",
+    async (oneClick) => {
+      const f = await fixture(),
+        measured = measuredDatabase(),
+        api = shell(keySource, measured.db);
+      const url = oneClick ? f.links.oneClick : f.links.page;
+      const status = oneClick ? 204 : 200;
+      expect((await api.fetch(post(url, oneClick))).status).toBe(status);
+      expect(measured.writes).toHaveLength(1);
+      expect(measured.writes[0].reduce((sum, n) => sum + n, 0)).toBeGreaterThan(0);
+      const closed = await state(f.userId);
+      expect((await api.fetch(post(url, oneClick))).status).toBe(status);
+      expect(measured.writes).toHaveLength(2);
+      expect(measured.writes[1]).toEqual([0, 0, 0]);
+      expect(await state(f.userId)).toEqual(closed);
+      await enable(f, now + 1);
+      expect((await api.fetch(post(url, oneClick))).status).toBe(status);
+      expect(measured.writes).toHaveLength(3);
+      expect(measured.writes[2].reduce((sum, n) => sum + n, 0)).toBeGreaterThan(0);
+      expect(await state(f.userId)).toMatchObject({
+        enabled: 0,
+        routine_enabled: 0,
+        lease_expires_at: null,
+      });
+      expect((await api.fetch(post(url, oneClick))).status).toBe(status);
+      expect(measured.writes).toHaveLength(4);
+      expect(measured.writes[3]).toEqual([0, 0, 0]);
+    },
+  );
+
   it("GET 扫描不写任何状态；HTML 不回显地址或 token，有同源表单和 no-store", async () => {
     const f = await fixture(),
       before = await state(f.userId);
@@ -215,14 +264,45 @@ describe("A-P4-UNSUB 当前绑定稳定退订", () => {
     expect((await shell(keySource, database).fetch(request)).status).toBe(410);
     expect(await state(g.userId)).toMatchObject({ enabled: 1, routine_enabled: 1 });
   });
+  it("已关闭通道在提交前重新同意，旧 token 仍关闭事务中的当前业务", async () => {
+    const f = await fixture();
+    expect(await closeBusinessMail(env.DB, f.binding, now)).toBe(true);
+    let reenables = 0;
+    const database = new Proxy(env.DB, {
+      get(target, key) {
+        if (key === "batch")
+          return async (statements: D1PreparedStatement[]) => {
+            await enable(f, now + 1);
+            reenables++;
+            return target.batch(statements);
+          };
+        const value = Reflect.get(target, key);
+        return typeof value === "function" ? value.bind(target) : value;
+      },
+    });
+    expect((await shell(keySource, database).fetch(post(f.links.oneClick))).status).toBe(204);
+    expect(reenables).toBe(1);
+    expect(await state(f.userId)).toMatchObject({
+      enabled: 0,
+      routine_enabled: 0,
+      lease_expires_at: null,
+    });
+  });
   it("两个并发 POST 幂等，审计只记一次关闭；数据库报错整批回滚", async () => {
     const f = await fixture(),
-      api = shell();
+      measured = measuredDatabase(),
+      api = shell(keySource, measured.db);
     const results = await Promise.all([
       api.fetch(post(f.links.oneClick)),
       api.fetch(post(f.links.oneClick)),
     ]);
     expect(results.map((r) => r.status)).toEqual([204, 204]);
+    expect(measured.writes).toHaveLength(2);
+    const totals = measured.writes
+      .map((batch) => batch.reduce((sum, n) => sum + n, 0))
+      .sort((a, b) => a - b);
+    expect(totals[0]).toBe(0);
+    expect(totals[1]).toBeGreaterThan(0);
     expect(await first("SELECT COUNT(*) n FROM consent_events WHERE action='disable'")).toEqual({
       n: 2,
     });
@@ -244,11 +324,17 @@ describe("A-P4-UNSUB 当前绑定稳定退订", () => {
       "SELECT email_binding_id FROM users WHERE id=?",
       f.userId,
     );
-    expect(await closeBusinessMail(env.DB, row?.email_binding_id ?? "", now)).toBe(true);
-    const before = await state(f.userId);
-    expect(await closeBusinessMail(env.DB, row?.email_binding_id ?? "", now)).toBe(true);
-    expect(await state(f.userId)).toEqual(before);
-    expect(await closeBusinessMail(env.DB, "nonexistent", now)).toBe(false);
+    const measured = measuredDatabase();
+    expect(await closeBusinessMail(measured.db, row?.email_binding_id ?? "", now)).toBe(true);
+    expect(await state(f.userId)).toBeNull();
+    expect(await closeBusinessMail(measured.db, row?.email_binding_id ?? "", now)).toBe(true);
+    expect(await state(f.userId)).toBeNull();
+    expect(await closeBusinessMail(measured.db, "nonexistent", now)).toBe(false);
+    expect(measured.writes).toEqual([
+      [0, 0, 0],
+      [0, 0, 0],
+      [0, 0, 0],
+    ]);
   });
   it("退订热查询不随无关用户历史增长", async () => {
     const f = await fixture();
