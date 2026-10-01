@@ -1,3 +1,7 @@
+import { z } from "zod";
+import { SessionStatusSchema, SubscriptionStateSchema } from "./enums";
+import { RECENT_AUTH_TTL, SESSION_EXPIRY_NOTICE } from "./params/registry";
+
 // P2-07：危险操作的用途、证明角色与 D3 §1.2 动作原因在此唯一登记。
 // `deleting` 是 §9.6 的终止状态；P5-02 可在同一来源追加回收状态。
 export const ACCOUNT_DELETING_STATUS = "deleting" as const;
@@ -66,4 +70,86 @@ export function feedManagementPermission(_action: FeedManagementAction): {
     rateLimit: true,
     recentAuth: false,
   };
+}
+
+/** D3 §1.2/§2.10：只给当前会话可用证明的到期时间，不含证明或目标摘要。 */
+export const AccountRecentAuthSchema = z.strictObject({
+  email_change: z.int().nullable(),
+  recovery_code_rotate: z.int().nullable(),
+  account_delete: z.int().nullable(),
+});
+export type AccountRecentAuth = z.infer<typeof AccountRecentAuthSchema>;
+
+/** GET /api/v2/me；仅已认证的 active 会话可读取。缺失事实不默认为成功。 */
+export const AccountSummarySchema = z.strictObject({
+  user_id: z.string().min(1),
+  server_time: z.int(),
+  email: z.strictObject({ masked: z.string(), email_version: z.int().positive() }),
+  recovery_code_saved: z.boolean(),
+  recovery_code_generation: z.int().positive().nullable(),
+  subscription: z.strictObject({ state: SubscriptionStateSchema }),
+  session: z.strictObject({
+    state: SessionStatusSchema,
+    expires_at: z.int(),
+    absolute_expires_at: z.int(),
+    recovery_code_required: z.boolean(),
+    recovery_login_at: z.int().nullable(),
+  }),
+  channels: z.strictObject({
+    calendar: z.strictObject({ state: z.literal("unknown") }),
+    email: z.union([
+      z.strictObject({ state: z.literal("unknown") }),
+      z.strictObject({ state: z.enum(["enabled", "disabled"]), routine_enabled: z.boolean() }),
+    ]),
+    push: z.strictObject({ state: z.literal("unknown") }),
+  }),
+  reclaim_grace_until: z.int().nullable(),
+  recent_auth: AccountRecentAuthSchema,
+});
+export type AccountSummary = z.infer<typeof AccountSummarySchema>;
+
+/**
+ * D3 §1.2：浏览器以 server_time 校正后的时刻调用；只是展示提示，写接口仍实时校验。
+ * 只用于成功读取的 active 摘要，不代表会话授权、目标选择或日额度承诺。
+ * 恢复登录的删除例外只适用于新码尚未确认的会话，边界沿用写接口的闭区间。
+ */
+export function deriveAccountActions(
+  facts: AccountSummary,
+  now: number,
+): Record<AccountAction, ActionAvailability> {
+  const allowed: ActionAvailability = { allowed: true };
+  const unavailable: ActionAvailability = { allowed: false, reason: "recent_auth_required" };
+  const restricted: ActionAvailability = { allowed: false, reason: "recovery_code_unconfirmed" };
+  const hasProof = (action: RecentAuthAction) => {
+    const expiresAt = facts.recent_auth[action];
+    return expiresAt !== null && expiresAt > now;
+  };
+  const recoveryLoginAt = facts.session.recovery_login_at;
+  const recoveryLoginRecent =
+    recoveryLoginAt !== null &&
+    recoveryLoginAt <= now &&
+    recoveryLoginAt >= now - RECENT_AUTH_TTL * 1_000;
+  return {
+    save_subscription: facts.session.recovery_code_required ? restricted : allowed,
+    export_data: allowed,
+    email_change: facts.session.recovery_code_required
+      ? restricted
+      : hasProof("email_change")
+        ? allowed
+        : unavailable,
+    recovery_code_rotate: facts.session.recovery_code_required
+      ? restricted
+      : hasProof("recovery_code_rotate")
+        ? allowed
+        : unavailable,
+    account_delete:
+      hasProof("account_delete") || (facts.session.recovery_code_required && recoveryLoginRecent)
+        ? allowed
+        : unavailable,
+  };
+}
+
+/** SESSION_EXPIRY_NOTICE 来自注册表；毫秒边界及已到期行为与原摘要一致。 */
+export function isSessionExpiryNotice(expiresAt: number, now: number): boolean {
+  return expiresAt - now <= SESSION_EXPIRY_NOTICE * 1_000;
 }
