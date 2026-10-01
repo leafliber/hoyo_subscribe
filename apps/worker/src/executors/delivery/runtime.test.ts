@@ -350,10 +350,14 @@ it.each([false, true])(
     expect(
       await env.DB.prepare("SELECT id FROM jobs WHERE id='occurrence:good:email'").first(),
     ).not.toBeNull();
+    const readsAfterFirstPass = reads;
     expect(await startDueOccurrenceExpansion(db, T, 2)).toBe(0);
+    // A-P4-BUDGET / P4-03 补测：结果为 0 不足以证明没有重新取出；还要证明没再做起步读取。
+    expect(reads).toBe(readsAfterFirstPass);
     expect(await startDueOccurrenceExpansion(db, T + WATCHDOG_INTERVAL * 1000, 2)).toBe(
       terminal ? 0 : 1,
     );
+    expect(reads).toBe(readsAfterFirstPass + (terminal ? 0 : 1));
     expect(
       await env.DB.prepare("SELECT id FROM jobs WHERE id='delivery:backoff'").first(),
     ).toBeNull();
