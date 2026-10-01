@@ -1,3 +1,4 @@
+// P3-10 返工获准跨卡：仅追加管理员审计清理的真实 D1 读量基准。
 // A-P1-DB · D1 schema、索引与迁移框架（任务卡 P1-04）。
 // 验收定义（docs/ACCEPTANCE.md）：空库重放全部迁移得到预期 schema 与索引；
 // 索引覆盖 §8.1 列出的全部访问路径；测量真实 rows_read。
@@ -11,11 +12,13 @@ import {
   MAIL_FEEDBACK_TTL,
   MAIL_TOTAL_DAY,
   MAIL_UNMATCHED_MAX,
+  MATCH_PAGE,
   PUBLIC_READ_LIMITS,
   SECRET_BITS,
 } from "@hoyo/contracts";
 
 import { beforeAll, describe, expect, it } from "vitest";
+import { cleanupAdminAuditPage } from "../admin/audit";
 import { readFeedState, recordFeedOutput } from "../calendar/feed/store";
 import {
   FEEDBACK_COMPLETED_PAGE_SQL,
@@ -2245,3 +2248,121 @@ it("A-P3-PUBLIC 当前代次/分片/详情/变更/来源/缺口/证据：增加 
     expect(actual, q.name).toBeLessThanOrEqual(baseline[i] ?? 0);
   }
 }, 120_000);
+
+// P3-10 返工获准跨卡：测量实际清理入口，不复制生产 SQL；系统审计仅为合成样本。
+it("A-P3-ADMIN 管理员审计一页清理 rows_read 不随 2000 条已到期系统审计增长", async () => {
+  const samples: Array<{ read: number; changes: number }> = [];
+  function wrap(statement: D1PreparedStatement): D1PreparedStatement {
+    return new Proxy(statement, {
+      get(target, key) {
+        if (key === "bind") return (...args: unknown[]) => wrap(target.bind(...args));
+        if (key === "run")
+          return async () => {
+            const result = await target.run();
+            expect(typeof result.meta.rows_read).toBe("number");
+            samples.push({ read: result.meta.rows_read, changes: result.meta.changes });
+            return result;
+          };
+        const value = Reflect.get(target, key);
+        return typeof value === "function" ? value.bind(target) : value;
+      },
+    });
+  }
+  const db = new Proxy(env.DB, {
+    get(target, key) {
+      if (key === "prepare") return (sql: string) => wrap(target.prepare(sql));
+      const value = Reflect.get(target, key);
+      return typeof value === "function" ? value.bind(target) : value;
+    },
+  });
+  const columns = [
+    "id",
+    "actor_type",
+    "actor_id",
+    "action",
+    "target_type",
+    "target_id",
+    "created_at",
+    "expires_at",
+  ];
+  const seedAdmins = async () =>
+    insertRows(
+      "audit_log",
+      columns,
+      Array.from({ length: MATCH_PAGE + 1 }, (_, i) => [
+        `admin-expiry-bench-${String(i).padStart(6, "0")}`,
+        "admin",
+        "synthetic",
+        "synthetic",
+        "candidate",
+        "synthetic",
+        -1,
+        0,
+      ]),
+    );
+  const baseline = async () => {
+    await cleanupAdminAuditPage(db, 0);
+    const empty = samples.at(-1);
+    expect(empty?.changes).toBe(0);
+    await seedAdmins();
+    await cleanupAdminAuditPage(db, 0);
+    const page = samples.at(-1);
+    expect(page?.changes).toBe(MATCH_PAGE);
+    expect(
+      await query(
+        "SELECT id FROM audit_log WHERE actor_type='admin' AND expires_at<=0 ORDER BY id",
+      ),
+    ).toEqual([{ id: `admin-expiry-bench-${String(MATCH_PAGE).padStart(6, "0")}` }]);
+    await run("DELETE FROM audit_log WHERE id LIKE 'admin-expiry-bench-%'");
+    return { empty, page };
+  };
+  try {
+    await insertRows("audit_log", columns, [
+      [
+        "admin-expiry-bench-future",
+        "admin",
+        "synthetic",
+        "synthetic",
+        "candidate",
+        "synthetic",
+        0,
+        1,
+      ],
+    ]);
+    const future = await query("SELECT * FROM audit_log WHERE id='admin-expiry-bench-future'");
+    // 排除 future 样本被测试自身删除：先独立证明未到期记录不被生产清理。
+    await cleanupAdminAuditPage(db, 0);
+    expect(await query("SELECT * FROM audit_log WHERE id='admin-expiry-bench-future'")).toEqual(
+      future,
+    );
+    await run("DELETE FROM audit_log WHERE id='admin-expiry-bench-future'");
+    const before = await baseline();
+    await insertRows(
+      "audit_log",
+      columns,
+      Array.from({ length: 2000 }, (_, i) => [
+        `system-expiry-bench-${i}`,
+        "system",
+        "synthetic",
+        "synthetic",
+        "job",
+        "synthetic",
+        -1,
+        -1,
+      ]),
+    );
+    const systems = await query("SELECT * FROM audit_log WHERE actor_type='system' ORDER BY id");
+    const after = await baseline();
+    expect(after).toEqual(before);
+    expect(await query("SELECT * FROM audit_log WHERE actor_type='system' ORDER BY id")).toEqual(
+      systems,
+    );
+    console.log(
+      JSON.stringify({ event: "p3_10_admin_audit_rows_read", system_history: 2000, before, after }),
+    );
+  } finally {
+    await run(
+      "DELETE FROM audit_log WHERE id LIKE 'admin-expiry-bench-%' OR id LIKE 'system-expiry-bench-%'",
+    );
+  }
+});
