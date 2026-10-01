@@ -1,8 +1,12 @@
-import { isApiErrorBody, subscriptionConfigSchemaFor } from "@hoyo/contracts";
+import { AccountSummarySchema, isApiErrorBody, subscriptionConfigSchemaFor } from "@hoyo/contracts";
 import { announce } from "../../../components/status";
 import { feedbackForFailure } from "../../../lib/errors/feedback";
-import { publishDraftIdentity } from "../../../lib/storage/identity";
-import { type Json, object, request, sessions } from "../api";
+import {
+  DRAFT_IDENTITY_EVENT,
+  publishDraftIdentity,
+  readDraftIdentityEvent,
+} from "../../../lib/storage/identity";
+import { request as apiRequest, type Json, object, sessions } from "../api";
 import { Turnstile } from "../turnstile";
 import {
   AccountFacts,
@@ -32,13 +36,75 @@ let generationBefore: number | null = null;
 let captcha: Turnstile | null = null;
 let captchaReady = false;
 
-function invalidate(): void {
-  publishDraftIdentity({ status: "unknown" });
-  if (typeof BroadcastChannel !== "undefined") {
-    const channel = new BroadcastChannel("hoyo-draft-identity");
-    channel.postMessage("invalidate");
-    channel.close();
+// Cancellation alone cannot stop a response that has already arrived. Every async
+// continuation belongs to this in-memory identity generation, including failures.
+let identityGeneration = 0;
+let knownUserId: string | null = null;
+let publishingOwnIdentity = false;
+const identityChannel =
+  typeof BroadcastChannel === "undefined" ? null : new BroadcastChannel("hoyo-draft-identity");
+class StaleIdentityError extends Error {}
+function assertIdentity(generation: number): void {
+  if (generation !== identityGeneration) throw new StaleIdentityError();
+}
+async function request(...args: Parameters<typeof apiRequest>) {
+  const generation = identityGeneration;
+  try {
+    const result = await apiRequest(...args);
+    assertIdentity(generation);
+    return result;
+  } catch (error) {
+    assertIdentity(generation);
+    throw error;
   }
+}
+function invalidate(): void {
+  // This workflow itself announces pending/activation/deletion. Its own synchronous
+  // document event and BroadcastChannel sender must not discard its completion receipt.
+  publishingOwnIdentity = true;
+  try {
+    publishDraftIdentity({ status: "unknown" });
+    identityChannel?.postMessage("invalidate");
+  } finally {
+    publishingOwnIdentity = false;
+  }
+}
+function clearIdentity(preserveReceipt = false): void {
+  identityGeneration++;
+  abort?.abort();
+  abort = undefined;
+  busy = false;
+  forgetCode();
+  clearCredentials();
+  facts.clear();
+  knownUserId = null;
+  proofId = "";
+  challengeId = "";
+  rotationKey = "";
+  generationBefore = null;
+  retry = null;
+  selectionRequired = false;
+  phase = "choose";
+  purpose = null;
+  if (!preserveReceipt) receipt("");
+  input("delete-check").checked = false;
+  el("device-selection").hidden = true;
+  el("session-list").replaceChildren();
+  el("session-lag").textContent = "";
+  el("rotation-form").hidden = true;
+  el("reauth-link").hidden = true;
+  el("use-recovery").hidden = true;
+  // Detach the widget's old DOM references as well as its token. A late widget
+  // callback may update only those detached nodes, never this identity's UI.
+  for (const id of ["rotation-captcha", "captcha-status"]) {
+    const previous = el(id);
+    previous.replaceWith(previous.cloneNode(false));
+  }
+  captcha = null;
+  captchaReady = false;
+  el("code-state").textContent = "恢复码与账号状态未知，请重新读取后操作。";
+  message("身份已变化，已清除本页恢复码与验证信息。请重新读取当前状态后操作。");
+  render();
 }
 function message(text: string): void {
   el("recovery-result").textContent = text;
@@ -113,12 +179,19 @@ async function readFacts(): Promise<void> {
   try {
     const reply = await request("me", undefined, undefined, abort?.signal);
     if (reply.status !== 200) throw new Error("unknown_summary");
-    facts.accept(reply.body);
+    const summary = AccountSummarySchema.parse(reply.body);
+    if (knownUserId !== null && knownUserId !== summary.user_id) {
+      clearIdentity();
+      throw new StaleIdentityError();
+    }
+    facts.accept(summary);
+    knownUserId = summary.user_id;
     const saved = facts.summary?.recovery_code_saved;
     el("code-state").textContent = saved
       ? "当前恢复码已确认保存；服务器无法重新显示旧码。"
       : "尚未确认保存。若刷新、离开或响应丢失导致新码不再显示，请重新生成并保存；未确认的上一份码会作废。";
   } catch (error) {
+    if (error instanceof StaleIdentityError) throw error;
     facts.clear();
     el("code-state").textContent = "恢复码与账号状态未知，请重新读取后操作。";
     throw error;
@@ -136,6 +209,7 @@ async function sessionCsrf(): Promise<Json> {
 }
 async function run(work: () => Promise<void>, waiting: string): Promise<void> {
   if (busy) return;
+  const generation = identityGeneration;
   busy = true;
   abort = new AbortController();
   message(waiting);
@@ -143,23 +217,28 @@ async function run(work: () => Promise<void>, waiting: string): Promise<void> {
   try {
     await work();
   } catch (error) {
+    if (generation !== identityGeneration || error instanceof StaleIdentityError) return;
     if (phase === "save") {
       // Write refusal is authoritative. Discard stale permissions even when re-reading fails.
       try {
         await readFacts();
       } catch {
+        if (generation !== identityGeneration) return;
         facts.clear();
       }
     }
+    if (generation !== identityGeneration) return;
     const feedback = feedbackForFailure(error);
     const detail = isApiErrorBody(error) ? error.error.details : undefined;
     if (detail?.code === "unauthorized" && detail.reason === "recent_auth_required")
       el("reauth-link").hidden = false;
     message(`${feedback.title}。${feedback.explanation} ${feedback.nextStep}`);
   } finally {
-    busy = false;
-    abort = undefined;
-    render();
+    if (generation === identityGeneration) {
+      busy = false;
+      abort = undefined;
+      render();
+    }
   }
 }
 async function refresh(): Promise<void> {
@@ -278,6 +357,7 @@ async function recover(): Promise<void> {
           await pending();
         }
       } catch (error) {
+        if (error instanceof StaleIdentityError) throw error;
         if (action === "recover_login") {
           if (isApiErrorBody(error)) {
             receipt("");
@@ -394,7 +474,8 @@ async function confirm(): Promise<void> {
     if (delivered.rotation_id && document.visibilityState === "visible") {
       try {
         await request("auth/renew", {}, undefined, abort?.signal);
-      } catch {
+      } catch (error) {
+        if (error instanceof StaleIdentityError) throw error;
         /* Saved state remains authoritative. */
       }
     }
@@ -415,9 +496,11 @@ async function confirm(): Promise<void> {
   await attempt();
 }
 async function requestRotation(): Promise<void> {
+  const generation = identityGeneration;
   if (!captchaReady) {
     captcha ??= new Turnstile(el("captcha-status"));
     await captcha.load(root.dataset.sitekey ?? "", el("rotation-captcha"));
+    assertIdentity(generation);
     captchaReady = true;
     message("请完成人机验证后，再申请本次轮换的邮箱验证码。");
     return;
@@ -449,7 +532,7 @@ async function requestRotation(): Promise<void> {
       el("rotation-form").hidden = false;
       message("本次轮换的验证请求已受理，不代表邮件已送达。请核对当前邮箱收到的验证码。");
     } finally {
-      captcha?.reset();
+      if (generation === identityGeneration) captcha?.reset();
     }
   };
   setRetry(attempt, "重试原轮换验证申请");
@@ -500,7 +583,8 @@ async function deleteAccount(): Promise<void> {
     try {
       await readFacts();
       message("账号仍可读取，请到账号页核对删除状态后再操作。");
-    } catch {
+    } catch (error) {
+      if (error instanceof StaleIdentityError) throw error;
       message("当前账号已无法读取，删除结果待核对；无法据此确认数据清理完成。");
     }
   }, "核对删除状态");
@@ -550,7 +634,8 @@ el("export-preferences").addEventListener("click", (event) => {
       try {
         await sessionCsrf();
         await request("auth/renew", {}, undefined, abort?.signal);
-      } catch {
+      } catch (error) {
+        if (error instanceof StaleIdentityError) throw error;
         /* Export has completed independently of renewal. */
       }
     }
@@ -559,10 +644,8 @@ el("export-preferences").addEventListener("click", (event) => {
 });
 el("use-recovery").addEventListener("click", () => {
   if (busy || retry) return;
-  phase = "choose";
-  forgetCode();
-  facts.clear();
-  render();
+  clearIdentity();
+  message("请选择目的后再输入恢复码。");
 });
 el("choose-stop").addEventListener("click", () => choose("emergency_stop"));
 el("choose-login").addEventListener("click", () => choose("recover_login"));
@@ -583,16 +666,19 @@ el("activate-recovery").addEventListener(
 el("generate-code").addEventListener("click", () => void run(generate, "正在交付新恢复码…"));
 el("confirm-code").addEventListener("click", () => void run(confirm, "正在确认恢复码保存…"));
 el("copy-code").addEventListener("click", async () => {
-  if (!code) return;
+  if (!code || busy) return;
+  const generation = identityGeneration;
   try {
     await navigator.clipboard.writeText(el<HTMLTextAreaElement>("code-output").value);
+    if (generation !== identityGeneration) return;
     message("恢复码已复制，请保存到安全位置后勾选确认。");
   } catch {
+    if (generation !== identityGeneration) return;
     message("复制失败，请手动选择恢复码复制，或单独下载。");
   }
 });
 el("download-code").addEventListener("click", () => {
-  if (code) {
+  if (code && !busy) {
     download(el<HTMLTextAreaElement>("code-output").value);
     message("已请求下载恢复码，请确认文件已保存后勾选确认。");
   }
@@ -614,13 +700,16 @@ el("refresh-recovery").addEventListener("click", () => void run(refresh, "正在
 el("cancel-recovery").addEventListener("click", () => abort?.abort());
 el("open-save").addEventListener("click", () => void run(refresh, "正在读取账号状态…"));
 root.addEventListener("change", render);
-window.addEventListener("pagehide", () => {
-  abort?.abort();
-  forgetCode();
-  clearCredentials();
-  proofId = "";
-  retry = null;
+identityChannel?.addEventListener("message", (event) => {
+  if (event.data === "invalidate") clearIdentity();
 });
+document.addEventListener(DRAFT_IDENTITY_EVENT, (event) => {
+  if (publishingOwnIdentity) return;
+  const identity = readDraftIdentityEvent(event);
+  if (identity && (identity.status !== "confirmed" || identity.userId !== knownUserId))
+    clearIdentity();
+});
+window.addEventListener("pagehide", () => clearIdentity(true));
 window.addEventListener("pageshow", (event) => {
   if (event.persisted) void run(refresh, "正在重新核对账号状态…");
 });

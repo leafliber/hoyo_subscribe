@@ -61,7 +61,7 @@ const sitekey = import.meta.env.PUBLIC_TURNSTILE_SITE_KEY ?? "";
         <button class="button" id="rotate-code" type="button" disabled>交付轮换新码</button><p id="rotation-reason"></p>
       </section>
       <section aria-labelledby="capability-title"><h3 id="capability-title">当前可用操作</h3>
-        <div class="recovery-actions"><a href="/subscription">查看订阅内容</a><a id="export-preferences" href="/api/v2/me/export" download="hoyo-preferences.json">导出偏好</a><a href="/account">账号与设备</a></div>
+        <div class="recovery-actions"><a href="/subscription">查看订阅内容</a><button class="button" id="export-preferences" type="button">导出偏好</button><a href="/account">账号与设备</a></div>
         <div id="restricted-actions" hidden><button class="button" type="button" disabled>启用日历 / 邮件 / Push</button><button class="button" type="button" disabled>更换邮箱</button><p>请先保存并确认新恢复码。受限会话不能启用通道或换邮箱。</p></div>
         <p id="confirmed-next" hidden><a href="/subscription">继续处理订阅与通道</a> · <a href="/account">管理邮箱</a>。各通道不会自动重新开启。</p>
         <details><summary>删除账号</summary><p>删除会停用本站权限与通道，不能即时擦除已送达邮件、外部日历副本或尚未到期的备份。</p><label class="check-label"><input id="delete-check" type="checkbox" />我确认删除账号</label><button class="button" id="delete-account" type="button" disabled>删除账号并停用服务</button><p id="delete-reason"></p></details>

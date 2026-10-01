@@ -1,12 +1,19 @@
+import { expect, type Page, test } from "@playwright/test";
+import {
+  AccountFacts,
+  RECEIPT_KEY,
+  readReceipt,
+  saveReceipt,
+} from "../../apps/web/src/features/auth/recovery/model";
 import {
   type AccountSummary,
   buildApiErrorBody,
   OTP_DIGITS,
   RECENT_AUTH_TTL,
   SESSION_RENEW_INTERVAL,
-} from "@hoyo/contracts";
-import { expect, type Page, test } from "@playwright/test";
-import { AccountFacts, RECEIPT_KEY, readReceipt, saveReceipt } from "./model";
+} from "../../packages/contracts/src/index";
+
+test.use({ trace: "off", screenshot: "off", video: "off" });
 
 // E2 only: all credentials/accounts and every API response are synthetic. No production mail.
 const stamp = 1_700_000_000_000;
@@ -439,7 +446,7 @@ test("U25 邮件全局故障不伪造最近认证，仍保留查看与导出", a
   await page.locator("#request-rotation").click();
   await expect(page.locator("#recovery-result")).toContainText("服务暂不可用");
   await expect(page.locator("#rotate-code")).toBeDisabled();
-  await expect(page.getByRole("link", { name: "导出偏好" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "导出偏好" })).toBeVisible();
   expect(state.calls.some((call) => call.path === "me/recovery-code")).toBe(false);
 });
 
@@ -528,8 +535,11 @@ test("U15 受限会话可导出偏好，排除恢复码，只有显式导出后�
   await page.goto("/recover#save");
   await page.locator("#generate-code").click();
   expect(state.calls.some((call) => call.path === "auth/renew")).toBe(false);
+  await expect(page.locator("#delivered-code")).toBeVisible();
+  await expect(page.locator("#recovery")).toHaveAttribute("aria-busy", "false");
+  await expect(page.getByRole("button", { name: "导出偏好" })).toBeEnabled();
   const downloading = page.waitForEvent("download");
-  await page.getByRole("link", { name: "导出偏好" }).click();
+  await page.getByRole("button", { name: "导出偏好" }).click();
   const file = await downloading;
   expect(file.suggestedFilename()).toBe("hoyo-preferences.json");
   const stream = await file.createReadStream();
@@ -541,4 +551,241 @@ test("U15 受限会话可导出偏好，排除恢复码，只有显式导出后�
   });
   await expect(page.locator("#recovery-result")).toContainText("不包含恢复码");
   expect(state.calls.filter((call) => call.path === "auth/renew")).toHaveLength(1);
+});
+
+// Hold an already received synthetic response in memory, deliberately ignoring abort.
+// This exercises stale continuations, not just cancellation of a network request.
+type ProbeWindow = Window & {
+  recoveryProbe?: { waiting: boolean; release: () => void };
+  previousRelease?: () => void;
+};
+async function holdNext(page: Page, path: string) {
+  await page.evaluate((path) => {
+    delete (window as ProbeWindow).recoveryProbe;
+    const original = window.fetch;
+    window.fetch = async (url, init) => {
+      if (String(url) !== `/api/v2/${path}`) return original(url, init);
+      window.fetch = original;
+      const response = await original(url, { ...init, signal: undefined });
+      return new Promise<Response>((resolve) => {
+        (window as ProbeWindow).recoveryProbe = {
+          waiting: true,
+          release: () => resolve(response),
+        };
+      });
+    };
+  }, path);
+}
+async function held(page: Page) {
+  await expect
+    .poll(() => page.evaluate(() => (window as ProbeWindow).recoveryProbe?.waiting))
+    .toBe(true);
+}
+async function release(page: Page, previous = false) {
+  await page.evaluate(async (previous) => {
+    if (previous) (window as ProbeWindow).previousRelease?.();
+    else (window as ProbeWindow).recoveryProbe?.release();
+    await new Promise<void>((resolve) =>
+      requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
+    );
+  }, previous);
+}
+async function externalInvalidate(page: Page) {
+  const other = await page.context().newPage();
+  await other.route("**/identity-probe", (route) =>
+    route.fulfill({
+      contentType: "text/html",
+      body: "<!doctype html><title>Identity probe</title>",
+    }),
+  );
+  await other.goto("/identity-probe");
+  await other.evaluate(() => {
+    const channel = new BroadcastChannel("hoyo-draft-identity");
+    channel.postMessage("invalidate");
+    channel.close();
+  });
+  await other.close();
+}
+async function expectCleared(page: Page) {
+  await expect(page.locator("#code-output")).toHaveValue("");
+  await expect(page.locator("#save-section")).toBeHidden();
+  await expect(page.locator("#retry-recovery")).toBeHidden();
+  await expect(page.locator("#rotation-otp")).toHaveValue("");
+  await expect(page.locator("#rotation-form")).toBeHidden();
+  await expect(page.locator("#recovery-result")).toContainText("身份已变化");
+  await expect(page.locator("#recovery")).toHaveAttribute("aria-busy", "false");
+}
+async function verifiedRotation(page: Page) {
+  await page.locator("#request-rotation").click();
+  await page.locator("#request-rotation").click();
+  await page.locator("#rotation-otp").fill("1".repeat(OTP_DIGITS));
+  await page.locator("#verify-rotation").click();
+  await expect(page.locator("#rotate-code")).toBeEnabled();
+}
+
+test("U15 身份隔离：外部标签页失效立即清除已交付码、轮换证明及输入", async ({ page }) => {
+  await setup(page, "active", false, true);
+  await page.goto("/recover#save");
+  await verifiedRotation(page);
+  await page.locator("#rotate-code").click();
+  await expect(page.locator("#delivered-code")).toBeVisible();
+  await page.locator("#saved-check").check();
+  await externalInvalidate(page);
+  await expectCleared(page);
+  await expect(page.locator("#saved-check")).not.toBeChecked();
+  await page.locator("#refresh-recovery").click();
+  await expect(page.locator("#rotation-section")).toBeVisible();
+  // /me still grants the action, but the old purpose-bound proof must be gone.
+  await expect(page.locator("#rotate-code")).toBeDisabled();
+  expect(
+    await page.evaluate(() => JSON.stringify({ ...localStorage, ...sessionStorage })),
+  ).not.toMatch(/synthetic-(?:proof|rotated|secret|challenge)/);
+});
+
+test("U15 身份隔离：生成挂起后失效，忽略不能中止的旧响应", async ({ page }) => {
+  const state = await setup(page, "active");
+  await page.goto("/recover#save");
+  await expect(page.locator("#recovery")).toHaveAttribute("aria-busy", "false");
+  await holdNext(page, "auth/recovery/code");
+  await page.locator("#generate-code").click();
+  await held(page);
+  await externalInvalidate(page);
+  await release(page);
+  await expectCleared(page);
+  expect(state.calls.filter((call) => call.path === "me")).toHaveLength(1);
+});
+
+test("U15 身份隔离：重新读取 me 确认不同 user_id 后清除旧码", async ({ page }) => {
+  const state = await setup(page, "active");
+  await page.goto("/recover#save");
+  await page.locator("#generate-code").click();
+  await expect(page.locator("#delivered-code")).toBeVisible();
+  state.facts.user_id = "synthetic-other-user";
+  await page.locator("#refresh-recovery").click();
+  await expectCleared(page);
+  await page.locator("#refresh-recovery").click();
+  await expect(page.locator("#generate-code")).toBeEnabled();
+  await expect(page.locator("#delivered-code")).toBeHidden();
+});
+
+for (const operation of ["summary", "confirmation", "proof", "activation"] as const) {
+  test(`U15 身份隔离：${operation} 迟到结果不能恢复旧身份或权限`, async ({ page }) => {
+    const state = await setup(
+      page,
+      operation === "activation" ? "pending" : "active",
+      operation !== "proof",
+      operation === "proof",
+    );
+    await page.goto("/recover#save");
+    await expect(page.locator("#recovery")).toHaveAttribute("aria-busy", "false");
+    if (operation === "confirmation") {
+      await page.locator("#generate-code").click();
+      await page.locator("#saved-check").check();
+      await holdNext(page, "auth/recovery/code");
+      await page.locator("#confirm-code").click();
+    } else if (operation === "proof") {
+      await page.locator("#request-rotation").click();
+      await page.locator("#request-rotation").click();
+      await page.locator("#rotation-otp").fill("1".repeat(OTP_DIGITS));
+      await holdNext(page, "me/recent-auth/challenges/verify");
+      await page.locator("#verify-rotation").click();
+    } else {
+      await holdNext(page, operation === "activation" ? "auth/activate" : "me");
+      await page
+        .locator(operation === "activation" ? "#activate-recovery" : "#refresh-recovery")
+        .click();
+    }
+    await held(page);
+    const calls = state.calls.length;
+    await externalInvalidate(page);
+    await release(page);
+    await expectCleared(page);
+    expect(state.calls).toHaveLength(calls);
+    if (operation === "proof") {
+      await page.locator("#refresh-recovery").click();
+      await expect(page.locator("#rotation-section")).toBeVisible();
+      await expect(page.locator("#rotate-code")).toBeDisabled();
+    }
+  });
+}
+
+test("U15 生成忙碌时导出明确禁用，交付结束后方可下载白名单 JSON", async ({ page }) => {
+  await setup(page, "active");
+  await page.goto("/recover#save");
+  await expect(page.locator("#recovery")).toHaveAttribute("aria-busy", "false");
+  await holdNext(page, "auth/recovery/code");
+  await page.locator("#generate-code").click();
+  await held(page);
+  await expect(page.locator("#recovery")).toHaveAttribute("aria-busy", "true");
+  await expect(page.getByRole("button", { name: "导出偏好" })).toBeDisabled();
+  await expect(page.locator("#recovery-result")).toContainText("正在交付");
+  await release(page);
+  await expect(page.locator("#delivered-code")).toBeVisible();
+  await expect(page.locator("#recovery")).toHaveAttribute("aria-busy", "false");
+  await expect(page.getByRole("button", { name: "导出偏好" })).toBeEnabled();
+  const downloading = page.waitForEvent("download");
+  await page.getByRole("button", { name: "导出偏好" }).click();
+  const stream = await (await downloading).createReadStream();
+  let content = "";
+  for await (const chunk of stream) content += chunk.toString();
+  expect(JSON.parse(content)).toEqual({
+    format: "hoyo-preferences",
+    subscription: { state: "uninitialized", config: null },
+  });
+});
+
+test("U15 身份隔离：同页外部身份事件清除凭证，不接受事件授予身份", async ({ page }) => {
+  await setup(page, "active");
+  await page.goto("/recover#save");
+  await page.locator("#generate-code").click();
+  await expect(page.locator("#delivered-code")).toBeVisible();
+  await page.evaluate(() =>
+    document.dispatchEvent(
+      new CustomEvent("hoyo:draft-identity", {
+        detail: { status: "confirmed", userId: "synthetic-other-user" },
+      }),
+    ),
+  );
+  await expectCleared(page);
+});
+
+test("U15 身份隔离：旧写入拒绝不能触发摘要重读或恢复错误动作", async ({ page }) => {
+  const state = await setup(page, "active");
+  state.rejectGenerate = true;
+  await page.goto("/recover#save");
+  await expect(page.locator("#recovery")).toHaveAttribute("aria-busy", "false");
+  await holdNext(page, "auth/recovery/code");
+  await page.locator("#generate-code").click();
+  await held(page);
+  await externalInvalidate(page);
+  await release(page);
+  await expectCleared(page);
+  await expect(page.locator("#reauth-link")).toBeHidden();
+  expect(state.calls.filter((call) => call.path === "me")).toHaveLength(1);
+});
+
+test("U15 身份隔离：旧请求结束不能清除新身份请求的忙碌状态", async ({ page }) => {
+  const state = await setup(page, "active");
+  await page.goto("/recover#save");
+  await expect(page.locator("#recovery")).toHaveAttribute("aria-busy", "false");
+  await holdNext(page, "auth/recovery/code");
+  await page.locator("#generate-code").click();
+  await held(page);
+  await page.evaluate(() => {
+    (window as ProbeWindow).previousRelease = (window as ProbeWindow).recoveryProbe?.release;
+  });
+  await externalInvalidate(page);
+  await expectCleared(page);
+  state.facts.user_id = "synthetic-other-user";
+  await holdNext(page, "me");
+  await page.locator("#refresh-recovery").click();
+  await held(page);
+  await release(page, true);
+  await expect(page.locator("#recovery")).toHaveAttribute("aria-busy", "true");
+  await expect(page.locator("#code-output")).toHaveValue("");
+  await expect(page.locator("#generate-code")).toBeDisabled();
+  await release(page);
+  await expect(page.locator("#recovery")).toHaveAttribute("aria-busy", "false");
+  await expect(page.locator("#generate-code")).toBeEnabled();
+  await expect(page.locator("#delivered-code")).toBeHidden();
 });
