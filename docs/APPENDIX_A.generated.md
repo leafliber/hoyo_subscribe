@@ -175,6 +175,7 @@ P0 待定项（`MODEL_MAX_INPUT`、`MODEL_MAX_BILLED_OUTPUT`）未填写前，�
 | UNREFERENCED_VERSION_TTL | 7,776,000 | 秒（原文 90 天） | 未被引用版本保留 | 基线 |
 | EVENT_EVIDENCE_TTL | 31,536,000 | 秒（原文 365 天） | 事件证据保留；活跃、争议和未到期公共更正可延长 | 基线 |
 | CONSENT_AUDIT_AFTER_CLOSE | 15,552,000 | 秒（原文 180 天） | 通道同意关闭后的最小脱敏记录；平台抑制不自动到期解封 | 基线 |
+| ADMIN_AUDIT_TTL | 15,552,000 | 秒（ADR-0005 取 180 天） | 管理员写操作的审计记录保留；到期按索引分页清理，审计不含秘密 | ADR-0005 增补 |
 | BACKUP_INTERVAL | 604,800 | 秒（原文 7 天） | 独立加密备份间隔 | 基线 |
 | BACKUP_COPIES | 4 | 份 | 备份份数；密钥另存，完成恢复演练 | 基线 |
 

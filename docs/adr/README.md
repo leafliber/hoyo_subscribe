@@ -25,3 +25,5 @@
 | [0001](0001-official-announcement-level-uid-params.md) | 公告 API 采集使用登出态 `uid` 与 `level` 内容门控参数 | 已接受（所有者 2026-09-22 批准） |
 | [0002](0002-mail-budget-period-and-platform-constraint.md) | 邮件预算周期改为固定 UTC 自然月；平台约束改为单一日上限 | 被 ADR-0003 取代 |
 | [0003](0003-pure-daily-mail-budget.md) | 邮件预算改为纯日额度模型；取消月度池、envelope 与 carry；席位 50→100 | 已接受（所有者 2026-09-22 批准） |
+| 0004 | （P3-13 草稿 PR #42 的提议：公共快照共享旧投影依据；未合入，P3-13 已按所有者 2026-09-30 决定暂停） | 编号预留 |
+| [0005](0005-admin-audit-retention.md) | 管理员审计记录保留 180 天，新增参数 `ADMIN_AUDIT_TTL` | 已接受（所有者 2026-09-30 批准） |
