@@ -110,12 +110,14 @@ async function openSubscription(
     beforeAccount?: Promise<void>;
     beforeSubscription?: Promise<void>;
     read?: (route: Route, state: WireView, count: number) => Promise<void>;
+    renew?: (route: Route) => Promise<void>;
   } = {},
 ) {
   const state = options.state ?? facts();
   const writes: EmailUpdate[] = [];
   const saves: unknown[] = [];
   let reads = 0;
+  let renewals = 0;
   await page.context().addCookies([
     {
       name: "__Host-hoyo_csrf",
@@ -125,6 +127,14 @@ async function openSubscription(
       secure: true,
     },
   ]);
+  await page.route("**/api/v2/auth/renew", async (route) => {
+    expect(route.request().method()).toBe("POST");
+    expect(route.request().headers()["x-csrf-token"]).toBe("synthetic-csrf");
+    expect(route.request().postDataJSON()).toEqual({});
+    renewals++;
+    if (options.renew) return options.renew(route);
+    await route.fulfill({ json: { renewed: false, expires_at: state.server_time } });
+  });
   await page.route("**/api/v2/me", async (route) => {
     await options.beforeAccount;
     await route.fulfill({ json: { user_id: "synthetic-account-a" } });
@@ -170,7 +180,7 @@ async function openSubscription(
   if (options.waitForReady !== false)
     await expect(part(page, "message")).toContainText("已读取当前邮件状态");
   if (options.dirty) await editRules(page);
-  return { state, writes, saves, reads: () => reads };
+  return { state, writes, saves, reads: () => reads, renewals: () => renewals };
 }
 async function editRules(page: Page) {
   for (const input of await page.locator('input[name="rule_ids"]').all()) {
@@ -655,3 +665,224 @@ test("U22 同账号保存更新之后迟到的旧邮件快照保持未知，重�
   await part(page, "seat-start").click();
   await expect(part(page, "disclosure")).toContainText("已保存内容（版本 2）");
 });
+
+test("U22 显式邮件操作 completed 启用停用各续期一次，GET 不续期", async ({ page }) => {
+  const run = await openSubscription(page);
+  await part(page, "refresh").click();
+  await expect(part(page, "message")).toContainText("已读取当前邮件状态");
+  expect(run.renewals()).toBe(0);
+  await consent(page);
+  await expect(part(page, "message")).toContainText("已核对操作结果");
+  await expect.poll(run.renewals).toBe(1);
+  await part(page, "routine-start").click();
+  await part(page, "routine-consent").check();
+  await part(page, "confirm").click();
+  await expect(part(page, "message")).toContainText("常规提醒邮件：已开启");
+  await expect.poll(run.renewals).toBe(2);
+  await part(page, "routine-stop").click();
+  await expect(part(page, "message")).toContainText("常规提醒邮件：已关闭");
+  await expect.poll(run.renewals).toBe(3);
+  await part(page, "seat-stop").click();
+  await expect(part(page, "message")).toContainText("邮件席位：已关闭");
+  await expect.poll(run.renewals).toBe(4);
+  await part(page, "refresh").click();
+  await expect(part(page, "message")).toContainText("已读取当前邮件状态");
+  expect(run.renewals()).toBe(4);
+  expect(run.writes).toHaveLength(4);
+});
+
+for (const outcome of ["completed", "partial", "disabled"] as const)
+  test(`U11 U22 迟到 PUT ${outcome} 保留操作事实但旧保存版本不能成为当前状态`, async ({ page }) => {
+    const late = gate();
+    const written = gate();
+    const run = await openSubscription(page, {
+      state: { ...facts(), enabled: outcome === "disabled" },
+      write: async (route, body, state) => {
+        applyUpdate(state, outcome === "partial" ? { ...body, routine_enabled: undefined } : body);
+        if (outcome === "partial") state.remaining.routine = 0;
+        const result = {
+          result: outcome === "partial" ? "partial" : "completed",
+          state: structuredClone(state),
+          ...(outcome === "partial"
+            ? { routine_error: { code: "capacity_reached", capability: "email_routine" } }
+            : {}),
+        };
+        written.release();
+        await late.promise;
+        await route.fulfill({ json: result });
+      },
+    });
+    if (outcome === "disabled") await part(page, "seat-stop").click();
+    else await consent(page, outcome === "partial");
+    await written.promise;
+    expect(run.renewals()).toBe(0);
+    await editRules(page);
+    await page.getByRole("button", { name: "保存订阅", exact: true }).click();
+    await expect(page.locator("#cloud-state")).toContainText("版本 2");
+    late.release();
+    await expect(part(page, "message")).toContainText("操作回执（保存版本 1）");
+    await expect(part(page, "message")).toContainText(
+      outcome === "partial" ? "部分完成" : "已完成",
+    );
+    await expect(part(page, "message")).toContainText(
+      outcome === "disabled" ? "邮件席位：已关闭" : "邮件席位：已开启",
+    );
+    await expect(part(page, "facts")).toContainText("邮件状态未知");
+    await expect(part(page, "seat-start")).toBeDisabled();
+    await expect(part(page, "confirmation")).toBeHidden();
+    await expect.poll(run.renewals).toBe(1);
+    expect(run.writes).toHaveLength(1);
+    await part(page, "refresh").click();
+    await expect(part(page, "message")).toContainText("已读取当前邮件状态");
+    await expect(part(page, "seat-status")).toHaveText(
+      outcome === "disabled" ? "未开启 / 已关闭" : "已开启",
+    );
+    expect(run.renewals()).toBe(1);
+    expect(run.writes).toHaveLength(1);
+    if (outcome === "disabled") {
+      await part(page, "seat-start").click();
+      await expect(part(page, "seat-consent")).not.toBeChecked();
+      await expect(part(page, "disclosure")).toContainText("已保存内容（版本 2）");
+      await expect(part(page, "confirm")).toBeDisabled();
+    }
+  });
+
+for (const outcome of ["completed", "partial"] as const)
+  for (const failure of ["http", "network", "pending"] as const)
+    test(`U22 ${outcome} 续期 ${failure} 不改写或阻塞已完成邮件结果`, async ({ page }) => {
+      const late = gate();
+      const renewalDone = gate();
+      const run = await openSubscription(page, {
+        renew: async (route) => {
+          if (failure === "pending") await late.promise;
+          if (failure === "network") await route.abort();
+          else await route.fulfill({ status: 503, json: {} });
+          renewalDone.release();
+        },
+        write: async (route, body, state) => {
+          applyUpdate(
+            state,
+            outcome === "partial" ? { ...body, routine_enabled: undefined } : body,
+          );
+          await route.fulfill({
+            json: {
+              result: outcome,
+              state,
+              ...(outcome === "partial"
+                ? { routine_error: { code: "capacity_reached", capability: "email_routine" } }
+                : {}),
+            },
+          });
+        },
+      });
+      await consent(page, outcome === "partial");
+      await expect(part(page, "message")).toContainText(
+        outcome === "partial" ? "部分完成" : "已核对操作结果",
+      );
+      await expect.poll(run.renewals).toBe(1);
+      const message = await part(page, "message").textContent();
+      await expect(part(page, "refresh")).toBeEnabled();
+      late.release();
+      await renewalDone.promise;
+      await settleBrowser(page);
+      await expect(part(page, "message")).toHaveText(message ?? "");
+      await expect(part(page, "seat-status")).toHaveText("已开启");
+      expect(run.writes).toHaveLength(1);
+      await part(page, "refresh").click();
+      await expect(part(page, "message")).toContainText("已读取当前邮件状态");
+      expect(run.renewals()).toBe(1);
+    });
+
+async function settleBrowser(page: Page) {
+  await page.evaluate(
+    () =>
+      new Promise<void>((resolve) =>
+        requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
+      ),
+  );
+}
+
+test("U22 加载、未确认、取消、可见性与重读均不续期", async ({ page }) => {
+  const run = await openSubscription(page);
+  await part(page, "seat-start").click();
+  await part(page, "seat-consent").check();
+  await expect(part(page, "confirm")).toBeEnabled();
+  expect(run.renewals()).toBe(0);
+  await part(page, "cancel-confirm").click();
+  await page.evaluate(() => document.dispatchEvent(new Event("visibilitychange")));
+  await part(page, "refresh").click();
+  await expect(part(page, "message")).toContainText("已读取当前邮件状态");
+  await settleBrowser(page);
+  expect(run.renewals()).toBe(0);
+  expect(run.writes).toHaveLength(0);
+});
+
+for (const failure of ["conflict", "validation", "rejected", "unknown", "malformed"] as const)
+  test(`U22 邮件 ${failure} 及核对 GET 不续期、不自动重发`, async ({ page }) => {
+    const run = await openSubscription(page, {
+      write: async (route, body, state) => {
+        if (failure === "unknown" || failure === "malformed") {
+          applyUpdate(state, body);
+          if (failure === "unknown") return route.abort();
+          return route.fulfill({ json: { result: "completed", state: { ...state, service: {} } } });
+        }
+        if (failure === "rejected")
+          return route.fulfill({
+            status: 401,
+            json: emailChannelRefusal("recovery_code_not_saved", "seat"),
+          });
+        await route.fulfill({
+          status: failure === "conflict" ? 409 : 400,
+          json: buildApiErrorBody(
+            failure,
+            failure === "conflict" ? { code: failure } : { code: failure, fields: [] },
+          ),
+        });
+      },
+    });
+    await consent(page);
+    await expect(part(page, "message")).toContainText("已重新读取当前事实");
+    await settleBrowser(page);
+    expect(run.renewals()).toBe(0);
+    expect(run.writes).toHaveLength(1);
+    await part(page, "refresh").click();
+    await expect(part(page, "message")).toContainText("已读取当前邮件状态");
+    expect(run.renewals()).toBe(0);
+    expect(run.writes).toHaveLength(1);
+  });
+
+for (const outcome of ["completed", "partial"] as const)
+  test(`U22 旧身份迟到 ${outcome} PUT 不续期、不恢复私人视图`, async ({ page }) => {
+    const late = gate();
+    const written = gate();
+    const responded = gate();
+    const run = await openSubscription(page, {
+      write: async (route, body, state) => {
+        applyUpdate(state, outcome === "partial" ? { ...body, routine_enabled: undefined } : body);
+        const result = {
+          result: outcome,
+          state: structuredClone(state),
+          ...(outcome === "partial"
+            ? { routine_error: { code: "capacity_reached", capability: "email_routine" } }
+            : {}),
+        };
+        written.release();
+        await late.promise;
+        await route.fulfill({ json: result });
+        responded.release();
+      },
+    });
+    await consent(page, outcome === "partial");
+    await written.promise;
+    await identity(page, null);
+    run.state.email.masked = "b***@example.invalid";
+    await identity(page, "synthetic-account-b");
+    await expect(part(page, "facts")).toContainText("b***@example.invalid");
+    late.release();
+    await responded.promise;
+    await settleBrowser(page);
+    await expect(part(page, "facts")).not.toContainText("s***@example.invalid");
+    await expect(part(page, "message")).toContainText("已读取当前邮件状态");
+    expect(run.renewals()).toBe(0);
+    expect(run.writes).toHaveLength(1);
+  });

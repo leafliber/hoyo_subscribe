@@ -11,7 +11,14 @@ import {
 import { feedbackForFailure } from "../../../lib/errors/feedback";
 import { DRAFT_IDENTITY_EVENT, readDraftIdentityEvent } from "../../../lib/storage/identity";
 import { csrfToken } from "../../subscription/save/machine";
-import { EmailRequestError, type EmailUpdate, type EmailView, readEmail, updateEmail } from "./api";
+import {
+  EmailRequestError,
+  type EmailUpdate,
+  type EmailView,
+  readEmail,
+  renewAfterEmailOperation,
+  updateEmail,
+} from "./api";
 import { BLOCK_COPY, blockedCopy, dateText, savedSummary } from "./copy";
 import {
   type EmailSubscriptionHost,
@@ -271,11 +278,14 @@ class EmailPanel {
     for (const name of ["refresh", "save-continue", "use-saved", "cancel-draft", "cancel-confirm"])
       this.button(name).disabled = this.busy;
   }
+  private snapshotIsCurrent(state: EmailView): boolean {
+    return state.subscription.revision >= (this.host.machine().getSnapshot()?.revision ?? 0);
+  }
   private async load(): Promise<boolean> {
     try {
       const state = await readEmail();
       if (!this.current()) return false;
-      if (state.subscription.revision < (this.host.machine().getSnapshot()?.revision ?? 0)) {
+      if (!this.snapshotIsCurrent(state)) {
         throw new Error("stale_email_subscription");
       }
       this.state = state;
@@ -422,13 +432,22 @@ class EmailPanel {
     try {
       const result = await updateEmail(update);
       if (!this.current()) return;
-      this.state = result.state;
+      // Identity must still match before renewing even a completed operation.
+      void renewAfterEmailOperation(this.abort.signal);
       const actual = `邮件席位：${result.state.enabled ? "已开启" : "已关闭"}；常规提醒邮件：${result.state.routine_enabled ? "已开启" : "已关闭"}。`;
-      this.message(
-        result.result === "partial"
-          ? `部分完成。${actual}常规提醒子名额已满，本次未能开启常规层。请分别核对下方状态。`
-          : `已核对操作结果。${actual}发送情况见下方独立状态。`,
-      );
+      if (!this.snapshotIsCurrent(result.state)) {
+        this.state = null;
+        this.message(
+          `本次操作${result.result === "partial" ? "部分完成" : "已完成"}。操作回执（保存版本 ${result.state.subscription.revision}）：${actual}${result.result === "partial" ? "常规提醒子名额已满，本次未能开启常规层。" : ""}订阅已保存为更新版本，当前邮件状态未知。请重新读取邮件状态；没有自动重发，本次同意不会沿用。`,
+        );
+      } else {
+        this.state = result.state;
+        this.message(
+          result.result === "partial"
+            ? `部分完成。${actual}常规提醒子名额已满，本次未能开启常规层。请分别核对下方状态。`
+            : `已核对操作结果。${actual}发送情况见下方独立状态。`,
+        );
+      }
     } catch (error) {
       if (!this.current()) return;
       const body = error instanceof EmailRequestError ? error.body : error;

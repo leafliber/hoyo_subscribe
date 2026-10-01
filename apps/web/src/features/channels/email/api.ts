@@ -192,3 +192,19 @@ export async function updateEmail(update: EmailUpdate): Promise<EmailResult> {
   }
   return { result, state: parseEmailView(body.state) };
 }
+
+/** One explicit operation completed; the server owns renewal intervals. No retries or UI effects. */
+export async function renewAfterEmailOperation(signal: AbortSignal): Promise<void> {
+  try {
+    await fetch("/api/v2/auth/renew", {
+      method: "POST",
+      credentials: "same-origin",
+      cache: "no-store",
+      headers: { "content-type": "application/json", "x-csrf-token": csrfToken() ?? "" },
+      body: JSON.stringify({}),
+      signal,
+    });
+  } catch {
+    // The channel operation has already completed; renewal failure cannot undo its result.
+  }
+}
