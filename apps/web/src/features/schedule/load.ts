@@ -40,19 +40,23 @@ export class ScheduleLoader {
   start(selection: Pick<BrowseFilters, "range" | "games">, refresh = false) {
     const same = JSON.stringify(this.selection) === JSON.stringify(selection);
     this.selection = { range: selection.range, games: [...selection.games] };
-    if (Date.now() < this.state.retryAt) {
-      if (!same) {
-        this.state.pages = [];
-        this.cursor = undefined;
-      }
+    const waiting = Date.now() < this.state.retryAt;
+    if (same && waiting) {
       this.changed();
       return;
     }
+    // 筛选身份先失效，再判断能否发请求；取消失败时 revision 仍挡住旧响应和续页。
     this.controller.abort();
     this.controller = new AbortController();
     const revision = ++this.revision;
     if (!same) this.state.pages = [];
     this.cursor = undefined;
+    if (waiting) {
+      this.state.phase = "failed";
+      this.state.error = this.state.metadataError ?? this.state.error;
+      this.changed();
+      return;
+    }
     this.state.phase = "loading";
     this.state.error = null;
     this.state.retryAt = 0;
