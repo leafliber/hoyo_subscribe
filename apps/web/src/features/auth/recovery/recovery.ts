@@ -55,6 +55,20 @@ async function request(...args: Parameters<typeof apiRequest>) {
     return result;
   } catch (error) {
     assertIdentity(generation);
+    const detail = isApiErrorBody(error) ? error.error.details : undefined;
+    // A definitive session loss invalidates all private state, not just /me facts.
+    // Public preauth/receipt flows have no account view to revoke; their folded
+    // credential failures keep their existing handling. Other 401s are not logout.
+    if (
+      (knownUserId !== null || phase === "save" || phase === "pending") &&
+      detail?.code === "unauthorized" &&
+      (detail.reason === "no_session" || detail.reason === "session_expired")
+    ) {
+      clearIdentity();
+      el("reauth-link").hidden = false;
+      message("当前会话已失效，已清除本页恢复码与验证信息。请重新验证邮箱并登录。");
+      throw new StaleIdentityError();
+    }
     throw error;
   }
 }

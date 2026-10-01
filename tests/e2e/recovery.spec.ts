@@ -11,6 +11,7 @@ import {
   OTP_DIGITS,
   RECENT_AUTH_TTL,
   SESSION_RENEW_INTERVAL,
+  type UnauthorizedReason,
 } from "../../packages/contracts/src/index";
 
 test.use({ trace: "off", screenshot: "off", video: "off" });
@@ -69,6 +70,7 @@ async function setup(
     generation: saved ? 1 : 0,
     renewal: 0,
     conflictStop: false,
+    denied: {} as Partial<Record<string, UnauthorizedReason>>,
   };
   await page.route("**/recover", async (route) => {
     const response = await route.fetch();
@@ -110,8 +112,10 @@ async function setup(
             : {}),
         },
       });
-    const failure = (reason: "no_session" | "recent_auth_required" = "no_session") =>
+    const failure = (reason: UnauthorizedReason = "no_session") =>
       reply(buildApiErrorBody("unauthorized", { code: "unauthorized", reason }), 401);
+    const denied = state.denied[path];
+    if (denied) return failure(denied);
     if (path === "auth/preauth")
       return reply({ csrf_token: "synthetic-preauth" }, 200, "synthetic-preauth");
     if (path === "me/sessions") {
@@ -789,3 +793,102 @@ test("U15 身份隔离：旧请求结束不能清除新身份请求的忙碌状�
   await expect(page.locator("#generate-code")).toBeEnabled();
   await expect(page.locator("#delivered-code")).toBeHidden();
 });
+
+// The response is observed before waiting for aria-busy=false: assertions must run
+// after the error handler (including any summary reread), not during the request.
+async function denyAndFinish(page: Page, path: string, trigger: string) {
+  const response = page.waitForResponse(
+    (reply) => new URL(reply.url()).pathname === `/api/v2/${path}` && reply.status() === 401,
+  );
+  await page.locator(trigger).click();
+  await response;
+  await expect(page.locator("#recovery")).toHaveAttribute("aria-busy", "false");
+}
+async function sessionCleared(page: Page) {
+  await expect(page.locator("#purpose-section")).toBeVisible();
+  await expect(page.locator("#code-output")).toHaveValue("");
+  await expect(page.locator("#delivered-code")).toBeHidden();
+  await expect(page.locator("#save-section")).toBeHidden();
+  await expect(page.locator("#pending-section")).toBeHidden();
+  await expect(page.locator("#rotation-form")).toBeHidden();
+  await expect(page.locator("#rotation-otp")).toHaveValue("");
+  await expect(page.locator("#recovery-id")).toHaveValue("");
+  await expect(page.locator("#recovery-secret")).toHaveValue("");
+  await expect(page.locator("#saved-check")).not.toBeChecked();
+  await expect(page.locator("#retry-recovery")).toBeHidden();
+  await expect(page.locator("#reauth-link")).toBeVisible();
+}
+for (const reason of ["no_session", "session_expired"] as const) {
+  for (const endpoint of ["both", "summary", "confirmation"] as const) {
+    test(`U15 服务端失效：${reason} ${endpoint} 完成处理后清明文、证明、输入和重试`, async ({
+      page,
+    }) => {
+      const state = await setup(page, "active", false, true);
+      await page.goto("/recover#save");
+      await verifiedRotation(page);
+      await page.locator("#rotate-code").click();
+      await expect(page.locator("#delivered-code")).toBeVisible();
+      await page.locator("#saved-check").check();
+      // Include hidden credential inputs, so hiding sections alone cannot pass.
+      await page.evaluate(() => {
+        for (const id of ["recovery-id", "recovery-secret", "rotation-otp"])
+          (document.getElementById(id) as HTMLInputElement).value = "synthetic-obsolete";
+      });
+      const path =
+        endpoint === "both" ? "me/sessions" : endpoint === "summary" ? "me" : "me/recovery-code";
+      state.denied[path] = reason;
+      if (endpoint === "both") state.denied.me = reason;
+      await denyAndFinish(
+        page,
+        path,
+        endpoint === "confirmation" ? "#confirm-code" : "#refresh-recovery",
+      );
+      await sessionCleared(page);
+      state.denied = {};
+      await page.locator("#refresh-recovery").click();
+      await expect(page.locator("#rotation-section")).toBeVisible();
+      await expect(page.locator("#recovery")).toHaveAttribute("aria-busy", "false");
+      // Summary still permits rotation, but the old proof/operation closure is gone.
+      await expect(page.locator("#rotate-code")).toBeDisabled();
+      await expect(page.locator("#code-output")).toHaveValue("");
+      await expect(page.locator("#retry-recovery")).toBeHidden();
+    });
+  }
+  test(`U15 服务端失效：${reason} 清理后忽略旧生成响应`, async ({ page }) => {
+    const state = await setup(page, "active");
+    await page.goto("/recover#save");
+    await expect(page.locator("#recovery")).toHaveAttribute("aria-busy", "false");
+    await holdNext(page, "auth/recovery/code");
+    await page.locator("#generate-code").click();
+    await held(page);
+    // Allow a new foreground read while the original unabortable response is held.
+    await externalInvalidate(page);
+    await expectCleared(page);
+    state.denied.me = reason;
+    await denyAndFinish(page, "me", "#refresh-recovery");
+    await release(page);
+    await expect(page.locator("#recovery")).toHaveAttribute("aria-busy", "false");
+    await sessionCleared(page);
+  });
+}
+for (const reason of ["recent_auth_required", "csrf_mismatch"] as const) {
+  test(`U15 非退出 401：${reason} 保留交付码及保存能力`, async ({ page }) => {
+    const state = await setup(page, "active");
+    await page.goto("/recover#save");
+    await page.locator("#generate-code").click();
+    await page.locator("#saved-check").check();
+    state.denied["auth/recovery/code"] = reason;
+    const reads = state.calls.filter((call) => call.path === "me").length;
+    await denyAndFinish(page, "auth/recovery/code", "#confirm-code");
+    expect(state.calls.filter((call) => call.path === "me").length).toBeGreaterThan(reads);
+    await expect(page.locator("#delivered-code")).toBeVisible();
+    await expect(page.locator("#code-output")).toHaveValue("synthetic-code-1\nsynthetic-secret-1");
+    await expect(page.locator("#confirm-code")).toBeEnabled();
+    await expect(page.locator("#retry-recovery")).toBeVisible();
+    state.denied = {};
+    await page.locator("#retry-recovery").click();
+    await expect(page.locator("#recovery-result")).toContainText("已确认保存");
+    await expect(page.locator("#recovery")).toHaveAttribute("aria-busy", "false");
+    expect(state.calls.filter((call) => call.body.action === "generate")).toHaveLength(1);
+  });
+}
