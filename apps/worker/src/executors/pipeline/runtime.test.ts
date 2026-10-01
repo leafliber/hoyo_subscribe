@@ -312,6 +312,7 @@ describe("A-P3-PIPELINE 持久编排与定时接线", () => {
       "authMaterials",
       "pendingSessions",
       "deletedAccounts",
+      "adminAudit",
     ]);
     for (const spy of spies) spy.mockRestore();
     const tasks = [

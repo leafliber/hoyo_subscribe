@@ -5,6 +5,7 @@ import {
   ADMIN_SESSION_TTL,
   MATCH_PAGE,
   RECOVERY_ATTEMPTS_HOUR,
+  SECRET_BITS,
 } from "@hoyo/contracts";
 import { describe, expect, it, vi } from "vitest";
 import { hashSessionToken } from "../auth/consume/session";
@@ -134,6 +135,43 @@ describe("A-P3-ADMIN 管理员会话与审计边界", () => {
       outputs.push(await response.text());
     }
     expect(outputs[0]).toEqual(outputs[1]);
+  });
+  it("合法 hex 但不足 SECRET_BITS/4 的配置秘密一律拒绝引导", async () => {
+    const shortSecret = secret.slice(0, SECRET_BITS / 4 - 2);
+    expect(shortSecret).toMatch(/^(?:[0-9a-f]{2})+$/);
+    expect(shortSecret.length).toBeLessThan(SECRET_BITS / 4);
+    const weakShell = createApiShell({
+      authenticator: combinedAuthenticator(env.DB, keys, () => now),
+      csrfKey: async () => (await keys()).csrf(),
+      routes: makeAdminSessionRoutes({
+        keys,
+        config: { ADMIN_BOOTSTRAP_SECRET: shortSecret },
+        sourceGate: gate,
+        now: () => now,
+      }),
+    });
+    const snapshot = async () =>
+      Promise.all(
+        ["admin_sessions", "audit_log"].map(
+          async (table) =>
+            (await env.DB.prepare(`SELECT * FROM ${table} ORDER BY rowid`).all()).results,
+        ),
+      );
+    const before = await snapshot();
+    for (const submitted of [shortSecret, secret]) {
+      const response = await weakShell.fetch(
+        new Request(`${origin}/api/v2/admin/session/bootstrap`, {
+          method: "POST",
+          headers: await preauthHeaders(),
+          body: JSON.stringify({ secret: submitted }),
+        }),
+        env,
+        fakeExecutionContext,
+      );
+      expect(response.status).toBe(401);
+      expect(response.headers.getSetCookie()).toEqual([]);
+    }
+    expect(await snapshot()).toEqual(before);
   });
   it("不接受 URL 携带秘密、HTTP、跨源与缺少 CSRF", async () => {
     for (const [url, headers] of [

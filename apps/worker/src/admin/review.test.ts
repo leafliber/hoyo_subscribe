@@ -1,13 +1,15 @@
 import "./test-support";
 import { env } from "cloudflare:test";
 import { ADMIN_AUDIT_TTL, MATCH_PAGE, PUBLIC_READ_LIMITS } from "@hoyo/contracts";
-import { beforeAll, describe, expect, it } from "vitest";
+import { beforeAll, describe, expect, it, vi } from "vitest";
 import { buildPublicSnapshot } from "../calendar/public/snapshot";
 import { eventIdentity } from "../extraction/identity";
-import { createManualCandidate, findCandidateById } from "../extraction/service";
+import { createManualCandidate, decideCandidate, findCandidateById } from "../extraction/service";
+import { publishApprovedCandidate } from "../publishing/publish";
 import { CSRF_COOKIE_NAME, CSRF_HEADER_NAME, createApiShell, mintCsrfToken } from "../shell";
 import { ADMIN_SESSION_COOKIE_NAME } from "../shell/domains";
 import { fakeExecutionContext, testKeyring } from "../shell/test-support";
+import { ARTICLE_COMPLETENESS_STATES } from "../sources/articles/completeness";
 import { generateSecretToken } from "../storage/crypto/random";
 import { makeAdminReviewRoutes } from "./review";
 import { REVIEW_NOW, reviewProposal, seedReviewArticle } from "./review-fixtures";
@@ -377,4 +379,121 @@ it("A-P3-ADMIN 已批准候选发布时审计失败，事实与 outbox 不得落
     await env.DB.exec("DROP TRIGGER reject_publish_audit;");
   }
   expect(await facts()).toEqual(before);
+});
+
+async function reviewState() {
+  return {
+    facts: await facts(),
+    review: await Promise.all(
+      ["candidates", "evidence", "audit_log"].map(
+        async (table) =>
+          (await env.DB.prepare(`SELECT * FROM ${table} ORDER BY rowid`).all()).results,
+      ),
+    ),
+  };
+}
+
+it("A-P3-ADMIN 新建候选的文章版本不存在返回字段级 400，不写候选或审计", async () => {
+  const before = await reviewState();
+  const response = await call("create", {
+    article_version_id: "missing-article-version",
+    proposal_json: JSON.stringify(reviewProposal()),
+    reason: "synthetic",
+  });
+  expect(response.status).toBe(400);
+  expect(await response.json()).toMatchObject({
+    error: {
+      code: "validation",
+      details: {
+        code: "validation",
+        fields: [{ path: "article_version_id", reason: "not_found" }],
+      },
+    },
+  });
+  expect(await reviewState()).toEqual(before);
+});
+
+it("A-P3-ADMIN 详情及其他审核端点缺失文章版本同样返回 400，存储故障仍返回 503", async () => {
+  const { candidate } = await makeCandidate();
+  const before = await reviewState();
+  // 模拟候选已读到，但关联文章版本读取缺失；其余查询仍使用真实 D1。
+  const articleRead = vi.fn(async () => null);
+  const db = new Proxy(env.DB, {
+    get(target, key) {
+      if (key === "prepare")
+        return (sql: string) => {
+          if (!sql.includes("FROM article_versions av")) return target.prepare(sql);
+          return { bind: () => ({ first: articleRead }) } as unknown as D1PreparedStatement;
+        };
+      const value = Reflect.get(target, key);
+      return typeof value === "function" ? value.bind(target) : value;
+    },
+  });
+  const requests: Array<[string, unknown?]> = [
+    [`candidates/${candidate.candidateId}`],
+    ["revise", { ...fields(candidate), proposal_json: JSON.stringify(reviewProposal()) }],
+    ["reject", fields(candidate)],
+    ["approve", fields(candidate)],
+    ["correct", fields(candidate)],
+    ["associate", { ...fields(candidate), target_event_id: "synthetic-event" }],
+    ["retract", fields(candidate)],
+  ];
+  for (const [path, body] of requests) {
+    const response = await call(path, body, db);
+    expect(response.status, path).toBe(400);
+    expect(await response.json()).toMatchObject({
+      error: {
+        code: "validation",
+        details: {
+          code: "validation",
+          fields: [{ path: "article_version_id", reason: "not_found" }],
+        },
+      },
+    });
+  }
+  articleRead.mockRejectedValueOnce(new Error("synthetic storage failure"));
+  expect((await call(`candidates/${candidate.candidateId}`, undefined, db)).status).toBe(503);
+  expect(await reviewState()).toEqual(before);
+});
+
+it("A-P3-ADMIN 正文不完整时批准被拒，不写裁定、不写审计", async () => {
+  for (const completeness of ARTICLE_COMPLETENESS_STATES.filter((value) => value !== "complete")) {
+    const article = await seedReviewArticle(undefined, undefined, completeness);
+    const { candidate } = await makeCandidate(reviewProposal(), article.versionId);
+    const before = await reviewState();
+    const response = await call("approve", fields(candidate));
+    expect(response.status, completeness).toBe(400);
+    expect(await response.json()).toMatchObject({
+      error: {
+        code: "validation",
+        details: {
+          code: "validation",
+          fields: [{ path: "candidate_id", reason: "candidate_validation_failed" }],
+        },
+      },
+    });
+    expect(await reviewState()).toEqual(before);
+    expect((await findCandidateById(env.DB, candidate.candidateId)).review_status).toBe("pending");
+  }
+});
+
+it("A-P3-ADMIN 直接发布的 expectedUpdatedAt 不符返回 condition_missed，什么都不写", async () => {
+  const { candidate } = await makeCandidate();
+  const approved = await decideCandidate(
+    env.DB,
+    candidate.candidateId,
+    "approved",
+    "owner",
+    "synthetic",
+    ++now,
+  );
+  const before = await reviewState();
+  const prepareEffects = vi.fn(async () => []);
+  const outcome = await publishApprovedCandidate(env.DB, candidate.candidateId, ++now, false, {
+    expectedUpdatedAt: approved.updatedAtMs - 1,
+    prepareEffects,
+  });
+  expect(outcome).toEqual({ outcome: "condition_missed" });
+  expect(prepareEffects).not.toHaveBeenCalled();
+  expect(await reviewState()).toEqual(before);
 });

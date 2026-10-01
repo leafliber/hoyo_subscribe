@@ -419,6 +419,9 @@ export function makeAdminReviewRoutes(clock: () => number = Date.now): ShellRout
       try {
         return await route.handler(ctx);
       } catch (error) {
+        // P3-03 读取器的明确缺失错误：在审核边界转为字段级校验；其他存储错误仍上抛。
+        if (error instanceof Error && error.message === "ArticleVersion 不存在")
+          invalid("article_version_id", "not_found");
         if (error instanceof CandidateConflictError) throw new ApiError("conflict");
         if (error instanceof CandidateValidationError)
           invalid("candidate_id", "candidate_validation_failed");

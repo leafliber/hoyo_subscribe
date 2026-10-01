@@ -4,9 +4,14 @@ import { env } from "cloudflare:test";
 import { TimeValueSchema } from "@hoyo/contracts";
 import type { CandidateProposal } from "../extraction/schema";
 import { parseAnnouncementExactTime } from "../extraction/time";
+import type { ArticleCompleteness } from "../sources/articles/completeness";
 import { getSourceEntry } from "../sources/registry";
 export const REVIEW_NOW = 1_800_000_000_000;
-export async function seedReviewArticle(articleId = crypto.randomUUID(), versionNo = 1) {
+export async function seedReviewArticle(
+  articleId = crypto.randomUUID(),
+  versionNo = 1,
+  completeness: ArticleCompleteness = "complete",
+) {
   const source = getSourceEntry("genshin-ann");
   await env.DB.prepare(`INSERT INTO sources (source_id,game,region,adapter,approved_hosts_json,verified_publishers_json,cursor_json,poll_policy_json,verification_state,created_at,updated_at)
     VALUES (?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT DO NOTHING`)
@@ -30,7 +35,7 @@ export async function seedReviewArticle(articleId = crypto.randomUUID(), version
     .run();
   const versionId = crypto.randomUUID();
   await env.DB.prepare(`INSERT INTO article_versions (id,article_id,version_no,content_hash,body_blocks_json,media_refs_json,completeness,official_published_at,fetched_at,created_at)
-    VALUES (?,?,?,?,?,'[]','complete',?,?,?)`)
+    VALUES (?,?,?,?,?,'[]',?,?,?,?)`)
     .bind(
       versionId,
       articleId,
@@ -42,6 +47,7 @@ export async function seedReviewArticle(articleId = crypto.randomUUID(), version
           text: "限时活动，2026/10/01 12:00 开始；2026/10/03 12:00 结束。官方取消说明。",
         },
       ]),
+      completeness,
       REVIEW_NOW,
       REVIEW_NOW,
       REVIEW_NOW,

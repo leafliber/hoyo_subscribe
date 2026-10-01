@@ -10,7 +10,6 @@ import { clearExpiredAuthMaterials } from "../auth/consume/cleanup";
 import { cleanupExpiredPendingSessions } from "../auth/sessions/lifecycle";
 import { logEvent } from "../shell/logger";
 export const cleanupTasks = {
-  adminAudit: cleanupAdminAuditPage,
   registrations: async (db: D1Database, now: number) => {
     const rows = (
       await db
@@ -41,6 +40,7 @@ export const cleanupTasks = {
         .run();
     }
   },
+  adminAudit: cleanupAdminAuditPage,
 };
 export async function runCleanup(
   db: D1Database,

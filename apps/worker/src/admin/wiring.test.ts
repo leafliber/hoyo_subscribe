@@ -79,7 +79,7 @@ it("A-P3-ADMIN Worker 真实入口挂载会话与审核路由，日志不包含�
 });
 
 describe("A-P3-ADMIN 定时清理接线", () => {
-  it("审计清理失败只记固定项名，后续清理仍执行", async () => {
+  it("末尾审计清理失败只记固定项名，既有清理正常执行", async () => {
     const audit = vi
       .spyOn(cleanupTasks, "adminAudit")
       .mockRejectedValueOnce(new Error("synthetic-sensitive-value"));
@@ -98,14 +98,14 @@ describe("A-P3-ADMIN 定时清理接线", () => {
       logs.mockRestore();
     }
   });
-  it("审计热查询使用已存在的 expiry 索引，无迁移", async () => {
+  it("审计热查询使用管理员 expiry 部分索引", async () => {
     const plan = (
       await env.DB.prepare(
-        "EXPLAIN QUERY PLAN SELECT id FROM audit_log INDEXED BY idx_audit_log_expiry WHERE expires_at <= ? AND actor_type='admin' ORDER BY expires_at,id LIMIT ?",
+        "EXPLAIN QUERY PLAN SELECT id FROM audit_log INDEXED BY idx_audit_log_admin_expiry WHERE expires_at <= ? AND actor_type='admin' ORDER BY expires_at,id LIMIT ?",
       )
         .bind(1, 1)
         .all()
     ).results;
-    expect(JSON.stringify(plan)).toContain("idx_audit_log_expiry");
+    expect(JSON.stringify(plan)).toContain("idx_audit_log_admin_expiry");
   });
 });

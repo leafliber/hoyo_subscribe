@@ -27,11 +27,11 @@ export function auditStatement(db: D1Database, audit: AdminAudit): D1PreparedSta
     );
 }
 
-/** 按 expiry 索引筛选到期管理员记录，每次最多删除 MATCH_PAGE 行，保留系统行。 */
+/** 按管理员部分索引筛选到期记录，每次最多删除 MATCH_PAGE 行，保留系统行。 */
 export async function cleanupAdminAuditPage(db: D1Database, now: number): Promise<void> {
   await db
     .prepare(`DELETE FROM audit_log WHERE actor_type = 'admin' AND id IN (
-    SELECT id FROM audit_log INDEXED BY idx_audit_log_expiry
+    SELECT id FROM audit_log INDEXED BY idx_audit_log_admin_expiry
     WHERE expires_at <= ? AND actor_type = 'admin' ORDER BY expires_at, id LIMIT ?
   )`)
     .bind(now, MATCH_PAGE)
