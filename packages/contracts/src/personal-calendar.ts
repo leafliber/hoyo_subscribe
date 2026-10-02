@@ -230,3 +230,20 @@ export const FEED_DIAGNOSTICS = {
   sequence_migration: "日历版本需要迁移，暂时无法更新。",
 } as const;
 export type FeedDiagnostic = keyof typeof FEED_DIAGNOSTICS;
+
+/** D2：来源规则从 Feed 原样移入；区服沿用旧实现的小写比较。 */
+export function requiredCalendarSources<
+  T extends {
+    sourceId: string;
+    game: string;
+    region: string;
+    contentChannelDisabled?: boolean;
+  },
+>(config: Pick<CalendarProjectionSource, "scope">, sources: readonly T[]): T[] {
+  return sources.filter(
+    (entry) =>
+      !entry.contentChannelDisabled &&
+      config.scope.games.some((game) => game === entry.game) &&
+      config.scope.regions.some((region) => region.toLowerCase() === entry.region),
+  );
+}

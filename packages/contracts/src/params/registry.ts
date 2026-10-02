@@ -287,6 +287,12 @@ export const CAL_PATCH_GLOBAL_MAX = 10_000 as const;
 /** 公共快照新鲜窗口。附录 A.3；§6.4。 */
 export const PUBLIC_CACHE_FRESH = 300 as const;
 
+/** 私人预览每会话、每 isolate 的滑动窗口（秒）。ADR-0006；D2 §3.5。 */
+export const CALENDAR_PREVIEW_RATE_WINDOW = 60 as const;
+
+/** 私人预览窗口内受理次数；首屏与续页共桶。ADR-0006；D2 §3.5。 */
+export const CALENDAR_PREVIEW_RATE_LIMIT = 30 as const;
+
 /** P3-14 工程保护：公共扫描按页，超限明确失败，不把残缺详情/计数当完整结果。
  * 近期变更期限复用共享更正层 retain_until（CAL_PATCH_MIN_DAYS/TAIL_DAYS），不另设 TTL。
  */
@@ -608,6 +614,8 @@ export const PARAMS = {
   CAL_PATCH_TAIL_DAYS,
   CAL_PATCH_GLOBAL_MAX,
   PUBLIC_CACHE_FRESH,
+  CALENDAR_PREVIEW_RATE_WINDOW,
+  CALENDAR_PREVIEW_RATE_LIMIT,
   PUBLIC_READ_LIMITS,
   PUBLIC_SNAPSHOT_WRITE_PROFILE,
   FEED_MAX_STALE,
@@ -1127,6 +1135,20 @@ export const PARAM_META: Readonly<Record<keyof ParamValues, ParamMeta>> = {
     unit: "秒",
     description: "公共快照新鲜窗口",
     status: "baseline",
+  },
+  CALENDAR_PREVIEW_RATE_WINDOW: {
+    section: "A.3",
+    unit: "秒",
+    description: "私人日历预览每会话、每 Worker isolate 的限流窗口",
+    status: "baseline",
+    note: "ADR-0006 所有者批准；首屏与续页共桶，不写 D1、不续期、不计写操作额度",
+  },
+  CALENDAR_PREVIEW_RATE_LIMIT: {
+    section: "A.3",
+    unit: "次",
+    description: "私人日历预览同会话、同 isolate 窗口内受理次数上限",
+    status: "baseline",
+    note: "ADR-0006 所有者批准；超限 429，isolate 切换或重启可重置局部状态",
   },
   FEED_MAX_STALE: {
     section: "A.3",

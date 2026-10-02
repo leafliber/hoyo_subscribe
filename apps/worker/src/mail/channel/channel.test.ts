@@ -15,7 +15,7 @@ import {
 } from "@hoyo/contracts";
 import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { changeEmail, markAccountDeleting } from "../../accounts/lifecycle/service";
-import { saveSubscription } from "../../accounts/subscription/service";
+import { readSubscription, saveSubscription } from "../../accounts/subscription/service";
 import { asEnvelopeBytes, decryptOtpPayload } from "../../auth/challenges/payload";
 import { startRecentOtp } from "../../auth/challenges/recent-auth";
 import { mintPreauthCookieValue } from "../../auth/preauth/cookie";
@@ -53,6 +53,27 @@ async function ready() {
   await saveSubscription(env.DB, f.userId, 0, selectedConfig, now);
   return f;
 }
+/** #56 入口夹具：P3-15 要求真实已保存版本和当前完整发布代次。 */
+async function calendarPreviewBinding(f: Fixture) {
+  await run(
+    `INSERT INTO public_snapshots(id,generation,state,published_at,node_count,created_at)
+      SELECT 'synthetic-calendar-preview',1,'current',?,0,?
+      WHERE NOT EXISTS (SELECT 1 FROM public_snapshots WHERE state='current')`,
+    now,
+    now,
+  );
+  const publication = await first<{ generation: number }>(
+    "SELECT generation FROM public_snapshots WHERE state='current' AND published_at IS NOT NULL AND node_count IS NOT NULL",
+  );
+  const subscription = await readSubscription(env.DB, f.userId);
+  if (!publication || subscription.state !== "initialized")
+    throw new Error("invalid calendar fixture");
+  return {
+    expected_revision: subscription.revision,
+    publication_generation: publication.generation,
+  };
+}
+
 async function input(f: Fixture, extra: EmailChannelUpdate = {}): Promise<EmailChannelUpdate> {
   const view = await readEmailChannel(await deps(), f.session, now);
   return {
@@ -728,6 +749,7 @@ describe("A-P4-CONSENT 两层同意 API", () => {
       0,
       crypto.randomUUID(),
       now,
+      await calendarPreviewBinding(f),
     );
     expect(calendar.address_state).toBe("enabled");
     const clock = vi.spyOn(Date, "now").mockReturnValue(now);
@@ -849,6 +871,7 @@ describe("A-P4-CONSENT 两层同意 API", () => {
         0,
         crypto.randomUUID(),
         now,
+        await calendarPreviewBinding(f),
       );
       expect(calendar.address_state).toBe("enabled");
       const clock = vi.spyOn(Date, "now").mockReturnValue(now);

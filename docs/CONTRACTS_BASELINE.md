@@ -375,6 +375,10 @@ P5-01 所有者 2026-10-02 批准的观测依赖：`0 < OBS_CAPACITY_WARN_RATIO 
 `FEEDBACK_MAINTENANCE_ROUNDS` 为正整数，且 `FEEDBACK_MAINTENANCE_ROUNDS × FEEDBACK_BATCH <= MAIL_FEEDBACK_MAX`。
 反馈维护同时受 `EXECUTOR_BATCH_WALL_LIMIT` 约束；平台 query-limit 的真实本地最坏路径测试不得超限。
 
+P3-15 / ADR-0006 启动校验 `calendar-preview-rate-bounds`：`CALENDAR_PREVIEW_RATE_WINDOW` 与
+`CALENDAR_PREVIEW_RATE_LIMIT` 均为正安全整数，且 `CALENDAR_PREVIEW_RATE_WINDOW < PUBLIC_CACHE_FRESH`。
+首屏与续页共用每会话、每 isolate 的限额；窗口小于新鲜期为等待后的续页留余量，不代替最大分页测量。
+
 ## 12. API 分组速查（§8.2）
 
 | 路径组 | 要点 |
