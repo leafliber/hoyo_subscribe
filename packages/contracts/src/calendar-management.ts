@@ -9,6 +9,10 @@ export const calendarMutationSchema = z
     expected_generation: z.number().int().nonnegative().safe(),
   })
   .strict();
+export const calendarEnableSchema = calendarMutationSchema.extend({
+  expected_revision: z.int().positive(),
+  publication_generation: z.int().positive(),
+});
 export function calendarOutputState(at: number | null, diagnostic: string | null) {
   return at === null
     ? "unknown"

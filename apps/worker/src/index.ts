@@ -32,8 +32,10 @@ import { InMemoryRecoverySourceGate } from "./auth/recovery/rate";
 import { makeRecoveryRoutes } from "./auth/recovery/routes";
 import { makeSessionRoutes } from "./auth/sessions/routes";
 import { makeFeedHandler } from "./calendar/feed/handler";
+import { FeedPublicCache } from "./calendar/feed/public-read";
 import { calendarLifecycle, pauseCalendar } from "./calendar/manage/hooks";
 import { makeCalendarRoutes } from "./calendar/manage/routes";
+import { makeCalendarPreviewRoutes } from "./calendar/preview/routes";
 import { emailLifecycleHook, emailSafetyPauseHook } from "./mail/channel/hooks";
 import { makeEmailChannelRoutes } from "./mail/channel/routes";
 import { queue } from "./mail/feedback";
@@ -110,11 +112,12 @@ function getShell(env: Env): Shell {
   let shell = shellByEnv.get(env);
   if (shell === undefined) {
     const authRateGate = new InMemoryAuthRateGate();
+    const calendarCache = new FeedPublicCache();
     const authTurnstile = () =>
       siteverifyTurnstileVerifier((env as Env & ShellSecrets).TURNSTILE_SECRET_KEY ?? "");
     shell = createApiShell({
       authenticator: combinedAuthenticator(env.DB, () => getKeyring(env as Env & ShellSecrets)),
-      feedHandler: makeFeedHandler(),
+      feedHandler: makeFeedHandler({ cache: calendarCache }),
       // 秘密未注入时 getKeyring 抛错 → 写路由折叠为 temporarily_unavailable
       // （失败关闭）；读路径与 Feed 协议校验不受影响。
       csrfKey: () => getKeyring(env as Env & ShellSecrets).then((ring) => ring.csrf()),
@@ -131,6 +134,7 @@ function getShell(env: Env): Shell {
         makePreauthInitRoute({ keys: () => getKeyring(env as Env & ShellSecrets) }),
         statusRoute,
         ...publicRoutes,
+        ...makeCalendarPreviewRoutes({ cache: calendarCache }),
         // P2-02 挂载点：申请 / 重发 / 校验三端点（七步准入管线 + 真实第 7 步效果）。
         // 近似限速门每 shell（isolate）一个实例；Turnstile 懒构造——秘密未注入时仅
         // 申请端点失败关闭（503），不影响预认证初始化与其余路由。

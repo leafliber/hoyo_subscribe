@@ -1,5 +1,9 @@
 // P3-06 · 只缓存无私人内容的当前整代；主库每次确认代次，缓存不是授权依据。
-import type { PublicSnapshotNode, SubscriptionConfig } from "@hoyo/contracts";
+import {
+  type PublicSnapshotNode,
+  requiredCalendarSources,
+  type SubscriptionConfig,
+} from "@hoyo/contracts";
 import { SOURCE_REGISTRY } from "../../sources/registry";
 import { readCurrentPublicSnapshot } from "../public/snapshot";
 
@@ -32,12 +36,7 @@ export class FeedPublicCache {
 }
 /** 所需来源按已登记可抓正文的来源与当前 scope 决定；空结果也须证明来源被成功核验。 */
 export function requiredFeedSources(config: SubscriptionConfig): readonly string[] {
-  return SOURCE_REGISTRY.filter(
-    (entry) =>
-      !entry.contentChannelDisabled &&
-      config.scope.games.includes(entry.game) &&
-      config.scope.regions.some((region) => region.toLowerCase() === entry.region),
-  ).map((entry) => entry.sourceId);
+  return requiredCalendarSources(config, SOURCE_REGISTRY).map((entry) => entry.sourceId);
 }
 export async function readFeedSourceWatermarks(
   db: D1Database,

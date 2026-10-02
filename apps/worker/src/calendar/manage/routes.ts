@@ -1,5 +1,9 @@
 // P3-07：地址只经专用 GET 返回；所有写动作显式确认，无额外 OTP。
-import { calendarActionSchema, calendarMutationSchema } from "@hoyo/contracts";
+import {
+  calendarActionSchema,
+  calendarEnableSchema,
+  calendarMutationSchema,
+} from "@hoyo/contracts";
 import { requireOperationKey } from "../../auth/consume/operation";
 import { ApiError, jsonResponse } from "../../shell/errors";
 import type { RouteContext, ShellRoute } from "../../shell/router";
@@ -38,7 +42,8 @@ export function makeCalendarRoutes(
             ctx.env.DB,
             await keys(),
             session(ctx),
-            new URL(ctx.request.url).origin,
+            (ctx.env as typeof ctx.env & { SITE_ORIGIN?: string }).SITE_ORIGIN ??
+              new URL(ctx.request.url).origin,
             now(),
           ),
         ),
@@ -51,11 +56,22 @@ export function makeCalendarRoutes(
           domain: "user",
           write: true,
           bodySchema: {
-            fields: { confirmed: { type: "boolean" }, expected_generation: { type: "number" } },
+            fields: {
+              confirmed: { type: "boolean" },
+              expected_generation: { type: "number" },
+              ...(action === "enable"
+                ? {
+                    expected_revision: { type: "number" as const },
+                    publication_generation: { type: "number" as const },
+                  }
+                : {}),
+            },
           },
           csrfBinding: async (ctx) => session(ctx).sessionTokenHash,
           handler: async (ctx) => {
-            const parsed = calendarMutationSchema.safeParse(ctx.body);
+            const parsed = (
+              action === "enable" ? calendarEnableSchema : calendarMutationSchema
+            ).safeParse(ctx.body);
             if (!parsed.success)
               throw new ApiError("validation", {
                 code: "validation",
@@ -76,6 +92,7 @@ export function makeCalendarRoutes(
                   parsed.data.expected_generation,
                   operation,
                   now(),
+                  action === "enable" ? calendarEnableSchema.parse(ctx.body) : undefined,
                 ),
               );
             } finally {
