@@ -4,6 +4,7 @@ import {
   changeNotificationScope,
   type EventType,
   type GameId,
+  parseSubscriptionConfig,
   SUBSCRIPTION_CHANGE_COPY,
   SUBSCRIPTION_EVENT_TYPE_LABELS,
   SUBSCRIPTION_GAME_LABELS,
@@ -12,6 +13,7 @@ import {
   SUPPORTED_SCOPE_REGIONS,
 } from "@hoyo/contracts";
 import { EmailChannelLifecycle } from "../channels/email/lifecycle";
+import { SubscriptionCloudFlow } from "./cloud-flow";
 import { SubscriptionDraftController } from "./draft/controller";
 import {
   type Draft,
@@ -146,6 +148,9 @@ if (form instanceof HTMLFormElement) {
         日历显示: "暂无",
         变更消息: "暂无",
       };
+    // Compare normalized sets, not the checkbox/response array display order.
+    const normalized = parseSubscriptionConfig("uninitialized", { ...config, revision: 1 });
+    if (normalized.success) config = normalized.data;
     const gameNames = config.scope.games.map((game) => SUBSCRIPTION_GAME_LABELS[game]);
     const ruleNames = config.notifications.rule_ids.map(
       (id) => SUBSCRIPTION_RULE_COPY.find((rule) => rule.rule_id === id)?.label ?? id,
@@ -165,7 +170,13 @@ if (form instanceof HTMLFormElement) {
 
   let drafts: SubscriptionDraftController | undefined;
   let email: EmailChannelLifecycle | undefined;
+  let flow: SubscriptionCloudFlow | undefined;
   let savePhase: Phase = "guest";
+  function updateSaveGate(): void {
+    if (saveButton instanceof HTMLButtonElement)
+      saveButton.disabled =
+        ["saving", "loading", "conflict"].includes(savePhase) || (flow?.saveBlocked() ?? false);
+  }
   function createMachine(): SubscriptionSaveMachine {
     return new SubscriptionSaveMachine(
       {
@@ -174,6 +185,7 @@ if (form instanceof HTMLFormElement) {
         render(phase: Phase, message: string, snapshot: Snapshot | null) {
           drafts?.paint(phase);
           savePhase = phase;
+          flow?.update(phase, snapshot);
           email?.update(phase, snapshot);
           const saved = snapshot?.config;
           if (cloudState)
@@ -193,8 +205,7 @@ if (form instanceof HTMLFormElement) {
               } satisfies Record<Phase, string>
             )[phase];
           if (saveResult) saveResult.textContent = message;
-          if (saveButton instanceof HTMLButtonElement)
-            saveButton.disabled = phase === "saving" || phase === "loading" || phase === "conflict";
+          updateSaveGate();
           if (discardButton instanceof HTMLButtonElement)
             discardButton.disabled = phase === "saving";
           if (recheck instanceof HTMLButtonElement)
@@ -246,8 +257,10 @@ if (form instanceof HTMLFormElement) {
     form,
     readDraft: draftFromForm,
     machine: () => machine,
+    readIdentity: () => (flow ? flow.identify() : Promise.resolve({ status: "unknown" })),
     reset() {
       email?.invalidate();
+      flow?.invalidate();
       savePhase = "guest";
       machine.dispose();
       for (const choice of choices) choice.checked = initialChoice.get(choice) ?? false;
@@ -279,6 +292,7 @@ if (form instanceof HTMLFormElement) {
   form.addEventListener("submit", async (event) => {
     event.preventDefault();
     if (!drafts?.current()) return;
+    if (flow?.saveBlocked()) return;
     hideErrors();
     if (selected("games").length === 0) {
       if (saveResult) saveResult.textContent = "请先选择至少一个关注的游戏。";
@@ -292,6 +306,7 @@ if (form instanceof HTMLFormElement) {
       return;
     }
     await drafts?.save();
+    void flow?.refresh();
   });
 
   document.getElementById("discard-changes")?.addEventListener("click", () => {
@@ -316,8 +331,15 @@ if (form instanceof HTMLFormElement) {
       drafts?.discarded();
     }
   });
-  document.getElementById("keep-draft")?.addEventListener("click", () => machine.keepDraft());
-  recheck?.addEventListener("click", () => void drafts?.refresh(true));
+  document.getElementById("keep-draft")?.addEventListener("click", () => void drafts?.keepDraft());
+  recheck?.addEventListener("click", () => {
+    void drafts?.refresh(true);
+    void flow?.refresh();
+  });
+  document.getElementById("subscription-login")?.addEventListener("click", async (event) => {
+    event.preventDefault();
+    if (await drafts?.prepareLogin()) window.location.assign("/login?returnTo=%2Fsubscription");
+  });
   document.addEventListener("visibilitychange", () => {
     if (document.visibilityState === "visible") void drafts?.refresh();
   });
@@ -334,6 +356,10 @@ if (form instanceof HTMLFormElement) {
       current: () => drafts?.current() ?? false,
     });
   }
+  flow = new SubscriptionCloudFlow({
+    current: () => drafts?.current() ?? false,
+    gateChanged: updateSaveGate,
+  });
   sync();
   void drafts.start();
 }

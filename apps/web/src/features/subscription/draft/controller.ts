@@ -6,6 +6,7 @@ import {
   readConfirmedDraftIdentity,
   readDraftIdentityEvent,
 } from "../../../lib/storage/identity";
+import { GUEST_HANDOFF_KEY } from "../../auth/return-path";
 import { csrfToken, type Draft, type Phase, type SubscriptionSaveMachine } from "../save/machine";
 import { exportPreferences, importPreferences } from "./preferences";
 
@@ -23,6 +24,7 @@ export class SubscriptionDraftController {
   private pending = false;
   private persisted = false;
   private storageFailed = false;
+  private guestHandoff = false;
   private readonly status = document.createElement("p");
   private readonly result = document.createElement("p");
   private readonly input = document.createElement("input");
@@ -34,6 +36,7 @@ export class SubscriptionDraftController {
       readDraft(): Draft;
       machine(): SubscriptionSaveMachine;
       reset(): SubscriptionSaveMachine;
+      readIdentity?(): Promise<DraftIdentity>;
     },
   ) {
     const section = document.createElement("section");
@@ -117,6 +120,7 @@ export class SubscriptionDraftController {
     this.pending = false;
     this.persisted = false;
     this.storageFailed = false;
+    this.guestHandoff = false;
     this.result.textContent = "身份已变化，已清除原账号的内存视图。";
     this.input.value = "";
     this.host.reset();
@@ -141,7 +145,7 @@ export class SubscriptionDraftController {
     if (this.identity.status === "unknown" && this.marker) {
       this.identifying = true;
       this.paint(this.phase);
-      const identity = await readConfirmedDraftIdentity();
+      const identity = await (this.host.readIdentity?.() ?? readConfirmedDraftIdentity());
       if (!this.current() || generation !== this.generation) return;
       this.identifying = false;
       this.applyingConfirmation = true;
@@ -154,15 +158,91 @@ export class SubscriptionDraftController {
       if (generation === this.generation) this.storageFailed = true;
       return null;
     });
+    let handoff = false;
+    if (this.identity.status === "confirmed") {
+      try {
+        const marker = sessionStorage.getItem(GUEST_HANDOFF_KEY);
+        handoff =
+          marker === "pending" || marker === JSON.stringify({ userId: this.identity.userId });
+        if (marker && !handoff) sessionStorage.removeItem(GUEST_HANDOFF_KEY);
+        if (handoff)
+          sessionStorage.setItem(
+            GUEST_HANDOFF_KEY,
+            JSON.stringify({ userId: this.identity.userId }),
+          );
+      } catch {
+        /* Storage denied: never guess which account owns a continuation. */
+        handoff = false;
+        this.storageFailed = true;
+      }
+    }
+    const guest = handoff
+      ? this.storage.read({ status: "guest" }).catch(() => {
+          if (generation === this.generation) this.storageFailed = true;
+          return null;
+        })
+      : Promise.resolve(null);
     await this.host.machine().start(this.identity.status !== "guest");
-    const row = await local;
+    const [accountRow, guestRow] = await Promise.all([local, guest]);
     if (!this.current() || generation !== this.generation || edits !== this.edits) return;
+    const row = guestRow ?? accountRow;
+    this.guestHandoff = guestRow !== null;
+    if (guestRow && this.identity.status === "confirmed") {
+      this.result.textContent = accountRow
+        ? "正在比较本次登录前的游客草稿；此账号原有本机草稿仍保留，选择保留游客草稿后才替换。"
+        : "已找回登录前的游客草稿，请先比较，再选择采用云端或继续编辑。";
+    }
     if (row) {
       this.pending = true;
       this.persisted = true;
       this.host.machine().stageDraft(row.config);
     }
     this.paint(this.phase);
+  }
+
+  /** Only an explicit login entry carries a guest draft into an account. */
+  async prepareLogin(): Promise<boolean> {
+    if (!this.current() || this.identifying) return false;
+    if (this.identity.status !== "guest") return true;
+    const generation = this.generation;
+    try {
+      sessionStorage.removeItem(GUEST_HANDOFF_KEY);
+      if (this.pending || this.edits > 0) {
+        await this.storage.write({ status: "guest" }, this.host.readDraft());
+        if (!this.current() || generation !== this.generation || this.identity.status !== "guest")
+          return false;
+        sessionStorage.setItem(GUEST_HANDOFF_KEY, "pending");
+      }
+      return true;
+    } catch {
+      this.result.textContent = "无法保留登录前的草稿；请先导出偏好备份，再从登录页继续。";
+      return false;
+    }
+  }
+
+  async keepDraft(): Promise<void> {
+    if (!this.current()) return;
+    const guestHandoff = this.guestHandoff;
+    if (guestHandoff) {
+      const generation = this.generation;
+      const edits = this.edits;
+      try {
+        await this.storage.write(this.identity, this.host.readDraft());
+      } catch {
+        this.result.textContent = "无法保存此账号的本机草稿；游客草稿仍保留，请导出备份后重试。";
+        return;
+      }
+      if (!this.current() || generation !== this.generation || edits !== this.edits) return;
+      this.guestHandoff = false;
+      try {
+        sessionStorage.removeItem(GUEST_HANDOFF_KEY);
+      } catch {
+        /* No credential stored. */
+      }
+      void this.storage.write({ status: "guest" }, null).catch(() => undefined);
+    }
+    this.host.machine().keepDraft();
+    this.edited();
   }
 
   edited(): void {
@@ -178,8 +258,17 @@ export class SubscriptionDraftController {
     this.persisted = false;
     this.paint(this.phase);
     try {
-      await this.storage.write(this.identity, config);
+      const guestHandoff = this.guestHandoff;
+      await this.storage.write(guestHandoff ? { status: "guest" } : this.identity, config);
       if (!this.current() || generation !== this.generation || edits !== this.edits) return;
+      if (guestHandoff && config === null) {
+        this.guestHandoff = false;
+        try {
+          sessionStorage.removeItem(GUEST_HANDOFF_KEY);
+        } catch {
+          /* No credential stored. */
+        }
+      }
       this.persisted = this.identity.status !== "unknown" && config !== null;
       this.storageFailed = false;
     } catch {

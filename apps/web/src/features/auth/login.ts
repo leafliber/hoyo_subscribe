@@ -13,12 +13,21 @@ import { announce } from "../../components/status";
 import { feedbackForApiError } from "../../lib/errors/feedback";
 import { publishDraftIdentity } from "../../lib/storage/identity";
 import { type Json, request, sessions } from "./api";
+import { loginReturnPath } from "./return-path";
 import { Turnstile } from "./turnstile";
 
 const el = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T;
 const email = el<HTMLInputElement>("login-email");
 const code = el<HTMLInputElement>("login-code");
 const root = el("login");
+const requestedReturn = new URLSearchParams(window.location.search).get("returnTo");
+const returnPath = loginReturnPath(requestedReturn);
+el<HTMLAnchorElement>("continue-login").href = returnPath;
+if (requestedReturn !== null) {
+  el("login-return-notice").hidden = false;
+  el("login-return-notice").textContent =
+    "完成并激活当前浏览器后，将返回站内原任务；设置仍需明确保存。";
+}
 // F3-01 permits a modest presentation limit for the optional device label.
 el<HTMLInputElement>("device-label").maxLength = 80;
 const captcha = new Turnstile(el("turnstile-status"));
@@ -404,6 +413,7 @@ function done(): void {
   operationKey = "";
   invalidateIdentity();
   message("登录已完成。仅恢复账号身份，订阅设置尚未因此保存，日历及邮件等通道也未因此开启。");
+  if (requestedReturn !== null) window.location.assign(returnPath);
 }
 el<HTMLFormElement>("email-form").addEventListener("submit", (event) => {
   event.preventDefault();

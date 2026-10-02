@@ -11,6 +11,7 @@ const sitekey = import.meta.env.PUBLIC_TURNSTILE_SITE_KEY ?? "";
     <p class="field-hint">账号 · 邮箱验证码</p>
     <h1>登录 HoYo日历</h1>
     <p>登录后可以继续处理订阅草稿。登录本身不会保存设置或开启任何接收方式。</p>
+    <p id="login-return-notice" role="status" hidden></p>
     <p id="auth-service" role="status">正在读取全局注册与邮件服务状态。</p>
     <form id="email-form" class="form-narrow" novalidate>
       <FormField id="login-email" label="邮箱地址" type="email" placeholder="you@example.com"

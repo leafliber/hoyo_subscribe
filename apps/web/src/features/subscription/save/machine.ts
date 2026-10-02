@@ -7,6 +7,7 @@ import {
   type SubscriptionConfig,
 } from "@hoyo/contracts";
 import { feedbackForFailure } from "../../../lib/errors/feedback";
+import { request } from "../../auth/api";
 
 export type Draft = Omit<SubscriptionConfig, "revision">;
 export type Snapshot = {
@@ -252,7 +253,13 @@ export class SubscriptionSaveMachine {
         this.message = `${feedback.title}。${feedback.nextStep}`;
         if (feedback.firstInvalidField) this.view.validation(feedback.firstInvalidField);
       } else {
-        this.cloud = parseSnapshot(body);
+        const saved = parseSnapshot(body);
+        const confirmedWrite =
+          (body as { saved?: unknown }).saved === true &&
+          saved.state === "initialized" &&
+          saved.revision === submission.expectedRevision + 1 &&
+          same(saved.config, submission.config);
+        this.cloud = saved;
         this.submitted = null;
         const laterEdits = this.editSerial !== submission.editSerial;
         if (!laterEdits && this.cloud.config) this.view.applyDraft(this.cloud.config);
@@ -260,6 +267,9 @@ export class SubscriptionSaveMachine {
         this.message = laterEdits
           ? "提交时的配置已保存；之后的本机修改仍未保存。"
           : "云端设置已保存。外部日历的更新时间由客户端决定。";
+        // Only the current identity's confirmed PATCH completion counts as an explicit operation.
+        // GET reconciliation, an unchanged draft and an uncertain response never renew.
+        if (confirmedWrite && this.current()) void request("auth/renew", {}).catch(() => undefined);
       }
     } catch (_error) {
       if (!this.current()) return;
