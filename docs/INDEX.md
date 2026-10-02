@@ -24,6 +24,7 @@
 | [tasks/](tasks/) | 每阶段的任务卡：P0–P6（后端与管线）、F1–F5（前端轮次）、F6（管理端，`tasks/F6.md`） |
 | [adr/](adr/) | 变更合同的决策记录；改动禁止清单中的任何一条都必须先有 ADR |
 | [ADR-0006](adr/0006-private-calendar-preview-rate-limit.md) | 私人预览按会话近似限速的已批准参数；P3-15 负责注册与实现 |
+| [ADR-0007](adr/0007-system-audit-retention.md) | 系统审计保留 180 天的已批准参数；P5-02 负责注册、期限校正与清理 |
 
 ## 阅读顺序
 

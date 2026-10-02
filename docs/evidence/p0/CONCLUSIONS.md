@@ -55,11 +55,11 @@ G-P0-SOURCE 的“部分开”沿用验收方 2026-09-30 门禁记录；未覆�
 | Workers Paid、Email Sending 资格、日权限 | 通过 | [docs/evidence/p0/platform-facts.md](platform-facts.md) §1：2026-09-22，只读账户 API 与所有者确认 | 继续沿用资格记录；按 ADR-0003 的纯日额度模型和 contracts 注册表执行，不恢复月度池或周期包含量 |
 | 认证 / 业务子域配置 | 通过 | [docs/evidence/p0/platform-facts.md](platform-facts.md) §2：2026-09-28；认证域创建记录为 2026-09-28T17:06:45Z，随后只读复查 | 两域分开、认证域 preview 关闭、两用途静默丢弃关闭、DNS ready；仅引用既有结果，本卡不创建或修改资源 |
 | 其他邮箱服务商送达 | 未取得 | [docs/evidence/p0/platform-facts.md](platform-facts.md) §2.2：所有者 2026-09-28 决定暂缓；实测取得时间：未取得 | 不外推阿里企业邮结果；需所有者另行决定与取证 |
-| DKIM 对业务退订头的签名覆盖 | 未取得 | [docs/evidence/p0/platform-facts.md](platform-facts.md) §2.1、§4：2026-09-28 登记缺口；收到邮件的原始签名头取得时间：未取得 | 需所有者取得脱敏原始邮件头并核验 `h=`；P4-06 验收前取得，平台签名前原文不是签名覆盖证据 |
+| DKIM 对业务退订头的签名覆盖 | 部分确认 | 2026-10-02 所有者对话确认 DKIM pass；有效签名两个退订头 h= 覆盖待明确，未取得原始头 | 不把单独 pass、平台签名前原文或本地测试当作头覆盖证据；P4-06 仍待覆盖登记 |
 | 认证域实际送达时延 | 未取得 | [docs/evidence/p0/platform-facts.md](platform-facts.md) §2.2：2026-09-29 复查，认证域未发信；认证域时延取得时间：未取得 | 业务域第二封耗时约 43 分钟，不能承诺验证码在 `OTP_TTL` 内到达；需所有者完成认证域时延验证 |
 | 认证域事件订阅与生产反馈部署就绪 | 未取得 | [docs/evidence/p0/platform-facts.md](platform-facts.md) §2.2，2026-09-29 复查；[docs/DEPLOYMENT_PREREQUISITES.md](../../DEPLOYMENT_PREREQUISITES.md)：上线前置；实际部署完成时间：未取得 | 需所有者创建认证域订阅、完成反馈 DLQ / 变量配置并在部署前摘除取证 HTTP pull 消费者；G-P0-MAIL 已开不等于发送开关获准开启 |
 | 首版 `send_email` 绑定真实发送与反馈 | 未取得 | [docs/evidence/p0/platform-facts.md](platform-facts.md) §2.1：2026-09-28 实测用 REST；绑定路径真实取得时间：未取得 | 需所有者在首版绑定路径复核；本地替身 / 集成测试不冒充真实外发证据 |
-| 稳定站点 origin 与账户基础费记录 | 未取得 | [docs/evidence/p0/platform-facts.md](platform-facts.md) §1、§2：2026-09-22 / 2026-09-28 分别登记缺口；取得时间：未取得 | 需所有者完成站点部署配置与账户账单核验；不由 Agent 补造账户事实或开通收费资源 |
+| 稳定站点 origin 与账户基础费记录 | origin 已定；部署与账单待核 | 2026-10-02 所有者指定 https://hoyo.airo.cc；尚未部署，账户基础费实测记录仍未取得 | 正式配置/部署由所有者完成；指定地址不等于已部署或已核账单 |
 | 目标环境 D1 条件事务 | 未取得 | [docs/evidence/p0/d1-conditional-tx-20260921T165034Z.json](d1-conditional-tx-20260921T165034Z.json)：2026-09-21T16:50:34.060Z，本地 miniflare E2；目标环境 E3 取得时间：未取得 | 继续保留本地对照：SQL 错误回滚，CAS 零行不自动回滚，`changes()` 守卫有效；需所有者目标环境复测 |
 | 目标环境 DO 发送位置与 alarm 行为 | 未取得 | [docs/evidence/p0/do-send-location-20260921T165128Z.json](do-send-location-20260921T165128Z.json)：2026-09-21T16:51:28.331Z，本地 miniflare E2；目标环境 E3 取得时间：未取得 | 继续保留本地 alarm / 并发观测；本地 colo 字段不能证明真实边缘发送位置，需所有者目标环境复测 |
 
