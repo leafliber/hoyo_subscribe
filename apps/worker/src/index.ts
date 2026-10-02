@@ -38,6 +38,9 @@ import { emailLifecycleHook, emailSafetyPauseHook } from "./mail/channel/hooks";
 import { makeEmailChannelRoutes } from "./mail/channel/routes";
 import { queue } from "./mail/feedback";
 import { mailAdmissionHook } from "./mail/provider/admission";
+import { environmentMailAvailable } from "./mail/provider/environment";
+import { unsubscribeAvailable, unsubscribeKeys } from "./mail/unsubscribe/environment";
+import { makeUnsubscribeRoutes } from "./mail/unsubscribe/routes";
 import { publicRoutes } from "./public/routes";
 import { scheduled } from "./scheduled";
 import { applySecurityHeaders } from "./shell/headers";
@@ -145,7 +148,13 @@ function getShell(env: Env): Shell {
           pauseHooks: [pauseCalendar, emailSafetyPauseHook],
         }),
         ...makeCalendarRoutes(() => getKeyring(env as Env & ShellSecrets)),
-        ...makeEmailChannelRoutes({ keys: () => getKeyring(env as Env & ShellSecrets) }),
+        ...makeUnsubscribeRoutes({ keys: () => unsubscribeKeys(env as Env & ShellSecrets) }),
+        ...makeEmailChannelRoutes({
+          keys: () => getKeyring(env as Env & ShellSecrets),
+          sendingAvailable: async () =>
+            (await environmentMailAvailable(env)) &&
+            (await unsubscribeAvailable(env as Env & ShellSecrets)),
+        }),
         ...makeSubscriptionRoutes(),
         ...makeLifecycleRoutes({
           hooks: [calendarLifecycle, emailLifecycleHook],
