@@ -19,6 +19,4 @@ CI=1 WRANGLER_SEND_METRICS=false HOYO_E2E_WRITE_EVIDENCE=1 pnpm test:e2e calenda
 | corrections | 官方取消、撤回、删除、延期待定与改期跨窗；注入字符串按文本显示 |
 | 503 / offline | 真实数据不可用时的明确合成样例降级 |
 
-当前标准全量验证：install、lint、typecheck、params:verify、migrate:check、test、build 通过；test:e2e 为 551 passed、5 skipped、6 failed。失败是两份既有测试尚未允许本卡新增公开 GET/仍断言预览占位：`subscription.spec.ts` U09a 一条、`email-capacity.spec.ts` U22a 两条，各桌面/手机一次。原测试未改；最小适配在等待范围授权。不能将全量 E2E 宣称通过。
-
 实现通过 `@hoyo/contracts` 消费上游 #68 的候选、解释、排序、上限及来源规则；本卡分支的 contracts 提交为原样依赖引入。P3-15 尚未验收合入，正式前后端联调、F3-04 启用确认与实际客户端兼容性验证均未执行。
