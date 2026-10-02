@@ -11,6 +11,7 @@ import {
   SUBSCRIPTION_RULE_COPY,
   SUPPORTED_SCOPE_REGIONS,
 } from "@hoyo/contracts";
+import { EmailChannelLifecycle } from "../channels/email/lifecycle";
 import { SubscriptionDraftController } from "./draft/controller";
 import {
   type Draft,
@@ -96,7 +97,7 @@ if (form instanceof HTMLFormElement) {
         choices.some((choice) => choice.name === item.key && choice.checked),
       );
       changeSummary.textContent = active.length
-        ? `本机已选：${active.map((item) => item.label).join("、")}；接收方式尚未开启`
+        ? `本机已选：${active.map((item) => item.label).join("、")}；接收状态请查看下方接收方式`
         : "本机已关闭全部变更消息";
     }
   }
@@ -163,6 +164,8 @@ if (form instanceof HTMLFormElement) {
   }
 
   let drafts: SubscriptionDraftController | undefined;
+  let email: EmailChannelLifecycle | undefined;
+  let savePhase: Phase = "guest";
   function createMachine(): SubscriptionSaveMachine {
     return new SubscriptionSaveMachine(
       {
@@ -170,6 +173,8 @@ if (form instanceof HTMLFormElement) {
         applyDraft,
         render(phase: Phase, message: string, snapshot: Snapshot | null) {
           drafts?.paint(phase);
+          savePhase = phase;
+          email?.update(phase, snapshot);
           const saved = snapshot?.config;
           if (cloudState)
             cloudState.textContent = saved
@@ -242,6 +247,8 @@ if (form instanceof HTMLFormElement) {
     readDraft: draftFromForm,
     machine: () => machine,
     reset() {
+      email?.invalidate();
+      savePhase = "guest";
       machine.dispose();
       for (const choice of choices) choice.checked = initialChoice.get(choice) ?? false;
       hideErrors();
@@ -315,6 +322,18 @@ if (form instanceof HTMLFormElement) {
     if (document.visibilityState === "visible") void drafts?.refresh();
   });
 
+  const mailRoot = document.getElementById("mail-channel");
+  if (mailRoot) {
+    email = new EmailChannelLifecycle(mailRoot, {
+      machine: () => machine,
+      readDraft: draftFromForm,
+      phase: () => savePhase,
+      save: async () => {
+        await drafts?.save();
+      },
+      current: () => drafts?.current() ?? false,
+    });
+  }
   sync();
   void drafts.start();
 }

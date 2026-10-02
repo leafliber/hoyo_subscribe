@@ -1,9 +1,15 @@
 import { mkdirSync } from "node:fs";
 import { resolve } from "node:path";
 import { expect, test } from "@playwright/test";
+import { detailFixture, mockPublicApi } from "./fixtures/public-schedule";
+
+test.beforeEach(async ({ page }) => {
+  await mockPublicApi(page);
+});
 
 test("U02 玩法结束与奖励领取截止在实际节点时间线中分别出现", async ({ page }) => {
-  await page.goto("/events/morning");
+  await page.goto("/events/evt_morning");
+  await expect(page.locator(".event-detail")).toBeVisible();
   expect(
     await page
       .locator(".event-detail > [data-section]")
@@ -19,12 +25,12 @@ test("U02 玩法结束与奖励领取截止在实际节点时间线中分别出�
 test("U02 从日程条目进入对应事件详情", async ({ page }) => {
   await page.goto("/");
   await page.locator('[data-node="morning"] .event-title').click();
-  await expect(page).toHaveURL(/\/events\/morning\/?$/);
+  await expect(page).toHaveURL(/\/events\/evt_morning\/?$/);
   await expect(page.locator("h1")).toHaveText("巡游拾光 · 城市探索挑战");
 });
 
 test("U02 只有奖励截止时不补玩法结束", async ({ page }) => {
-  await page.goto("/events/reward");
+  await page.goto("/events/evt_reward");
   const timeline = page.locator('[data-section="timeline"]');
   await expect(timeline.locator("[data-milestone]")).toHaveCount(1);
   await expect(timeline).toContainText("奖励领取截止");
@@ -32,12 +38,12 @@ test("U02 只有奖励截止时不补玩法结束", async ({ page }) => {
 });
 
 test("U02 纯日期与未知精度只展示已知信息，不猜午夜或时刻", async ({ page }) => {
-  await page.goto("/events/date");
+  await page.goto("/events/evt_date");
   const date = page.locator('[data-section="timeline"]');
   await expect(date.locator(".milestone-time")).toContainText("具体时间未公布");
   await expect(date.locator("time")).toHaveCount(0);
   await expect(date.locator(".milestone-time")).not.toContainText("00:00");
-  await page.goto("/events/pending");
+  await page.goto("/events/evt_pending");
   const unknown = page.locator('[data-section="timeline"]');
   await expect(unknown.locator(".milestone-time")).toContainText("时间待公布");
   await expect(unknown.locator("time")).toHaveCount(0);
@@ -45,7 +51,7 @@ test("U02 纯日期与未知精度只展示已知信息，不猜午夜或时刻"
 });
 
 test("U04 改期的历史原时间与当前时间并列，旧时间不作当前安排", async ({ page }) => {
-  await page.goto("/events/rescheduled");
+  await page.goto("/events/evt_rescheduled");
   const change = page.locator('[data-section="change"]');
   await expect(change.locator(".historical-time")).toContainText("原时间（历史）");
   await expect(change.locator(".current-time")).toContainText("当前时间");
@@ -59,13 +65,15 @@ test("U04 改期的历史原时间与当前时间并列，旧时间不作当前�
 });
 
 test("U04 官方取消和本站撤回分开呈现，不宣称撤回旧副本", async ({ page }) => {
-  await page.goto("/events/cancel");
+  await page.goto("/events/evt_cancel");
   await expect(page.locator('[data-section="important"]')).toContainText("官方已取消");
+  await expect(page.locator('[data-section="important"] time')).toHaveCount(0);
   await expect(page.locator('[data-section="change"]')).toContainText("主办方公告取消");
   await expect(page.locator('[data-section="change"]')).not.toContainText("本站撤回");
   await expect(page.locator('[data-section="timeline"]')).toContainText("原安排（历史）");
-  await page.goto("/events/retract");
+  await page.goto("/events/evt_retract");
   await expect(page.locator('[data-section="important"]')).toContainText("本站撤回");
+  await expect(page.locator('[data-section="important"] time')).toHaveCount(0);
   await expect(page.locator('[data-section="change"]')).toContainText("误将旧版本公告收录");
   await expect(page.locator('[data-section="change"]')).not.toContainText("官方已取消");
   await expect(page.locator('[data-section="timeline"]')).toContainText("原安排（历史）");
@@ -78,7 +86,8 @@ test("U04 公告与证据的 img onerror 只显示文字，不执行", async ({ 
   await page.addInitScript(() => {
     (window as Window & { __evidenceExecuted?: number }).__evidenceExecuted = 0;
   });
-  await page.goto("/events/morning");
+  await page.goto("/events/evt_morning");
+  await expect(page.locator(".event-detail")).toBeVisible();
   const maliciousText = '<img src=x onerror="window.__evidenceExecuted=1">';
   expect(
     await page.evaluate(
@@ -95,7 +104,8 @@ test("U04 公告与证据的 img onerror 只显示文字，不执行", async ({ 
 });
 
 test("U04 官方依据逐级展开，三项主要操作可用且设置订阅只跳整份草稿", async ({ page }) => {
-  await page.goto("/events/morning");
+  await page.goto("/events/evt_morning");
+  await expect(page.locator(".event-detail")).toBeVisible();
   const official = page.locator('[data-section="official"]');
   await expect(page.getByRole("link", { name: "查看官方公告", exact: true })).toHaveAttribute(
     "href",
@@ -120,12 +130,13 @@ test("U04 官方依据逐级展开，三项主要操作可用且设置订阅只�
 });
 
 test("U02 U04 桌面与手机截图、窄屏和键盘展开留证", async ({ page }, info) => {
-  await page.goto("/events/morning");
+  await page.goto("/events/evt_morning");
+  await expect(page.locator(".event-detail")).toBeVisible();
   const viewport = info.project.name.startsWith("mobile") ? "mobile" : "desktop";
   const folder = resolve(
     process.env.HOYO_E2E_WRITE_EVIDENCE === "1"
-      ? "tests/e2e/evidence/f1-03"
-      : "tests/e2e/test-results/f1-03",
+      ? "tests/e2e/evidence/f1-06"
+      : "tests/e2e/test-results/f1-06",
   );
   mkdirSync(folder, { recursive: true });
   if (viewport === "mobile") {
@@ -153,6 +164,86 @@ test("U02 U04 桌面与手机截图、窄屏和键盘展开留证", async ({ pag
     "",
   );
   await page.screenshot({ path: `${folder}/${viewport}-evidence-expanded.png`, fullPage: true });
-  await page.goto("/events/rescheduled");
+  await page.goto("/events/evt_rescheduled");
+  await expect(page.locator(".event-detail")).toBeVisible();
   await page.screenshot({ path: `${folder}/${viewport}-rescheduled.png`, fullPage: true });
+});
+
+test("U02 真实形状 ID 直达和刷新均读取详情，HTML 导航不拦截", async ({ page }) => {
+  const id = "evt_01J9PUBLICSCHEDULE";
+  let calls = 0;
+  await page.route(`**/api/v2/events/${id}`, (route) => {
+    calls++;
+    const data = detailFixture("evt_morning");
+    if (!data) throw new Error("fixture missing");
+    data.event.id = id;
+    return route.fulfill({ json: data });
+  });
+  expect((await page.goto(`/events/${id}`))?.status()).toBe(200);
+  await expect(page.locator(".event-detail")).toHaveAttribute("data-event", id);
+  expect((await page.reload())?.status()).toBe(200);
+  await expect(page.locator(".event-detail")).toHaveAttribute("data-event", id);
+  expect(calls).toBe(2);
+  await expect(page).toHaveURL(new RegExp(`/events/${id}$`));
+});
+
+test("U04 importantNodeId 为 null 不补安排；删除与官方取消分开，未知元数据不补猜", async ({
+  page,
+}) => {
+  await page.route("**/api/v2/events/evt_morning", (route) => {
+    const data = detailFixture("evt_morning");
+    if (!data) throw new Error("fixture missing");
+    data.event.importantNodeId = null;
+    data.event.official.url = "javascript:alert(1)";
+    data.event.changes = [
+      {
+        nodeId: "removed",
+        change: {
+          kind: "deleted",
+          explanation: "删除不再存在的节点",
+          historicalTime: data.event.milestones[0].time,
+          currentTime: null,
+          retainUntil: 0,
+          evidence: "公开删除依据",
+        },
+      },
+    ];
+    return route.fulfill({ json: data });
+  });
+  await page.goto("/events/evt_morning");
+  await expect(page.locator('[data-section="important"]')).toContainText("暂无可确认");
+  await expect(page.locator('[data-section="important"] time')).toHaveCount(0);
+  await expect(page.locator('[data-section="change"]')).toContainText("本站删除节点（非官方取消）");
+  await expect(page.locator('[data-section="official"]')).toContainText("发布者：未知");
+  await expect(page.locator('a[href^="javascript:"]')).toHaveCount(0);
+});
+
+test("U05 详情失败保留副本；离线注明缓存时间；404 不显示旧事实", async ({ page, context }) => {
+  await page.goto("/events/evt_morning");
+  await expect(page.locator(".event-detail")).toBeVisible();
+  await page.route("**/api/v2/events/evt_morning", (route) =>
+    route.fulfill({ status: 503, json: {} }),
+  );
+  await page.getByRole("button", { name: "重新检查", exact: true }).click();
+  await expect(page.locator(".data-warning")).toContainText("加载失败");
+  await expect(page.locator("h1")).toHaveText("巡游拾光 · 城市探索挑战");
+  await context.setOffline(true);
+  await expect(page.locator("article .data-warning")).toContainText("离线");
+  await expect(page.locator("article .data-warning")).toContainText("2026-09-22 12:30");
+  await context.setOffline(false);
+  await page.route("**/api/v2/events/evt_morning", (route) =>
+    route.fulfill({ status: 404, json: {} }),
+  );
+  await page.getByRole("button", { name: "重试加载" }).click();
+  await expect(page.locator("#event-detail")).toContainText("当前发布代次没有此事件");
+  await expect(page.locator(".event-detail")).toHaveCount(0);
+});
+
+test("U04 重新读取详情后只保留用户已展开的证据，不展开其他节点", async ({ page }) => {
+  await page.goto("/events/evt_morning");
+  await page.locator('[data-milestone="morning-end"] summary').click();
+  await page.getByRole("button", { name: "重新检查", exact: true }).click();
+  await expect(page.locator("#event-detail")).toHaveAttribute("aria-busy", "false");
+  await expect(page.locator('[data-milestone="morning-end"] details')).toHaveAttribute("open", "");
+  await expect(page.locator('[data-milestone="morning"] details')).not.toHaveAttribute("open");
 });

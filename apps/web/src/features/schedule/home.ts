@@ -7,9 +7,7 @@ import {
   NODE_NAMES,
   parseBrowseFilters,
 } from "@hoyo/contracts";
-import type { DemoScenario } from "./fixtures";
-import { DEMO_SCENARIOS, demoSnapshot } from "./fixtures";
-import type { LoadingState } from "./render";
+import { ScheduleLoader } from "./load";
 import { renderResults } from "./render";
 
 const form = document.querySelector<HTMLFormElement>("#browse-filters");
@@ -18,188 +16,148 @@ if (form && results) {
   const filterForm = form;
   const output = results;
   let filters = parseBrowseFilters(new URLSearchParams(location.search));
-  let scenario: DemoScenario = "normal";
-  let snapshot = demoSnapshot(Date.now(), scenario);
-  let expanded = false;
-  let loading: LoadingState = "ready";
-  let loadFailureShown = false;
-  let generation = 0;
-  // 每个历史条目只存白名单浏览 UI 状态。没有草稿、身份、能力 URL。
-  type BrowseHistory = {
-    schedule?: { expanded: boolean; scroll: number; scenario: DemoScenario; more: boolean };
-  };
-  const currentHistory = (): BrowseHistory => history.state ?? {};
-  function savePosition() {
+  let restoreScroll: number | null =
+    typeof history.state?.schedule?.scroll === "number" ? history.state.schedule.scroll : null;
+  const moreFilters = document.querySelector<HTMLDetailsElement>("#more-filters");
+  if (moreFilters && typeof history.state?.schedule?.more === "boolean")
+    moreFilters.open = history.state.schedule.more;
+  window.addEventListener("pagehide", () =>
     history.replaceState(
-      {
-        schedule: {
-          expanded,
-          scroll: scrollY,
-          scenario,
-          more: document.querySelector<HTMLDetailsElement>("#more-filters")?.open ?? false,
-        },
-      },
+      { schedule: { scroll: scrollY, more: moreFilters?.open ?? false } },
       "",
       location.href,
-    );
-  }
-  function announce(message: string) {
-    const target = document.getElementById("browse-announcement");
-    if (target) target.textContent = message;
-  }
+    ),
+  );
+  let wake: ReturnType<typeof setTimeout> | undefined;
+  const loader = new ScheduleLoader(render);
   function render() {
+    const opened = [...output.querySelectorAll<HTMLDetailsElement>("details[open]")].map(
+      (item) => item.dataset.disclosure ?? item.className,
+    );
+    const focusKey =
+      document.activeElement instanceof HTMLElement
+        ? document.activeElement.dataset.focus
+        : undefined;
     const active =
       document.activeElement instanceof HTMLElement
         ? document.activeElement.dataset.action
         : undefined;
-    output.innerHTML = renderResults({
-      snapshot,
-      filters,
-      now: Date.now(),
-      expanded,
-      loading,
-      offline: !navigator.onLine,
-      stale: scenario === "stale",
-    });
+    output.replaceChildren(renderResults(loader.state, filters));
+    output.setAttribute("aria-busy", String(loader.state.phase === "loading"));
+    for (const detail of output.querySelectorAll<HTMLDetailsElement>("details"))
+      if (opened.includes(detail.dataset.disclosure ?? detail.className)) detail.open = true;
     if (active)
       output
         .querySelector<HTMLElement>(`[data-action="${active}"]`)
         ?.focus({ preventScroll: true });
+    if (focusKey)
+      output
+        .querySelector<HTMLElement>(`[data-focus="${CSS.escape(focusKey)}"]`)
+        ?.focus({ preventScroll: true });
+    for (const action of output.querySelectorAll<HTMLButtonElement>('[data-action="refresh"]'))
+      action.disabled = loader.state.phase === "loading" || Date.now() < loader.state.retryAt;
+    if (restoreScroll !== null && loader.state.phase === "ready") {
+      const position = restoreScroll;
+      restoreScroll = null;
+      requestAnimationFrame(() => scrollTo(0, position));
+    }
+    const announcement = document.getElementById("browse-announcement");
+    if (announcement)
+      announcement.textContent =
+        loader.state.phase === "loading"
+          ? "正在加载公开日程。"
+          : loader.state.phase === "failed"
+            ? "加载失败，已有条目保留，可重试。"
+            : "已显示完当前范围。浏览筛选不改变已保存订阅。";
+    clearTimeout(wake);
+    const deadlines = [
+      ...loader.state.pages.map((page) => page.cache.freshUntil + 1),
+      loader.state.status?.cache.freshUntil === undefined
+        ? 0
+        : loader.state.status.cache.freshUntil + 1,
+      loader.state.retryAt,
+    ].filter((time) => time > Date.now());
+    if (deadlines.length) wake = setTimeout(render, Math.min(...deadlines) - Date.now());
+  }
+  function updateControls() {
+    history.replaceState(
+      history.state,
+      "",
+      `${location.pathname}${browseSearch(filters) ? `?${browseSearch(filters)}` : ""}`,
+    );
     const summary = document.getElementById("browse-summary");
-    const games =
-      filters.games.length === defaultBrowseFilters().games.length
-        ? "全部游戏"
-        : filters.games.map((game) => GAME_NAMES[game]).join("、") || "未选择游戏";
     if (summary)
-      summary.textContent = `${games} · ${BROWSE_RANGES.find((range) => range.id === filters.range)?.label}${filters.ending ? " · 临近截止" : ""}`;
+      summary.textContent = `${filters.games.map((g) => GAME_NAMES[g]).join("、") || "未选择游戏"} · ${BROWSE_RANGES.find((r) => r.id === filters.range)?.label}${filters.ending ? " · 临近截止" : ""}`;
     const more = document.getElementById("more-summary");
     if (more)
       more.textContent =
         [
-          ...filters.events.map((type) => EVENT_NAMES[type]),
-          ...filters.nodes.map((type) => NODE_NAMES[type]),
+          ...filters.events.map((v) => EVENT_NAMES[v]),
+          ...filters.nodes.map((v) => NODE_NAMES[v]),
         ].join("、") || "事件类型、节点类型";
     for (const input of filterForm.querySelectorAll<HTMLInputElement>("input")) {
-      if (input.name === "range") input.checked = filters.range === input.value;
-      else if (input.name === "ending") input.checked = filters.ending;
-      else
-        input.checked = [...filters.games, ...filters.events, ...filters.nodes].some(
-          (value) => value === input.value,
-        );
+      input.checked =
+        input.name === "range"
+          ? input.value === filters.range
+          : input.name === "ending"
+            ? filters.ending
+            : [...filters.games, ...filters.events, ...filters.nodes].some(
+                (value) => value === input.value,
+              );
     }
   }
-  function writeUrl() {
-    const search = browseSearch(filters);
-    history.replaceState(currentHistory(), "", `${location.pathname}${search ? `?${search}` : ""}`);
-  }
-  function update() {
-    generation++;
-    loading = "ready";
-    expanded = false;
-    writeUrl();
-    render();
-    savePosition();
-    announce("浏览筛选已更新，已保存订阅不受影响。");
+  function update(remote = true) {
+    updateControls();
+    if (remote) loader.start({ range: filters.range, games: filters.games });
+    else render();
   }
   filterForm.addEventListener("submit", (event) => event.preventDefault());
-  filterForm.addEventListener("change", () => {
+  filterForm.addEventListener("change", (event) => {
     const data = new FormData(filterForm);
     const params = new URLSearchParams();
     for (const key of ["games", "events", "nodes"]) params.set(key, data.getAll(key).join(","));
     params.set("range", String(data.get("range") ?? ""));
     params.set("ending", String(data.get("ending") ?? ""));
     filters = parseBrowseFilters(params);
-    update();
+    update(
+      event.target instanceof HTMLInputElement && ["games", "range"].includes(event.target.name),
+    );
   });
   function reset() {
     filters = defaultBrowseFilters();
     update();
   }
   document.getElementById("reset-filters")?.addEventListener("click", reset);
-  async function load() {
-    if (loading === "loading") return;
-    const requestGeneration = generation;
-    loading = "loading";
-    render();
-    announce("正在加载更多日程。");
-    // synthetic 异步适配器，模拟失败恢复；不连接尚未定案的公共分页 API。
-    await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
-    if (requestGeneration !== generation) return;
-    if (scenario === "load" && !loadFailureShown) {
-      loadFailureShown = true;
-      loading = "failed";
-      announce("加载失败，已有日程保留，请重试。");
-    } else {
-      expanded = true;
-      loading = "ready";
-      announce("已显示完当前范围。");
-    }
-    render();
-    savePosition();
-    (
-      output.querySelector<HTMLElement>('[data-action="load"]') ??
-      output.querySelector<HTMLElement>("#timeline-title")
-    )?.focus({ preventScroll: true });
-  }
   output.addEventListener("click", (event) => {
     const target =
       event.target instanceof Element ? event.target.closest<HTMLElement>("[data-action]") : null;
-    if (!target) return;
-    if (target.dataset.action === "reset") {
+    if (target?.dataset.action === "reset") {
       reset();
       document.getElementById("reset-filters")?.focus();
     }
-    if (target.dataset.action === "widen") {
-      const range = BROWSE_RANGES.find((item) => item.id === target.dataset.range);
+    if (target?.dataset.action === "widen") {
+      const range = BROWSE_RANGES.find((range) => range.id === target.dataset.range);
       if (range) {
         filters.range = range.id;
         update();
         filterForm.querySelector<HTMLInputElement>('input[name="range"]:checked')?.focus();
       }
     }
-    if (target.dataset.action === "load") void load();
-    if (target.dataset.action === "retry-source")
-      announce("样例来源状态未改变。正式来源检查将在后续接口联调时接入。");
+    if (target?.dataset.action === "retry") loader.retry();
+    if (target?.dataset.action === "refresh" && loader.state.phase !== "loading")
+      loader.start({ range: filters.range, games: filters.games }, true);
   });
-  const demo = document.querySelector<HTMLSelectElement>("#demo-scenario");
-  demo?.addEventListener("change", () => {
-    scenario = DEMO_SCENARIOS.find(([key]) => key === demo.value)?.[0] ?? "normal";
-    snapshot = demoSnapshot(Date.now(), scenario);
-    loadFailureShown = false;
-    update();
-  });
-  function restore() {
-    const state = currentHistory().schedule;
-    if (state) {
-      expanded = state.expanded;
-      scenario = DEMO_SCENARIOS.find(([key]) => key === state.scenario)?.[0] ?? "normal";
-      snapshot = demoSnapshot(Date.now(), scenario);
-      if (demo) demo.value = scenario;
-      const more = document.querySelector<HTMLDetailsElement>("#more-filters");
-      if (more) more.open = state.more;
-    }
-    filters = parseBrowseFilters(new URLSearchParams(location.search));
-    writeUrl();
-    render();
-    if (state) requestAnimationFrame(() => scrollTo(0, state.scroll));
-  }
-  window.addEventListener("pagehide", savePosition);
-  window.addEventListener("pageshow", restore);
-  window.addEventListener("popstate", restore);
   window.addEventListener("offline", render);
+  window.addEventListener("online", render);
+  window.addEventListener("pageshow", () => {
+    if (loader.state.pages.length) render();
+  });
   document.addEventListener("visibilitychange", () => {
     if (!document.hidden) render();
   });
-  window.addEventListener("online", () => {
-    render();
-    announce("网络已恢复，当前仍为隔离样例数据。");
+  window.addEventListener("popstate", () => {
+    filters = parseBrowseFilters(new URLSearchParams(location.search));
+    update();
   });
-  document.addEventListener(
-    "click",
-    (event) => {
-      if (event.target instanceof Element && event.target.closest("a")) savePosition();
-    },
-    { capture: true },
-  );
-  restore();
+  update();
 }

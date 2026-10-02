@@ -1,7 +1,102 @@
 ---
 import Layout from "./_Layout.astro";
+import "../features/auth/sessions/account.css";
 ---
 <Layout title="账号与设备">
-  <h1>账号与设备</h1>
-  <p class="skeleton-note">页面骨架：账号、安全、登录会话与导出由 F3-03 交付。</p>
+  <div class="account-page">
+    <h1>账号与设备</h1>
+    <p>登录设备与浏览器通知分别管理。所有时间均为北京时间（UTC+8）。</p>
+    <div class="account-buttons">
+      <button class="button button--secondary" id="account-refresh" type="button">重新读取状态</button>
+      <a href="/login" id="account-login">登录或完成激活</a>
+    </div>
+    <p id="account-result" role="status" tabindex="-1">正在读取账号状态。</p>
+
+    <section aria-labelledby="account-info-title">
+      <h2 id="account-info-title">账号信息</h2>
+      <dl>
+        <dt>邮箱</dt><dd id="account-email">未知</dd>
+        <dt>当前会话</dt><dd id="account-expiry">未知</dd>
+        <dt>订阅内容</dt><dd id="account-subscription">未知</dd>
+        <dt>邮件状态</dt><dd id="account-mail">未知</dd>
+        <dt>邮件租期</dt><dd id="account-lease">未知</dd>
+        <dt>账号回收提示</dt><dd id="account-reclaim">未知</dd>
+      </dl>
+      <p>长期不访问网页可能需要重新登录，但不代表账号不活跃。有效的外部日历拉取、真实交互和客户端处理信号也用于判断账号活动。</p>
+      <p>邮件席位按账号活动自动续租，无须专门回来点击；实际后台续租状态以服务端事实为准。</p>
+      <p>换邮箱需先证明当前账号并验证新邮箱；入口将在账号维护功能接入后提供。</p>
+    </section>
+
+    <section aria-labelledby="account-sessions-title">
+      <h2 id="account-sessions-title">登录设备</h2>
+      <p id="account-lag">正在读取设备列表。</p>
+      <p>设备名称仅帮助辨认。撤销登录会话不会自动撤销该设备的 Push 绑定。</p>
+      <ul id="account-sessions" class="account-sessions"></ul>
+      <button class="button button--secondary" id="account-logout" type="button" data-dialog-open="logout-dialog" disabled>退出当前账号</button>
+    </section>
+
+    <section aria-labelledby="account-push-title">
+      <h2 id="account-push-title">Push 绑定</h2>
+      <dl>
+        <dt>本浏览器权限</dt><dd id="account-push-permission">未知</dd>
+        <dt>本浏览器与其他绑定</dt><dd>未知：浏览器通知的绑定与暂停能力尚未接入。</dd>
+      </dl>
+      <p>浏览器允许通知不代表已建立绑定，也不代表接收验证通过。</p>
+    </section>
+
+    <section aria-labelledby="account-data-title">
+      <h2 id="account-data-title">恢复与数据</h2>
+      <p id="account-recovery">恢复码保存状态未知。</p>
+      <div class="account-buttons">
+        <a href="/recover">恢复与保存恢复码</a>
+        <button class="button button--secondary" id="account-export" type="button" disabled>导出订阅偏好</button>
+      </div>
+      <p>导出不含邮箱、恢复码、日历地址或通道授权。旧恢复码不能再次取回；轮换需要专门的最近认证，入口由账号维护功能提供。</p>
+    </section>
+
+    <section aria-labelledby="account-danger-title">
+      <h2 id="account-danger-title">危险操作</h2>
+      <p>删除会停用本站权限和发送通道，再清理数据。不能即时擦除已送达邮件、外部日历副本或尚未到期的备份。</p>
+      <p>删除与恢复码轮换需要用途限定的最近认证；管理日历地址不额外要求验证码。</p>
+      <p id="account-delete-reason">读取账号后才能确认删除条件。</p>
+      <button class="button button--secondary" id="account-delete-open" type="button" data-dialog-open="delete-dialog" disabled>准备删除账号</button>
+      <p id="account-deletion" role="status"></p>
+    </section>
+  </div>
+
+  <div id="logout-dialog" class="dialog" role="dialog" aria-modal="true" aria-labelledby="logout-title" hidden>
+    <div class="dialog-backdrop"></div>
+    <div class="dialog-panel" data-dialog-panel tabindex="-1">
+      <h2 id="logout-title">选择退出方式</h2>
+      <p>两种方式都不关闭邮件或外部日历。仅退出账号只撤销当前登录会话。</p>
+      <p>通知暂停能力尚未接入。选择同时暂停时，会分别报告退出与暂停的实际结果。</p>
+      <div class="account-buttons">
+        <button class="button" id="logout-only" type="button">仅退出账号</button>
+        <button class="button button--secondary" id="logout-pause" type="button">退出并暂停本浏览器通知</button>
+        <button class="button button--secondary" type="button" data-dialog-close>取消</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="delete-dialog" class="dialog" role="dialog" aria-modal="true" aria-labelledby="delete-title" hidden>
+    <div class="dialog-backdrop"></div>
+    <div class="dialog-panel" data-dialog-panel tabindex="-1">
+      <h2 id="delete-title">确认删除账号</h2>
+      <p>本站权限和通道将停止，数据随后清理；已送达邮件、外部日历副本与未到期备份不能即时擦除。</p>
+      <form id="delete-proof-form" autocomplete="off">
+        <p>使用当前恢复码验证本次删除用途。此验证本身不删除账号，也不消费恢复码。邮箱验证码方式待账号维护功能接入。</p>
+        <div class="field"><label for="delete-recovery-id">恢复码 ID</label><input id="delete-recovery-id" type="password" autocomplete="off" required /></div>
+        <div class="field"><label for="delete-recovery-secret">恢复码秘密</label><input id="delete-recovery-secret" type="password" autocomplete="off" required /></div>
+        <button class="button button--secondary" id="delete-prove" type="submit" disabled>验证本次删除用途</button>
+      </form>
+      <p id="delete-proof-status" role="status">尚未确认删除条件。</p>
+      <div class="account-buttons">
+        <button class="button" id="delete-confirm" type="button" disabled>确认删除账号</button>
+        <button class="button button--secondary" type="button" data-dialog-close>取消</button>
+      </div>
+    </div>
+  </div>
+  <script>
+    import "../features/auth/sessions/account";
+  </script>
 </Layout>

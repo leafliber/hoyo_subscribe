@@ -7,14 +7,14 @@ import type {
   ScheduleNode,
   ScheduleSnapshot,
   TimeValue,
-} from "@hoyo/contracts";
+} from "../../../packages/contracts/src/index";
 import {
   browseDate,
   browseWindow,
   DateOnlySchema,
   ExactTimeSchema,
   SUPPORTED_SCOPE_GAMES,
-} from "@hoyo/contracts";
+} from "../../../packages/contracts/src/index";
 export const DEMO_SCENARIOS = [
   ["normal", "日程列表"],
   ["quiet", "平静期"],
