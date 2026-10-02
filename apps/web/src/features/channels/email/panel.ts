@@ -19,6 +19,7 @@ import {
   renewAfterEmailOperation,
   updateEmail,
 } from "./api";
+import { paintCapacityNotice } from "./capacity";
 import { BLOCK_COPY, blockedCopy, dateText, savedSummary } from "./copy";
 import {
   type EmailSubscriptionHost,
@@ -51,6 +52,7 @@ class EmailPanel {
     root.innerHTML = `
       <h3 id="mail-channel-heading">邮件提醒</h3>
       <p data-email="message" role="status" aria-live="polite"></p>
+      <section data-email="capacity" class="email-capacity" aria-label="邮件名额与日历替代方案" hidden></section>
       <div data-email="facts"></div>
       <section class="email-layer" aria-label="邮件提醒席位">
         <h4>邮件提醒（席位）</h4>
@@ -264,6 +266,7 @@ class EmailPanel {
           "routine",
         )
       : null;
+    paintCapacityNotice(this.el("capacity"), state, canSeat, canRoutine);
     this.check("seat").disabled = this.busy || !canSeat?.allowed;
     this.check("routine").disabled = this.busy || !canRoutine?.allowed;
     if (!canRoutine?.allowed) this.check("routine").checked = false;
