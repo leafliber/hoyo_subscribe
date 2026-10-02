@@ -185,3 +185,109 @@ function checkField(spec: BodyFieldSpec, value: unknown, path: string, out: Fiel
 function joinPath(prefix: string, key: string): string {
   return prefix.length === 0 ? key : `${prefix}.${key}`;
 }
+
+/** P4-06：仅封闭退订协议调用；错误不回显攻击者提交的字段名或值。 */
+export async function readFormBody(
+  request: Request,
+  schema: BodySchema,
+): Promise<Record<string, unknown>> {
+  const invalid = (reason = "invalid_form"): never => validationError([{ path: "$body", reason }]);
+  const contentType = request.headers.get("content-type") ?? "";
+  const urlencoded =
+    /^application\/x-www-form-urlencoded(?:\s*;\s*charset=(?:utf-8|"utf-8"))?\s*$/i.test(
+      contentType,
+    );
+  const multipart =
+    /^multipart\/form-data\s*;\s*boundary=(?:"([A-Za-z0-9'()+_,./:=? -]+)"|([A-Za-z0-9'()+_,./:=?-]+))\s*$/i.exec(
+      contentType,
+    );
+  if (!urlencoded && !multipart) invalid("unsupported_form_type");
+  const length = request.headers.get("content-length");
+  if (length !== null && (!/^\d+$/.test(length) || Number(length) > API_BODY_MAX_BYTES))
+    invalid("body_too_large");
+  const reader = request.body?.getReader();
+  const chunks: Uint8Array[] = [];
+  let size = 0;
+  if (reader) {
+    try {
+      for (;;) {
+        const next = await reader.read();
+        if (next.done) break;
+        size += next.value.byteLength;
+        if (size > API_BODY_MAX_BYTES) {
+          await reader.cancel().catch(() => {});
+          invalid("body_too_large");
+        }
+        chunks.push(next.value);
+      }
+    } finally {
+      reader.releaseLock();
+    }
+  }
+  const bytes = new Uint8Array(size);
+  let offset = 0;
+  for (const chunk of chunks) {
+    bytes.set(chunk, offset);
+    offset += chunk.length;
+  }
+  let text: string;
+  try {
+    text = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(bytes);
+  } catch {
+    return invalid();
+  }
+  const fields: Record<string, unknown> = Object.create(null);
+  const add = (name: string, value: string) => {
+    if (
+      Object.hasOwn(fields, name) ||
+      !Object.hasOwn(schema.fields, name) ||
+      FORBIDDEN_BODY_FIELD_NAMES.has(name.toLowerCase())
+    )
+      invalid();
+    fields[name] = value;
+  };
+  try {
+    if (urlencoded) {
+      if (text)
+        for (const pair of text.split("&")) {
+          const equal = pair.indexOf("=");
+          if (equal <= 0) invalid();
+          add(
+            decodeURIComponent(pair.slice(0, equal).replaceAll("+", " ")),
+            decodeURIComponent(pair.slice(equal + 1).replaceAll("+", " ")),
+          );
+        }
+    } else {
+      const boundary = multipart?.[1] ?? multipart?.[2];
+      if (!boundary || boundary.endsWith(" ")) invalid();
+      const delimiter = `--${boundary}`;
+      if (!text.startsWith(`${delimiter}\r\n`)) invalid();
+      const parts = text.slice(delimiter.length + 2).split(`\r\n${delimiter}`);
+      const tail = parts.pop();
+      if (tail !== "--\r\n" && tail !== "--") invalid();
+      for (let i = 0; i < parts.length; i++) {
+        const part = parts[i];
+        if (i > 0 && !part.startsWith("\r\n")) invalid();
+        const content = i === 0 ? part : part.slice(2);
+        const divider = content.indexOf("\r\n\r\n");
+        if (divider < 0) invalid();
+        const headers = content.slice(0, divider).split("\r\n");
+        // RFC8058 的字段均为文本；不接受 filename、折行、重复头或额外处置参数。
+        const disposition = /^Content-Disposition: form-data;\s*name="([A-Za-z0-9_-]+)"$/i.exec(
+          headers[0] ?? "",
+        );
+        if (
+          !disposition ||
+          headers.length > 2 ||
+          (headers.length === 2 &&
+            !/^Content-Type: text\/plain(?:;\s*charset=utf-8)?$/i.test(headers[1]))
+        )
+          invalid();
+        add(disposition?.[1] ?? "", content.slice(divider + 4));
+      }
+    }
+    return validateJsonBody(schema, fields);
+  } catch {
+    return invalid();
+  }
+}

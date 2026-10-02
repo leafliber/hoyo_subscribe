@@ -75,6 +75,20 @@ const maxOccurrenceTtl = (v: WritableParamValues): number =>
 
 // 附录 A.5 / CONTRACTS_BASELINE.md §11 全部数值等式。行序与 §11 一致。
 export const PARAM_EQUATIONS: readonly EquationDefinition[] = [
+  eq(
+    "calendar-preview-rate-bounds",
+    "私人预览限流（ADR-0006）",
+    "CALENDAR_PREVIEW_RATE_WINDOW 与 CALENDAR_PREVIEW_RATE_LIMIT 为正安全整数；CALENDAR_PREVIEW_RATE_WINDOW < PUBLIC_CACHE_FRESH",
+    (v) =>
+      `CALENDAR_PREVIEW_RATE_WINDOW(${v.CALENDAR_PREVIEW_RATE_WINDOW}) < PUBLIC_CACHE_FRESH(${v.PUBLIC_CACHE_FRESH}); CALENDAR_PREVIEW_RATE_LIMIT(${v.CALENDAR_PREVIEW_RATE_LIMIT}) > 0; 两者为安全整数`,
+    (v) =>
+      Number.isSafeInteger(v.CALENDAR_PREVIEW_RATE_WINDOW) &&
+      v.CALENDAR_PREVIEW_RATE_WINDOW > 0 &&
+      Number.isSafeInteger(v.CALENDAR_PREVIEW_RATE_LIMIT) &&
+      v.CALENDAR_PREVIEW_RATE_LIMIT > 0 &&
+      v.CALENDAR_PREVIEW_RATE_WINDOW < v.PUBLIC_CACHE_FRESH,
+    { CALENDAR_PREVIEW_RATE_WINDOW: PARAMS.PUBLIC_CACHE_FRESH },
+  ),
   // —— 邮件：纯日额度模型（ADR-0003）——
   eq(
     "public-snapshot-chunk-within-d1",

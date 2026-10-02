@@ -69,9 +69,36 @@ describe("A-P1-PARAM 附录 A.5 启动等式", () => {
     expect(results.every((r) => r.ok)).toBe(true);
   });
 
-  it("覆盖 §11 的数值等式及 P3-08/P3-06/P3-14 工程依赖（27 条），另有 1 条语义条款", () => {
-    expect(PARAM_EQUATIONS).toHaveLength(27);
+  it("覆盖 §11 的数值等式及 P3-08/P3-06/P3-14 与 ADR-0006 依赖（28 条），另有 1 条语义条款", () => {
+    expect(PARAM_EQUATIONS).toHaveLength(28);
     expect(SEMANTIC_INVARIANTS.map((s) => s.id)).toEqual(["mail-digest-window-forward-only"]);
+  });
+
+  it.each(["CALENDAR_PREVIEW_RATE_WINDOW", "CALENDAR_PREVIEW_RATE_LIMIT"] as const)(
+    "A-P3-PREVIEW %s 拒绝非正数、非整数与不安全数",
+    (key) => {
+      for (const value of [
+        0,
+        -1,
+        1.5,
+        Number.NaN,
+        Number.POSITIVE_INFINITY,
+        Number.MAX_SAFE_INTEGER + 1,
+      ]) {
+        expect(() => verifyParams(override({ [key]: value }))).toThrow(
+          "calendar-preview-rate-bounds",
+        );
+      }
+    },
+  );
+  it("A-P3-PREVIEW 窗口必须严格短于游标新鲜期", () => {
+    for (const value of [PARAMS.PUBLIC_CACHE_FRESH, PARAMS.PUBLIC_CACHE_FRESH + 1])
+      expect(() => verifyParams(override({ CALENDAR_PREVIEW_RATE_WINDOW: value }))).toThrow(
+        "calendar-preview-rate-bounds",
+      );
+    expect(() =>
+      verifyParams(override({ CALENDAR_PREVIEW_RATE_WINDOW: PARAMS.PUBLIC_CACHE_FRESH - 1 })),
+    ).not.toThrow();
   });
 
   // 反向验证：逐条破坏，校验必须准确指出被破坏的那一条。

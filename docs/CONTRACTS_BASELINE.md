@@ -371,6 +371,10 @@ P3-14 工程依赖：`PUBLIC_READ_LIMITS` 所有值为正整数；`recentChanges
 `nodeBytes × (recentChanges + 1) < responseBytes <= FEED_RESPONSE_MAX_BYTES`；`queryBytes <= nodeBytes`。
 近期重要变更期限取当前共享更正的 `retain_until`，条数取 `recentChanges`。详情/单节点超限明确不可用，状态聚合超限为未知，不静默截断。
 
+P3-15 / ADR-0006 启动校验 `calendar-preview-rate-bounds`：`CALENDAR_PREVIEW_RATE_WINDOW` 与
+`CALENDAR_PREVIEW_RATE_LIMIT` 均为正安全整数，且 `CALENDAR_PREVIEW_RATE_WINDOW < PUBLIC_CACHE_FRESH`。
+首屏与续页共用每会话、每 isolate 的限额；窗口小于新鲜期为等待后的续页留余量，不代替最大分页测量。
+
 ## 12. API 分组速查（§8.2）
 
 | 路径组 | 要点 |
