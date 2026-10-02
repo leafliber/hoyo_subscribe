@@ -23,8 +23,9 @@
 | [D3_STATE_VIEWS.md](D3_STATE_VIEWS.md) | 前端 §13 待确认项 D3 的答案：状态视图与操作结果（**2026-09-30 所有者审定**，§1.2 改为浏览器推导；F3 联调以它为准） |
 | [tasks/](tasks/) | 每阶段的任务卡：P0–P6（后端与管线）、F1–F5（前端轮次）、F6（管理端，`tasks/F6.md`） |
 | [adr/](adr/) | 变更合同的决策记录；改动禁止清单中的任何一条都必须先有 ADR |
-| [ADR-0006](adr/0006-private-calendar-preview-rate-limit.md) | 私人预览按会话近似限速的已批准参数；P3-15 负责注册与实现 |
+| [ADR-0006](adr/0006-private-calendar-preview-rate-limit.md) | 私人预览按会话近似限速的已批准参数；P3-15 已实施 |
 | [ADR-0007](adr/0007-system-audit-retention.md) | 系统审计保留 180 天的已批准参数；P5-02 负责注册、期限校正与清理 |
+| [ADR-0008](adr/0008-blocked-preview-pagination-limit.md) | 极大 blocked 私人预览取不全的已接受限制；F3-04 如实处理，P5-04 公开 |
 
 ## 阅读顺序
 
