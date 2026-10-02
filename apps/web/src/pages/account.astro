@@ -1,9 +1,12 @@
 ---
+import { OTP_ATTEMPTS, OTP_COOLDOWN, OTP_DIGITS, OTP_TTL } from "@hoyo/contracts";
 import Layout from "./_Layout.astro";
 import "../features/auth/sessions/account.css";
+
+const sitekey = import.meta.env.PUBLIC_TURNSTILE_SITE_KEY ?? "";
 ---
 <Layout title="账号与设备">
-  <div class="account-page">
+  <div class="account-page" id="account-page" data-sitekey={sitekey}>
     <h1>账号与设备</h1>
     <p>登录设备与浏览器通知分别管理。所有时间均为北京时间（UTC+8）。</p>
     <div class="account-buttons">
@@ -24,7 +27,40 @@ import "../features/auth/sessions/account.css";
       </dl>
       <p>长期不访问网页可能需要重新登录，但不代表账号不活跃。有效的外部日历拉取、真实交互和客户端处理信号也用于判断账号活动。</p>
       <p>邮件席位按账号活动自动续租，无须专门回来点击；实际后台续租状态以服务端事实为准。</p>
-      <p>换邮箱需先证明当前账号并验证新邮箱；入口将在账号维护功能接入后提供。</p>
+      <details id="email-maintenance">
+        <summary>更换邮箱</summary>
+        <p>订阅内容仍属于原账号，不会复制配置。换邮箱后旧会话失效，新邮箱业务邮件尚未开启，需另行同意。</p>
+        <form id="email-target-form" autocomplete="off">
+          <div class="field"><label for="email-target">新邮箱地址</label><input id="email-target" type="email" autocomplete="off" required /></div>
+          <button id="email-start" class="button button--secondary" type="submit" disabled>确认新地址并开始验证</button>
+        </form>
+        <div id="email-proofs" hidden>
+          <p>先证明当前账号，再验证新邮箱。更改目标地址必须重新开始验证。</p>
+          <form id="email-recovery-form" autocomplete="off">
+            <p>当前账号也可用恢复码证明，此验证不消费恢复码。</p>
+            <div class="field"><label for="email-recovery-id">当前账号恢复码 ID</label><input id="email-recovery-id" type="password" autocomplete="off" required /></div>
+            <div class="field"><label for="email-recovery-secret">当前账号恢复码秘密</label><input id="email-recovery-secret" type="password" autocomplete="off" required /></div>
+            <button id="email-recovery-prove" class="button button--secondary" type="submit">用恢复码证明当前账号</button>
+          </form>
+          {[{ id: "email-current", label: "当前邮箱" }, { id: "email-new", label: "新邮箱" }].map(({ id, label }) => (
+            <div>
+              <h3>{label}验证</h3>
+              <div id={`${id}-turnstile`}></div><p id={`${id}-turnstile-status`} role="status"></p>
+              <button id={`${id}-send`} class="button button--secondary" type="button">向{label}发送验证码</button>
+              <form id={`${id}-form`} autocomplete="off">
+                <div class="field"><label for={`${id}-code`}>{label}验证码</label><input id={`${id}-code`} type="password" inputmode="numeric" maxlength={OTP_DIGITS} autocomplete="off" required /></div>
+                <button id={`${id}-verify`} class="button button--secondary" type="submit" disabled>验证{label}</button>
+              </form>
+              <p id={`${id}-status`} role="status">尚未验证。</p>
+            </div>
+          ))}
+          <p>验证码 {OTP_DIGITS} 位；如果已发出，有效期 {OTP_TTL / 60} 分钟，发送冷却至少 {OTP_COOLDOWN} 秒，最多 {OTP_ATTEMPTS} 次错误尝试。申请受理不代表已送达。</p>
+          <button id="email-confirm" class="button" type="button" disabled>确认更换邮箱</button>
+          <button id="email-cancel" class="button button--secondary" type="button">取消并清除本次验证</button>
+        </div>
+        <p id="email-change-result" role="status"></p>
+        <a id="email-activate" href="/login" hidden>继续激活新会话</a>
+      </details>
     </section>
 
     <section aria-labelledby="account-sessions-title">
@@ -84,11 +120,22 @@ import "../features/auth/sessions/account.css";
       <h2 id="delete-title">确认删除账号</h2>
       <p>本站权限和通道将停止，数据随后清理；已送达邮件、外部日历副本与未到期备份不能即时擦除。</p>
       <form id="delete-proof-form" autocomplete="off">
-        <p>使用当前恢复码验证本次删除用途。此验证本身不删除账号，也不消费恢复码。邮箱验证码方式待账号维护功能接入。</p>
+        <p>使用当前恢复码验证本次删除用途。此验证本身不删除账号，也不消费恢复码。也可使用下面的当前邮箱验证码。</p>
         <div class="field"><label for="delete-recovery-id">恢复码 ID</label><input id="delete-recovery-id" type="password" autocomplete="off" required /></div>
         <div class="field"><label for="delete-recovery-secret">恢复码秘密</label><input id="delete-recovery-secret" type="password" autocomplete="off" required /></div>
         <button class="button button--secondary" id="delete-prove" type="submit" disabled>验证本次删除用途</button>
       </form>
+      <div id="delete-otp">
+        <h3>使用当前邮箱验证码</h3>
+        <div id="delete-current-turnstile"></div><p id="delete-current-turnstile-status" role="status"></p>
+        <button id="delete-current-send" class="button button--secondary" type="button">发送删除用途验证码</button>
+        <form id="delete-current-form" autocomplete="off">
+          <div class="field"><label for="delete-current-code">删除用途验证码</label><input id="delete-current-code" type="password" inputmode="numeric" maxlength={OTP_DIGITS} autocomplete="off" required /></div>
+          <button id="delete-current-verify" class="button button--secondary" type="submit" disabled>验证删除用途验证码</button>
+        </form>
+        <p id="delete-current-status" role="status">尚未验证。</p>
+        <p>验证码 {OTP_DIGITS} 位；如果已发出，有效期 {OTP_TTL / 60} 分钟，发送冷却至少 {OTP_COOLDOWN} 秒，最多 {OTP_ATTEMPTS} 次错误尝试。申请受理不代表已送达。</p>
+      </div>
       <p id="delete-proof-status" role="status">尚未确认删除条件。</p>
       <div class="account-buttons">
         <button class="button" id="delete-confirm" type="button" disabled>确认删除账号</button>
