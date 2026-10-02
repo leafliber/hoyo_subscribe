@@ -13,7 +13,7 @@
     "migrate:check": "node scripts/migrate/check.mjs",
     "params:verify": "tsx scripts/params/verify.ts",
     "params:docs": "tsx scripts/params/export-docs.ts",
-    "build": "pnpm -r --if-present run build"
+    "build": "pnpm --filter @hoyo/web run build && pnpm --filter @hoyo/worker run build"
   },
   "devDependencies": {
     "@biomejs/biome": "2.5.14",

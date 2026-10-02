@@ -1,16 +1,20 @@
 import {
   type AccountSummary,
   AccountSummarySchema,
+  canonicalizeEmail,
   deriveAccountActions,
   isApiErrorBody,
   isSessionExpiryNotice,
+  type RecentAuthAction,
+  type RecentAuthRole,
   SESSION_RENEW_INTERVAL,
 } from "@hoyo/contracts";
 import { closeDialog } from "../../../components/dialog";
 import { announce } from "../../../components/status";
 import { feedbackForFailure } from "../../../lib/errors/feedback";
-import { publishDraftIdentity } from "../../../lib/storage/identity";
+import { publishDraftIdentity, readDraftIdentityEvent } from "../../../lib/storage/identity";
 import { csrfToken, object, request, type Session, sessions } from "../api";
+import { Turnstile } from "../turnstile";
 import { revokeSession } from "./api";
 
 const el = (id: string) => document.getElementById(id) as HTMLElement;
@@ -28,6 +32,7 @@ let proofId: string | undefined;
 let proofFeedback = "";
 let deletionUncertain = false;
 let channel: BroadcastChannel | null = null;
+let publishingIdentity = false;
 const now = () => clockAnchor.server + (performance.now() - clockAnchor.local);
 
 function message(text: string): void {
@@ -35,6 +40,14 @@ function message(text: string): void {
   announce(text);
 }
 function explanation(error: unknown): string {
+  if (
+    isApiErrorBody(error) &&
+    error.error.details?.code === "validation" &&
+    error.error.details.fields?.some(
+      (field) => field.path === "turnstile_token" && field.reason === "verification_failed",
+    )
+  )
+    return "人机验证失败或已过期，请完成新的验证后重试原申请。";
   const feedback = feedbackForFailure(error);
   return `${feedback.title}。${feedback.nextStep}`;
 }
@@ -45,6 +58,15 @@ function noSession(error: unknown): boolean {
     (error.error.details.reason === "no_session" ||
       error.error.details.reason === "session_expired")
   );
+}
+function clearRejectedIdentity(error: unknown): boolean {
+  if (!noSession(error)) return false;
+  invalidate();
+  proofId = undefined;
+  proofFeedback = "";
+  closeDialog(false);
+  message("当前会话已失效，已清除本页证明和输入。请重新登录后核对账号状态。");
+  return true;
 }
 function clearPrivate(): void {
   summary = null;
@@ -59,14 +81,18 @@ function clearPrivate(): void {
 }
 function invalidate(): void {
   // Must precede logout, current-session revocation and deletion requests.
+  publishingIdentity = true;
   publishDraftIdentity({ status: "unknown" });
+  publishingIdentity = false;
   channel?.postMessage("invalidate");
   epoch += 1;
   clearPrivate();
+  clearMaintenance();
 }
 function renderActions(): void {
   const actions = summary ? deriveAccountActions(summary, now()) : null;
   const ready = summary !== null && sessionReady;
+  renderMaintenance(ready);
   button("account-refresh").disabled = busy;
   button("account-logout").disabled = busy || !ready;
   button("logout-only").disabled = busy || !ready;
@@ -163,7 +189,10 @@ async function refresh(): Promise<boolean> {
     if (reply.status !== 200) throw new Error("unknown_summary");
     const parsed = AccountSummarySchema.parse(reply.body);
     if (parsed.session.state !== "active") throw new Error("unknown_session_state");
-    if (previousUser !== undefined && previousUser !== parsed.user_id) proofId = undefined;
+    if (previousUser !== undefined && previousUser !== parsed.user_id) {
+      proofId = undefined;
+      clearMaintenance();
+    }
     summary = parsed;
     clockAnchor = { server: parsed.server_time, local: performance.now() };
     deletionUncertain = false;
@@ -175,8 +204,10 @@ async function refresh(): Promise<boolean> {
       if (
         previousSession !== undefined &&
         previousSession !== rows.find((row) => row.is_current)?.id
-      )
+      ) {
         proofId = undefined;
+        clearMaintenance();
+      }
       sessionReady = rows.some((row) => row.is_current && row.state === "active");
       renderSessions();
     } catch (error) {
@@ -209,6 +240,7 @@ async function refresh(): Promise<boolean> {
     if (turn !== epoch) return false;
     clearPrivate();
     proofId = undefined;
+    clearMaintenance();
     message(`账号状态尚未确认。${explanation(error)}`);
   }
   if (turn === epoch) renderActions();
@@ -341,7 +373,7 @@ async function revoke(row: Session): Promise<void> {
 }
 
 async function proveDeletion(): Promise<void> {
-  const turn = epoch;
+  const identity = actionIdentity();
   proofFeedback = "正在验证本次删除用途。";
   el("delete-proof-status").textContent = proofFeedback;
   const body = {
@@ -354,16 +386,22 @@ async function proveDeletion(): Promise<void> {
   let result = "删除用途验证已完成，请核对后明确确认删除。";
   try {
     const reply = await request("me/recent-auth/recovery", body);
-    if (turn !== epoch) return;
+    if (!sameActionIdentity(identity)) return;
     if (reply.status !== 200 || typeof reply.body.proof_id !== "string" || !reply.body.proof_id)
       throw new Error("unknown_proof");
     proofId = reply.body.proof_id;
   } catch (error) {
-    if (turn !== epoch) return;
+    if (!sameActionIdentity(identity)) return;
+    if (clearRejectedIdentity(error)) return;
     proofId = undefined;
     result = `删除用途验证未确认。${explanation(error)}`;
   }
   if (!(await refresh())) return;
+  if (
+    summary?.user_id !== identity.userId ||
+    rows.find((row) => row.is_current)?.id !== identity.sessionId
+  )
+    return;
   proofFeedback = result;
   el("delete-proof-status").textContent = result;
   message(result);
@@ -434,6 +472,258 @@ async function exportData(): Promise<void> {
   await renewAfterAction(identity, completed);
 }
 
+// Proofs and challenge keys stay only in this page's memory, bound to one target and identity.
+type ProofSlot = {
+  action: RecentAuthAction;
+  role: RecentAuthRole;
+  widget: Turnstile;
+  challenge?: string;
+  key?: string;
+  proof?: string;
+};
+const proofSlots: Record<string, ProofSlot> = {};
+let emailTarget = "";
+let maintenanceGeneration = 0;
+
+function clearMaintenance(): void {
+  maintenanceGeneration += 1;
+  emailTarget = "";
+  for (const [id, slot] of Object.entries(proofSlots)) {
+    slot.challenge = undefined;
+    slot.key = undefined;
+    slot.proof = undefined;
+    slot.widget.reset();
+    input(`${id}-code`).value = "";
+    el(`${id}-status`).textContent = "尚未验证。";
+  }
+  for (const id of [
+    "email-target",
+    "email-recovery-id",
+    "email-recovery-secret",
+    "delete-recovery-id",
+    "delete-recovery-secret",
+  ])
+    input(id).value = "";
+  input("email-target").readOnly = false;
+  el("email-proofs").hidden = true;
+  el("email-change-result").textContent = "";
+  el("email-activate").hidden = true;
+}
+function canProveEmail(): boolean {
+  if (!summary) return false;
+  const action = deriveAccountActions(summary, now()).email_change;
+  return action.allowed || action.reason === "recent_auth_required";
+}
+function renderMaintenance(ready: boolean): void {
+  const emailReady = ready && canProveEmail();
+  button("email-start").disabled = busy || !emailReady || emailTarget !== "";
+  button("email-recovery-prove").disabled = busy || !emailReady || !emailTarget;
+  button("email-confirm").disabled =
+    busy ||
+    !emailReady ||
+    !emailTarget ||
+    !proofSlots["email-current"]?.proof ||
+    !proofSlots["email-new"]?.proof ||
+    !summary ||
+    !deriveAccountActions(summary, now()).email_change.allowed;
+  el("delete-otp").hidden = summary?.session.recovery_code_required === true;
+  for (const [id, slot] of Object.entries(proofSlots)) {
+    const allowed =
+      slot.action === "email_change"
+        ? emailReady && !!emailTarget
+        : ready && summary?.session.recovery_code_required !== true;
+    button(`${id}-send`).disabled = busy || !allowed || !!slot.proof;
+    button(`${id}-verify`).disabled = busy || !allowed || !slot.challenge || !!slot.proof;
+  }
+}
+function proofIdentity() {
+  const identity = actionIdentity();
+  const generation = maintenanceGeneration;
+  return () => generation === maintenanceGeneration && sameActionIdentity(identity);
+}
+async function sendProof(id: string): Promise<void> {
+  const slot = proofSlots[id];
+  const valid = proofIdentity();
+  const token = slot.widget.take();
+  if (!token) {
+    el(`${id}-status`).textContent = "请先完成人机验证，再申请验证码。";
+    return;
+  }
+  slot.challenge = undefined;
+  input(`${id}-code`).value = "";
+  slot.key ??= crypto.randomUUID();
+  el(`${id}-status`).textContent = "正在申请验证码；尚未确认发送。";
+  try {
+    const reply = await request("me/recent-auth/challenges", {
+      action: slot.action,
+      role: slot.role,
+      ...(slot.action === "email_change" ? { target_email: emailTarget } : {}),
+      idempotency_key: slot.key,
+      turnstile_token: token,
+    });
+    if (!valid()) return;
+    if (
+      reply.status !== 202 ||
+      typeof reply.body.challenge_id !== "string" ||
+      !reply.body.challenge_id
+    )
+      throw new Error("unknown_challenge");
+    slot.challenge = reply.body.challenge_id;
+    slot.key = undefined;
+    el(`${id}-status`).textContent = "验证码申请已受理，不代表已送达；请查看对应邮箱。";
+  } catch (error) {
+    if (!valid()) return;
+    if (clearRejectedIdentity(error)) return;
+    // For an unknown request keep the same key; an explicit later click can reconcile it.
+    if (isApiErrorBody(error)) slot.key = undefined;
+    el(`${id}-status`).textContent =
+      `验证码申请${isApiErrorBody(error) ? "未执行" : "结果未知，可重新完成人机验证后核对原申请"}。${explanation(error)}`;
+  } finally {
+    if (valid()) slot.widget.reset();
+  }
+}
+async function verifyProof(id: string): Promise<void> {
+  const slot = proofSlots[id];
+  if (!slot.challenge) return;
+  const valid = proofIdentity();
+  const generation = maintenanceGeneration;
+  const code = input(`${id}-code`).value;
+  input(`${id}-code`).value = "";
+  try {
+    const reply = await request("me/recent-auth/challenges/verify", {
+      challenge_id: slot.challenge,
+      code,
+    });
+    if (!valid()) return;
+    if (reply.status !== 200 || typeof reply.body.proof_id !== "string" || !reply.body.proof_id)
+      throw new Error("unknown_proof");
+    slot.proof = reply.body.proof_id;
+    slot.challenge = undefined;
+    if (slot.action === "account_delete") proofId = slot.proof;
+    if (!(await refresh()) || generation !== maintenanceGeneration) return;
+    el(`${id}-status`).textContent = "本次用途验证已完成。";
+  } catch (error) {
+    if (!valid()) return;
+    if (clearRejectedIdentity(error)) return;
+    slot.proof = undefined;
+    // Verification cannot be replayed after an unknown response.
+    if (!isApiErrorBody(error)) slot.challenge = undefined;
+    el(`${id}-status`).textContent = `验证未确认；不会自动重复消费。${explanation(error)}`;
+  }
+}
+async function proveEmailRecovery(): Promise<void> {
+  const valid = proofIdentity();
+  const generation = maintenanceGeneration;
+  const body = {
+    action: "email_change",
+    target_email: emailTarget,
+    recovery_id: input("email-recovery-id").value,
+    secret: input("email-recovery-secret").value,
+  };
+  input("email-recovery-id").value = "";
+  input("email-recovery-secret").value = "";
+  try {
+    const reply = await request("me/recent-auth/recovery", body);
+    if (!valid()) return;
+    if (reply.status !== 200 || typeof reply.body.proof_id !== "string" || !reply.body.proof_id)
+      throw new Error("unknown_proof");
+    proofSlots["email-current"].proof = reply.body.proof_id;
+    if (!(await refresh()) || generation !== maintenanceGeneration) return;
+    el("email-current-status").textContent = "当前账号的换邮箱用途证明已取得；仍需验证新邮箱。";
+  } catch (error) {
+    if (!valid()) return;
+    if (clearRejectedIdentity(error)) return;
+    proofSlots["email-current"].proof = undefined;
+    el("email-current-status").textContent = `当前账号证明未确认。${explanation(error)}`;
+  }
+}
+async function changeEmail(): Promise<void> {
+  const oldVersion = summary?.email.email_version;
+  const body = {
+    target_email: emailTarget,
+    current_proof_id: proofSlots["email-current"].proof,
+    new_proof_id: proofSlots["email-new"].proof,
+  };
+  invalidate(); // Clear this page and other tabs before the identity-changing write.
+  proofId = undefined;
+  const turn = epoch;
+  el("email-change-result").textContent = "正在提交换邮箱；结果尚未确认。";
+  try {
+    const reply = await request("me/email-change", body);
+    if (turn !== epoch) return;
+    if (
+      reply.status !== 200 ||
+      typeof reply.body.pending_session_id !== "string" ||
+      !reply.body.pending_session_id ||
+      !Number.isSafeInteger(reply.body.email_version) ||
+      oldVersion === undefined ||
+      (reply.body.email_version as number) <= oldVersion
+    )
+      throw new Error("unknown_email_change");
+    el("email-change-result").textContent =
+      "换邮箱已确认。旧会话已撤销，新邮箱业务邮件尚未开启。订阅仍归原账号，没有复制配置，也没有自动开启任何通道。请继续激活新会话。";
+    el("email-activate").hidden = false;
+  } catch (error) {
+    if (turn !== epoch) return;
+    const result = isApiErrorBody(error)
+      ? `换邮箱未执行。${explanation(error)} 请重新读取账号并重新验证。`
+      : "换邮箱结果未知；不会自动重试或复用证明。已重新读取账号核对，会话失效或待激活不单独证明换邮箱成功；请登录核对当前邮箱。";
+    if (!(await refresh())) return;
+    el("email-change-result").textContent = result;
+  }
+  message(el("email-change-result").textContent ?? "");
+}
+for (const [id, action, role] of [
+  ["email-current", "email_change", "current"],
+  ["email-new", "email_change", "new_address"],
+  ["delete-current", "account_delete", "current"],
+] as const) {
+  proofSlots[id] = { action, role, widget: new Turnstile(el(`${id}-turnstile-status`)) };
+  button(`${id}-send`).addEventListener("click", () => void run(() => sendProof(id)));
+  el(`${id}-form`).addEventListener("submit", (event) => {
+    event.preventDefault();
+    if (!button(`${id}-verify`).disabled) void run(() => verifyProof(id));
+  });
+}
+let widgetsLoaded = false;
+function loadProofWidgets(): void {
+  if (widgetsLoaded) return;
+  widgetsLoaded = true;
+  for (const [id, slot] of Object.entries(proofSlots))
+    void slot.widget.load(el("account-page").dataset.sitekey ?? "", el(`${id}-turnstile`));
+}
+el("email-maintenance").addEventListener("toggle", () => {
+  if ((el("email-maintenance") as HTMLDetailsElement).open) loadProofWidgets();
+});
+button("account-delete-open").addEventListener("click", loadProofWidgets);
+el("email-target-form").addEventListener("submit", (event) => {
+  event.preventDefault();
+  if (button("email-start").disabled) return;
+  const address = canonicalizeEmail(input("email-target").value);
+  if (!address.ok) {
+    el("email-change-result").textContent = "请输入有效的 ASCII 邮箱地址。";
+    return;
+  }
+  emailTarget = input("email-target").value;
+  input("email-target").readOnly = true;
+  el("email-proofs").hidden = false;
+  el("email-change-result").textContent = "新地址已选定，请完成两份证明。";
+  renderActions();
+});
+button("email-cancel").addEventListener("click", () => {
+  // Cancellation also fences a late proof response without interrupting other account work.
+  clearMaintenance();
+  el("email-change-result").textContent = "已清除本次验证；未提交换邮箱。";
+  renderActions();
+});
+el("email-recovery-form").addEventListener("submit", (event) => {
+  event.preventDefault();
+  if (!button("email-recovery-prove").disabled) void run(proveEmailRecovery);
+});
+button("email-confirm").addEventListener("click", () => {
+  if (!button("email-confirm").disabled) void run(changeEmail);
+});
+
 button("account-refresh").addEventListener(
   "click",
   () =>
@@ -455,27 +745,37 @@ el("delete-proof-form").addEventListener("submit", (event) => {
   void run(proveDeletion);
 });
 
+function externalIdentityChanged(): void {
+  epoch += 1;
+  proofId = undefined;
+  proofFeedback = "";
+  el("account-deletion").textContent = "";
+  clearMaintenance();
+  clearPrivate();
+  closeDialog(false);
+  renderActions();
+  message("身份已变化，请重新读取账号状态。旧请求结果已丢弃。");
+}
 function connect(): void {
   if (typeof BroadcastChannel === "undefined") return;
   channel = new BroadcastChannel("hoyo-draft-identity");
-  channel.onmessage = () => {
-    epoch += 1;
-    proofId = undefined;
-    proofFeedback = "";
-    el("account-deletion").textContent = "";
-    clearPrivate();
-    closeDialog(false);
-    input("delete-recovery-id").value = "";
-    input("delete-recovery-secret").value = "";
-    renderActions();
-    message("身份已变化，请重新读取账号状态。旧请求结果已丢弃。");
-  };
+  channel.onmessage = externalIdentityChanged;
 }
+document.addEventListener("hoyo:draft-identity", (event) => {
+  const identity = readDraftIdentityEvent(event);
+  if (
+    !publishingIdentity &&
+    identity &&
+    (identity.status !== "confirmed" || identity.userId !== summary?.user_id)
+  )
+    externalIdentityChanged();
+});
 window.addEventListener("pagehide", () => {
   epoch += 1;
   proofId = undefined;
   proofFeedback = "";
   el("account-deletion").textContent = "";
+  clearMaintenance();
   clearPrivate();
   input("delete-recovery-id").value = "";
   input("delete-recovery-secret").value = "";
