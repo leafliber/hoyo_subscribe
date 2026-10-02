@@ -38,7 +38,7 @@
 
 | 事实 | 值 |
 | --- | --- |
-| 站点 origin | 未取得（所有者尚未指定） |
+| 站点 origin | **2026-10-02 所有者指定 `https://hoyo.airo.cc`**；尚未完成线上部署/绑定核验 |
 | 发件子域 | **两个，按用途分开**：认证 `auth.hoyo.airo.cc`（2026-09-28 创建，id `00d5aa64a69b4708b99f4aa292aed2e4`，退信域 `cf-bounce.auth.hoyo.airo.cc`）；业务 `hoyo.airo.cc`（2026-09-22 创建，退信域 `cf-bounce.hoyo.airo.cc`）。DKIM selector 都是 `cf-bounce` |
 | 认证域 Email preview 已关闭 | ✅ `auth.hoyo.airo.cc` 的 `preview_enabled = false`。业务域 `hoyo.airo.cc` 仍为 `true`（原文留存约 7 天、可经 API 取回，便于排查；合同只要求关认证域） |
 | 两用途"静默丢弃受抑制收件人"已关闭 | ✅ 两个子域的 `drop_suppressed_recipients` 都是 `false` |
@@ -141,3 +141,9 @@ G-P0-MAIL 的两项条件都已满足（普通收件人的 messageId 与 Queue �
 | 门禁 | 状态 | 依据 |
 | --- | --- | --- |
 | G-P0-MAIL | **已开（2026-09-29）** | 计量口径已全部确定（日限额 1,000、无周期包、零占用），A.5 相关等式成立；两个发件子域 DNS 就绪；真实收件人的 messageId ↔ 反馈 Queue 关联已证实（§2.2）。已知限制：只测了阿里企业邮；DKIM `h=` 未核；验证码时延风险待量 |
+
+## 2026-10-02 所有者补充（第十二批；对话提供，未冒充 API 取证）
+
+- DKIM：所有者确认验证通过；两个退订头的 h= 签名覆盖待明确。没有取得原始签名头或消息标识，本次不新增覆盖已通过的结论。
+- 正式网站 origin 已定为 `https://hoyo.airo.cc`，平台配置与部署由所有者之后执行。
+- 已授权仅以 `hoyo-sub@auth.hoyo.airo.cc` 向 `leaf@airo.cc` 做认证链路取证；本轮没有发信，实际送达时延、send_email 绑定和认证反馈仍未取得。
