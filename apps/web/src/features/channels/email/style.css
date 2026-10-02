@@ -50,3 +50,18 @@
   outline: 2px solid var(--color-focus-ring);
   outline-offset: 2px;
 }
+
+.email-panel .email-capacity {
+  border: var(--border-thin) solid var(--color-accent);
+  border-inline-start: var(--space-1) solid var(--color-accent);
+  border-radius: var(--radius-control);
+  padding: var(--space-4);
+  background: var(--color-bg-surface);
+}
+.email-panel .email-capacity h4 {
+  font-size: var(--font-size-section);
+}
+.email-panel .email-capacity strong {
+  display: block;
+  margin-block-start: var(--space-4);
+}

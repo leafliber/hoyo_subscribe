@@ -13,6 +13,14 @@
   // 升级测试运行时时一并评估此日期。
   "compatibility_date": "2026-08-01",
 
+  // P5-05：网页与 Worker 同项目；动态能力路径始终先进 Worker。
+  // 不加 ASSETS 绑定：静态命中由平台直达，未知路径交给现有 Worker 返回 404。
+  "assets": {
+    "directory": "../web/dist",
+    "not_found_handling": "none",
+    "run_worker_first": ["/api/*", "/feeds/*", "/unsubscribe/*", "/email/one-click/*"]
+  },
+
   // D1：正式状态源（主方案 §2.1）。database_id 为占位 UUID，非真实资源。
   "d1_databases": [
     {

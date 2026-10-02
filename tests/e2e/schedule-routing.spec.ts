@@ -10,7 +10,7 @@ test("U02 构建只包含无事实详情壳；重写不覆盖 API、Feed、退�
   expect(html).not.toContain("巡游拾光");
   expect(html).not.toContain("synthetic");
   expect(readFileSync(resolve("apps/web/dist/_redirects"), "utf8").trim()).toBe(
-    "/events/* /events/detail/index.html 200",
+    "/events/* /events/detail/ 200",
   );
   for (const path of [
     "/api/v2/events/evt_unmatched",
