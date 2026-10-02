@@ -290,7 +290,14 @@ describe("A-P3-FEEDAPI 授权活动合并与回收门", () => {
       accounts_paused: true,
       seats_paused: true,
     });
-    // 运维确认漏写已补齐后解锁；仅成功一次不能擅自解除持久开关。
+    // 运维确认漏写已补齐后解锁；独立运行开关也必须明确启用。
+    for (const control of ["account_reclaim_enabled", "seat_reclaim_enabled"])
+      await run(
+        "INSERT INTO system_state(key,value_json,updated_at) VALUES (?,'true',?) ON CONFLICT(key) DO UPDATE SET value_json='true'",
+        control,
+        now,
+      );
+    // 仅成功一次不能擅自解除持久开关。
     await run("UPDATE system_state SET value_json='false' WHERE key='reclaim_paused'");
     expect(await readReclaimGate(env.DB, now + 1)).toMatchObject({
       accounts_paused: false,

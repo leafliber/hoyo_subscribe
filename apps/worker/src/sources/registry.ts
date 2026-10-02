@@ -29,6 +29,7 @@ import type { MiyousheNewsType } from "./types";
 
 /** 来源请求限制：实测项来自 P0-02 登记；生产上限来自 SOURCE_LIMIT_PROFILE。 */
 export interface SourceRequestLimits {
+  readonly onTruncated?: (host: string) => Promise<void>;
   /** request_timeout_recommend_ms（四来源实测一致 10,000 ms）。 */
   readonly timeoutMs: number;
   /**

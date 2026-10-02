@@ -15,6 +15,7 @@ import { mailAdmissionHook } from "../../mail/provider/admission";
 import { mailAvailable, requireMailAvailable } from "../../mail/provider/availability";
 import { deliveryWatchdog, dispatchScheduled } from "../../scheduled";
 import type { ShellRoute } from "../../shell";
+import { seedOperationalControls } from "../../shell/observability/test-support";
 import { testKeyring } from "../../shell/test-support";
 import { splitSqlStatements } from "../../storage/split-sql";
 import { DeliveryRuntime } from "./runtime";
@@ -55,6 +56,7 @@ beforeEach(async () => {
   await env.DB.exec("DELETE FROM occurrences");
   await env.DB.exec("DELETE FROM milestones");
   await env.DB.exec("DELETE FROM events");
+  await seedOperationalControls(env.DB);
 });
 describe("A-P4-OUTBOX Delivery 执行器", () => {
   it("真实 DO watchdog 修复缺失 alarm，固定 main；Cron 某执行器失败不跳过 Delivery", async () => {

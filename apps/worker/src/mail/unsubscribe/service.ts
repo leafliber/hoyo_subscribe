@@ -1,4 +1,5 @@
 import { EMAIL_CONSENT_DISABLE_ACTION } from "@hoyo/contracts";
+import { recordMetric } from "../../shell/observability/metrics";
 
 export async function currentBinding(db: D1Database, bindingId: string): Promise<boolean> {
   return (
@@ -14,6 +15,7 @@ export async function closeBusinessMail(
   bindingId: string,
   now: number,
 ): Promise<boolean> {
+  const started = Date.now();
   const results = await db.batch([
     // 有效绑定判定与条件关闭同处 batch 事务；SELECT 不制造重复停止的写入。
     db.prepare("SELECT id FROM users WHERE email_binding_id=? AND status='active'").bind(bindingId),
@@ -42,5 +44,7 @@ export async function closeBusinessMail(
         bindingId,
       ),
   ]);
+  if (results[1].meta.changes === 1)
+    await recordMetric(db, "unsubscribe_latency_ms", now, Math.max(0, Date.now() - started));
   return results[0].results.length === 1;
 }

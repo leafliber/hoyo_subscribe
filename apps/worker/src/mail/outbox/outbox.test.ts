@@ -13,6 +13,7 @@ import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { clearExpiredOtpPayloads } from "../../auth/challenges/cleanup";
 import { encryptOtpPayload, OTP_PAYLOAD_KIND } from "../../auth/challenges/payload";
 import { DeliveryRuntime } from "../../executors/delivery/runtime";
+import { seedOperationalControls } from "../../shell/observability/test-support";
 import { Keyring } from "../../storage/crypto/keyring";
 import { readMailDayLedger, reserveMailBudget } from "../../storage/ledger/mail-ledger";
 import { splitSqlStatements } from "../../storage/split-sql";
@@ -143,8 +144,40 @@ beforeEach(async () => {
   now = T;
   sent = [];
   result = { kind: "accepted", messageId: `<${id()}>` };
+  await seedOperationalControls(env.DB);
 });
 describe("A-P4-OUTBOX 租约与外部不确定边界", () => {
+  it("P5 全部外发关闭阻断认证；业务关闭不影响认证", async () => {
+    const oid = await seed();
+    await run(
+      "UPDATE system_state SET value_json='false' WHERE key IN ('business_mail_enabled','email_routine_enabled')",
+    );
+    await sendOneMail(deps(), "background", oid);
+    expect(sent).toHaveLength(1);
+    const closed = await seed();
+    await run("UPDATE system_state SET value_json='false' WHERE key='outbound_enabled'");
+    await sendOneMail(deps(), "background", closed);
+    expect(sent).toHaveLength(1);
+    expect((await row(closed))?.status).toBe("retry_wait");
+    expect((await row(closed))?.attempts).toBe(0);
+  });
+  it("P5 准备期间关全部外发不得调用供应商", async () => {
+    const oid = await seed();
+    await sendOneMail(
+      deps({
+        fieldKey: async () => {
+          await run("UPDATE system_state SET value_json='false' WHERE key='outbound_enabled'");
+          return keys.fieldEncryption();
+        },
+      }),
+      "background",
+      oid,
+    );
+    expect(sent).toHaveLength(0);
+    expect((await row(oid))?.status).toBe("retry_wait");
+    expect(await budget()).toEqual({ reserved: 1, settled: 0, uncertain: 0 });
+  });
+
   it("HTTP 与后台真实并发竞争同一租约，只外调一次；accepted 结算并清除载荷", async () => {
     const oid = await seed();
     const d = deps();

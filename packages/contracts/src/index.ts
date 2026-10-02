@@ -28,6 +28,7 @@ export * from "./errors/existence";
 export * from "./errors/sampling";
 export * from "./mail-channel";
 export * from "./notification-scope";
+export * from "./observability";
 export * from "./params/docs";
 export * from "./params/registry";
 export * from "./params/verify";
