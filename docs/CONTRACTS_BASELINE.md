@@ -371,6 +371,10 @@ P3-14 工程依赖：`PUBLIC_READ_LIMITS` 所有值为正整数；`recentChanges
 `nodeBytes × (recentChanges + 1) < responseBytes <= FEED_RESPONSE_MAX_BYTES`；`queryBytes <= nodeBytes`。
 近期重要变更期限取当前共享更正的 `retain_until`，条数取 `recentChanges`。详情/单节点超限明确不可用，状态聚合超限为未知，不静默截断。
 
+P5-01 所有者 2026-10-02 批准的观测依赖：`0 < OBS_CAPACITY_WARN_RATIO < 1`；
+`FEEDBACK_MAINTENANCE_ROUNDS` 为正整数，且 `FEEDBACK_MAINTENANCE_ROUNDS × FEEDBACK_BATCH <= MAIL_FEEDBACK_MAX`。
+反馈维护同时受 `EXECUTOR_BATCH_WALL_LIMIT` 约束；平台 query-limit 的真实本地最坏路径测试不得超限。
+
 ## 12. API 分组速查（§8.2）
 
 | 路径组 | 要点 |

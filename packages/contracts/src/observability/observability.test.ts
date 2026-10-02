@@ -5,10 +5,12 @@ import {
   MAIL_AUTH_FLOOR,
   MAIL_URGENT_DAY,
   MAIL_URGENT_FLOOR,
+  OBS_CAPACITY_WARN_RATIO,
 } from "../params/registry";
 import {
   ControlWriteSchema,
   capabilityFact,
+  capacityWarning,
   controlFact,
   observedMailPools,
   observedRatio,
@@ -97,4 +99,14 @@ describe("A-P5-OBS 观测合同", () => {
     ])
       expect(PlatformFactSchema.safeParse({ ...body, ...extra }).success).toBe(false);
   });
+});
+
+it("P5 逼近容量恰在批准比例触发，未知包含量不伪造", () => {
+  const limit = 100;
+  const edge = limit * OBS_CAPACITY_WARN_RATIO;
+  expect(capacityWarning(edge - 1, limit)).toBe(false);
+  expect(capacityWarning(edge, limit)).toBe(true);
+  expect(capacityWarning(edge + 1, limit)).toBe(true);
+  expect(capacityWarning(null, limit)).toBeNull();
+  expect(capacityWarning(edge, null)).toBeNull();
 });

@@ -428,6 +428,11 @@ export const MAIL_FEEDBACK_MAX = 20_000 as const;
 /** 未关联反馈的有限保留。附录 A.4；§7.4。 */
 export const MAIL_UNMATCHED_MAX = 1000 as const;
 
+/** P5-01 所有者 2026-10-02 批准：容量逼近告警比例，非收费封顶。 */
+export const OBS_CAPACITY_WARN_RATIO = 0.8 as const;
+/** P5-01 所有者 2026-10-02 批准：每次 Cron 反馈维护最多轮数。 */
+export const FEEDBACK_MAINTENANCE_ROUNDS = 4 as const;
+
 /** Queue 小批消费条数。附录 A.4；§7.4。 */
 export const FEEDBACK_BATCH = 10 as const;
 
@@ -640,6 +645,8 @@ export const PARAMS = {
   MAIL_RECORD_MAX,
   MAIL_FEEDBACK_MAX,
   MAIL_UNMATCHED_MAX,
+  OBS_CAPACITY_WARN_RATIO,
+  FEEDBACK_MAINTENANCE_ROUNDS,
   FEEDBACK_BATCH,
   FEEDBACK_MAX_RETRIES,
   PUSH_USER_MAX,
@@ -1338,6 +1345,20 @@ export const PARAM_META: Readonly<Record<keyof ParamValues, ParamMeta>> = {
     unit: "条",
     description: "未关联反馈的有限保留",
     status: "baseline",
+  },
+  OBS_CAPACITY_WARN_RATIO: {
+    section: "A.5",
+    unit: "比例",
+    description: "反馈及已取证平台容量的逼近告警比例，不是收费封顶",
+    status: "strategy",
+    note: "所有者 2026-10-02 批准 P5-01",
+  },
+  FEEDBACK_MAINTENANCE_ROUNDS: {
+    section: "A.5",
+    unit: "轮/次 Cron",
+    description: "每轮最多一页清理和一页再关联，同时受执行器墙钟约束",
+    status: "strategy",
+    note: "所有者 2026-10-02 批准 P5-01",
   },
   FEEDBACK_BATCH: { section: "A.4", unit: "条", description: "Queue 小批消费", status: "baseline" },
   FEEDBACK_MAX_RETRIES: {

@@ -1,4 +1,5 @@
 import {
+  capacityWarning,
   FEED_MAX_STALE,
   MAIL_FEEDBACK_MAX,
   MAIL_POOLS,
@@ -47,6 +48,27 @@ export async function readObservability(db: D1Database, now: number) {
     );
   const ledger = await safe(() => readMailDayLedger(db, day.key));
   const pools = ledger ? observedMailPools(ledger) : null;
+  const depleted = Object.fromEntries(
+    await Promise.all(
+      (["auth", "signup", "base", "urgent"] as const).map(async (pool) => [
+        pool,
+        await safe(async () => {
+          const r = await db
+            .prepare("SELECT value_json FROM system_state WHERE key=?")
+            .bind(`obs:depleted:${pool}`)
+            .first<{ value_json: string }>();
+          if (!r) return null;
+          const v = JSON.parse(r.value_json);
+          return v.day === day.key &&
+            Number.isSafeInteger(v.at) &&
+            v.at >= day.startMs &&
+            v.at < day.endMsExclusive
+            ? v.at
+            : null;
+        }),
+      ]),
+    ),
+  );
   const controls = await readControls(db);
   const metrics = Object.fromEntries(
     await Promise.all(OBS_METRICS.map(async (id) => [id, await readMetric(db, id, now)] as const)),
@@ -63,7 +85,7 @@ export async function readObservability(db: D1Database, now: number) {
   );
   const reclaim = await readReclaimGate(db, now);
   const feedback = await one(
-    "SELECT COUNT(*) AS total,SUM(CASE WHEN mail_outbox_id IS NULL THEN 1 ELSE 0 END) AS unmatched FROM mail_feedback",
+    "SELECT COUNT(*) AS total,COALESCE(SUM(CASE WHEN mail_outbox_id IS NULL THEN 1 ELSE 0 END),0) AS unmatched FROM mail_feedback",
   );
   const feedbackExpired = await many(
     "SELECT key,CAST(value_json AS INTEGER) AS count FROM system_state WHERE key IN (SELECT value FROM json_each(?))",
@@ -189,7 +211,14 @@ export async function readObservability(db: D1Database, now: number) {
     "unmatched_capacity",
     feedback === null ? null : Number(feedback.unmatched) >= MAIL_UNMATCHED_MAX,
   );
-  alert("feedback_approaching_capacity", null); // 比例等待所有者批准，不能借用不相关参数。
+  alert(
+    "feedback_approaching_capacity",
+    capacityWarning(feedback?.total ?? null, MAIL_FEEDBACK_MAX),
+  );
+  alert(
+    "unmatched_approaching_capacity",
+    capacityWarning(feedback?.unmatched ?? null, MAIL_UNMATCHED_MAX),
+  );
   for (const entry of platform)
     alert(
       `platform:${entry.metric}`,
@@ -199,7 +228,7 @@ export async function readObservability(db: D1Database, now: number) {
           ? entry.fact.value > 0
           : entry.fact.included === undefined
             ? null
-            : entry.fact.value >= entry.fact.included,
+            : capacityWarning(entry.fact.value, entry.fact.included),
     );
   alert(
     "mail_merge_integrity",
@@ -216,7 +245,7 @@ export async function readObservability(db: D1Database, now: number) {
     server_time: now,
     utc_day: day.key,
     pools,
-    pool_depleted_at: { auth: null, signup: null, base: null, urgent: null }, // 精确事务时刻的最小迁移尚待范围裁定。
+    pool_depleted_at: depleted,
     controls,
     metrics,
     sources,

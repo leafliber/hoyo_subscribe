@@ -312,3 +312,18 @@ it("P5 无 Queue 流量真实清理过期未关联反馈，增长基于两次采
     state: "clear",
   });
 });
+
+it("反馈维护一相失败不会遮蔽另一相，记录固定故障而不无限重试", async () => {
+  const ring = await testKeyring;
+  const prune = vi.fn().mockRejectedValue(new Error("synthetic"));
+  const reconcile = vi.fn().mockResolvedValue(0);
+  await maintainFeedback(
+    env.DB,
+    async () => ({ lookup: ring.emailLookup(), field: ring.fieldEncryption() }),
+    () => now,
+    { prune, reconcile },
+  );
+  expect(prune).toHaveBeenCalledOnce();
+  expect(reconcile).toHaveBeenCalledOnce();
+  expect((await readMetric(env.DB, "feedback_maintenance_failed", now))?.count).toBe(1);
+});

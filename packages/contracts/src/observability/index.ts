@@ -11,6 +11,7 @@ import {
   MAIL_AUTH_DAY,
   MAIL_AUTH_FLOOR,
   MAIL_URGENT_FLOOR,
+  OBS_CAPACITY_WARN_RATIO,
 } from "../params/registry";
 
 export const OPERATIONAL_CONTROLS = [
@@ -165,3 +166,15 @@ export const OBS_FEEDBACK_KINDS = [
   "complained",
   "rejected",
 ] as const;
+
+/** 缺少真实包含量不推断平台容量。 */
+export function capacityWarning(value: number | null, included: number | null): boolean | null {
+  return value === null ||
+    included === null ||
+    !Number.isFinite(value) ||
+    !Number.isFinite(included) ||
+    value < 0 ||
+    included <= 0
+    ? null
+    : value >= included * OBS_CAPACITY_WARN_RATIO;
+}

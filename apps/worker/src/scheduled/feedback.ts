@@ -1,4 +1,4 @@
-import { EXECUTOR_BATCH_WALL_LIMIT } from "@hoyo/contracts";
+import { EXECUTOR_BATCH_WALL_LIMIT, FEEDBACK_MAINTENANCE_ROUNDS } from "@hoyo/contracts";
 import {
   type FeedbackKeys,
   pruneFeedbackPage,
@@ -16,7 +16,11 @@ export async function maintainFeedback(
   const deadline = now + EXECUTOR_BATCH_WALL_LIMIT * 1000;
   let prune = true,
     reconcile = true;
-  while (clock() < deadline && (prune || reconcile)) {
+  for (
+    let round = 0;
+    round < FEEDBACK_MAINTENANCE_ROUNDS && clock() < deadline && (prune || reconcile);
+    round++
+  ) {
     if (prune)
       try {
         prune = (await steps.prune(db, clock())) > 0;
