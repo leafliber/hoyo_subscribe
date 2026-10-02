@@ -1,7 +1,78 @@
 ---
+import { OTP_DIGITS, OTP_TTL } from "@hoyo/contracts";
 import Layout from "./_Layout.astro";
+import "../features/auth/recovery/recovery.css";
+
+const sitekey = import.meta.env.PUBLIC_TURNSTILE_SITE_KEY ?? "";
 ---
-<Layout title="账号恢复">
-  <h1>账号恢复</h1>
-  <p class="skeleton-note">页面骨架：恢复登录与紧急停用两个流程由 F3-02 交付。</p>
+<Layout title="恢复码与账号恢复">
+  <div id="recovery" class="recovery-panel" data-sitekey={sitekey}>
+    <p class="field-hint">账号安全</p>
+    <h1>恢复码与账号恢复</h1>
+    <p>邮箱无法使用时，可用恢复码恢复控制或紧急停用服务。</p>
+    <section id="purpose-section" aria-labelledby="purpose-title">
+      <h2 id="purpose-title">先选择你要做什么</h2>
+      <div class="recovery-options">
+        <div><h3>紧急停用</h3><p>撤销所有登录会话和日历地址，关闭业务邮件、暂停 Push。本次不会消耗恢复码，之后仍可用它恢复登录。</p>
+          <button class="button" id="choose-stop" type="button">选择紧急停用</button></div>
+        <div><h3>恢复登录</h3><p>先执行同样的安全暂停。本次会消耗当前恢复码；激活后必须保存并确认新码，才能重新启用通道或更换邮箱。</p>
+          <button class="button" id="choose-login" type="button">选择恢复登录</button></div>
+      </div>
+      <p><a href="/recover#save" id="open-save">已登录：去保存恢复码</a></p>
+    </section>
+    <section id="credential-section" hidden aria-labelledby="credential-title">
+      <h2 id="credential-title" tabindex="-1">输入恢复码</h2>
+      <form id="recovery-form" autocomplete="off">
+        <div class="field"><label for="recovery-id">恢复码 ID</label><input id="recovery-id" autocomplete="off" required /></div>
+        <div class="field"><label for="recovery-secret">恢复码秘密</label><input id="recovery-secret" type="password" autocomplete="off" required /></div>
+        <p id="purpose-consequence"></p>
+        <button class="button" id="submit-recovery" type="submit">确认操作</button>
+        <button class="button" id="change-purpose" type="button">重新选择目的</button>
+      </form>
+    </section>
+    <section id="pending-section" hidden aria-labelledby="pending-title">
+      <h2 id="pending-title">激活当前浏览器</h2><p>当前为待激活会话，普通账号权限尚不可用。确认激活后立即交付新恢复码。</p>
+      <fieldset id="device-selection" hidden><legend>请选择要撤销的旧会话</legend><p>不会自动退出其他设备。撤销会话不等于暂停该设备的浏览器通知。</p><p id="session-lag"></p><div id="session-list"></div></fieldset>
+      <button class="button" id="activate-recovery" type="button">激活并保存新恢复码</button>
+    </section>
+    <section id="save-section" hidden aria-labelledby="save-title">
+      <h2 id="save-title" tabindex="-1">保存恢复码</h2>
+      <p>首次启用日历订阅、邮件或 Push 前，必须保存当前恢复码并明确确认。恢复码仅在当前授权交付时展示，旧码不能再次取回；消费或轮换后失效。</p>
+      <p id="recovery-pause" hidden>原日历地址已失效，邮件与 Push 已暂停；订阅内容仍保留。保存新码后，各通道仍需你逐项确认重新开启，并替换外部日历订阅地址。</p>
+      <button class="button" id="use-recovery" type="button" hidden>使用恢复码恢复登录或紧急停用</button>
+      <p id="code-state">正在读取恢复码状态。</p>
+      <button class="button" id="generate-code" type="button">生成新恢复码</button>
+      <div id="delivered-code" hidden>
+        <label for="code-output">本次交付的恢复码（ID 与秘密，请一起保存）</label>
+        <textarea id="code-output" readonly autocomplete="off" spellcheck="false" rows="4"></textarea>
+        <div class="recovery-actions"><button class="button" id="copy-code" type="button">复制恢复码</button><button class="button" id="download-code" type="button">下载恢复码</button></div>
+        <p>请保存在你控制的安全位置，不要发送给他人。此文件只包含恢复码，与普通偏好导出分开。</p>
+        <label class="check-label"><input id="saved-check" type="checkbox" />我已单独保存这份恢复码</label>
+        <button class="button" id="confirm-code" type="button" disabled>确认已保存</button>
+        <p class="field-hint">你的确认不代表网站已经验证外部备份可靠。</p>
+      </div>
+      <section id="rotation-section" hidden aria-labelledby="rotation-title">
+        <h3 id="rotation-title">无法找到已保存的旧码？</h3><p>旧码无法重新显示。先验证当前邮箱，为本次轮换取得最近认证；新码保存确认前，旧码仍然有效。</p>
+        <div id="rotation-captcha"></div><p id="captcha-status" class="field-hint"></p>
+        <button class="button" id="request-rotation" type="button">验证邮箱以轮换恢复码</button>
+        <form id="rotation-form" hidden><label for="rotation-otp">当前邮箱验证码</label><input id="rotation-otp" inputmode="numeric" autocomplete="one-time-code" maxlength={OTP_DIGITS} required />
+          <p>可整段粘贴 {OTP_DIGITS} 位验证码，有效期 {OTP_TTL / 60} 分钟。邮件可能晚到；发送故障时无法完成验证。</p>
+          <button class="button" id="verify-rotation" type="submit">验证本次轮换</button></form>
+        <button class="button" id="rotate-code" type="button" disabled>交付轮换新码</button><p id="rotation-reason"></p>
+      </section>
+      <section aria-labelledby="capability-title"><h3 id="capability-title">当前可用操作</h3>
+        <div class="recovery-actions"><a href="/subscription">查看订阅内容</a><button class="button" id="export-preferences" type="button">导出偏好</button><a href="/account">账号与设备</a></div>
+        <div id="restricted-actions" hidden><button class="button" type="button" disabled>启用日历 / 邮件 / Push</button><button class="button" type="button" disabled>更换邮箱</button><p>请先保存并确认新恢复码。受限会话不能启用通道或换邮箱。</p></div>
+        <p id="confirmed-next" hidden><a href="/subscription">继续处理订阅与通道</a> · <a href="/account">管理邮箱</a>。各通道不会自动重新开启。</p>
+        <details><summary>删除账号</summary><p>删除会停用本站权限与通道，不能即时擦除已送达邮件、外部日历副本或尚未到期的备份。</p><label class="check-label"><input id="delete-check" type="checkbox" />我确认删除账号</label><button class="button" id="delete-account" type="button" disabled>删除账号并停用服务</button><p id="delete-reason"></p></details>
+      </section>
+    </section>
+    <p id="recovery-result" role="status" tabindex="-1"></p>
+    <div class="recovery-actions"><button class="button" id="retry-recovery" type="button" hidden>核对结果</button><button class="button" id="cancel-recovery" type="button" hidden>停止等待</button><button class="button" id="refresh-recovery" type="button">重新读取当前状态</button></div>
+    <p id="reauth-link" hidden><a href="/login">重新验证邮箱并登录</a>，完成后回到本页保存恢复码。</p>
+    <p>新邮箱仍须验证。若旧邮箱、会话和恢复码全部丢失，不能仅凭一封说明邮件接管账号。</p>
+    <p><a href="/status">查看服务状态</a> · <a href="/">返回公开日程</a></p>
+    <noscript><p>恢复操作需要 JavaScript；公开日程仍可浏览。</p></noscript>
+  </div>
+  <script>import "../features/auth/recovery/recovery";</script>
 </Layout>

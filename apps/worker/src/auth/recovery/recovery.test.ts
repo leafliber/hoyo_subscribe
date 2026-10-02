@@ -783,14 +783,21 @@ describe("A-P2-RECOVERY 离线恢复码", () => {
     expect(new Set(bodies).size).toBe(1);
     const samples = cases.map(() => [] as number[]);
     for (let round = 0; round < 15; round++) {
-      for (let index = 0; index < cases.length; index++) {
-        const input = cases[index];
-        if (!input) throw new Error("missing timing case");
-        const start = performance.now();
-        for (let sample = 0; sample < 50; sample++) {
+      const elapsed = cases.map(() => 0);
+      // 每次调用后就换路径；连续测同一路径 50 次仍会让一段负载漂移偏向它。
+      // 轮转起点，避免固定的首尾顺序；每条路径仍有 15 组、每组 50 次真实 D1 读取。
+      for (let sample = 0; sample < 50; sample++) {
+        for (let offset = 0; offset < cases.length; offset++) {
+          const index = (round + sample + offset) % cases.length;
+          const input = cases[index];
+          if (!input) throw new Error("missing timing case");
+          const start = performance.now();
           await verifyRecoveryCredential(env.DB, input.id, input.secret ?? "");
+          elapsed[index] = (elapsed[index] ?? 0) + performance.now() - start;
         }
-        samples[index]?.push(performance.now() - start);
+      }
+      for (let index = 0; index < cases.length; index++) {
+        samples[index]?.push(elapsed[index] ?? 0);
       }
     }
     const medians = samples.map(
