@@ -174,7 +174,7 @@
 - 只读，查询数有上界：会话校验沿用外壳；读一次订阅；读一次代次头（isolate 内缓存命中时不读整代）；读一次来源水位。
 - 进 rows_read 基准，塞入大量历史后读数不涨。冷 isolate 读整代的代价与 Feed 相同。
 - 只在启用确认时调用（§5.1），调用量很小。按会话近似限速（P1-07 原语）；不是写操作，不计入 `USER_MUTATIONS_DAY`。
-  阈值若需要新参数，按硬规则 2 先进注册表。
+  **2026-10-02 所有者已定值**：见 [ADR-0006](adr/0006-private-calendar-preview-rate-limit.md) 的 `CALENDAR_PREVIEW_RATE_WINDOW` / `CALENDAR_PREVIEW_RATE_LIMIT`；每会话、每 isolate 首屏与续页共用限额，超限 429。先注册参数再实现，最大分页与恢复成本仍须实测。本批准不代表代码已通过。
 
 ## 4. 条目与解释（浏览器与服务端共用）
 
