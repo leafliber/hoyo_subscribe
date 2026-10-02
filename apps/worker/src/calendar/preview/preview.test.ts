@@ -1,5 +1,7 @@
 import { env } from "cloudflare:test";
 import {
+  CALENDAR_PREVIEW_RATE_LIMIT,
+  CALENDAR_PREVIEW_RATE_WINDOW,
   CalendarNodesResponseSchema,
   CalendarPreviewResponseSchema,
   decideCalendarPatch,
@@ -417,18 +419,103 @@ it("A-P3-PREVIEW 实际 VEVENT 逐项对应更正、取消、删除、纯日期�
   }
 });
 
-it("A-P3-PREVIEW 同会话在途预览 429，完成后释放；不写限速账本", async () => {
+it("A-P3-PREVIEW 串行第 RATE_LIMIT+1 次 429，窗口恢复且拒绝不延长窗口、全程只读", async () => {
+  const before = await savedState(user.userId);
+  const prepare = vi.spyOn(env.DB, "prepare");
+  try {
+    for (let i = 0; i < CALENDAR_PREVIEW_RATE_LIMIT; i++)
+      expect((await request(privatePath, true)).status).toBe(200);
+    const denied = await request(privatePath, true);
+    expect(denied.status).toBe(429);
+    expect(denied.headers.get("cache-control")).toBe("private, no-store");
+    expect(await denied.json()).toMatchObject({
+      error: {
+        code: "rate_limited",
+        details: {
+          code: "rate_limited",
+          retry_after_ms: CALENDAR_PREVIEW_RATE_WINDOW * 1000,
+        },
+      },
+    });
+    at = T + CALENDAR_PREVIEW_RATE_WINDOW * 1000 - 1;
+    expect((await request(privatePath, true)).status).toBe(429);
+    at++;
+    expect((await request(privatePath, true)).status).toBe(200);
+    // 包含外壳鉴权在内，全部 SQL 为 SELECT：无账本、活动水位或续期写入。
+    expect(prepare.mock.calls.length).toBeGreaterThan(0);
+    for (const [sql] of prepare.mock.calls) expect(sql.trim()).toMatch(/^SELECT\b/i);
+  } finally {
+    prepare.mockRestore();
+  }
+  expect(await savedState(user.userId)).toEqual(before);
+});
+
+it("A-P3-PREVIEW 首屏和续页共桶；429 后保留游标，等待窗口后完整续完", async () => {
+  const values = Array.from({ length: 220 }, (_, i) => {
+    const n = node(`rate-page-${String(i).padStart(3, "0")}`);
+    return {
+      ...n,
+      projection: { ...n.projection, event: { ...n.projection.event, title: "文".repeat(900) } },
+    };
+  });
+  await snapshot(values);
+  const before = await savedState(user.userId);
+  const first = CalendarPreviewResponseSchema.parse(
+    await (await request(privatePath, true)).json(),
+  );
+  expect(first.nextCursor).not.toBeNull();
+  const path = `${privatePath}?cursor=${encodeURIComponent(first.nextCursor ?? "")}`;
+  for (let i = 1; i < CALENDAR_PREVIEW_RATE_LIMIT; i++)
+    expect((await request(i % 2 === 0 ? privatePath : path, true)).status).toBe(200);
+  for (const p of [privatePath, path]) expect((await request(p, true)).status).toBe(429);
+  at = T + CALENDAR_PREVIEW_RATE_WINDOW * 1000;
+  let cursor = first.nextCursor,
+    count = first.items.length;
+  do {
+    const response = await request(
+      `${privatePath}?cursor=${encodeURIComponent(cursor ?? "")}`,
+      true,
+    );
+    expect(response.status).toBe(200);
+    const body = CalendarPreviewResponseSchema.parse(await response.json());
+    expect(body.asOf).toBe(first.asOf);
+    expect(body.server_time).toBe(at);
+    count += body.items.length;
+    cursor = body.nextCursor;
+  } while (cursor);
+  expect(count).toBe(first.totals.items);
+  expect(await savedState(user.userId)).toEqual(before);
+});
+
+it("A-P3-PREVIEW 不同会话隔离（含同账号），公开节点与 Feed 不消耗私人桶", async () => {
+  const original = user;
+  const other = await seed();
+  await run("UPDATE sessions SET user_id=? WHERE id=?", original.userId, other.sessionId);
+  const address = await feed(original.userId);
+  for (let i = 0; i < CALENDAR_PREVIEW_RATE_LIMIT; i++) {
+    expect((await request(publicPath, true)).status).toBe(200);
+    expect((await request(`/feeds/u/${address.token}.ics`)).status).toBe(200);
+    expect((await request(privatePath, true)).status).toBe(200);
+  }
+  expect((await request(privatePath, true)).status).toBe(429);
+  user = other;
+  for (let i = 0; i < CALENDAR_PREVIEW_RATE_LIMIT; i++)
+    expect((await request(privatePath, true)).status).toBe(200);
+  expect((await request(privatePath, true)).status).toBe(429);
+  user = original;
+  expect((await request(publicPath, true)).status).toBe(200);
+  expect((await request(`/feeds/u/${address.token}.ics`)).status).toBe(200);
+});
+
+it("A-P3-PREVIEW 并发先占用窗口，不超卖；完成请求不释放次数", async () => {
   let release: (() => void) | undefined;
   const barrier = new Promise<void>((resolve) => {
     release = resolve;
   });
-  let started: (() => void) | undefined;
-  const entered = new Promise<void>((resolve) => {
-    started = resolve;
-  });
+  let entered = 0;
   class DelayedCache extends FeedPublicCache {
     override async read(db: D1Database, now: number) {
-      started?.();
+      entered++;
       await barrier;
       return super.read(db, now);
     }
@@ -439,16 +526,61 @@ it("A-P3-PREVIEW 同会话在途预览 429，完成后释放；不写限速账�
   });
   const get = () =>
     local.fetch(
-      new Request(site + privatePath, { headers: { cookie: `__Host-session=${user.cookie}` } }),
+      new Request(site + privatePath, {
+        headers: { cookie: `__Host-session=${user.cookie}` },
+      }),
       env,
       fakeExecutionContext,
     );
   const before = await savedState(user.userId);
-  const pending = get();
-  await entered;
+  let deniedCount = 0;
+  const calls = Array.from({ length: CALENDAR_PREVIEW_RATE_LIMIT + 1 }, () =>
+    get().then((r) => {
+      if (r.status === 429) deniedCount++;
+      return r;
+    }),
+  );
+  try {
+    await vi.waitFor(() => {
+      expect(entered).toBe(CALENDAR_PREVIEW_RATE_LIMIT);
+      expect(deniedCount).toBe(1);
+    });
+  } finally {
+    release?.();
+  }
+  const responses = await Promise.all(calls);
+  expect(responses.filter((r) => r.status === 200)).toHaveLength(CALENDAR_PREVIEW_RATE_LIMIT);
+  expect(responses.filter((r) => r.status === 429)).toHaveLength(1);
   expect((await get()).status).toBe(429);
-  release?.();
-  expect((await pending).status).toBe(200);
-  expect((await get()).status).toBe(200);
+  expect(await savedState(user.userId)).toEqual(before);
+});
+
+it("A-P3-PREVIEW Worker 真实入口跨请求保留限流桶，失败的读取不退次数", async () => {
+  const { default: worker } = await import("../../index");
+  const clock = vi.spyOn(Date, "now").mockReturnValue(T);
+  const before = await savedState(user.userId);
+  try {
+    for (let i = 0; i < CALENDAR_PREVIEW_RATE_LIMIT; i++) {
+      const r = await worker.fetch(
+        new Request(site + privatePath + "?cursor=bad", {
+          headers: { cookie: `__Host-session=${user.cookie}` },
+        }),
+        env,
+        fakeExecutionContext,
+      );
+      expect(r.status).toBe(400);
+    }
+    const denied = await worker.fetch(
+      new Request(site + privatePath, {
+        headers: { cookie: `__Host-session=${user.cookie}` },
+      }),
+      env,
+      fakeExecutionContext,
+    );
+    expect(denied.status).toBe(429);
+    expect(await denied.text()).not.toContain(user.sessionId);
+  } finally {
+    clock.mockRestore();
+  }
   expect(await savedState(user.userId)).toEqual(before);
 });

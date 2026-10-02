@@ -1,7 +1,8 @@
-import { PUBLIC_CACHE_FRESH, RATE_WINDOWS_MAX } from "@hoyo/contracts";
+import { PUBLIC_CACHE_FRESH } from "@hoyo/contracts";
 import { ApiError, errorResponse } from "../../shell/errors";
 import type { ShellRoute } from "../../shell/router";
 import { FeedPublicCache } from "../feed/public-read";
+import { CalendarPreviewRateGate } from "./rate";
 import { readCalendarNodes, readSavedCalendarPreview, snapshotUnavailable } from "./read";
 
 /** 每 isolate 共用 FeedPublicCache；只在路由边界附传输头，不处理任何 Cookie。 */
@@ -10,8 +11,7 @@ export function makeCalendarPreviewRoutes(
 ): readonly ShellRoute[] {
   const cache = deps.cache ?? new FeedPublicCache(),
     now = deps.now ?? Date.now;
-  // 无新增频率参数：沿用管理路由的同主体在途请求合并保护，簿记受注册表上限限制。
-  const busy = new Set<string>();
+  const rate = new CalendarPreviewRateGate();
   async function respond(work: () => Promise<Response>, privateRead: boolean) {
     let response: Response;
     try {
@@ -46,14 +46,14 @@ export function makeCalendarPreviewRoutes(
           const auth = ctx.auth;
           if (auth.kind !== "session" || auth.domain !== "user")
             throw new ApiError("unauthorized", { code: "unauthorized", reason: "no_session" });
-          if (busy.has(auth.sessionId) || busy.size >= RATE_WINDOWS_MAX)
-            throw new ApiError("rate_limited", { code: "rate_limited" });
-          busy.add(auth.sessionId);
-          try {
-            return await readSavedCalendarPreview(ctx.env.DB, auth.userId, ctx.url, cache, now());
-          } finally {
-            busy.delete(auth.sessionId);
-          }
+          const at = now();
+          const retryAfterMs = rate.take(auth.sessionId, at);
+          if (retryAfterMs > 0)
+            throw new ApiError("rate_limited", {
+              code: "rate_limited",
+              retry_after_ms: retryAfterMs,
+            });
+          return readSavedCalendarPreview(ctx.env.DB, auth.userId, ctx.url, cache, at);
         }, true),
     },
   ];
