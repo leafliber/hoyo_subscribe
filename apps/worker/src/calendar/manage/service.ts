@@ -124,6 +124,32 @@ export async function readCalendar(
     },
   });
 }
+export interface PreviewBinding {
+  expected_revision: number;
+  publication_generation: number;
+}
+const previewPredicate = `EXISTS (SELECT 1 FROM user_subscriptions s
+  WHERE s.user_id=? AND s.state='initialized' AND s.revision=?)
+  AND EXISTS (SELECT 1 FROM public_snapshots p WHERE p.state='current'
+    AND p.generation=? AND p.published_at IS NOT NULL AND p.node_count IS NOT NULL)`;
+function previewParams(userId: string, binding: PreviewBinding) {
+  return [userId, binding.expected_revision, binding.publication_generation];
+}
+async function assertPreview(db: D1Database, userId: string, binding?: PreviewBinding) {
+  if (
+    !binding ||
+    !Number.isSafeInteger(binding.expected_revision) ||
+    binding.expected_revision < 1 ||
+    !Number.isSafeInteger(binding.publication_generation) ||
+    binding.publication_generation < 1 ||
+    !(await db
+      .prepare(`SELECT 1 AS matched WHERE ${previewPredicate}`)
+      .bind(...previewParams(userId, binding))
+      .first())
+  ) {
+    throw new ApiError("conflict", { code: "conflict", reason: "preview_outdated" });
+  }
+}
 export async function mutateCalendar(
   db: D1Database,
   keys: Keyring,
@@ -132,25 +158,41 @@ export async function mutateCalendar(
   expected: number,
   operationKey: string,
   now: number,
+  preview?: PreviewBinding,
 ) {
   if (!Number.isSafeInteger(expected) || expected < 0) conflict();
   const who = await identity(db, session, now);
   if (who.recovery_code_required)
-    throw new ApiError("unauthorized", { code: "unauthorized", reason: "no_session" });
+    throw new ApiError("unauthorized", {
+      code: "unauthorized",
+      reason: "recovery_code_unconfirmed",
+    });
   const before = await readRow(db, session.userId);
   const operation = toHex(
     new Uint8Array(
       await crypto.subtle.digest(
         "SHA-256",
-        utf8Encode(JSON.stringify([action, expected, operationKey])),
+        utf8Encode(
+          JSON.stringify([
+            action,
+            expected,
+            operationKey,
+            ...(action === "enable"
+              ? [preview?.expected_revision, preview?.publication_generation]
+              : []),
+          ]),
+        ),
       ),
     ),
   );
   if (before?.last_management_operation === operation) {
     if (action !== "disable" && before.recovery_epoch !== who.recovery_epoch) conflict();
-    return result(before);
+    return result(before, action === "enable");
   }
   if ((before?.token_generation ?? 0) !== expected) conflict();
+  if (action !== "disable" && !(await currentRecoveryCodeSaved(db, session.userId)))
+    throw new ApiError("unauthorized", { code: "unauthorized", reason: "recovery_code_not_saved" });
+  if (action === "enable") await assertPreview(db, session.userId, preview);
   const enabled = before?.state === "enabled" && before.recovery_epoch === who.recovery_epoch;
   if (
     (action === "enable" && enabled) ||
@@ -158,7 +200,6 @@ export async function mutateCalendar(
   )
     return result(before);
   if (action === "reset" && before === null) conflict();
-  if (action !== "disable" && !(await currentRecoveryCodeSaved(db, session.userId))) conflict();
   const generation = expected + 1;
   const namespace = before?.namespace ?? crypto.randomUUID();
   const token = action === "disable" ? null : generateSecretToken().base64url;
@@ -244,6 +285,7 @@ export async function mutateCalendar(
       : [],
     guard: {
       sql: `UPDATE sessions SET updated_at=? WHERE ${sessionPredicate} AND recovery_code_required=0
+      ${action === "enable" ? `AND ${previewPredicate}` : ""}
       AND ${before ? "EXISTS (SELECT 1 FROM calendar_feeds f WHERE f.user_id=sessions.user_id AND f.token_generation=?)" : "NOT EXISTS (SELECT 1 FROM calendar_feeds f WHERE f.user_id=sessions.user_id)"}
       ${
         charge
@@ -254,6 +296,7 @@ export async function mutateCalendar(
       params: [
         now,
         ...sessionParams(session, now),
+        ...(action === "enable" && preview ? previewParams(session.userId, preview) : []),
         ...(before ? [expected] : []),
         ...(charge ? [userKey, USER_MUTATIONS_DAY, globalKey, GLOBAL_MUTATIONS_DAY] : []),
       ],
@@ -262,8 +305,16 @@ export async function mutateCalendar(
   });
   const current = await readRow(db, session.userId);
   if (outcome.outcome === "committed") return result(current, true);
-  await identity(db, session, now);
-  if (current?.last_management_operation === operation) return result(current);
+  const latestIdentity = await identity(db, session, now);
+  if (latestIdentity.recovery_code_required)
+    throw new ApiError("unauthorized", {
+      code: "unauthorized",
+      reason: "recovery_code_unconfirmed",
+    });
+  if (current?.last_management_operation === operation) return result(current, action === "enable");
+  if (charge && !(await currentRecoveryCodeSaved(db, session.userId)))
+    throw new ApiError("unauthorized", { code: "unauthorized", reason: "recovery_code_not_saved" });
+  if (action === "enable") await assertPreview(db, session.userId, preview);
   if (charge) {
     for (const [key, limit, scope] of [
       [userKey, USER_MUTATIONS_DAY, "user_mutations_day"],

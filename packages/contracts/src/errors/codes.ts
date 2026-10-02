@@ -14,6 +14,8 @@
 // - `details` 是结构化、按 code 判别的机器可读字段；前端据此执行 §11.3 的具体下一步，
 //   不得解析 message 文案反推行为。
 
+import type { CalendarPreviewConflictReason } from "../calendar-preview";
+
 /** 七类错误码（§8.2 末段原文顺序；集合与顺序都是合同）。 */
 export const API_ERROR_CODES = [
   "validation",
@@ -95,6 +97,7 @@ export interface UnauthorizedErrorDetail {
  */
 export interface ConflictErrorDetail {
   readonly code: "conflict";
+  readonly reason?: CalendarPreviewConflictReason;
 }
 
 /**

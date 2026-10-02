@@ -25,6 +25,7 @@ import { SubscriptionConfigSchema } from "./subscription";
 import { DateOnlyValueSchema, ExactTimeValueSchema, TimeValueSchema } from "./time";
 
 export const CalendarPreviewConflictReasonSchema = z.literal("preview_outdated");
+export type CalendarPreviewConflictReason = z.infer<typeof CalendarPreviewConflictReasonSchema>;
 export const CalendarPreviewConfigSchema = SubscriptionConfigSchema.pick({
   scope: true,
   calendar: true,
@@ -347,3 +348,12 @@ export function explainCalendarPreview(
     nodeLimit: feedNodeLimit(projected),
   };
 }
+
+/** 仅分页定位；不携带个人身份或设置。 */
+export const CalendarPreviewCursorSchema = z.strictObject({
+  generation: z.int().positive(),
+  asOf: z.int(),
+  offset: z.int().nonnegative(),
+  revision: z.int().positive().optional(),
+});
+export type CalendarPreviewCursor = z.infer<typeof CalendarPreviewCursorSchema>;
