@@ -14,7 +14,7 @@
 // contracts 七类码；未预期异常折叠为 temporarily_unavailable，只记 error.name
 // （错误 message 可能携带库内部串，不落盘）。
 import type { CsrfKey, UnauthorizedErrorDetail } from "@hoyo/contracts";
-import { type BodySchema, readJsonBody, validateJsonBody } from "./body-schema";
+import { type BodySchema, readFormBody, readJsonBody, validateJsonBody } from "./body-schema";
 import { verifyCsrf } from "./csrf";
 import { type Authenticator, deriveOwnerUserId, type RouteDomain, type ShellAuth } from "./domains";
 import { ApiError, errorResponse } from "./errors";
@@ -50,6 +50,8 @@ export interface ShellRoute {
   readonly allowRecoveryWrite?: true;
   /** 写 API 走完整校验管线（§8.2）。 */
   readonly write: boolean;
+  /** P4-06：封闭的三个 token 退订入口，不能用于其他能力或普通 API。 */
+  readonly protocol?: "unsubscribe";
   /** 写路由的请求体 schema（未知字段拒绝 + 认证类小字段约束都由它表达）。 */
   readonly bodySchema?: BodySchema;
   /**
@@ -107,24 +109,49 @@ export function createApiShell(deps: ShellDeps): {
       const startedAt = Date.now();
       const requestId = crypto.randomUUID();
       let routeLabel = "unmatched";
+      const path = new URL(request.url).pathname;
+      const policy = {
+        unsubscribe: path.startsWith("/unsubscribe") || path.startsWith("/email/one-click"),
+        html: false,
+      };
       let response: Response;
       try {
-        response = await dispatch(deps, request, env, ctx, requestId, (label) => {
-          routeLabel = label;
-        });
+        response = await dispatch(
+          deps,
+          request,
+          env,
+          ctx,
+          requestId,
+          (label) => {
+            routeLabel = label;
+          },
+          policy,
+        );
       } catch (error) {
         if (error instanceof ApiError) {
           response = errorResponse(error.code, error.details);
         } else {
           // 未预期异常：折叠为统一 503；只记 error.name，不落 message（可能含库内部串）。
           logEvent("error", "handler_error", {
-            reason_code: error instanceof Error ? error.name : "non_error_throw",
+            reason_code: policy.unsubscribe
+              ? "unsubscribe_failed"
+              : error instanceof Error
+                ? error.name
+                : "non_error_throw",
             route: routeLabel,
           });
           response = errorResponse("temporarily_unavailable");
         }
       }
-      response = applySecurityHeaders(response);
+      response = applySecurityHeaders(response, policy.html ? "html-same-origin" : "strict");
+      if (policy.unsubscribe) {
+        response.headers.set("cache-control", "no-store");
+        response.headers.delete("set-cookie");
+        if (response.status >= 300 && response.status < 400) {
+          response = applySecurityHeaders(errorResponse("temporarily_unavailable"));
+          response.headers.set("cache-control", "no-store");
+        }
+      }
       logEvent("info", "http_request", {
         request_id: requestId,
         route: routeLabel,
@@ -144,6 +171,7 @@ async function dispatch(
   ctx: ExecutionContext,
   requestId: string,
   labelRoute: (label: string) => void,
+  policy: { unsubscribe: boolean; html: boolean },
 ): Promise<Response> {
   if (request.method === "OPTIONS") {
     return preflightResponse();
@@ -165,6 +193,50 @@ async function dispatch(
     return methodNotAllowedResponse(matched.allowedMethods);
   }
   const route = matched.route;
+  if (route.protocol !== undefined) {
+    policy.unsubscribe = true;
+    labelRoute("unsubscribe:protocol");
+    // 同时核对声明与实际路径；绝不沿用尾通配的宽松匹配结果作为授权边界。
+    if (
+      route.protocol !== "unsubscribe" ||
+      route.domain !== "capability" ||
+      route.allowPending ||
+      route.allowRecoveryWrite ||
+      route.csrf !== undefined ||
+      route.csrfBinding ||
+      !(
+        (route.pattern === "/unsubscribe/*" &&
+          (route.method === "GET" || route.method === "POST")) ||
+        (route.pattern === "/email/one-click/*" && route.method === "POST")
+      ) ||
+      route.write !== (route.method === "POST")
+    ) {
+      throw new Error("invalid_unsubscribe_route");
+    }
+    const prefix = route.pattern.slice(0, -1);
+    const token = url.pathname.slice(prefix.length);
+    if (
+      !url.pathname.startsWith(prefix) ||
+      !/^[A-Za-z0-9_.-]+$/.test(token) ||
+      token === "." ||
+      token === ".."
+    ) {
+      return notFoundResponse();
+    }
+    const body = route.write ? await readFormBody(request, requireSchema(route)) : undefined;
+    policy.html = route.pattern === "/unsubscribe/*";
+    return route.handler({
+      request,
+      url,
+      params: { token },
+      body,
+      auth: { kind: "capability" },
+      ownerUserId: null,
+      requestId,
+      env,
+      executionContext: ctx,
+    });
+  }
   if (
     route.allowPending === true &&
     !(

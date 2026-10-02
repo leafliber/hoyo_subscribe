@@ -213,9 +213,9 @@ try {
   for (const [label, path, method, code] of [
     ["Feed invalid shape", "/feeds/u/synthetic-invalid", "GET", 404],
     ["Feed method refusal", "/feeds/u/synthetic-invalid", "POST", 405],
-    ["unsubscribe explicit refusal", "/unsubscribe/synthetic-invalid", "GET", 404],
-    ["one-click explicit refusal", "/email/one-click/synthetic-invalid", "POST", 404],
-    ["one-click static collision", "/email/one-click/synthetic-invalid", "GET", 404],
+    ["unsubscribe explicit refusal", "/unsubscribe/synthetic-invalid", "GET", 503],
+    ["one-click explicit refusal", "/email/one-click/synthetic-invalid", "POST", 503],
+    ["one-click static collision", "/email/one-click/synthetic-invalid", "GET", 405],
     ["unknown API", "/api/p5-synthetic-missing", "GET", 404],
     ["unknown navigation", "/p5-synthetic-missing", "GET", 404],
   ]) {
@@ -227,11 +227,16 @@ try {
           : { "sec-fetch-mode": "navigate" },
       ...(method === "POST" ? { body: "List-Unsubscribe=One-Click" } : {}),
     });
-    assert.equal(body.error.code, "validation");
-    assert.equal(
-      body.error.details.fields[0].reason,
-      code === 405 ? "method_not_allowed" : "not_found",
-    );
+    if (code === 503) {
+      // 无秘密基线只能证明配置不足时失败关闭；无效 token 的 410 由业务测试覆盖。
+      assert.equal(body.error.code, "temporarily_unavailable");
+    } else {
+      assert.equal(body.error.code, "validation");
+      assert.equal(
+        body.error.details.fields[0].reason,
+        code === 405 ? "method_not_allowed" : "not_found",
+      );
+    }
     passed(`${label}: Worker ${code}, no static fallback`);
   }
   for (const id of ["synthetic-arbitrary-event", "00000000-0000-4000-8000-000000000001"]) {
