@@ -21,9 +21,11 @@ export interface ErrorFeedback {
     | "compare"
     | "wait"
     | "use_other_capability"
+    | "save_recovery_code"
     | "check_status"
     | "retry"
     | "confirm_result";
+  readonly actionHref?: "/recover#save";
   readonly outcome: "failed" | "uncertain";
   readonly preserveInput: boolean;
   readonly automaticRetry: false;
@@ -32,7 +34,10 @@ export interface ErrorFeedback {
   readonly firstInvalidField?: string;
 }
 
-type FeedbackCore = Pick<ErrorFeedback, "title" | "explanation" | "nextStep" | "action">;
+type FeedbackCore = Pick<
+  ErrorFeedback,
+  "title" | "explanation" | "nextStep" | "action" | "actionHref"
+>;
 
 /** 新增 UnauthorizedReason 时，这张表必须补齐，否则 typecheck 失败。 */
 export const UNAUTHORIZED_FEEDBACK: Readonly<Record<UnauthorizedReason, FeedbackCore>> = {
@@ -81,14 +86,16 @@ export const UNAUTHORIZED_FEEDBACK: Readonly<Record<UnauthorizedReason, Feedback
   recovery_code_unconfirmed: {
     title: "先保存新恢复码",
     explanation: "恢复会话的新码尚未完成保存确认，这次写入未执行。",
-    nextStep: "请先生成、保存并确认新恢复码，再继续操作。",
-    action: "check_status",
+    nextStep: "去保存恢复码：请先生成、保存并确认新恢复码，再继续操作。",
+    action: "save_recovery_code",
+    actionHref: "/recover#save",
   },
   recovery_code_not_saved: {
     title: "先确认保存恢复码",
     explanation: "恢复码尚未完成保存确认，这次开启没有执行。",
-    nextStep: "请先保存并确认恢复码，再重新开启。",
-    action: "check_status",
+    nextStep: "去保存恢复码：请先保存并确认恢复码，再重新开启。",
+    action: "save_recovery_code",
+    actionHref: "/recover#save",
   },
   recent_auth_required: {
     title: "需要最近认证",
