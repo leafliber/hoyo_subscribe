@@ -9,7 +9,7 @@ import { fakeExecutionContext } from "../shell/test-support";
 import { toHex } from "../storage/crypto/bytes";
 import { generateSecretToken } from "../storage/crypto/random";
 
-it("A-P3-ADMIN Worker 真实入口挂载会话与审核路由，日志不包含引导秘密/Cookie", async () => {
+it("A-P3-ADMIN A-F6-REVIEW Worker 真实入口挂载会话、退出与审核路由，日志不含秘密", async () => {
   const secret = toHex(generateSecretToken().bytes);
   const configured = {
     ...env,
@@ -69,10 +69,39 @@ it("A-P3-ADMIN Worker 真实入口挂载会话与审核路由，日志不包含�
     );
     expect(privateRoute.status).toBe(401);
     expect(await privateRoute.text()).toContain("wrong_domain");
+    const adminBody = (await response.json()) as { csrf_token: string };
+    const logout = await worker.fetch(
+      new Request(`${origin}/api/v2/admin/session/logout`, {
+        method: "POST",
+        headers: {
+          origin,
+          "content-type": "application/json",
+          cookie: adminCookies.join("; "),
+          [CSRF_HEADER_NAME]: adminBody.csrf_token,
+        },
+        body: "{}",
+      }),
+      configured,
+      fakeExecutionContext,
+    );
+    expect(logout.status).toBe(200);
+    expect(await logout.json()).toEqual({ logged_out: true });
+    expect(
+      (
+        await worker.fetch(
+          new Request(`${origin}/api/v2/admin/review/queue`, {
+            headers: { cookie: adminCookies.join("; ") },
+          }),
+          configured,
+          fakeExecutionContext,
+        )
+      ).status,
+    ).toBe(401);
     const emitted = JSON.stringify(logs.mock.calls);
     expect(emitted).not.toContain(secret);
     expect(emitted).not.toContain(adminCookie.slice(ADMIN_SESSION_COOKIE_NAME.length + 1));
     expect(emitted).not.toContain(CSRF_COOKIE_NAME);
+    expect(emitted).not.toContain(adminBody.csrf_token);
   } finally {
     logs.mockRestore();
   }
