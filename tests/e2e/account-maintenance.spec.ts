@@ -309,6 +309,7 @@ for (const mode of ["reject", "timeout"])
     await page.locator("#email-current-code").fill(code);
     await page.locator("#email-current-verify").click();
     await expect(page.locator("#email-current-status")).toContainText("验证未确认");
+    await expect(page.locator("#email-target")).toHaveValue(target);
     await expect(page.locator("#email-current-code")).toHaveValue("");
     await expect(page.locator("#email-confirm")).toBeDisabled();
     expect(state.writes.filter((w) => w.path.endsWith("/verify"))).toHaveLength(1);
@@ -572,3 +573,45 @@ test("U29 换邮箱后沿用真实登录页显式激活新会话，仍不写订�
     false,
   );
 });
+
+for (const reason of ["no_session", "session_expired"] as const) {
+  for (const path of [
+    "me/recent-auth/challenges",
+    "me/recent-auth/challenges/verify",
+    "me/recent-auth/recovery",
+  ]) {
+    test(`U29 服务端身份失效 ${reason} ${path} 立即清除旧证明和私密输入`, async ({ page }) => {
+      await setup(page);
+      await open(page);
+      if (path.endsWith("/verify")) {
+        await expect(page.locator("#email-current-turnstile-status")).toContainText("已完成");
+        await page.locator("#email-current-send").click();
+        await expect(page.locator("#email-current-verify")).toBeEnabled();
+        await page.locator("#email-current-code").fill(code);
+      }
+      await page.locator("#email-recovery-id").fill("synthetic-unsent-id");
+      await page.locator("#email-recovery-secret").fill("synthetic-unsent-secret");
+      await page.route(`**/api/v2/${path}`, (route) =>
+        route.fulfill({
+          status: 401,
+          json: buildApiErrorBody("unauthorized", { code: "unauthorized", reason }),
+        }),
+      );
+      await page
+        .locator(
+          path.endsWith("/recovery")
+            ? "#email-recovery-prove"
+            : path.endsWith("/verify")
+              ? "#email-current-verify"
+              : "#email-current-send",
+        )
+        .click();
+      await expect(page.locator("#account-email")).toHaveText("未知");
+      await expect(page.locator("#email-target")).toHaveValue("");
+      await expect(page.locator("#email-recovery-id")).toHaveValue("");
+      await expect(page.locator("#email-recovery-secret")).toHaveValue("");
+      await expect(page.locator("#email-proofs")).toBeHidden();
+      await expect(page.locator("#email-confirm")).toBeDisabled();
+    });
+  }
+}

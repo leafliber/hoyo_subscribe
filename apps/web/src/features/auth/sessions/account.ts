@@ -59,6 +59,15 @@ function noSession(error: unknown): boolean {
       error.error.details.reason === "session_expired")
   );
 }
+function clearRejectedIdentity(error: unknown): boolean {
+  if (!noSession(error)) return false;
+  invalidate();
+  proofId = undefined;
+  proofFeedback = "";
+  closeDialog(false);
+  message("当前会话已失效，已清除本页证明和输入。请重新登录后核对账号状态。");
+  return true;
+}
 function clearPrivate(): void {
   summary = null;
   rows = [];
@@ -383,6 +392,7 @@ async function proveDeletion(): Promise<void> {
     proofId = reply.body.proof_id;
   } catch (error) {
     if (!sameActionIdentity(identity)) return;
+    if (clearRejectedIdentity(error)) return;
     proofId = undefined;
     result = `删除用途验证未确认。${explanation(error)}`;
   }
@@ -563,6 +573,7 @@ async function sendProof(id: string): Promise<void> {
     el(`${id}-status`).textContent = "验证码申请已受理，不代表已送达；请查看对应邮箱。";
   } catch (error) {
     if (!valid()) return;
+    if (clearRejectedIdentity(error)) return;
     // For an unknown request keep the same key; an explicit later click can reconcile it.
     if (isApiErrorBody(error)) slot.key = undefined;
     el(`${id}-status`).textContent =
@@ -593,6 +604,7 @@ async function verifyProof(id: string): Promise<void> {
     el(`${id}-status`).textContent = "本次用途验证已完成。";
   } catch (error) {
     if (!valid()) return;
+    if (clearRejectedIdentity(error)) return;
     slot.proof = undefined;
     // Verification cannot be replayed after an unknown response.
     if (!isApiErrorBody(error)) slot.challenge = undefined;
@@ -620,6 +632,7 @@ async function proveEmailRecovery(): Promise<void> {
     el("email-current-status").textContent = "当前账号的换邮箱用途证明已取得；仍需验证新邮箱。";
   } catch (error) {
     if (!valid()) return;
+    if (clearRejectedIdentity(error)) return;
     proofSlots["email-current"].proof = undefined;
     el("email-current-status").textContent = `当前账号证明未确认。${explanation(error)}`;
   }

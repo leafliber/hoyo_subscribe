@@ -16,4 +16,4 @@ CI=1 WRANGLER_SEND_METRICS=false HOYO_E2E_WRITE_EVIDENCE=1 pnpm exec playwright 
 
 实际结果：4 passed。普通 `pnpm test:e2e` 将截图写入被忽略的 `tests/e2e/test-results/`，不会覆盖本目录。
 
-完整命令与结果、58 条本卡标准 E2E 及原账号管理 100 条回归见本卡 PR 交付报告；真实外部服务联调需所有者在另行授权的环境执行。
+完整命令与结果、70 条本卡标准 E2E 及原账号管理 100 条回归见本卡 PR 交付报告；真实外部服务联调需所有者在另行授权的环境执行。
