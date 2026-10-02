@@ -1,0 +1,10 @@
+---
+import "../../features/schedule/detail.css";
+import "../../features/schedule/schedule.css";
+import Layout from "../_Layout.astro";
+---
+<Layout title="事件详情" activeNav="schedule">
+  <div id="event-detail" aria-busy="true"><h1>事件详情</h1><p role="status">正在读取最新已发布事实…</p></div>
+  <noscript><p>启用 JavaScript 后可读取当前事件详情。</p></noscript>
+  <script>import "../../features/schedule/detail-page";</script>
+</Layout>

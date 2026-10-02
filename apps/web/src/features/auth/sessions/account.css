@@ -1,0 +1,62 @@
+.account-page {
+  max-width: var(--width-page-max);
+}
+.account-page section {
+  margin-top: var(--space-6);
+  border-top: var(--border-thin) solid var(--color-border);
+  padding-top: var(--space-5);
+}
+.account-page dl {
+  display: grid;
+  grid-template-columns: minmax(6em, auto) 1fr;
+  gap: var(--space-2) var(--space-4);
+}
+.account-page dt {
+  color: var(--color-text-secondary);
+}
+.account-page dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.account-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-3);
+  margin-bottom: var(--space-3);
+}
+.account-buttons a {
+  display: inline-flex;
+  align-items: center;
+  min-height: var(--tap-target-min);
+}
+.account-sessions {
+  list-style: none;
+  padding: 0;
+}
+.account-sessions li {
+  padding: var(--space-4);
+  margin-bottom: var(--space-3);
+  border: var(--border-thin) solid var(--color-border);
+  border-radius: var(--radius-control);
+  background: var(--color-bg-surface);
+  overflow-wrap: anywhere;
+}
+.account-page button:disabled,
+.dialog button:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+.account-page [hidden],
+.dialog [hidden] {
+  display: none;
+}
+.account-page #account-result,
+.account-page #account-deletion {
+  white-space: pre-line;
+  overflow-wrap: anywhere;
+}
+.dialog-panel {
+  max-height: calc(100dvh - var(--space-6));
+  overflow-y: auto;
+}

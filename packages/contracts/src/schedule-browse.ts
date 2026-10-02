@@ -2,6 +2,7 @@
 
 import type { EventStatus, EventType, GameId, NodeType } from "./enums";
 import { EVENT_TYPES, NODE_TYPES, SUPPORTED_SCOPE_GAMES } from "./enums";
+import type { PublicSourceStatus, PublicStatusResponse } from "./public-api";
 import type { TimeValue } from "./time";
 
 export const BROWSE_RANGES = [
@@ -115,7 +116,7 @@ export interface ScheduleSnapshot {
   nodes: ScheduleNode[];
   sources: { game: GameId; verifiedAt: number; unavailable: boolean; reviewCount: number }[];
 }
-export function nodeAction(node: ScheduleNode): string {
+export function nodeAction(node: Pick<ScheduleNode, "nodeType" | "eventType">): string {
   if (node.nodeType === "start")
     return {
       livestream: "前瞻开始",
@@ -132,7 +133,10 @@ export function nodeAction(node: ScheduleNode): string {
     }[node.eventType];
   return NODE_NAMES[node.nodeType];
 }
-export function nodeStatus(node: ScheduleNode, now: number): string[] {
+export function nodeStatus(
+  node: Pick<ScheduleNode, "status" | "time" | "nodeType">,
+  now: number,
+): string[] {
   if (node.status === "cancelled") return ["官方已取消"];
   if (node.status === "retracted") return ["本站撤回：此前收录有误"];
   if (node.status === "postponed" && node.time.precision === "unknown")
@@ -151,34 +155,34 @@ export function nodeStatus(node: ScheduleNode, now: number): string[] {
     result.push("已到计划开始时间");
   return result;
 }
-export function nodeTime(node: ScheduleNode): string {
+export function nodeTime(node: Pick<ScheduleNode, "status" | "time">): string {
   if (node.status === "cancelled" || node.status === "retracted") return "原安排已失效";
   const prefix = node.time.time_basis === "official_estimate" ? "预计 " : "";
   if (node.time.precision === "datetime") return prefix + browseTimestamp(node.time.utc_ms);
   if (node.time.precision === "date") return `${prefix}${node.time.date} · 具体时间未公布`;
   return "时间待公布";
 }
-export function isDeadline(node: ScheduleNode): boolean {
+export function isDeadline(node: Pick<ScheduleNode, "nodeType" | "eventType">): boolean {
   return (
     node.nodeType === "reward_deadline" ||
     (node.nodeType === "end" && (node.eventType === "limited_event" || node.eventType === "gacha"))
   );
 }
-export interface ScheduleDay {
+export interface ScheduleDay<N = ScheduleNode> {
   date: string;
-  timed: ScheduleNode[];
-  dateOnly: ScheduleNode[];
+  timed: N[];
+  dateOnly: N[];
 }
-function nodeDate(node: ScheduleNode): string | null {
+function nodeDate(node: Pick<ScheduleNode, "time">): string | null {
   if (node.time.precision === "date") return node.time.date;
   if (node.time.precision === "datetime") return browseDate(node.time.utc_ms);
   return null;
 }
-function identityOrder(a: ScheduleNode, b: ScheduleNode): number {
+function identityOrder(a: { id: string }, b: { id: string }): number {
   return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
 }
-function groupDays(nodes: ScheduleNode[]): ScheduleDay[] {
-  const days = new Map<string, ScheduleDay>();
+function groupDays<N extends Pick<ScheduleNode, "id" | "time">>(nodes: N[]): ScheduleDay<N>[] {
+  const days = new Map<string, ScheduleDay<N>>();
   for (const node of nodes) {
     const date = nodeDate(node);
     if (!date) continue;
@@ -197,15 +201,24 @@ function groupDays(nodes: ScheduleNode[]): ScheduleDay[] {
   }
   return [...days.values()].sort((a, b) => a.date.localeCompare(b.date));
 }
-/** 窗口含今天，全部使用服务端给定有限快照；昨天仅出现于固定末尾区域。 */
-export function selectSchedule(snapshot: ScheduleSnapshot, filters: BrowseFilters, now: number) {
-  const window = browseWindow(filters.range, now);
-  const today = browseDate(window.start);
-  const yesterday = browseDate(window.yesterday);
-  const end = window.end === null ? null : browseDate(window.end);
-  const sources = snapshot.sources.filter((source) => filters.games.includes(source.game));
-  const selected = snapshot.nodes.filter((node) => filters.games.includes(node.game));
-  const matches = (node: ScheduleNode) =>
+/** F1-06：只依赖公开节点的浏览字段；不制造 synthetic 快照。 */
+export function selectScheduleCore<
+  N extends Pick<ScheduleNode, "id" | "game" | "eventType" | "nodeType" | "status" | "time">,
+>(
+  input: {
+    nodes: readonly N[];
+    recentChanges: readonly N[];
+    window: { start: number; end: number | null; yesterday: number };
+    sources: readonly PublicSourceStatus[] | null;
+    reviewGaps: PublicStatusResponse["reviewGaps"];
+  },
+  filters: BrowseFilters,
+) {
+  const today = browseDate(input.window.start);
+  const yesterday = browseDate(input.window.yesterday);
+  const end = input.window.end === null ? null : browseDate(input.window.end);
+  const selected = input.nodes.filter((node) => filters.games.includes(node.game));
+  const matches = (node: N) =>
     (!filters.events.length || filters.events.includes(node.eventType)) &&
     (!filters.nodes.length || filters.nodes.includes(node.nodeType)) &&
     (!filters.ending || isDeadline(node));
@@ -221,35 +234,85 @@ export function selectSchedule(snapshot: ScheduleSnapshot, filters: BrowseFilter
     );
   });
   const visible = inWindow.filter(matches);
-  const unavailable = sources.filter((source) => source.unavailable);
-  const review = sources.reduce((total, source) => total + source.reviewCount, 0);
-  const empty: "range" | "filtered" | "source" | "review" | null = visible.length
+  const pending = live
+    .filter((node) => nodeDate(node) === null && matches(node))
+    .sort(identityOrder);
+  const sources = input.sources?.filter((source) => filters.games.includes(source.game)) ?? null;
+  const unavailable =
+    sources?.filter(
+      (source) =>
+        source.verificationState === "unavailable" ||
+        source.degradationReasons.includes("maintenance_required"),
+    ) ?? [];
+  const gaps = input.reviewGaps.filter((gap) => filters.games.includes(gap.game));
+  const reviewUnknown = gaps.some((gap) => gap.count === null);
+  const review = reviewUnknown ? null : gaps.reduce((total, gap) => total + (gap.count ?? 0), 0);
+  const sourcesUnknown =
+    sources === null ||
+    sources.some(
+      (source) =>
+        source.verificationState === "unknown" &&
+        !source.degradationReasons.includes("maintenance_required"),
+    );
+  const empty: "range" | "filtered" | "source" | "review" | "unknown" | null = visible.length
     ? null
     : unavailable.length
       ? "source"
-      : review
+      : reviewUnknown || review
         ? "review"
-        : inWindow.length ||
-            !filters.games.length ||
-            filters.events.length ||
-            filters.nodes.length ||
-            filters.ending
-          ? "filtered"
-          : "range";
+        : sourcesUnknown
+          ? "unknown"
+          : inWindow.length ||
+              !filters.games.length ||
+              filters.events.length ||
+              filters.nodes.length ||
+              filters.ending
+            ? "filtered"
+            : "range";
   return {
     days: groupDays(visible),
     yesterday: {
       date: yesterday,
       groups: groupDays(live.filter((node) => nodeDate(node) === yesterday && matches(node))),
     },
-    pending: live.filter((node) => nodeDate(node) === null && matches(node)).sort(identityOrder),
-    // 公共接口返回的有限更正集合，只受当前游戏约束，不被未来窗口隐藏。
-    changes: selected.filter((node) => node.change).sort(identityOrder),
+    pending,
+    changes: input.recentChanges.filter((node) => filters.games.includes(node.game)),
     sources,
-    verifiedAt: sources.length ? Math.min(...sources.map((source) => source.verifiedAt)) : null,
     unavailable,
+    sourcesUnknown,
     review,
+    reviewUnknown,
     empty,
     count: visible.length,
+  };
+}
+
+/** 样例兼容封装；公开页面直接使用接口 window 和 selectScheduleCore。 */
+export function selectSchedule(snapshot: ScheduleSnapshot, filters: BrowseFilters, now: number) {
+  const sources = snapshot.sources.filter((source) => filters.games.includes(source.game));
+  const view = selectScheduleCore(
+    {
+      nodes: snapshot.nodes,
+      recentChanges: snapshot.nodes.filter((node) => node.change).sort(identityOrder),
+      window: browseWindow(filters.range, now),
+      sources: snapshot.sources.map((source) => ({
+        sourceId: source.game,
+        game: source.game,
+        verifiedAt: source.verifiedAt,
+        verificationState: source.unavailable ? "unavailable" : "verified",
+        degradationReasons: [],
+      })),
+      reviewGaps: snapshot.sources.map((source) => ({
+        game: source.game,
+        count: source.reviewCount,
+      })),
+    },
+    filters,
+  );
+  return {
+    ...view,
+    sources,
+    verifiedAt: sources.length ? Math.min(...sources.map((source) => source.verifiedAt)) : null,
+    unavailable: sources.filter((source) => source.unavailable),
   };
 }
