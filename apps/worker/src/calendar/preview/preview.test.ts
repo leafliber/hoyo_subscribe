@@ -451,11 +451,19 @@ it("A-P3-PREVIEW 串行第 RATE_LIMIT+1 次 429，窗口恢复且拒绝不延长
 });
 
 it("A-P3-PREVIEW 首屏和续页共桶；429 后保留游标，等待窗口后完整续完", async () => {
-  const values = Array.from({ length: 220 }, (_, i) => {
+  // 用时间原文填满预览页，避免每次限流请求还反复折叠超长 ICS 标题。
+  // 仍经过真实投影、字节分页、D1 读取与 Feed 预检，不替换分页上限。
+  const values = Array.from({ length: 80 }, (_, i) => {
     const n = node(`rate-page-${String(i).padStart(3, "0")}`);
     return {
       ...n,
-      projection: { ...n.projection, event: { ...n.projection.event, title: "文".repeat(900) } },
+      projection: {
+        ...n.projection,
+        milestone: {
+          ...n.projection.milestone,
+          time: { ...n.projection.milestone.time, raw_expression: "文".repeat(2400) },
+        },
+      },
     };
   });
   await snapshot(values);
