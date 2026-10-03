@@ -9,6 +9,7 @@ import { join } from "node:path";
 import {
   CALENDAR_PREVIEW_RATE_LIMIT,
   CalendarPreviewResponseSchema,
+  calendarViewSchema,
   SECRET_BITS,
   SUBSCRIPTION_SCHEMA_VERSION,
 } from "@hoyo/contracts";
@@ -72,6 +73,22 @@ try {
       .prepare(text)
       .bind(...args)
       .run();
+  // Explicit synthetic opt-in only. Production missing controls remain closed.
+  const setControl = async (name, value) => {
+    if (value === null) await sql("DELETE FROM system_state WHERE key=?", name);
+    else
+      await sql(
+        "INSERT INTO system_state(key,value_json,updated_at) VALUES (?,?,?) ON CONFLICT(key) DO UPDATE SET value_json=excluded.value_json,updated_at=excluded.updated_at",
+        name,
+        JSON.stringify(value),
+        Date.now(),
+      );
+  };
+  const openSyntheticCalendar = async () => {
+    await setControl("calendar_enabled", true);
+    await setControl("read_only", false);
+  };
+  await openSyntheticCalendar();
   const now = Date.now(),
     id = crypto.randomUUID(),
     session = await makePendingSession(now);
@@ -275,6 +292,107 @@ try {
   assert.equal(stopped.status, 200, "disable");
   assert.notEqual((await mf.dispatchFetch(view.url)).status, 200, "old feed revoked");
   assert.equal((await (await call("/api/v2/me/calendar")).json()).address_state, "disabled");
+  // U20 / P5-01: independent gates, not a second implementation of their policy.
+  // calendar_enabled protects enable; read_only protects enable AND reset.
+  // Each refusal checks persisted state before any subsequent legitimate read.
+  const persistedState = async () =>
+    JSON.stringify(
+      await Promise.all(
+        ["calendar_feeds", "users", "sessions", "user_subscriptions", "capacity_state"].map(
+          async (table) => (await db.prepare(`SELECT * FROM ${table}`).all()).results,
+        ),
+      ),
+    );
+  const ownerView = async () => {
+    const response = await call("/api/v2/me/calendar");
+    assert.equal(response.status, 200, "owner read remains available");
+    return calendarViewSchema.parse(await response.json());
+  };
+  const completePreview = async () => {
+    const response = await call("/api/v2/me/calendar/preview");
+    assert.equal(response.status, 200, "saved preview remains readable");
+    const value = CalendarPreviewResponseSchema.parse(await response.json());
+    assert.equal(value.outcome, "ok");
+    assert.equal(value.nextCursor, null);
+    assert.equal(value.items.length, value.totals.items);
+    return value;
+  };
+  const refuseWithoutMutation = async (action, input, label) => {
+    const beforeState = await persistedState();
+    const response = await call(
+      `/api/v2/me/calendar/${action}`,
+      "POST",
+      input,
+      crypto.randomUUID(),
+    );
+    assert.equal(response.status, 503, `${label}: ${action} refused by runtime gate`);
+    assert.equal((await response.json()).error.code, "temporarily_unavailable");
+    // Boolean comparison prevents assertion failures from dumping private stored credentials.
+    assert.ok((await persistedState()) === beforeState, `${label}: refusal changed no state`);
+  };
+  for (const scenario of [
+    { name: "calendar_enabled missing", calendar: null, readOnly: false },
+    { name: "calendar_enabled false", calendar: false, readOnly: false },
+    { name: "read_only true", calendar: true, readOnly: true },
+  ]) {
+    await openSyntheticCalendar();
+    const previous = await ownerView();
+    const fresh = await completePreview();
+    const currentBinding = {
+      confirmed: true,
+      expected_generation: previous.token_generation,
+      expected_revision: fresh.subscription.revision,
+      publication_generation: fresh.publication.generation,
+    };
+    const reenabled = await call(
+      "/api/v2/me/calendar/enable",
+      "POST",
+      currentBinding,
+      crypto.randomUUID(),
+    );
+    assert.equal(reenabled.status, 200, `${scenario.name}: explicit positive setup`);
+    const activeView = await ownerView();
+    assert.equal(activeView.address_state, "enabled");
+    await setControl("calendar_enabled", scenario.calendar);
+    await setControl("read_only", scenario.readOnly);
+    const activeBinding = { ...currentBinding, expected_generation: activeView.token_generation };
+    await refuseWithoutMutation("enable", activeBinding, scenario.name);
+    if (scenario.readOnly)
+      await refuseWithoutMutation(
+        "reset",
+        { confirmed: true, expected_generation: activeView.token_generation },
+        scenario.name,
+      );
+    const readable = await ownerView();
+    assert.equal(readable.address_state, "enabled");
+    assert.equal(readable.token_generation, activeView.token_generation);
+    assert.ok(readable.url === activeView.url, "gate refusal preserves the private address");
+    await completePreview();
+    const readableFeed = await mf.dispatchFetch(readable.url);
+    assert.equal(readableFeed.status, 200, `${scenario.name}: cookie-free feed remains readable`);
+    const readableText = await readableFeed.text();
+    assert.ok(readableText.includes("BEGIN:VEVENT") && readableText.includes("BEGIN:VALARM"));
+    const disabled = await call(
+      "/api/v2/me/calendar/disable",
+      "POST",
+      { confirmed: true, expected_generation: readable.token_generation },
+      crypto.randomUUID(),
+    );
+    assert.equal(disabled.status, 200, `${scenario.name}: termination remains available`);
+    const disabledView = await ownerView();
+    assert.equal(disabledView.address_state, "disabled");
+    assert.ok(disabledView.url === null, "disabled address is no longer disclosed");
+    assert.equal((await mf.dispatchFetch(readable.url)).status, 404, "old address revoked");
+    await refuseWithoutMutation(
+      "enable",
+      { ...currentBinding, expected_generation: disabledView.token_generation },
+      scenario.name,
+    );
+    console.log(
+      `PASS U20 real Worker/D1 runtime gate: ${scenario.name}; rejection preserves state; owner/preview/ICS reads and disable remain available.`,
+    );
+  }
+  await openSyntheticCalendar();
   let rateLimited = false;
   for (let count = 0; count < CALENDAR_PREVIEW_RATE_LIMIT; count++) {
     const response = await call("/api/v2/me/calendar/preview");
