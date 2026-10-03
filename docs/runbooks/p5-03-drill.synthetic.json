@@ -1,0 +1,64 @@
+{
+  "kind": "E2 synthetic local SQLite / public CLI",
+  "startedAt": "2026-10-03T04:44:54.146Z",
+  "steps": [
+    {
+      "command": "keygen",
+      "exit": 0,
+      "milliseconds": 91,
+      "result": "backup key created privately"
+    },
+    {
+      "command": "backup",
+      "exit": 0,
+      "milliseconds": 124,
+      "result": "{\"result\":\"encrypted\",\"sha256\":\"dfcd434c43dcf95e9c1297eaa8b3ea448efd8fcfa4210108a81995a44bed577d\",\"tables\":43,\"ciphertexts\":4,\"evidence\":1,\"BACKUP_INTERVAL\":604800,\"BACKUP_COPIES\":4}"
+    },
+    {
+      "command": "verify",
+      "exit": 0,
+      "milliseconds": 127,
+      "result": "{\"result\":\"verified\",\"tables\":43,\"ciphertexts\":4,\"evidence\":1}"
+    },
+    {
+      "command": "restore",
+      "exit": 0,
+      "milliseconds": 139,
+      "result": "{\"tables\":43,\"ciphertexts\":4,\"evidence\":1,\"stage\":\"isolated_reconciled\",\"sendingEnabled\":false,\"accountReleaseRequiresOwner\":true,\"unresolvedAccounts\":1,\"migrationRequired\":1,\"oldCredentialsRevoked\":true}"
+    },
+    {
+      "command": "verify",
+      "exit": 1,
+      "milliseconds": 91,
+      "result": "backup operation failed closed; check private inputs and runbook; no release authorized"
+    },
+    {
+      "command": "verify",
+      "exit": 1,
+      "milliseconds": 89,
+      "result": "backup operation failed closed; check private inputs and runbook; no release authorized"
+    },
+    {
+      "command": "restore",
+      "exit": 1,
+      "milliseconds": 126,
+      "result": "backup operation failed closed; check private inputs and runbook; no release authorized"
+    },
+    {
+      "command": "restore",
+      "exit": 1,
+      "milliseconds": 138,
+      "result": "backup operation failed closed; check private inputs and runbook; no release authorized"
+    },
+    {
+      "command": "retention",
+      "exit": 0,
+      "milliseconds": 88,
+      "result": "{\"BACKUP_INTERVAL\":604800,\"BACKUP_COPIES\":4,\"overdue\":false,\"keep\":[{\"sha256\":\"5a9e617dd1df0e7020cb798d576303ed083d728e31aab0ea0c1e5e91d100ba19\",\"capturedAt\":1791002694364},{\"sha256\":\"3084b50e85cb17c4f8106401b98d57cf906014b94e5e230718315f0f879c7695\",\"capturedAt\":1791002694363},{\"sha256\":\"0d2d4b2216e710393e75361538031e40a1bfe3c485f106668659aed3c41fe839\",\"capturedAt\":1791002694362},{\"sha256\":\"6433a0f6a76540078eda9767159c901f54066eb9fbde35c77eca72948938f7dc\",\"capturedAt\":1791002694361}],\"ownerMayRemoveAfterRestoreVerified\":[{\"sha256\":\"074b267de5e191947c80b14e4dd1d5508a38b1d90be39f7bd87c2254ff490489\",\"capturedAt\":1791002694360}]}"
+    }
+  ],
+  "targetEnvironment": "not executed",
+  "providerCalls": 0,
+  "finishedAt": "2026-10-03T04:44:55.205Z",
+  "assertions": "passed"
+}
