@@ -124,6 +124,20 @@ async function openSubscription(
     unexpected.push(new URL(route.request().url()).pathname);
     await route.abort();
   });
+  // F2-02：仅允许同页公开预览读取，其余 API 仍受原断言保护。
+  await page.route(
+    (url) => url.pathname === "/api/v2/calendar/nodes",
+    async (route) => {
+      const request = route.request();
+      const url = new URL(request.url());
+      expect(request.method()).toBe("GET");
+      expect(url.origin).toBe(new URL(page.url()).origin);
+      expect([...url.searchParams.keys()].every((key) => key === "cursor")).toBe(true);
+      expect(request.headers().cookie).toBeUndefined();
+      expect(request.headers()["x-csrf-token"]).toBeUndefined();
+      await route.fulfill({ status: 503, json: {} });
+    },
+  );
   await page.route("**/api/v2/auth/renew", async (route) => {
     expect(route.request().method()).toBe("POST");
     renewals++;

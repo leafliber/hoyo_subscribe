@@ -13,6 +13,7 @@ import {
 } from "@hoyo/contracts";
 import { EmailChannelLifecycle } from "../channels/email/lifecycle";
 import { SubscriptionDraftController } from "./draft/controller";
+import { CalendarPreview } from "./preview/controller";
 import {
   type Draft,
   makeDraft,
@@ -43,7 +44,9 @@ if (form instanceof HTMLFormElement) {
   const saveButton = document.getElementById("save-subscription");
   const discardButton = document.getElementById("discard-changes");
   const channelSummary = document.getElementById("channel-saved-summary");
-  const previewText = document.querySelector("#actual-preview .preview-empty");
+  const previewRoot = document.getElementById("calendar-preview-content");
+  let preview: CalendarPreview | undefined;
+  let identityGeneration = 0;
 
   function selected(name: string): string[] {
     return choices
@@ -203,10 +206,15 @@ if (form instanceof HTMLFormElement) {
             channelSummary.textContent = saved
               ? `接收方式将使用已保存的配置：游戏 ${groupText(saved).游戏}；提醒 ${groupText(saved).提醒}；日历显示 ${groupText(saved).日历显示}；变更消息 ${groupText(saved).变更消息}。版本 ${snapshot.revision}。`
               : "尚无已保存配置可用于开通接收方式。";
-          if (previewText)
-            previewText.textContent = saved
-              ? "尚无实际日历预览。云端设置已保存，但个人日历尚未连接。"
-              : "尚无实际日历预览。当前选项只是本机预选，尚未连接个人日历。";
+          if (previewRoot) {
+            preview ??= new CalendarPreview(previewRoot, () => drafts?.current() ?? false);
+            preview.update({
+              draft: draftFromForm(),
+              snapshot,
+              saved: phase === "saved",
+              identityGeneration,
+            });
+          }
         },
         compare(cloud, draft, visible) {
           if (!comparison || !differences) return;
@@ -248,6 +256,8 @@ if (form instanceof HTMLFormElement) {
     machine: () => machine,
     reset() {
       email?.invalidate();
+      identityGeneration += 1;
+      preview?.invalidate();
       savePhase = "guest";
       machine.dispose();
       for (const choice of choices) choice.checked = initialChoice.get(choice) ?? false;
@@ -261,7 +271,7 @@ if (form instanceof HTMLFormElement) {
       if (saveResult) saveResult.textContent = "";
       if (comparison) comparison.hidden = true;
       differences?.replaceChildren();
-      if (previewText) previewText.textContent = "身份待确认，未展示私人预览。";
+      if (previewRoot) previewRoot.textContent = "身份待确认，已清除原预览。";
       if (saveButton instanceof HTMLButtonElement) saveButton.disabled = false;
       if (discardButton instanceof HTMLButtonElement) discardButton.disabled = false;
       return machine;
@@ -334,6 +344,10 @@ if (form instanceof HTMLFormElement) {
       current: () => drafts?.current() ?? false,
     });
   }
+  window.addEventListener("pagehide", () => {
+    preview?.destroy();
+    preview = undefined;
+  });
   sync();
   void drafts.start();
 }

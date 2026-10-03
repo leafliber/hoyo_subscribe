@@ -1,0 +1,20 @@
+.calendar-preview-list {
+  list-style: none;
+  padding: 0;
+}
+.calendar-preview-item {
+  border: 1px solid var(--color-border);
+  border-radius: 0.6rem;
+  margin-block: 0.75rem;
+  padding: 1rem;
+  overflow-wrap: anywhere;
+}
+.calendar-preview-item h4 {
+  margin-block: 0 0.5rem;
+}
+.calendar-preview-item p {
+  margin-block: 0.5rem;
+}
+.calendar-preview-item.is-correction {
+  border-inline-start: 0.3rem solid currentColor;
+}
