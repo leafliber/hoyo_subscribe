@@ -1,0 +1,234 @@
+{
+  "schema": 1,
+  "synthetic": true,
+  "evidence": "E2_local_workerd",
+  "at": "2026-10-03T08:59:16.838Z",
+  "topology": "one local Worker + built assets; test-only wrapper for seeding and D1 metering",
+  "samples": [
+    {
+      "label": "static-assets",
+      "count": 12,
+      "concurrency": 4,
+      "wallMs": 14.227915999999823,
+      "p50Ms": 4.2923339999999826,
+      "p95Ms": 5.820334000000003,
+      "requestsPerSecond": 843.4123451389613,
+      "queries": 0,
+      "rows_read": 0,
+      "rows_written": 0
+    },
+    {
+      "label": "public-cold",
+      "count": 1,
+      "concurrency": 1,
+      "wallMs": 58.202792000000045,
+      "p50Ms": 58.19158400000015,
+      "p95Ms": 58.19158400000015,
+      "requestsPerSecond": 17.18130635382576,
+      "queries": 4,
+      "rows_read": 1006,
+      "rows_written": 0
+    },
+    {
+      "label": "public-warm",
+      "count": 12,
+      "concurrency": 4,
+      "wallMs": 291.71454200000016,
+      "p50Ms": 94.42270800000006,
+      "p95Ms": 103.5697909999999,
+      "requestsPerSecond": 41.13610489805473,
+      "queries": 24,
+      "rows_read": 60,
+      "rows_written": 0
+    },
+    {
+      "label": "public-status",
+      "count": 8,
+      "concurrency": 2,
+      "wallMs": 23.36895800000002,
+      "p50Ms": 5.3609590000000935,
+      "p95Ms": 7.874458000000004,
+      "requestsPerSecond": 342.3344763596217,
+      "queries": 56,
+      "rows_read": 224,
+      "rows_written": 0
+    },
+    {
+      "label": "authorized-feed-cold",
+      "count": 1,
+      "concurrency": 1,
+      "wallMs": 108.44375000000014,
+      "p50Ms": 108.43787499999985,
+      "p95Ms": 108.43787499999985,
+      "requestsPerSecond": 9.221370526194445,
+      "queries": 7,
+      "rows_read": 1021,
+      "rows_written": 6
+    },
+    {
+      "label": "authorized-feed-warm",
+      "count": 8,
+      "concurrency": 2,
+      "wallMs": 768.924334,
+      "p50Ms": 188.01612499999987,
+      "p95Ms": 204.35141699999986,
+      "requestsPerSecond": 10.404144655408967,
+      "queries": 40,
+      "rows_read": 144,
+      "rows_written": 8
+    },
+    {
+      "label": "authorized-head",
+      "count": 8,
+      "concurrency": 2,
+      "wallMs": 759.3286250000001,
+      "p50Ms": 185.6394580000001,
+      "p95Ms": 196.0679580000001,
+      "requestsPerSecond": 10.535622833921215,
+      "queries": 40,
+      "rows_read": 144,
+      "rows_written": 8
+    },
+    {
+      "label": "authorized-304",
+      "count": 8,
+      "concurrency": 2,
+      "wallMs": 766.3350420000002,
+      "p50Ms": 192.93733399999974,
+      "p95Ms": 197.73366699999997,
+      "requestsPerSecond": 10.439298167967632,
+      "queries": 40,
+      "rows_read": 144,
+      "rows_written": 8
+    },
+    {
+      "label": "private-preview-complete",
+      "count": 1,
+      "concurrency": 1,
+      "wallMs": 220.02150000000074,
+      "p50Ms": 220.01420899999994,
+      "p95Ms": 220.01420899999994,
+      "requestsPerSecond": 4.545010373986163,
+      "queries": 10,
+      "rows_read": 18,
+      "rows_written": 0
+    },
+    {
+      "label": "revoked-hot-feed-and-session",
+      "count": 1,
+      "concurrency": 1,
+      "wallMs": 12.628584000000046,
+      "p50Ms": 12.618459000000257,
+      "p95Ms": 12.618459000000257,
+      "requestsPerSecond": 79.18544153485429,
+      "queries": 7,
+      "rows_read": 14,
+      "rows_written": 0
+    },
+    {
+      "label": "local-fake-provider",
+      "count": 12,
+      "concurrency": 1,
+      "wallMs": 80.01512500000081,
+      "p50Ms": 6.628833000000668,
+      "p95Ms": 9.417791999999281,
+      "requestsPerSecond": 149.97164598567932,
+      "queries": 288,
+      "rows_read": 560,
+      "rows_written": 494
+    },
+    {
+      "label": "full-capacity-manual-reclaim",
+      "count": 1,
+      "concurrency": 1,
+      "wallMs": 76.19545800000014,
+      "p50Ms": 76.19070899999952,
+      "p95Ms": 76.19070899999952,
+      "requestsPerSecond": 13.124141861579178,
+      "queries": 217,
+      "rows_read": 1788,
+      "rows_written": 58
+    },
+    {
+      "label": "full-feedback-rounds-shared-reclaim",
+      "count": 1,
+      "concurrency": 1,
+      "wallMs": 178.46337499999936,
+      "p50Ms": 178.4593329999998,
+      "p95Ms": 178.4593329999998,
+      "requestsPerSecond": 5.603390611659135,
+      "queries": 1000,
+      "rows_read": 1707,
+      "rows_written": 928
+    }
+  ],
+  "platform": {
+    "workers": null,
+    "d1": null,
+    "do": null,
+    "queue": null,
+    "mail": null
+  },
+  "finalRelease": "not_decided",
+  "preview": {
+    "pages": 2,
+    "items": 1000,
+    "complete": true,
+    "sampleOnly": true
+  },
+  "mail": {
+    "calls": 12,
+    "accepted": 4,
+    "unknown": 4,
+    "retryableRejected": 4,
+    "ledger": {
+      "periodKey": "2026-10-03",
+      "pools": {
+        "existing_auth": {
+          "reserved": 0,
+          "settled": 8,
+          "uncertain": 4
+        },
+        "new_registration": {
+          "reserved": 0,
+          "settled": 0,
+          "uncertain": 0
+        },
+        "base_business": {
+          "reserved": 0,
+          "settled": 0,
+          "uncertain": 0
+        },
+        "urgent_business": {
+          "reserved": 0,
+          "settled": 0,
+          "uncertain": 0
+        }
+      }
+    },
+    "realSends": 0
+  },
+  "capacity": {
+    "before": {
+      "accounts": 500,
+      "seats": 100,
+      "routine": 40
+    },
+    "scanned": 500,
+    "pauseRefused": true,
+    "done": true,
+    "feedOnlyRenewed": true,
+    "after": {
+      "accounts": 499,
+      "seats": 99
+    },
+    "ledgerUnchanged": true
+  },
+  "maintenance": {
+    "feedbackQueries": 729,
+    "reclaimQueries": 271,
+    "totalQueries": 1000,
+    "doneFeedback": 40,
+    "leftUnknown": 1
+  }
+}

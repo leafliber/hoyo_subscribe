@@ -1,0 +1,155 @@
+{
+  "synthetic": true,
+  "environment": "local macOS; Node v26.8.1; pnpm 11.11.0; locked Chromium/workerd; CI=1 WRANGLER_SEND_METRICS=false",
+  "firstHead": "cfa3a98",
+  "finalCodeHead": "dcd3381",
+  "first": [
+    {
+      "command": "pnpm install --frozen-lockfile",
+      "exit": 0,
+      "timeout": false,
+      "seconds": 0.175
+    },
+    {
+      "command": "pnpm lint",
+      "exit": 1,
+      "timeout": false,
+      "seconds": 0.467
+    },
+    {
+      "command": "pnpm typecheck",
+      "exit": 0,
+      "timeout": false,
+      "seconds": 4.142
+    },
+    {
+      "command": "pnpm params:verify",
+      "exit": 0,
+      "timeout": false,
+      "seconds": 0.373
+    },
+    {
+      "command": "pnpm migrate:check",
+      "exit": 0,
+      "timeout": false,
+      "seconds": 3.375
+    },
+    {
+      "command": "pnpm test",
+      "exit": 0,
+      "timeout": false,
+      "seconds": 30.205
+    },
+    {
+      "command": "pnpm build",
+      "exit": 124,
+      "timeout": true,
+      "seconds": 300.043
+    },
+    {
+      "command": "pnpm test:e2e",
+      "exit": 0,
+      "timeout": false,
+      "seconds": 132.175
+    }
+  ],
+  "final": [
+    {
+      "command": "pnpm install --frozen-lockfile",
+      "exit": 0,
+      "timeout": false,
+      "seconds": 0.189
+    },
+    {
+      "command": "pnpm lint",
+      "exit": 0,
+      "timeout": false,
+      "seconds": 0.45
+    },
+    {
+      "command": "pnpm typecheck",
+      "exit": 0,
+      "timeout": false,
+      "seconds": 0.976
+    },
+    {
+      "command": "pnpm params:verify",
+      "exit": 0,
+      "timeout": false,
+      "seconds": 0.307
+    },
+    {
+      "command": "pnpm migrate:check",
+      "exit": 0,
+      "timeout": false,
+      "seconds": 3.273
+    },
+    {
+      "command": "pnpm test",
+      "exit": 0,
+      "timeout": false,
+      "seconds": 26.499
+    },
+    {
+      "command": "pnpm build",
+      "exit": 124,
+      "timeout": true,
+      "seconds": 300.038
+    },
+    {
+      "command": "pnpm test:e2e",
+      "exit": 0,
+      "timeout": false,
+      "seconds": 135.624
+    }
+  ],
+  "extras": [
+    {
+      "command": "node scripts/site/smoke.mjs",
+      "exit": 0,
+      "seconds": 61.033
+    },
+    {
+      "command": "pnpm exec tsx --test scripts/backup/backup.test.mjs",
+      "exit": 0,
+      "seconds": 1.211
+    },
+    {
+      "command": "pnpm exec tsx scripts/backup/drill.mjs",
+      "exit": 0,
+      "seconds": 1.371
+    },
+    {
+      "command": "pnpm exec tsx --test scripts/load/reconcile.test.mjs scripts/load/cli.test.mjs",
+      "exit": 0,
+      "seconds": 0.487
+    },
+    {
+      "command": "pnpm exec tsc -p scripts/load/tsconfig.json",
+      "exit": 0,
+      "seconds": 0.36
+    },
+    {
+      "command": "pnpm exec tsx scripts/load/run.mjs",
+      "exit": 0,
+      "seconds": 5.372
+    },
+    {
+      "command": "node scripts/load/regression.mjs",
+      "exit": 0,
+      "seconds": 5.329
+    },
+    {
+      "command": "pnpm exec tsx scripts/load/reconcile.mjs docs/evidence/p5/reconcile.synthetic.json",
+      "exit": 0,
+      "seconds": 0.305
+    },
+    {
+      "command": "pnpm exec tsx scripts/load/policy.mjs",
+      "exit": 0,
+      "seconds": 0.31
+    }
+  ],
+  "platformE3": "not_executed",
+  "finalRelease": "not_decided"
+}

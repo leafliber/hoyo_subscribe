@@ -1,0 +1,124 @@
+{
+  "schema": 1,
+  "synthetic": true,
+  "evidence": "E1_synthetic",
+  "days": [
+    {
+      "day": "2026-10-03",
+      "pools": [
+        {
+          "pool": "auth",
+          "reserved": 2,
+          "settled": 5,
+          "uncertain": 1,
+          "limit": 90,
+          "remaining": 82,
+          "overLimit": false,
+          "floorEngaged": false
+        },
+        {
+          "pool": "base",
+          "settled": 0,
+          "reserved": 0,
+          "uncertain": 0,
+          "limit": 50,
+          "remaining": 50,
+          "overLimit": false,
+          "floorEngaged": null
+        },
+        {
+          "pool": "urgent",
+          "settled": 0,
+          "reserved": 0,
+          "uncertain": 0,
+          "limit": 120,
+          "remaining": 120,
+          "overLimit": false,
+          "floorEngaged": false
+        }
+      ],
+      "signup": {
+        "settled": 0,
+        "reserved": 0,
+        "uncertain": 0,
+        "limit": 10,
+        "overLimit": false
+      },
+      "reserved": 2,
+      "uncertain": 1,
+      "unresolvedSettled": 0,
+      "rejectedKnown": 2,
+      "incoming": 0,
+      "outgoing": 2,
+      "acceptedMinimum": 1,
+      "acceptedMaximum": 2,
+      "platform": null,
+      "comparison": "unknown"
+    },
+    {
+      "day": "2026-10-04",
+      "pools": [
+        {
+          "pool": "auth",
+          "reserved": 0,
+          "settled": 0,
+          "uncertain": 0,
+          "limit": 90,
+          "remaining": 90,
+          "overLimit": false,
+          "floorEngaged": false
+        },
+        {
+          "pool": "base",
+          "settled": 0,
+          "reserved": 0,
+          "uncertain": 0,
+          "limit": 50,
+          "remaining": 50,
+          "overLimit": false,
+          "floorEngaged": null
+        },
+        {
+          "pool": "urgent",
+          "settled": 0,
+          "reserved": 0,
+          "uncertain": 0,
+          "limit": 120,
+          "remaining": 120,
+          "overLimit": false,
+          "floorEngaged": false
+        }
+      ],
+      "signup": {
+        "settled": 0,
+        "reserved": 0,
+        "uncertain": 0,
+        "limit": 10,
+        "overLimit": false
+      },
+      "reserved": 0,
+      "uncertain": 0,
+      "unresolvedSettled": 0,
+      "rejectedKnown": 0,
+      "incoming": 2,
+      "outgoing": 0,
+      "acceptedMinimum": 2,
+      "acceptedMaximum": 2,
+      "platform": null,
+      "comparison": "unknown"
+    }
+  ],
+  "meters": {
+    "workers": null,
+    "d1": null,
+    "do": null,
+    "queue": null
+  },
+  "finalRelease": "not_decided",
+  "notes": [
+    "settled includes accepted AND explicit rejections; reserved is not sent",
+    "unknown remains occupied; no automatic retry or refund",
+    "counts_match is not delivery or billing approval",
+    "meter windows and units are independent; no local CPU conversion or assumed pricing"
+  ]
+}
