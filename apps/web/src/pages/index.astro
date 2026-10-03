@@ -1,7 +1,7 @@
 ---
+import "../styles/base.css";
 import {
   BROWSE_RANGES,
-  BROWSE_TIMEZONE,
   defaultBrowseFilters,
   EVENT_NAMES,
   EVENT_TYPES,
@@ -10,34 +10,121 @@ import {
   NODE_TYPES,
   SUPPORTED_SCOPE_GAMES,
 } from "@hoyo/contracts";
-import "../features/schedule/schedule.css";
+import Icon from "../components/Icon.astro";
 import Layout from "./_Layout.astro";
+import "../features/schedule/schedule.css";
 
 const filters = defaultBrowseFilters();
 ---
-<Layout title="日程" activeNav="schedule">
-  <div class="schedule-home">
-    <div class="schedule-intro">
-      <div><p class="page-kicker">每一段旅程，都有迹可循</p><h1>日程<span class="title-dot" aria-hidden="true">.</span></h1></div>
-      <div class="intro-aside"><p>CN · 简体中文</p><p>{BROWSE_TIMEZONE}</p></div>
-    </div>
-    <form id="browse-filters" class="browse-filters" aria-label="浏览筛选">
-      <fieldset class="game-filters"><legend class="sr-only">游戏选择</legend><div class="game-options">
-        {SUPPORTED_SCOPE_GAMES.map((game) => <label class="game-option"><input type="checkbox" name="games" value={game} checked /><span>{GAME_NAMES[game]}</span></label>)}
-      </div></fieldset>
-      <div class="filter-toolbar"><fieldset class="range-filters"><legend class="sr-only">时间范围</legend><div class="range-options">
-        {BROWSE_RANGES.map((range) => <label class="range-option"><input type="radio" name="range" value={range.id} checked={range.id === filters.range} /><span>{range.label}</span></label>)}
-      </div></fieldset></div><div class="filter-tools"><label class="deadline-filter"><input type="checkbox" name="ending" value="1" />临近截止</label>
-      <details class="more-filters" id="more-filters"><summary>更多筛选<span id="more-summary">事件类型、节点类型</span></summary><div class="more-content">
-        <fieldset><legend>事件类型</legend><div class="checkbox-options">{EVENT_TYPES.map((type) => <label><input type="checkbox" name="events" value={type} />{EVENT_NAMES[type]}</label>)}</div></fieldset>
-        <fieldset><legend>节点类型</legend><div class="checkbox-options">{NODE_TYPES.map((type) => <label><input type="checkbox" name="nodes" value={type} />{NODE_NAMES[type]}</label>)}</div></fieldset>
-      </div></details></div>
-      <div class="filter-summary"><p id="browse-summary">全部游戏 · 近3天</p><button id="reset-filters" type="button">清除筛选</button></div>
+<Layout title="活动日程" activeNav="schedule">
+  <div class="schedule-page">
+    <header class="page-header schedule-header">
+      <div>
+        <p class="eyebrow"><Icon name="clock" />北京时间 UTC+8 · 国服</p>
+        <h1>活动日程</h1>
+        <p class="lead">原神、崩坏：星穹铁道、绝区零的官方活动时间，一眼看清什么时候开始、什么时候截止。</p>
+      </div>
+      <div class="page-header-actions">
+        <a class="button" href="/subscription"><Icon name="calendar-check" />订阅到我的日历</a>
+      </div>
+    </header>
+
+    <form id="browse-filters" class="filter-bar" aria-label="筛选日程">
+      <div class="filter-row">
+        <fieldset class="filter-group">
+          <legend class="filter-label">游戏</legend>
+          <div class="chip-group game-options">
+            {SUPPORTED_SCOPE_GAMES.map((game) => (
+              <label class="chip game-option" data-game={game}>
+                <input type="checkbox" name="games" value={game} checked />
+                <span class="dot" aria-hidden="true"></span>
+                <span>{GAME_NAMES[game]}</span>
+              </label>
+            ))}
+          </div>
+        </fieldset>
+        <fieldset class="filter-group">
+          <legend class="filter-label">时间范围</legend>
+          <div class="segmented range-options">
+            {BROWSE_RANGES.map((range) => (
+              <label class="range-option">
+                <input type="radio" name="range" value={range.id} checked={range.id === filters.range} />
+                <span>{range.label}</span>
+              </label>
+            ))}
+          </div>
+        </fieldset>
+      </div>
+      <div class="filter-row filter-row--tools">
+        <label class="chip deadline-filter">
+          <input type="checkbox" name="ending" value="1" />
+          <Icon name="hourglass" class="icon" />
+          <span>只看截止</span>
+        </label>
+        <details class="more-filters" id="more-filters">
+          <summary class="chip more-toggle">
+            <Icon name="sliders" />
+            <span>更多筛选</span>
+            <span id="more-summary" class="more-summary"></span>
+          </summary>
+          <div class="more-content">
+            <fieldset>
+              <legend class="filter-label">活动类型</legend>
+              <div class="chip-group">
+                {EVENT_TYPES.map((type) => (
+                  <label class="chip">
+                    <input type="checkbox" name="events" value={type} />
+                    <Icon name="check" class="chip-check" />
+                    <span>{EVENT_NAMES[type]}</span>
+                  </label>
+                ))}
+              </div>
+            </fieldset>
+            <fieldset>
+              <legend class="filter-label">节点类型</legend>
+              <div class="chip-group">
+                {NODE_TYPES.map((type) => (
+                  <label class="chip">
+                    <input type="checkbox" name="nodes" value={type} />
+                    <Icon name="check" class="chip-check" />
+                    <span>{NODE_NAMES[type]}</span>
+                  </label>
+                ))}
+              </div>
+            </fieldset>
+          </div>
+        </details>
+        <p id="browse-summary" class="filter-summary-text" aria-live="polite"></p>
+        <button id="reset-filters" type="button" class="link-button reset-filters">清除筛选</button>
+      </div>
     </form>
-    <div id="schedule-results" aria-busy="true"><p role="status">正在加载公开日程…</p></div>
-    <div class="subscription-hint"><div><strong>把日程，放进你的日历。</strong><p>浏览筛选只影响当前页面，订阅内容由你另行设置。</p></div><a href="/subscription">设置我的订阅 →</a></div>
+
+    <div class="schedule-layout">
+      <div id="schedule-results" class="schedule-results" aria-busy="true">
+        <section class="timeline card" aria-label="正在加载日程">
+          <div class="timeline-skeleton" role="status">
+            <span class="sr-only">正在加载公开日程…</span>
+            <div class="skeleton skeleton-line"></div>
+            <div class="skeleton skeleton-row"></div>
+            <div class="skeleton skeleton-row"></div>
+            <div class="skeleton skeleton-row"></div>
+          </div>
+        </section>
+      </div>
+      <aside class="schedule-aside" aria-label="日程概览">
+        <div id="schedule-aside-dynamic" class="aside-stack"></div>
+        <section class="card aside-card subscribe-card">
+          <div class="card-body">
+            <div class="subscribe-icon" aria-hidden="true"><Icon name="bell" /></div>
+            <h2 class="aside-title">不想错过截止时间？</h2>
+            <p>选好关注的游戏，生成私人日历链接。添加到手机或电脑日历后会自动更新，还能提前提醒你。</p>
+            <a class="button button--block" href="/subscription">设置订阅<Icon name="arrow-right" /></a>
+          </div>
+        </section>
+      </aside>
+    </div>
     <p id="browse-announcement" class="sr-only" role="status"></p>
-    <noscript><p class="data-warning">启用 JavaScript 后可读取和筛选公开日程。</p></noscript>
+    <noscript><p class="callout callout--warning">启用 JavaScript 后可读取和筛选公开日程。</p></noscript>
   </div>
   <script>import "../features/schedule/home";</script>
 </Layout>

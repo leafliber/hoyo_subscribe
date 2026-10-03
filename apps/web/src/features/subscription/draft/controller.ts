@@ -1,4 +1,3 @@
-import "./style.css";
 import { type DraftIdentity, DraftStorage } from "../../../lib/storage/drafts";
 import {
   DRAFT_IDENTITY_EVENT,
@@ -39,29 +38,45 @@ export class SubscriptionDraftController {
       readIdentity?(): Promise<DraftIdentity>;
     },
   ) {
-    const section = document.createElement("section");
-    section.className = "local-preferences";
+    const section = document.createElement("details");
+    section.className = "card local-preferences";
     section.setAttribute("aria-labelledby", "local-preferences-heading");
+    const summary = document.createElement("summary");
     const heading = document.createElement("h2");
     heading.id = "local-preferences-heading";
-    heading.textContent = "本机草稿与偏好文件";
+    heading.textContent = "导入或导出设置";
     this.status.id = "local-draft-status";
+    this.status.className = "local-status";
     this.status.setAttribute("role", "status");
+    summary.append(heading, this.status);
+    const body = document.createElement("div");
+    body.className = "local-body";
     this.result.id = "preference-result";
+    this.result.className = "result-message";
     this.result.setAttribute("role", "status");
     const note = document.createElement("p");
+    note.className = "text-aux";
     note.textContent =
-      "本机草稿按账号隔离，但不是加密存储。偏好文件只含订阅设置；账号必要数据导出需另行认证。导入后请先比较，再显式保存。";
+      "导出的文件只包含订阅设置，不含邮箱、恢复码或日历链接。导入后会先和当前设置比较，保存后才生效。未保存的修改会暂存在本机（不加密，按账号隔离）。";
     const label = document.createElement("label");
-    label.textContent = "导入偏好 JSON";
+    label.className = "button button--secondary file-button";
+    const labelText = document.createElement("span");
+    labelText.textContent = "导入偏好 JSON";
     this.input.type = "file";
     this.input.accept = ".json,application/json";
-    label.append(this.input);
-    this.exportButton.className = "secondary-button";
+    this.input.className = "visually-hidden";
+    label.append(labelText, this.input);
+    this.exportButton.className = "button button--secondary";
     this.exportButton.type = "button";
     this.exportButton.textContent = "导出当前偏好";
-    section.append(heading, this.status, note, label, this.exportButton, this.result);
-    host.form.after(section);
+    const actions = document.createElement("div");
+    actions.className = "button-row";
+    actions.append(label, this.exportButton);
+    body.append(note, actions, this.result);
+    section.append(summary, body);
+    const slot = document.getElementById("local-preferences-slot");
+    if (slot) slot.replaceChildren(section);
+    else host.form.after(section);
     this.input.addEventListener("change", () => void this.importFile());
     this.exportButton.addEventListener("click", () => this.exportFile());
     window.addEventListener("online", () => this.network());
@@ -100,6 +115,11 @@ export class SubscriptionDraftController {
     this.channel.onmessage = () => {
       void this.switchIdentity({ status: "unknown" });
     };
+  }
+
+  /** 页面状态呈现用：只暴露确认进度，不暴露 user_id。 */
+  identityStatus(): DraftIdentity["status"] {
+    return this.identity.status;
   }
 
   /** 每个异步响应写 UI 前再检查会话边界；标识仅留内存，不落盘。 */
@@ -288,18 +308,18 @@ export class SubscriptionDraftController {
       void this.persist(null);
     }
     if (this.storageFailed)
-      this.status.textContent = "无法保存本机草稿；当前修改仅在内存中，请导出偏好备份。";
+      this.status.textContent = "无法暂存本机草稿，修改只在当前页面中，建议先导出备份。";
     else if (this.identity.status === "unknown")
-      this.status.textContent = "尚未确认账号身份；未读取私人缓存，当前草稿仅在内存中。";
+      this.status.textContent = "正在确认账号身份，修改暂时只在当前页面中。";
     else if (this.pending && this.persisted)
       this.status.textContent = navigator.onLine
-        ? "有待保存草稿：仅保存在本机，尚未同步。请比较后点击保存订阅。"
-        : "离线：仅保存在本机，尚未同步。";
-    else if (this.pending) this.status.textContent = "正在保存本机草稿，尚未同步。";
+        ? "未保存的修改已暂存在本机，尚未同步到云端。"
+        : "当前离线：修改已暂存在本机，联网后需要手动保存。";
+    else if (this.pending) this.status.textContent = "正在暂存本机修改…";
     else
       this.status.textContent = navigator.onLine
-        ? "本机草稿就绪；更改不会自动提交云端。"
-        : "当前离线；更改不会自动提交云端。";
+        ? "修改不会自动提交，需要点击保存。"
+        : "当前离线；修改不会自动提交。";
   }
 
   private network(): void {

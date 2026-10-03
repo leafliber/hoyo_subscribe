@@ -33,15 +33,20 @@ export function unsubscribePage(state: PageState): Response {
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="referrer" content="no-referrer">
 <meta name="robots" content="noindex, nofollow">
+<link rel="stylesheet" href="/mail-page.css">
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
 <title>${title} · HoYo日历</title>
 </head>
 <body>
 <header><p>HoYo日历 · 邮件退订</p></header>
 <main>
+<div class="mail-card">
 <h1>${title}</h1>
 <p>${description}</p>
-${current ? "<p>日历订阅、浏览器通知（Push）、账号和验证码邮件不受影响。</p>" : ""}
+${current ? '<p class="mail-note">日历订阅、浏览器通知（Push）、账号和验证码邮件不受影响。</p>' : ""}
 ${state === "confirm" ? '<form method="post"><button type="submit" name="confirm" value="unsubscribe">关闭此邮箱的业务邮件</button></form>' : ""}
+<p class="mail-links"><a href="/subscription">管理我的订阅</a> · <a href="/">查看活动日程</a></p>
+</div>
 </main>
 </body>
 </html>`,

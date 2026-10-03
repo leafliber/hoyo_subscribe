@@ -170,9 +170,14 @@ async function setup(page: Page, widget = true) {
 async function open(page: Page) {
   await page.goto("/account");
   await expect(page.locator("#account-logout")).toBeEnabled();
-  await page.locator("#email-maintenance summary").click();
+  await page.locator("#email-maintenance > summary").click();
   await page.locator("#email-target").fill(target);
   await page.locator("#email-start").click();
+}
+/** The redesign tucks the recovery-code proof behind a disclosure in the current-email card. */
+async function recoveryProof(page: Page) {
+  await page.locator("#email-proofs summary", { hasText: "改用恢复码证明" }).click();
+  await expect(page.locator("#email-recovery-form")).toBeVisible();
 }
 async function prove(page: Page, id: string) {
   await expect(page.locator(`#${id}-turnstile-status`)).toContainText("已完成");
@@ -205,9 +210,12 @@ test("U29 双 OTP 绑定同一目标与两种角色，先清身份再换邮箱�
   await expect(page.locator("#email-confirm")).toBeDisabled();
   await prove(page, "email-new");
   await page.locator("#email-confirm").click();
-  await expect(page.locator("#email-change-result")).toContainText("换邮箱已确认");
-  await expect(page.locator("#email-change-result")).toContainText("新邮箱业务邮件尚未开启");
-  await expect(page.locator("#email-activate")).toHaveAttribute("href", "/login");
+  await expect(page.locator("#email-change-result")).toContainText("邮箱已更换");
+  await expect(page.locator("#email-change-result")).toContainText("新邮箱的邮件通知需要重新开启");
+  await expect(page.locator("#email-activate")).toHaveAttribute(
+    "href",
+    "/login?returnTo=%2Faccount",
+  );
   const requests = state.writes;
   expect(requests.map((w) => w.path)).toEqual([
     "me/recent-auth/challenges",
@@ -246,6 +254,7 @@ test("U29 双 OTP 绑定同一目标与两种角色，先清身份再换邮箱�
 test("U29 恢复码可证明当前账号，新邮箱仍必须单独验证", async ({ page }) => {
   const state = await setup(page);
   await open(page);
+  await recoveryProof(page);
   await page.locator("#email-recovery-id").fill("synthetic-recovery-id");
   await page.locator("#email-recovery-secret").fill("synthetic-secret");
   await page.locator("#email-recovery-prove").click();
@@ -254,7 +263,7 @@ test("U29 恢复码可证明当前账号，新邮箱仍必须单独验证", asyn
   await expect(page.locator("#email-recovery-secret")).toHaveValue("");
   await prove(page, "email-new");
   await page.locator("#email-confirm").click();
-  await expect(page.locator("#email-change-result")).toContainText("换邮箱已确认");
+  await expect(page.locator("#email-change-result")).toContainText("邮箱已更换");
   expect(state.writes[0].body).toMatchObject({ action: "email_change", target_email: target });
   expect(state.writes.at(-1)?.body.current_proof_id).toBe("proof-recovery");
 });
@@ -345,6 +354,7 @@ for (const path of [
     }
     state.hold = path;
     if (path.endsWith("/recovery")) {
+      await recoveryProof(page);
       await page.locator("#email-recovery-id").fill("synthetic-id");
       await page.locator("#email-recovery-secret").fill("synthetic-secret");
       await page.locator("#email-recovery-prove").click();
@@ -364,7 +374,8 @@ for (const path of [
     await expect(page.locator("#account-refresh")).toBeEnabled();
     await expect(page.locator("#email-proofs")).toBeHidden();
     await expect(page.locator("#email-target")).toHaveValue("");
-    await expect(page.locator("#email-change-result")).not.toContainText("换邮箱已确认");
+    await expect(page.locator("#email-change-result")).not.toContainText("邮箱已更换");
+    await expect(page.locator("#email-activate")).toBeHidden();
     await expect(page.locator("#email-confirm")).toBeDisabled();
   });
 
@@ -387,7 +398,7 @@ test("U29 恢复受限账号由 contracts 阻止换邮箱但保留删除例外",
   state.facts.session.recovery_login_at = time;
   await page.goto("/account");
   await expect(page.locator("#account-logout")).toBeEnabled();
-  await page.locator("#email-maintenance summary").click();
+  await page.locator("#email-maintenance > summary").click();
   await expect(page.locator("#email-start")).toBeDisabled();
   await page.locator("#account-delete-open").click();
   await expect(page.locator("#delete-confirm")).toBeEnabled();
@@ -432,6 +443,7 @@ for (const signal of ["local", "broadcast", "read-new-user", "read-new-session"]
     const state = await setup(page);
     await open(page);
     await both(page);
+    await recoveryProof(page);
     await page.locator("#email-recovery-secret").fill("synthetic-unused-secret");
     if (signal === "local")
       await page.evaluate(() =>
@@ -519,7 +531,7 @@ test("U29 换邮箱成功页面证据只含合成脱敏数据", async ({ page },
   await open(page);
   await both(page);
   await page.locator("#email-confirm").click();
-  await expect(page.locator("#email-change-result")).toContainText("旧会话已撤销");
+  await expect(page.locator("#email-change-result")).toContainText("所有设备都已退出登录");
   const dir =
     process.env.HOYO_E2E_WRITE_EVIDENCE === "1"
       ? "tests/e2e/evidence/f4-04"
@@ -565,11 +577,12 @@ test("U29 换邮箱后沿用真实登录页显式激活新会话，仍不写订�
     return route.fulfill({ json: { activated: true } });
   });
   await page.locator("#email-activate").click();
-  await expect(page).toHaveURL(/\/login$/);
+  await expect(page).toHaveURL(/\/login\?returnTo=%2Faccount$/);
   await expect(page.locator("#activate")).toBeEnabled();
   expect(activated).toBe(false);
   await page.locator("#activate").click();
-  await expect(page.locator("#auth-result")).toContainText("登录已完成");
+  // With returnTo the login page reports success and goes straight back to /account.
+  await expect(page).toHaveURL(/\/account$/);
   expect(activated).toBe(true);
   expect(state.writes.some((w) => /subscription|email-channel|calendar|push/.test(w.path))).toBe(
     false,
@@ -591,6 +604,7 @@ for (const reason of ["no_session", "session_expired"] as const) {
         await expect(page.locator("#email-current-verify")).toBeEnabled();
         await page.locator("#email-current-code").fill(code);
       }
+      await recoveryProof(page);
       await page.locator("#email-recovery-id").fill("synthetic-unsent-id");
       await page.locator("#email-recovery-secret").fill("synthetic-unsent-secret");
       await page.route(`**/api/v2/${path}`, (route) =>

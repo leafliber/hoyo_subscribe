@@ -160,6 +160,146 @@ export const CONTRAST_CHECKS: readonly ContrastCheck[] = [
     text: { color: "--color-text-secondary" },
     ...onBandTint,
   },
+  // —— 浅底分组面（卡片内的次级面、凹陷底、悬停）——
+  ...(["--color-bg-subtle", "--color-bg-sunken", "--color-bg-hover"] as const).flatMap((base) => [
+    {
+      use: `次要文字 on ${base}`,
+      min: CONTRAST_NORMAL_TEXT,
+      text: { color: "--color-text-secondary" },
+      background: { base },
+    },
+    {
+      use: `辅助文字 on ${base}`,
+      min: CONTRAST_NORMAL_TEXT,
+      text: { color: "--color-text-aux" },
+      background: { base },
+    },
+  ]),
+  {
+    use: "链接 on 悬停底",
+    min: CONTRAST_NORMAL_TEXT,
+    text: { color: "--color-accent" },
+    background: { base: "--color-bg-hover" },
+  },
+  // —— 强调浅底：选中态、导航当前项、提示条 info、徽标 ——
+  {
+    use: "强调深色文字 on 强调浅底（选中胶囊/导航当前项/徽标）",
+    min: CONTRAST_NORMAL_TEXT,
+    text: { color: "--color-accent-strong" },
+    background: { base: "--color-accent-soft" },
+  },
+  {
+    use: "链接 on 强调浅底（info 提示条内链接）",
+    min: CONTRAST_NORMAL_TEXT,
+    text: { color: "--color-accent" },
+    background: { base: "--color-accent-soft" },
+  },
+  {
+    use: "正文 on 强调浅底",
+    min: CONTRAST_NORMAL_TEXT,
+    text: { color: "--color-text-primary" },
+    background: { base: "--color-accent-soft" },
+  },
+  {
+    use: "次要文字 on 强调浅底",
+    min: CONTRAST_NORMAL_TEXT,
+    text: { color: "--color-text-secondary" },
+    background: { base: "--color-accent-soft" },
+  },
+  {
+    use: "辅助文字 on 强调浅底",
+    min: CONTRAST_NORMAL_TEXT,
+    text: { color: "--color-text-aux" },
+    background: { base: "--color-accent-soft" },
+  },
+  {
+    use: "焦点环 on 强调浅底",
+    min: CONTRAST_UI_COMPONENT,
+    text: { color: "--color-focus-ring" },
+    background: { base: "--color-accent-soft" },
+  },
+  // —— 状态浅底：徽标与提示条 ——
+  {
+    use: "成功文字 on 成功浅底",
+    min: CONTRAST_NORMAL_TEXT,
+    text: { color: "--color-success" },
+    background: { base: "--color-success-soft" },
+  },
+  {
+    use: "警告文字 on 警告浅底",
+    min: CONTRAST_NORMAL_TEXT,
+    text: { color: "--color-warning" },
+    background: { base: "--color-warning-soft" },
+  },
+  {
+    use: "错误文字 on 错误浅底",
+    min: CONTRAST_NORMAL_TEXT,
+    text: { color: "--color-danger" },
+    background: { base: "--color-danger-soft" },
+  },
+  ...(["--color-success-soft", "--color-warning-soft", "--color-danger-soft"] as const).map(
+    (base) => ({
+      use: `正文 on ${base}（提示条正文）`,
+      min: CONTRAST_NORMAL_TEXT,
+      text: { color: "--color-text-primary" },
+      background: { base },
+    }),
+  ),
+  {
+    use: "次要文字 on 警告浅底",
+    min: CONTRAST_NORMAL_TEXT,
+    text: { color: "--color-text-secondary" },
+    background: { base: "--color-warning-soft" },
+  },
+  {
+    use: "辅助文字 on 警告浅底",
+    min: CONTRAST_NORMAL_TEXT,
+    text: { color: "--color-text-aux" },
+    background: { base: "--color-warning-soft" },
+  },
+  // —— 实心按钮与标记 ——
+  {
+    use: "危险按钮文字 on 错误色",
+    min: CONTRAST_NORMAL_TEXT,
+    text: { color: "--color-on-accent" },
+    background: { base: "--color-danger" },
+  },
+  {
+    use: "危险按钮文字 on 错误色悬停态",
+    min: CONTRAST_NORMAL_TEXT,
+    text: { color: "--color-on-accent" },
+    background: { base: "--color-danger-strong" },
+  },
+  {
+    use: "完成标记 on 成功色",
+    min: CONTRAST_UI_COMPONENT,
+    text: { color: "--color-on-accent" },
+    background: { base: "--color-success" },
+  },
+  {
+    use: "轻提示文字（深色底）",
+    min: CONTRAST_NORMAL_TEXT,
+    text: { color: "--color-bg-surface" },
+    background: { base: "--color-text-primary" },
+  },
+  {
+    use: "表单控件边框（surface）",
+    min: CONTRAST_UI_COMPONENT,
+    text: { color: "--color-control-border" },
+    ...onSurface,
+  },
+  {
+    use: "强调深色文字（surface，眉标/选中文字）",
+    min: CONTRAST_NORMAL_TEXT,
+    text: { color: "--color-accent-strong" },
+    ...onSurface,
+  },
+  {
+    use: "警告文字（页面底）",
+    min: CONTRAST_NORMAL_TEXT,
+    text: { color: "--color-warning" },
+    ...onPage,
+  },
   // —— 半透明降权文字：对合成后的实际颜色测 ——
   {
     use: "降权文字（合成，surface 上）",

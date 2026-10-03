@@ -78,7 +78,8 @@ function clearPrivate(): void {
   }
   el("account-sessions").replaceChildren();
   el("account-recovery").textContent = "恢复码保存状态未知。";
-  el("account-lag").textContent = "设备列表尚未确认，请重新读取。";
+  el("account-recovery").className = "recovery-state";
+  el("account-lag").textContent = "设备列表尚未确认，请刷新。";
 }
 function invalidate(): void {
   // Must precede logout, current-session revocation and deletion requests.
@@ -93,6 +94,7 @@ function invalidate(): void {
 function renderActions(): void {
   const actions = summary ? deriveAccountActions(summary, now()) : null;
   const ready = summary !== null && sessionReady;
+  el("account-login").hidden = summary !== null;
   renderMaintenance(ready);
   button("account-refresh").disabled = busy;
   button("account-logout").disabled = busy || !ready;
@@ -118,54 +120,75 @@ function renderActions(): void {
   el("account-delete-reason").textContent = reason;
   el("delete-proof-status").textContent = `${reason} ${proofFeedback}`;
   el("delete-proof-form").hidden = summary?.session.recovery_code_required === true;
+  // 恢复会话的删除例外不需要用途证明：整块验证说明与入口一起隐藏，改为直接说明可删除。
+  el("delete-proofs").hidden = summary?.session.recovery_code_required === true;
+  el("delete-restricted-note").hidden = summary?.session.recovery_code_required !== true;
   for (const item of el("account-sessions").querySelectorAll<HTMLButtonElement>("button")) {
     item.disabled = busy || !ready;
   }
   if (summary) {
     const expiry = Math.min(summary.session.expires_at, summary.session.absolute_expires_at);
-    el("account-expiry").textContent = `有效期至 ${stamp(expiry)}。${
-      isSessionExpiryNotice(expiry, now()) ? "会话临近到期或已到期，请重新验证邮箱登录。" : ""
+    el("account-expiry").textContent = `${stamp(expiry)} 前有效${
+      isSessionExpiryNotice(expiry, now()) ? "（即将到期，请留意重新登录）" : ""
     }`;
   }
 }
 function renderSummary(facts: AccountSummary): void {
-  el("account-email").textContent =
-    `${facts.email.masked}（已验证，地址版本 ${facts.email.email_version}）`;
+  el("account-email").textContent = `${facts.email.masked}（已验证）`;
   el("account-subscription").textContent =
-    facts.subscription.state === "initialized" ? "已保存云端订阅内容" : "尚未保存云端订阅内容";
+    facts.subscription.state === "initialized" ? "已保存到云端" : "尚未保存";
   el("account-mail").textContent =
     facts.channels.email.state === "unknown"
       ? "未知"
       : facts.channels.email.state === "enabled"
-        ? "席位已启用；不代表邮件已送达"
-        : "已关闭";
+        ? "已开启（不代表每封都送达）"
+        : "未开启";
   el("account-reclaim").textContent =
     facts.reclaim_grace_until === null
-      ? "服务端未给出回收宽限期限；不据网页登录频率判断账号活动。"
-      : `服务端记录的回收宽限期限：${stamp(facts.reclaim_grace_until)}。请及时核对账号使用状态。`;
+      ? "正常使用中"
+      : `账号将在 ${stamp(facts.reclaim_grace_until)} 后可能被回收。继续使用（包括日历应用拉取）即可保留。`;
   el("account-recovery").textContent = facts.session.recovery_code_required
-    ? "恢复登录后尚未确认新码：可查看、导出、保存新码和删除账号；启用通道与换邮箱受限。"
+    ? "恢复登录后还没有保存新码。在此之前只能查看、导出、保存新码或删除账号。"
     : facts.recovery_code_saved
-      ? "当前恢复码已确认保存。"
-      : "当前恢复码尚未确认保存；启用长期通道前需先保存。";
+      ? "恢复码已保存。"
+      : "还没有保存恢复码。启用日历订阅或邮件通知前需要先保存。";
+  el("account-recovery").className = `recovery-state ${
+    facts.session.recovery_code_required || !facts.recovery_code_saved
+      ? "callout callout--warning"
+      : "callout callout--success"
+  }`;
 }
 function renderSessions(): void {
   el("account-sessions").replaceChildren();
   el("account-lag").textContent =
-    `最近续期时间最多滞后一个续期间隔（${SESSION_RENEW_INTERVAL / (24 * 60 * 60)} 天），不代表最后一次使用或账号不活跃。`;
+    `「最近续期」最多滞后 ${SESSION_RENEW_INTERVAL / (24 * 60 * 60)} 天，不代表最后一次使用时间。`;
   for (const row of rows) {
     const li = document.createElement("li");
+    li.className = row.is_current ? "is-current" : "";
+    const icon = document.createElement("span");
+    icon.className = "session-icon";
+    icon.setAttribute("aria-hidden", "true");
+    icon.textContent = row.label.slice(0, 1).toUpperCase();
+    const body = document.createElement("div");
+    body.className = "session-body";
     const title = document.createElement("h3");
-    title.textContent = `${row.label}${row.is_current ? " · 当前会话" : ""}`;
+    title.textContent = row.label;
+    if (row.is_current) {
+      const badge = document.createElement("span");
+      badge.className = "badge badge--accent";
+      badge.textContent = "当前设备";
+      title.append(" ", badge);
+    }
     const state = document.createElement("p");
     state.textContent = `${row.state === "active" ? "已激活" : "待激活"} · 创建于 ${stamp(row.created_at)} · 最近续期 ${stamp(row.renewed_at)}`;
+    body.append(title, state);
     const revokeButton = document.createElement("button");
     revokeButton.type = "button";
-    revokeButton.className = "button button--secondary";
+    revokeButton.className = "button button--secondary button--sm";
     revokeButton.textContent = row.is_current ? "撤销当前会话" : `撤销 ${row.label}`;
     revokeButton.addEventListener("click", () => void run(() => revoke(row)));
     // Keep the identifier in the closure, not in a URL, storage or telemetry.
-    li.append(title, state, revokeButton);
+    li.append(icon, body, revokeButton);
     el("account-sessions").append(li);
   }
 }
@@ -242,7 +265,11 @@ async function refresh(): Promise<boolean> {
     clearPrivate();
     proofId = undefined;
     clearMaintenance();
-    message(`账号状态尚未确认。${explanation(error)}`);
+    message(
+      noSession(error)
+        ? "你还没有登录，或登录已经过期。"
+        : `账号状态暂时无法读取。${explanation(error)}`,
+    );
   }
   if (turn === epoch) renderActions();
   return turn === epoch;
@@ -662,7 +689,7 @@ async function changeEmail(): Promise<void> {
     )
       throw new Error("unknown_email_change");
     el("email-change-result").textContent =
-      "换邮箱已确认。旧会话已撤销，新邮箱业务邮件尚未开启。订阅仍归原账号，没有复制配置，也没有自动开启任何通道。请继续激活新会话。";
+      "邮箱已更换。为了安全，所有设备都已退出登录，请用新邮箱重新登录。订阅设置保留在原账号；新邮箱的邮件通知需要重新开启。";
     el("email-activate").hidden = false;
   } catch (error) {
     if (turn !== epoch) return;
@@ -733,9 +760,9 @@ button("account-refresh").addEventListener(
   "click",
   () =>
     void run(async () => {
-      message("正在重新读取账号状态。");
+      message("正在刷新账号状态…");
       await refresh();
-      if (summary) message("已重新读取账号事实；通道未知项仍待确认。");
+      if (summary) message("已刷新账号状态。");
     }),
 );
 button("logout-only").addEventListener("click", () => void run(() => logout(false)));
@@ -795,16 +822,18 @@ window.addEventListener("pageshow", (event) => {
     });
   }
 });
-el("account-push-permission").textContent =
-  typeof Notification === "undefined"
-    ? "此浏览器不支持通知"
-    : ({ default: "尚未授权", denied: "已拒绝", granted: "允许（不代表已绑定）" } as const)[
-        Notification.permission
-      ];
+const pushPermission = document.getElementById("account-push-permission");
+if (pushPermission)
+  pushPermission.textContent =
+    typeof Notification === "undefined"
+      ? "此浏览器不支持通知"
+      : ({ default: "尚未授权", denied: "已拒绝", granted: "允许（不代表已绑定）" } as const)[
+          Notification.permission
+        ];
 connect();
 // Render time-dependent hints only. No passive session renewal or network polling.
 window.setInterval(renderActions, 1_000);
 void run(async () => {
   await refresh();
-  if (summary) message("已读取账号事实；通道未知项仍待确认。");
+  if (summary) message("");
 });

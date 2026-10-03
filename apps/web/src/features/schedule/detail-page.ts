@@ -1,8 +1,25 @@
 import type { PublicEventDetailResponse } from "@hoyo/contracts";
+import { el, emptyState, icon } from "../../lib/dom";
 import { PublicApiClient, PublicReadError } from "../../lib/public-api/client";
 import { renderEventDetail } from "./detail";
-import { button, el } from "./dom";
 import { loadFeedback } from "./render";
+
+// 从日程列表进入时，「返回」回到原筛选与滚动位置。
+const back = document.querySelector<HTMLAnchorElement>("#back-link");
+try {
+  const referrer = document.referrer ? new URL(document.referrer) : null;
+  if (back && referrer?.origin === location.origin && referrer.pathname === "/") {
+    back.href = `/${referrer.search}`;
+    back.addEventListener("click", (event) => {
+      if (history.length > 1) {
+        event.preventDefault();
+        history.back();
+      }
+    });
+  }
+} catch {
+  /* 无法解析来源时保持默认返回首页。 */
+}
 
 const target = document.querySelector<HTMLElement>("#event-detail");
 if (target) {
@@ -21,27 +38,80 @@ if (target) {
   } catch {
     /* malformed URL */
   }
+  function refreshButton(label: string) {
+    const button = el(
+      "button",
+      { type: "button", class: "button button--secondary", "data-action": "refresh" },
+      icon("refresh"),
+      label,
+    );
+    button.disabled = busy || Date.now() < retryAt || eventId === null;
+    return button;
+  }
   function render() {
     const opened = [...output.querySelectorAll<HTMLDetailsElement>("details[open]")].map(
       (item) => item.dataset.disclosure ?? item.querySelector("summary")?.textContent,
     );
     const focused = output.querySelector('[data-action="refresh"]') === document.activeElement;
     const nodes: Node[] = [];
-    if (current) nodes.push(renderEventDetail(current));
-    else nodes.push(el("h1", {}, "事件详情"));
-    if (missing)
-      nodes.push(
-        el("p", { role: "status" }, "当前发布代次没有此事件。请返回日程查看最新安排。"),
-        el("a", { href: "/" }, "返回日程"),
+    if (current) {
+      nodes.push(renderEventDetail(current));
+      if (failure)
+        nodes.push(
+          el(
+            "p",
+            { class: "callout callout--warning data-warning", role: "status" },
+            loadFeedback(failure, true),
+          ),
+        );
+      const footer = el(
+        "div",
+        { class: "detail-footer" },
+        busy ? el("p", { role: "status", class: "text-aux" }, "正在读取最新已发布事实…") : null,
+        refreshButton(failure ? "重试加载" : "重新检查"),
       );
-    else if (failure)
+      nodes.push(footer);
+    } else if (missing) {
       nodes.push(
-        el("p", { class: "data-warning", role: "status" }, loadFeedback(failure, current !== null)),
+        el(
+          "div",
+          { class: "card" },
+          el("h1", { class: "sr-only" }, "活动详情"),
+          emptyState(
+            "search",
+            "找不到这个活动",
+            "当前发布代次没有此事件。它可能已被更正或合并，请返回日程查看最新安排。",
+            el("a", { class: "button", href: "/" }, "返回日程"),
+          ),
+        ),
       );
-    if (busy) nodes.push(el("p", { role: "status" }, "正在读取最新已发布事实…"));
-    const refresh = button(failure ? "重试加载" : "重新检查", "refresh");
-    refresh.disabled = busy || Date.now() < retryAt || eventId === null;
-    nodes.push(refresh);
+    } else if (failure) {
+      nodes.push(
+        el(
+          "div",
+          { class: "card" },
+          el("h1", { class: "sr-only" }, "活动详情"),
+          emptyState("wifi-off", "暂时无法加载活动详情", null, refreshButton("重试加载")),
+          el(
+            "p",
+            { class: "data-warning callout callout--warning detail-error", role: "status" },
+            loadFeedback(failure, false),
+          ),
+        ),
+      );
+    } else {
+      nodes.push(
+        el(
+          "div",
+          { class: "detail-skeleton", role: "status" },
+          el("h1", { class: "sr-only" }, "活动详情"),
+          el("span", { class: "sr-only" }, "正在读取最新已发布事实…"),
+          el("div", { class: "skeleton skeleton-title" }),
+          el("div", { class: "skeleton skeleton-block" }),
+          el("div", { class: "skeleton skeleton-block" }),
+        ),
+      );
+    }
     output.replaceChildren(...nodes);
     output.setAttribute("aria-busy", String(busy));
     for (const detail of output.querySelectorAll<HTMLDetailsElement>("details"))
@@ -49,7 +119,9 @@ if (target) {
         opened.includes(detail.dataset.disclosure ?? detail.querySelector("summary")?.textContent)
       )
         detail.open = true;
-    if (focused) refresh.focus({ preventScroll: true });
+    if (focused)
+      output.querySelector<HTMLElement>('[data-action="refresh"]')?.focus({ preventScroll: true });
+    if (current) document.title = `${current.event.title} · HoYo日历`;
     clearTimeout(wake);
     const due = [current ? current.cache.freshUntil + 1 : 0, retryAt].filter(
       (time) => time > Date.now(),

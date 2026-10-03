@@ -347,12 +347,16 @@ async function login(page: Page): Promise<void> {
   await expect(page.locator("#activate")).toBeEnabled();
 }
 async function edit(page: Page): Promise<void> {
-  await page.locator("#change-settings summary").click();
+  // 变化通知开关始终可见，不再折叠在 details 里。
   await page.locator('input[name="new_event"]').check();
+}
+// #cloud-state 现在是保存阶段胶囊；云端版本号显示在 #draft-state。
+async function expectCloudRevision(page: Page, revision: number): Promise<void> {
+  await expect(page.locator("#draft-state")).toHaveText(`云端版本 ${revision}`);
 }
 async function openSaved(page: Page, state: Scenario): Promise<void> {
   await page.goto("/subscription");
-  await expect(page.locator("#cloud-state")).toContainText(`版本 ${state.cloud.revision}`);
+  await expectCloudRevision(page, state.cloud.revision);
   await expect(page.locator("#save-subscription")).toBeEnabled();
 }
 async function evidence(page: Page, name: string): Promise<void> {
@@ -369,7 +373,7 @@ for (const choice of ["keep", "cloud"] as const) {
     const state = await setup(page, { session: "public" });
     await page.goto("/subscription");
     await edit(page);
-    await expect(page.locator("#local-draft-status")).toContainText("仅保存在本机");
+    await expect(page.locator("#local-draft-status")).toContainText("已暂存在本机");
     await expect(page.locator("#subscription-login")).toHaveAttribute(
       "href",
       "/login?returnTo=%2Fsubscription",
@@ -381,12 +385,12 @@ for (const choice of ["keep", "cloud"] as const) {
     await page.locator("#activate").click();
     await expect(page).toHaveURL(/\/subscription$/);
     await expect(page.locator("#save-comparison")).toBeVisible();
-    await expect(page.locator("#save-differences")).toContainText("变更消息 · 不同");
+    await expect(page.locator("#save-differences")).toContainText("变化通知 · 不同");
     await expect(page.locator("#save-differences h3")).toHaveText([
       "游戏 · 相同",
       "提醒 · 相同",
       "日历显示 · 相同",
-      "变更消息 · 不同",
+      "变化通知 · 不同",
     ]);
     await expect(page.locator("#save-differences")).toContainText("本机草稿：");
     await expect(page.locator("#save-subscription")).toBeDisabled();
@@ -397,7 +401,8 @@ for (const choice of ["keep", "cloud"] as const) {
       page.once("dialog", (dialog) => dialog.accept());
       await page.locator("#adopt-cloud").click();
       await expect(page.locator('input[name="new_event"]')).not.toBeChecked();
-      await expect(page.locator("#draft-state")).toContainText("当前选择与云端一致");
+      await expect(page.locator("#cloud-state")).toHaveText("已保存到云端");
+      await expectCloudRevision(page, 1);
       expect(saves(state)).toHaveLength(0);
       expect(renewals(state)).toHaveLength(0);
     } else {
@@ -405,7 +410,7 @@ for (const choice of ["keep", "cloud"] as const) {
       await expect(page.locator('input[name="new_event"]')).toBeChecked();
       await expect(page.locator("#save-comparison")).toBeHidden();
       await page.locator("#save-subscription").click();
-      await expect(page.locator("#cloud-state")).toContainText("版本 2");
+      await expectCloudRevision(page, 2);
       await expect.poll(() => renewals(state).length).toBe(1);
       expect(saves(state)[0]?.body).toMatchObject({
         expected_revision: 1,
@@ -421,11 +426,15 @@ for (const choice of ["keep", "cloud"] as const) {
       await expect(page.locator("#confirm-code")).toBeDisabled();
       await page.locator("#saved-check").check();
       await page.locator("#confirm-code").click();
-      await expect(page.locator("#recovery-result")).toContainText("当前恢复码已确认保存");
+      await expect(page.locator("#recovery-result")).toContainText("恢复码已确认保存");
       await expect(page.locator("#code-output")).toHaveValue("");
       await page.locator('#confirmed-next a[href="/subscription"]').click();
-      await expect(page.locator("#cloud-state")).toContainText("版本 2");
+      await expectCloudRevision(page, 2);
       await expect(page.locator("#cloud-flow-status")).toContainText("日历");
+      await expect(page.locator('#setup-steps [data-step="calendar"]')).toHaveAttribute(
+        "data-state",
+        "current",
+      );
       expect(state.cloud.config?.notifications.new_event).toBe(true);
       expect(renewals(state)).toHaveLength(1);
       const part = (name: string) => page.locator(`[data-calendar="${name}"]`);
@@ -434,10 +443,12 @@ for (const choice of ["keep", "cloud"] as const) {
       expectNoChannelWrites(state);
       await part("begin").click();
       await expect(part("preview")).toContainText("完整预览");
-      await expect(part("confirm")).toBeDisabled();
+      // 同意勾选框已移除：服务端预览完成后由显式「确认启用」按钮发起启用；此前不得发出启用请求。
+      await expect(part("confirm")).toBeVisible();
+      await expect(part("confirm")).toBeEnabled();
+      expect(matching(state, "me/calendar/enable")).toHaveLength(0);
       expect(renewals(state)).toHaveLength(1);
       await evidence(page, "calendar-confirmation");
-      await part("consent").check();
       await part("confirm").click();
       await expect(part("address")).toContainText("日历订阅地址已创建");
       await expect.poll(() => renewals(state).length).toBe(2);
@@ -448,7 +459,8 @@ for (const choice of ["keep", "cloud"] as const) {
         }),
       );
       await part("copy").click();
-      await expect(part("message")).toContainText("不等于外部客户端已添加");
+      await expect(part("message")).toContainText("链接已复制");
+      await expect(part("manual")).toBeHidden();
       await evidence(page, "calendar-copied");
       expect(matching(state, "me/calendar/enable")).toHaveLength(1);
       expect(renewals(state)).toHaveLength(2);
@@ -468,29 +480,35 @@ test("U15a 新账号只有注册表预选，首次显式保存后引导已有恢
 }) => {
   const state = await setup(page, { uninitialized: true });
   await page.goto("/subscription");
-  await expect(page.locator("#cloud-flow-status")).toContainText("保存一次订阅内容");
-  await expect(page.locator("#calendar-first-save")).toContainText("先保存一次订阅内容");
-  await expect(page.locator("#push-first-save")).toContainText("先保存一次订阅内容");
+  await expect(page.locator("#cloud-flow-status")).toContainText("保存订阅");
+  await expect(page.locator('#setup-steps [data-step="save"]')).toHaveAttribute(
+    "data-state",
+    "current",
+  );
+  await expect(page.locator("#calendar-first-save")).toBeVisible();
+  await expect(page.locator("#calendar-first-save")).toContainText("保存一次订阅");
+  // 浏览器通知（Push）区域已从新界面移除，原 #push-first-save 占位断言不再适用。
   await expect(page.locator('#mail-channel [data-email="seat-start"]')).toBeDisabled();
   await page.locator('[data-calendar="refresh"]').click();
   await expect(page.locator("#calendar-first-save")).toBeVisible();
-  await expect(page.locator('[data-calendar="reason"]')).toContainText("保存并确认恢复码");
+  await expect(page.locator('[data-calendar="reason"]')).toContainText("保存恢复码");
   await expect(page.locator('[data-calendar="begin"]')).toBeDisabled();
-  await expect(page.locator("#cloud-state")).toContainText("尚无已保存订阅");
+  await expect(page.locator("#cloud-state")).toHaveText("尚未保存到云端");
+  await expect(page.locator("#draft-state")).not.toContainText("云端版本");
   for (const game of DEFAULT_SCOPE_GAMES)
     await expect(page.locator(`input[name="games"][value="${game}"]`)).toBeChecked();
   expect(saves(state)).toHaveLength(0);
   expect(renewals(state)).toHaveLength(0);
   await evidence(page, "uninitialized");
   await page.locator("#save-subscription").click();
-  await expect(page.locator("#cloud-state")).toContainText("版本 1");
+  await expectCloudRevision(page, 1);
   await expect.poll(() => renewals(state).length).toBe(1);
   await expect(page.locator("#save-recovery-link")).toBeVisible();
   expect(saves(state)[0]?.body.expected_revision).toBe(0);
   expectNoChannelWrites(state);
   await page.goto("/help");
   await page.goto("/subscription");
-  await expect(page.locator("#cloud-state")).toContainText("版本 1");
+  await expectCloudRevision(page, 1);
   expect(saves(state)).toHaveLength(1);
   expect(renewals(state)).toHaveLength(1);
 });
@@ -498,7 +516,7 @@ test("U15a 新账号只有注册表预选，首次显式保存后引导已有恢
 test("U15a 受限恢复会话在操作前禁用保存，复用恢复码保存入口", async ({ page }) => {
   const state = await setup(page, { restricted: true });
   await page.goto("/subscription");
-  await expect(page.locator("#cloud-state")).toContainText("版本 1");
+  await expectCloudRevision(page, 1);
   await expect(page.locator("#save-subscription")).toBeDisabled();
   await expect(page.locator("#cloud-flow-status")).toContainText("恢复码");
   await expect(page.locator("#save-recovery-link")).toHaveAttribute("href", "/recover#save");
@@ -521,13 +539,13 @@ test("U12 无法将游客续接绑定到已确认账号时关闭续接，不自�
   });
   await page.goto("/subscription");
   await edit(page);
-  await expect(page.locator("#local-draft-status")).toContainText("仅保存在本机");
+  await expect(page.locator("#local-draft-status")).toContainText("已暂存在本机");
   await page.locator("#subscription-login").click();
   await login(page);
   await page.locator("#activate").click();
   await expect(page).toHaveURL(/\/subscription$/);
-  await expect(page.locator("#cloud-state")).toContainText("版本 1");
-  await expect(page.locator("#local-draft-status")).toContainText("无法保存本机草稿");
+  await expectCloudRevision(page, 1);
+  await expect(page.locator("#local-draft-status")).toContainText("无法暂存本机草稿");
   await expect(page.locator("#save-comparison")).toBeHidden();
   await expect(page.locator('input[name="new_event"]')).not.toBeChecked();
   expect(saves(state)).toHaveLength(0);
@@ -539,7 +557,7 @@ test("U12 没有显式登录续接时，旧游客草稿不会自动进入已登�
   const state = await setup(page, { session: "public" });
   await page.goto("/subscription");
   await edit(page);
-  await expect(page.locator("#local-draft-status")).toContainText("仅保存在本机");
+  await expect(page.locator("#local-draft-status")).toContainText("已暂存在本机");
   state.session = "active";
   await page.context().addCookies([
     {
@@ -551,7 +569,7 @@ test("U12 没有显式登录续接时，旧游客草稿不会自动进入已登�
     },
   ]);
   await page.reload();
-  await expect(page.locator("#cloud-state")).toContainText("版本 1");
+  await expectCloudRevision(page, 1);
   await expect(page.locator("#save-comparison")).toBeHidden();
   await expect(page.locator('input[name="new_event"]')).not.toBeChecked();
   expect(saves(state)).toHaveLength(0);
@@ -577,7 +595,7 @@ test("U12 已绑定账号 A 的未决游客草稿不能进入账号 B", async ({
   const state = await setup(page, { session: "public" });
   await page.goto("/subscription");
   await edit(page);
-  await expect(page.locator("#local-draft-status")).toContainText("仅保存在本机");
+  await expect(page.locator("#local-draft-status")).toContainText("已暂存在本机");
   await page.locator("#subscription-login").click();
   await login(page);
   await page.locator("#activate").click();
@@ -590,7 +608,7 @@ test("U12 已绑定账号 A 的未决游客草稿不能进入账号 B", async ({
       new CustomEvent("hoyo:draft-identity", { detail: { status: "confirmed", userId } }),
     );
   }, state.facts.user_id);
-  await expect(page.locator("#cloud-state")).toContainText("版本 1");
+  await expectCloudRevision(page, 1);
   await expect(page.locator("#save-comparison")).toBeHidden();
   await expect(page.locator('input[name="new_event"]')).not.toBeChecked();
   expect(await page.evaluate((key) => sessionStorage.getItem(key), GUEST_HANDOFF_KEY)).toBeNull();
@@ -603,7 +621,7 @@ test("U12 游客续接落盘挂起时身份改变，旧动作不写续接标识�
   const state = await setup(page, { session: "public" });
   await page.goto("/subscription");
   await edit(page);
-  await expect(page.locator("#local-draft-status")).toContainText("仅保存在本机");
+  await expect(page.locator("#local-draft-status")).toContainText("已暂存在本机");
   await page.evaluate(() => {
     const scope = window as unknown as { releaseGuestWrite?: () => void };
     const open = indexedDB.open.bind(indexedDB);
@@ -683,7 +701,8 @@ for (const reason of ["no_session", "session_expired"] as const) {
     );
     await page.locator("#recheck-save").click();
     await response;
-    await expect(page.locator("#cloud-state")).not.toContainText("版本 1");
+    await expect(page.locator("#draft-state")).not.toContainText("版本 1");
+    await expect(page.locator("#cloud-state")).toHaveText("登录状态待确认");
     await expect(page.locator("#subscription-login")).toBeVisible();
     await expect(page.locator("#save-comparison")).toBeHidden();
     await expect(page.locator('input[name="new_event"]')).not.toBeChecked();
@@ -709,8 +728,8 @@ for (const reason of ["recent_auth_required", "csrf_mismatch"] as const) {
     );
     await page.locator("#recheck-save").click();
     await response;
-    await expect(page.locator("#cloud-flow-status")).toContainText("状态尚未确认");
-    await expect(page.locator("#cloud-state")).toContainText("版本 1");
+    await expect(page.locator("#cloud-flow-status")).toContainText("恢复码状态暂未确认");
+    await expectCloudRevision(page, 1);
     await expect(page.locator('input[name="new_event"]')).toBeChecked();
     await expect(page.locator("#subscription-login")).toBeHidden();
     expect(saves(state)).toHaveLength(0);
@@ -723,30 +742,32 @@ for (const failure of ["network", "malformed", "recent_auth_required", "csrf_mis
   test(`U15a 已知恢复受限后 ${failure} 保持保存禁用，仅同身份有效摘要解除`, async ({ page }) => {
     const state = await setup(page, { restricted: true });
     await page.goto("/subscription");
-    await expect(page.locator("#cloud-state")).toContainText("版本 1");
-    await expect(page.locator("#cloud-flow-status")).toContainText("新恢复码");
+    await expectCloudRevision(page, 1);
+    await expect(page.locator("#cloud-flow-status")).toContainText("新的恢复码");
     await expect(page.locator("#save-subscription")).toBeDisabled();
     await edit(page);
-    let held: Route | undefined;
-    await page.route("**/api/v2/me", (route) => {
-      held = route;
-    });
+    const fail = (route: Route) =>
+      failure === "network"
+        ? route.abort("failed")
+        : failure === "malformed"
+          ? route.fulfill({ json: { user_id: state.facts.user_id } })
+          : route.fulfill({
+              status: 401,
+              json: buildApiErrorBody("unauthorized", { code: "unauthorized", reason: failure }),
+            });
+    // 页头账号入口也会只读 GET /me；所有被挂起的 /me 读取都按同一种失败应答，保证核对读取拿到它。
+    const held: Route[] = [];
+    let failing = false;
+    await page.route("**/api/v2/me", (route) => (failing ? fail(route) : held.push(route)));
     await page.locator("#recheck-save").click();
-    await expect(page.locator("#cloud-flow-status")).toHaveText("正在核对账号状态。");
-    await expect.poll(() => held !== undefined).toBe(true);
-    if (!held) throw new Error("missing_synthetic_account_read");
-    if (failure === "network") await held.abort("failed");
-    else if (failure === "malformed")
-      await held.fulfill({ json: { user_id: state.facts.user_id } });
-    else
-      await held.fulfill({
-        status: 401,
-        json: buildApiErrorBody("unauthorized", { code: "unauthorized", reason: failure }),
-      });
-    await expect(page.locator("#cloud-flow-status")).toContainText("新恢复码");
+    await expect(page.locator("#cloud-flow-status")).toHaveText("正在核对账号状态…");
+    await expect.poll(() => held.length).toBeGreaterThan(0);
+    failing = true;
+    for (const route of held.splice(0)) await fail(route);
+    await expect(page.locator("#cloud-flow-status")).toContainText("新的恢复码");
     await expect(page.locator("#save-subscription")).toBeDisabled();
     await expect(page.locator("#save-recovery-link")).toBeVisible();
-    await expect(page.locator("#cloud-state")).toContainText("版本 1");
+    await expectCloudRevision(page, 1);
     await expect(page.locator('input[name="new_event"]')).toBeChecked();
     await expect(page.locator("#subscription-login")).toBeHidden();
     expect(saves(state)).toHaveLength(0);
@@ -775,11 +796,12 @@ test("U15a 同 Cookie 下完整摘要从 A 变为 B，清理 A 的配置与草�
   );
   await page.locator("#recheck-save").click();
   await response;
-  await expect(page.locator("#cloud-state")).not.toContainText("版本 1");
+  await expect(page.locator("#draft-state")).not.toContainText("版本 1");
+  await expect(page.locator("#cloud-state")).toHaveText("登录状态待确认");
   await expect(page.locator("#subscription-login")).toBeVisible();
   await expect(page.locator("#save-comparison")).toBeHidden();
   await expect(page.locator('input[name="new_event"]')).not.toBeChecked();
-  await expect(page.locator("#channel-saved-summary")).not.toContainText("版本 1");
+  await expect(page.locator("#channel-saved-summary")).not.toContainText("第 1 版");
   expect(saves(state)).toHaveLength(0);
   expect(renewals(state)).toHaveLength(0);
   expectNoChannelWrites(state);
@@ -793,7 +815,7 @@ test("§12.2 加载、编辑、重新读取、采用一致配置与返回前台�
   await edit(page);
   await page.locator("#recheck-save").click();
   await page.evaluate(() => document.dispatchEvent(new Event("visibilitychange")));
-  await expect(page.locator("#draft-state")).toContainText("本机未保存修改");
+  await expect(page.locator("#cloud-state")).toHaveText("有未保存的修改");
   expect(saves(state)).toHaveLength(0);
   expect(renewals(state)).toHaveLength(0);
   expectNoChannelWrites(state);
@@ -805,8 +827,8 @@ test("§12.2 保存成功只续期一次，续期网络失败不改写保存成�
   await openSaved(page, state);
   await edit(page);
   await page.locator("#save-subscription").click();
-  await expect(page.locator("#cloud-state")).toContainText("版本 2");
-  await expect(page.locator("#draft-state")).toContainText("当前选择与云端一致");
+  await expectCloudRevision(page, 2);
+  await expect(page.locator("#cloud-state")).toHaveText("已保存到云端");
   await expect.poll(() => renewals(state).length).toBe(1);
   expect(renewals(state)[0]).toMatchObject({
     method: "POST",
@@ -880,10 +902,22 @@ for (const outcome of [
     await edit(page);
     await page.locator("#save-subscription").click();
     await expect.poll(() => saves(state).length).toBe(1);
-    await expect(page.locator("#draft-state")).not.toHaveText("正在保存");
+    await expect(page.locator("#save-bar")).not.toHaveAttribute("data-phase", "saving");
+    await expect(page.locator("#cloud-state")).not.toHaveText("正在保存…");
     expect(renewals(state)).toHaveLength(0);
-    await page.locator("#recheck-save").click();
-    await expect(page.locator("#draft-state")).not.toHaveText("正在保存");
+    const reads = matching(state, "me/subscription").filter((call) => call.method === "GET").length;
+    // 新界面只在冲突/待确认/未保存时提供「重新读取」；结果被当作已保存时改用返回前台的后台读取，
+    // 两条路径都只发 GET 核对。
+    if (["conflict", "rejected", "malformed"].includes(outcome))
+      await page.locator("#recheck-save").click();
+    else {
+      await expect(page.locator("#recheck-save")).toBeHidden();
+      await page.evaluate(() => document.dispatchEvent(new Event("visibilitychange")));
+    }
+    await expect
+      .poll(() => matching(state, "me/subscription").filter((call) => call.method === "GET").length)
+      .toBeGreaterThan(reads);
+    await expect(page.locator("#cloud-state")).not.toHaveText("正在保存…");
     expect(renewals(state)).toHaveLength(0);
     expect(saves(state)).toHaveLength(1);
     expectNoChannelWrites(state);
@@ -901,18 +935,20 @@ test("§12.2 保存等待期间身份失效，旧成功响应不恢复私人状�
   await openSaved(page, state);
   await edit(page);
   await page.locator("#save-subscription").click();
-  await expect(page.locator("#draft-state")).toHaveText("正在保存");
+  await expect(page.locator("#cloud-state")).toHaveText("正在保存…");
   await expect.poll(() => held !== undefined).toBe(true);
   await page.evaluate(() =>
     document.dispatchEvent(
       new CustomEvent("hoyo:draft-identity", { detail: { status: "unknown" } }),
     ),
   );
-  await expect(page.locator("#cloud-state")).not.toContainText("版本 1");
+  await expect(page.locator("#draft-state")).not.toContainText("版本 1");
+  await expect(page.locator("#cloud-state")).toHaveText("登录状态待确认");
   if (!held || !submitted) throw new Error("missing_synthetic_save");
   await held.fulfill({ json: { ...commit(state, submitted), saved: true } });
   await page.evaluate(() => new Promise<void>((resolve) => requestAnimationFrame(() => resolve())));
-  await expect(page.locator("#cloud-state")).not.toContainText("版本 2");
+  await expect(page.locator("#draft-state")).not.toContainText("版本 2");
+  await expect(page.locator("#channel-saved-summary")).not.toContainText("第 2 版");
   expect(renewals(state)).toHaveLength(0);
   expectNoChannelWrites(state);
 });
@@ -942,8 +978,9 @@ for (const [requested, destination] of returnCases) {
     await page.goto(`/login?${new URLSearchParams({ returnTo: requested })}`);
     await expect(page.locator("#pending-section")).toBeVisible();
     expect(matching(state, "auth/activate")).toHaveLength(0);
+    const origin = new URL(page.url()).origin;
     await page.locator("#activate").click();
-    await expect(page).toHaveURL(`http://127.0.0.1:4173${destination}`);
+    await expect(page).toHaveURL(`${origin}${destination}`);
     expect(matching(state, "auth/activate")).toHaveLength(1);
     expect(renewals(state)).toHaveLength(0);
     expect(saves(state)).toHaveLength(0);
@@ -975,11 +1012,14 @@ test("U12/U20 页面恢复重新挂载日历，三方私人视图先失效再确
   );
   await expect(calendar("preview")).toHaveCount(0);
   await expect(page.locator("#calendar-preview-content")).toBeEmpty();
-  await expect(page.locator("#mail-channel")).toContainText("身份");
+  await expect(page.locator("#mail-channel")).toContainText("正在确认账号");
+  await expect(page.locator("#mail-channel [data-email]")).toHaveCount(0);
+  // 版本号已移到 #draft-state：失效后不得残留，下面恢复后的版本必须来自重新读取。
+  await expect(page.locator("#draft-state")).not.toContainText("版本 1");
   await page.evaluate(() =>
     window.dispatchEvent(new PageTransitionEvent("pageshow", { persisted: true })),
   );
-  await expect(page.locator("#cloud-state")).toContainText("版本 1");
+  await expectCloudRevision(page, 1);
   await calendar("refresh").click();
   await expect(calendar("begin")).toBeEnabled();
   await expect(page.locator('#mail-channel [data-email="seat-start"]')).toBeVisible();

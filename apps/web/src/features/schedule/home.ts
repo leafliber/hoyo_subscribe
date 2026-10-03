@@ -7,11 +7,13 @@ import {
   NODE_NAMES,
   parseBrowseFilters,
 } from "@hoyo/contracts";
+import { relative, remaining } from "../../lib/format";
 import { ScheduleLoader } from "./load";
-import { renderResults } from "./render";
+import { renderAside, renderResults } from "./render";
 
 const form = document.querySelector<HTMLFormElement>("#browse-filters");
 const results = document.querySelector<HTMLElement>("#schedule-results");
+const aside = document.querySelector<HTMLElement>("#schedule-aside-dynamic");
 if (form && results) {
   const filterForm = form;
   const output = results;
@@ -30,10 +32,20 @@ if (form && results) {
   );
   let wake: ReturnType<typeof setTimeout> | undefined;
   const loader = new ScheduleLoader(render);
-  function render() {
-    const opened = [...output.querySelectorAll<HTMLDetailsElement>("details[open]")].map(
+
+  function openDisclosures(root: HTMLElement): string[] {
+    return [...root.querySelectorAll<HTMLDetailsElement>("details[open]")].map(
       (item) => item.dataset.disclosure ?? item.className,
     );
+  }
+  function restoreDisclosures(root: HTMLElement, opened: string[]): void {
+    for (const detail of root.querySelectorAll<HTMLDetailsElement>("details"))
+      if (opened.includes(detail.dataset.disclosure ?? detail.className)) detail.open = true;
+  }
+
+  function render() {
+    const opened = openDisclosures(output);
+    const asideOpened = aside ? openDisclosures(aside) : [];
     const focusKey =
       document.activeElement instanceof HTMLElement
         ? document.activeElement.dataset.focus
@@ -44,17 +56,22 @@ if (form && results) {
         : undefined;
     output.replaceChildren(renderResults(loader.state, filters));
     output.setAttribute("aria-busy", String(loader.state.phase === "loading"));
-    for (const detail of output.querySelectorAll<HTMLDetailsElement>("details"))
-      if (opened.includes(detail.dataset.disclosure ?? detail.className)) detail.open = true;
+    restoreDisclosures(output, opened);
+    if (aside) {
+      aside.replaceChildren(renderAside(loader.state, filters));
+      restoreDisclosures(aside, asideOpened);
+    }
     if (active)
-      output
-        .querySelector<HTMLElement>(`[data-action="${active}"]`)
+      document
+        .querySelector<HTMLElement>(`.schedule-layout [data-action="${active}"]`)
         ?.focus({ preventScroll: true });
     if (focusKey)
       output
         .querySelector<HTMLElement>(`[data-focus="${CSS.escape(focusKey)}"]`)
         ?.focus({ preventScroll: true });
-    for (const action of output.querySelectorAll<HTMLButtonElement>('[data-action="refresh"]'))
+    for (const action of document.querySelectorAll<HTMLButtonElement>(
+      '.schedule-layout [data-action="refresh"]',
+    ))
       action.disabled = loader.state.phase === "loading" || Date.now() < loader.state.retryAt;
     if (restoreScroll !== null && loader.state.phase === "ready") {
       const position = restoreScroll;
@@ -68,7 +85,7 @@ if (form && results) {
           ? "正在加载公开日程。"
           : loader.state.phase === "failed"
             ? "加载失败，已有条目保留，可重试。"
-            : "已显示完当前范围。浏览筛选不改变已保存订阅。";
+            : "已显示完当前范围。";
     clearTimeout(wake);
     const deadlines = [
       ...loader.state.pages.map((page) => page.cache.freshUntil + 1),
@@ -79,6 +96,26 @@ if (form && results) {
     ].filter((time) => time > Date.now());
     if (deadlines.length) wake = setTimeout(render, Math.min(...deadlines) - Date.now());
   }
+
+  /** 每分钟只刷新相对时间文字，不重建列表、不发请求。 */
+  function tick() {
+    const now = Date.now();
+    for (const node of document.querySelectorAll<HTMLElement>("[data-relative-to]")) {
+      const target = Number(node.dataset.relativeTo);
+      if (!Number.isFinite(target)) continue;
+      const text =
+        node.dataset.relativeMode === "remaining" && target > now
+          ? remaining(target, now)
+          : relative(target, now);
+      if (text && node.textContent !== text) node.textContent = text;
+    }
+  }
+  setInterval(tick, 60_000);
+
+  function isDefault(): boolean {
+    return browseSearch(filters) === "";
+  }
+
   function updateControls() {
     history.replaceState(
       history.state,
@@ -86,15 +123,27 @@ if (form && results) {
       `${location.pathname}${browseSearch(filters) ? `?${browseSearch(filters)}` : ""}`,
     );
     const summary = document.getElementById("browse-summary");
-    if (summary)
-      summary.textContent = `${filters.games.map((g) => GAME_NAMES[g]).join("、") || "未选择游戏"} · ${BROWSE_RANGES.find((r) => r.id === filters.range)?.label}${filters.ending ? " · 临近截止" : ""}`;
+    if (summary) {
+      const games =
+        filters.games.length === 0
+          ? "未选择游戏"
+          : filters.games.length === 3
+            ? "全部游戏"
+            : filters.games.map((g) => GAME_NAMES[g]).join("、");
+      summary.textContent = `${games} · ${BROWSE_RANGES.find((r) => r.id === filters.range)?.label}${filters.ending ? " · 只看截止" : ""}`;
+    }
+    const reset = document.getElementById("reset-filters");
+    if (reset) reset.hidden = isDefault();
     const more = document.getElementById("more-summary");
-    if (more)
-      more.textContent =
-        [
-          ...filters.events.map((v) => EVENT_NAMES[v]),
-          ...filters.nodes.map((v) => NODE_NAMES[v]),
-        ].join("、") || "事件类型、节点类型";
+    const selected = [
+      ...filters.events.map((v) => EVENT_NAMES[v]),
+      ...filters.nodes.map((v) => NODE_NAMES[v]),
+    ];
+    if (more) {
+      more.textContent = selected.length ? `${selected.length}` : "";
+      more.hidden = selected.length === 0;
+      more.title = selected.join("、");
+    }
     for (const input of filterForm.querySelectorAll<HTMLInputElement>("input")) {
       input.checked =
         input.name === "range"
@@ -127,16 +176,19 @@ if (form && results) {
     filters = defaultBrowseFilters();
     update();
   }
-  document.getElementById("reset-filters")?.addEventListener("click", reset);
-  output.addEventListener("click", (event) => {
+  document.getElementById("reset-filters")?.addEventListener("click", () => {
+    reset();
+    filterForm.querySelector<HTMLInputElement>('input[name="games"]')?.focus();
+  });
+  document.querySelector(".schedule-layout")?.addEventListener("click", (event) => {
     const target =
       event.target instanceof Element ? event.target.closest<HTMLElement>("[data-action]") : null;
     if (target?.dataset.action === "reset") {
       reset();
-      document.getElementById("reset-filters")?.focus();
+      filterForm.querySelector<HTMLInputElement>('input[name="games"]')?.focus();
     }
     if (target?.dataset.action === "widen") {
-      const range = BROWSE_RANGES.find((range) => range.id === target.dataset.range);
+      const range = BROWSE_RANGES.find((item) => item.id === target.dataset.range);
       if (range) {
         filters.range = range.id;
         update();
@@ -153,7 +205,10 @@ if (form && results) {
     if (loader.state.pages.length) render();
   });
   document.addEventListener("visibilitychange", () => {
-    if (!document.hidden) render();
+    if (!document.hidden) {
+      tick();
+      render();
+    }
   });
   window.addEventListener("popstate", () => {
     filters = parseBrowseFilters(new URLSearchParams(location.search));

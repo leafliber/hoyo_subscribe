@@ -23,7 +23,10 @@ test("U01 游客读取公共 API，首屏显示时间动作与游戏，不创建
   await complete(page);
   const row = page.locator('[data-node="morning"]');
   await expect(row).toContainText("08:00");
-  await expect(row).toContainText("2026-09-22");
+  // 日期由所在日期分组标题给出（北京日期 2026-09-22 = 今天 9月22日）。
+  const day = page.locator('section.schedule-day[data-date="2026-09-22"]');
+  await expect(day.locator('[data-node="morning"]')).toHaveCount(1);
+  await expect(day.locator(".day-heading")).toContainText("9月22日");
   await expect(row).toContainText("活动开始");
   await expect(row).toContainText("原神");
   await expect(page.locator(".sample-notice, .demo-controls")).toHaveCount(0);
@@ -48,13 +51,13 @@ test("U03 八种时间状态、长标题、日期与未知混排不伪造时刻"
   await expect(page.locator('.date-only [data-node="date"]')).toHaveCount(1);
   await expect(page.locator('.timed-list [data-node="date"]')).toHaveCount(0);
   await expect(page.locator('[data-region="pending"] [data-node="pending"]')).toContainText(
-    "已延期，新时间待公布",
+    "新时间待公布",
   );
   await expect(page.locator('[data-node="pending"] time')).toHaveCount(0);
   await expect(page.locator('[data-node="estimate"] .node-time')).toContainText("预计");
   await expect(page.locator('[data-node="estimate"]')).toContainText("官方预计");
-  await expect(page.locator('[data-node="derived"]')).toContainText("确定性推导");
-  await expect(page.locator('[data-node="morning"]')).toContainText("已到计划开始时间");
+  await expect(page.locator('[data-node="derived"]')).toContainText("按公告推算");
+  await expect(page.locator('[data-node="morning"]')).toContainText("已到开始时间");
   await page.locator(".recent-changes summary").click();
   await expect(page.locator('[data-change="cancel"]')).toContainText("官方已取消");
   await expect(page.locator('[data-change="retract"]')).toContainText("本站撤回：此前收录有误");
@@ -81,7 +84,7 @@ test("U05 四种空态分开；昨天不计入范围条数；近7天出口可用
   await page.locator("#more-filters summary").click();
   await page.getByRole("checkbox", { name: "实际结束", exact: true }).check();
   await expect(page.locator('[data-empty="filtered"]')).toContainText("筛选没有匹配项");
-  await page.getByRole("button", { name: "清除筛选" }).click();
+  await page.locator('[data-empty="filtered"]').getByRole("button", { name: "清除筛选" }).click();
   await scenario(page, "source");
   await expect(page.locator('[data-empty="source"]')).toContainText("来源暂不可用");
   await expect(page.locator('[data-empty="range"]')).toHaveCount(0);
@@ -161,11 +164,13 @@ test("U06 浏览筛选不改云配置；URL只含白名单，低频筛选在本�
   await page.getByRole("radio", { name: "未来90天" }).check();
   await complete(page);
   const count = controls.get(page)?.calls.length;
-  await page.getByRole("checkbox", { name: "临近截止" }).check();
+  await page.getByRole("checkbox", { name: "只看截止" }).check();
   await page.locator("#more-filters summary").click();
   await page.getByRole("checkbox", { name: "限时活动", exact: true }).check();
   await page.locator("#more-filters summary").click();
-  await expect(page.locator("#more-summary")).toContainText("限时活动");
+  // 折叠后以计数徽标与 title 显示已选的低频筛选。
+  await expect(page.locator("#more-summary")).toHaveText("1");
+  await expect(page.locator("#more-summary")).toHaveAttribute("title", /限时活动/);
   expect(controls.get(page)?.calls.length).toBe(count);
   expect(controls.get(page)?.calls.every((call) => call.method === "GET")).toBe(true);
   expect(await page.evaluate(() => JSON.stringify(localStorage))).toBe(before);
@@ -182,18 +187,17 @@ test("U03 六档昨天带常驻末尾；按响应 window 切分，不按浏览�
     await complete(page);
     await expect(page.locator('[data-node="morning"]')).toBeVisible();
     await expect(page.locator('[data-region="yesterday"] [data-node="old"]')).toHaveCount(1);
-    await expect(page.locator('[data-region="yesterday"]')).toContainText("2026-09-21");
+    await expect(page.locator('[data-region="yesterday"]')).toContainText("9月21日");
   }
-  expect(await page.locator(".timeline > section:last-child").getAttribute("data-region")).toBe(
+  expect(await page.locator(".timeline > :last-child").getAttribute("data-region")).toBe(
     "yesterday",
   );
-  const alpha = await page.locator(".yesterday-band").evaluate((element) => ({
-    actual: getComputedStyle(element, "::before").opacity,
-    token: getComputedStyle(element).getPropertyValue("--alpha-band-tint").trim(),
-    text: getComputedStyle(element).opacity,
-  }));
-  expect(Number(alpha.actual)).toBe(Number(alpha.token));
-  expect(alpha.text).toBe("1");
+  // 昨天带默认折叠，展开后条目可见；文字不做半透明降权。
+  await page.locator(".yesterday-band > summary").click();
+  await expect(page.locator('[data-region="yesterday"] [data-node="old"]')).toBeVisible();
+  expect(await page.locator(".yesterday-band").evaluate((e) => getComputedStyle(e).opacity)).toBe(
+    "1",
+  );
 });
 
 test("U05 缓存新鲜度不以旧代次替代；离线显示当前页面已读取副本的实际时间", async ({
@@ -204,11 +208,11 @@ test("U05 缓存新鲜度不以旧代次替代；离线显示当前页面已读�
   await complete(page);
   await expect(page.locator(".data-warning")).toHaveCount(0);
   await page.locator(".data-freshness summary").click();
-  await expect(page.locator(".data-freshness")).toContainText("2026-09-21 18:00");
-  await expect(page.locator(".data-freshness")).toContainText("2026-09-21 19:00");
+  await expect(page.locator(".data-freshness")).toContainText("2026年9月21日 18:00");
+  await expect(page.locator(".data-freshness")).toContainText("2026年9月21日 19:00");
   await scenario(page, "stale");
   await expect(page.locator(".data-warning")).toContainText("陈旧缓存");
-  await expect(page.locator(".data-warning")).toContainText("2026-09-21 20:00");
+  await expect(page.locator(".data-warning")).toContainText("2026年9月21日 20:00");
   await context.setOffline(true);
   await expect(page.locator(".data-warning").first()).toContainText("离线");
   await expect(page.locator('[data-node="morning"]')).toBeVisible();
@@ -379,9 +383,13 @@ test("U05 服务端等待信息约束重试与刷新入口，不因重复点击�
 test("U04 首页公开证据也是文本；近期变更截断不宣称完整历史", async ({ page }) => {
   const control = controls.get(page);
   if (!control) throw new Error("missing fixture");
+  const malicious = '<img src=x onerror="window.__evidenceExecuted=1">';
   control.events = (params) => {
     const data = eventsFixture(params);
-    data.nodes[0].evidence = '<img src=x onerror="window.__evidenceExecuted=1">';
+    // 列表行不再展开证据；首页上的公开依据出现在近期变更里，同样只能作为文本。
+    data.recentChanges = data.recentChanges.map((node) =>
+      node.change ? { ...node, change: { ...node.change, evidence: malicious } } : node,
+    );
     data.recentChangesTruncated = true;
     return data;
   };
@@ -390,14 +398,14 @@ test("U04 首页公开证据也是文本；近期变更截断不宣称完整历�
   });
   await page.goto("/");
   await complete(page);
-  await expect(page.locator('[data-node="morning"] .evidence-text')).toContainText("<img src=x");
-  await expect(page.locator(".node-evidence img")).toHaveCount(0);
+  await page.locator(".recent-changes summary").click();
+  await expect(page.locator(".recent-changes .evidence-text").first()).toContainText("<img src=x");
+  await expect(page.locator(".recent-changes img, .schedule-results img")).toHaveCount(0);
   expect(
     await page.evaluate(
       () => (window as Window & { __evidenceExecuted?: number }).__evidenceExecuted,
     ),
   ).toBe(0);
-  await page.locator(".recent-changes summary").click();
   await expect(page.locator(".recent-changes")).toContainText("不是完整变更历史");
 });
 
@@ -410,7 +418,7 @@ test("U18 公开离线提示使用 API 副本时间，没有已注册的 Service
   await context.setOffline(true);
   const warning = page.locator("#schedule-results > div > .data-warning");
   await expect(warning).toContainText("离线");
-  await expect(warning).toContainText("实际缓存时间 2026-09-22 12:30 · UTC+8");
+  await expect(warning).toContainText("实际缓存时间 2026年9月22日 12:30");
   await expect(page.locator('[data-node="morning"]')).toBeVisible();
   expect(
     await page.evaluate(async () => (await navigator.serviceWorker.getRegistrations()).length),

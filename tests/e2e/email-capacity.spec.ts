@@ -138,6 +138,21 @@ async function openSubscription(
       await route.fulfill({ status: 503, json: {} });
     },
   );
+  // Redesign: the mounted calendar panel reads the public capability switch (no credentials);
+  // every other API stays guarded by the catch-all above.
+  await page.route(
+    (url) => url.pathname === "/api/v2/status",
+    async (route) => {
+      const request = route.request();
+      const url = new URL(request.url());
+      expect(request.method()).toBe("GET");
+      expect(url.origin).toBe(new URL(page.url()).origin);
+      expect(url.search).toBe("");
+      expect(request.headers().cookie).toBeUndefined();
+      expect(request.headers()["x-csrf-token"]).toBeUndefined();
+      await route.fulfill({ status: 503, json: {} });
+    },
+  );
   await page.route("**/api/v2/auth/renew", async (route) => {
     expect(route.request().method()).toBe("POST");
     renewals++;
@@ -164,9 +179,16 @@ async function openSubscription(
     await route.fulfill({ json: { result: "completed", state } });
   });
   await page.goto("/subscription");
-  if (options.waitForReady !== false)
-    await expect(part(page, "message")).toContainText("已读取当前邮件状态");
+  if (options.waitForReady !== false) await ready(page);
   return { state, writes, saves, unexpected, renewals: () => renewals };
+}
+/**
+ * The panel painted a successful read: facts only render after the GET resolves and the panel is
+ * idle again. This does not depend on whether a (quiet) refresh announces itself in the message.
+ */
+async function ready(page: Page) {
+  await expect(part(page, "facts")).toContainText("当前已验证邮箱（脱敏）");
+  await expect(part(page, "refresh")).toBeEnabled();
 }
 async function screenshot(page: Page, name: string, fullPage = false) {
   const target =
@@ -202,7 +224,9 @@ test("U22a 席位已满：预算解释、日历替代、主动通知差别与无
     "href",
     "#calendar-channel",
   );
-  await expect(notice).toContainText("服务端预览并明确确认");
+  // Copy rewritten: the calendar still needs the user's own confirmation and is never auto-enabled.
+  await expect(notice).toContainText("需要你在下方确认启用");
+  await expect(notice).toContainText("不会因为邮件名额不足而自动开启");
   await expect(part(page, "seat-start")).toBeDisabled();
   const beforeFacts = await notice.evaluate((node) => {
     const facts = document.querySelector('[data-email="facts"]');
@@ -262,7 +286,7 @@ test("U22a partial 保留实际取得的席位和续期，不重发，不撤销�
   await expect(part(page, "message")).toContainText("部分完成");
   await expect(part(page, "capacity")).toContainText("已开启的邮件席位保留");
   await expect(part(page, "seat-status")).toHaveText("已开启");
-  await expect(part(page, "routine-status")).toHaveText("未开启 / 已关闭");
+  await expect(part(page, "routine-status")).toHaveText("未开启");
   await expect.poll(run.renewals).toBe(1);
   expect(run.writes).toHaveLength(1);
   expect(run.unexpected).toEqual([]);
@@ -292,7 +316,7 @@ for (const layer of ["seat", "routine"] as const) {
     await part(page, `${layer}-start`).click();
     await part(page, `${layer}-consent`).check();
     await part(page, "confirm").click();
-    await expect(part(page, "message")).toContainText("已重新读取当前事实");
+    await expect(part(page, "message")).toContainText("已重新读取当前状态");
     await expect(part(page, "capacity")).toContainText(
       layer === "seat" ? "邮件提醒席位已满" : "已开启的邮件席位保留",
     );
@@ -400,8 +424,13 @@ test("U22a 邮件满额链接进入同一个真实日历确认控制器，不自
   await expect(calendar("begin")).toBeEnabled();
   await calendar("begin").click();
   await expect(calendar("preview")).toContainText("完整预览");
+  expect(previews).toBe(1);
   expect(enables).toBe(0);
-  await calendar("consent").check();
+  // Redesign: the consent checkbox was removed; the explicit "确认启用" button shown after the
+  // server preview is the confirmation step.
+  await expect(calendar("confirm")).toBeVisible();
+  await expect(calendar("confirm")).toBeEnabled();
+  expect(enables).toBe(0);
   await calendar("confirm").click();
   await expect(calendar("address")).toContainText("日历订阅地址已创建");
   expect(enables).toBe(1);

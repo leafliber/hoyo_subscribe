@@ -32,6 +32,8 @@ let retry: {
 
 function controls(): void {
   document.querySelectorAll<HTMLButtonElement>("button").forEach((button) => {
+    // 运行开关面板自管忙碌与“未知值不可写”状态，审核流程不覆盖它。
+    if (button.closest("#controls-panel")) return;
     button.disabled = busy;
   });
   secret.disabled = busy;

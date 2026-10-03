@@ -136,9 +136,11 @@ async function open(
   });
   return { count: () => count, privateWrites };
 }
+const status = (page: Page) => preview(page).locator(".preview-status");
 async function ready(page: Page) {
   await expect(preview(page)).toContainText("真实数据 · 完整");
-  await expect(preview(page)).toContainText("未经验证的客户端不保证提醒可用");
+  // 旧页脚免责句已改写；完整状态改由预览状态行确认（加载中或出错时不会显示此句）。
+  await expect(status(page)).toHaveText("基于最新公开数据");
 }
 async function selectRule(page: Page) {
   await page.locator(`input[name="rule_ids"][value="${selectedRule.rule_id}"]`).check();
@@ -146,12 +148,13 @@ async function selectRule(page: Page) {
 }
 async function screenshot(page: Page, name: string, project: string) {
   await preview(page).scrollIntoViewIfNeeded();
-  const folder =
+  // 非证据模式写入本次运行自己的输出目录，避免与其他端口的并行运行共用 test-results。
+  const target =
     process.env.HOYO_E2E_WRITE_EVIDENCE === "1"
-      ? "tests/e2e/evidence/f2-02"
-      : "tests/e2e/test-results/f2-02";
-  await mkdir(folder, { recursive: true });
-  await preview(page).screenshot({ path: path.join(folder, `${name}-${project}.png`) });
+      ? path.join("tests/e2e/evidence/f2-02", `${name}-${project}.png`)
+      : test.info().outputPath(`${name}-${project}.png`);
+  await mkdir(path.dirname(target), { recursive: true });
+  await preview(page).screenshot({ path: target });
 }
 
 for (const hidden of ["node", "event", "both"] as const) {
@@ -184,8 +187,9 @@ test("U07 基础与规则同时命中只出现一次，关闭提醒保留基础�
   await ready(page);
   await selectRule(page);
   await expect(item(page)).toHaveCount(1);
-  await expect(item(page)).toContainText("基础显示节点");
-  await expect(item(page)).not.toContainText("提醒关联节点");
+  // 新界面不再给基础节点写「基础显示节点」；基础节点即没有「提醒关联」徽标/说明，且仍带规则闹钟。
+  await expect(item(page)).not.toContainText("提醒关联");
+  await expect(item(page)).toContainText("日历闹钟");
   await page.locator('input[name="alarms_enabled"]').uncheck();
   await expect(item(page)).toHaveCount(1);
   await expect(item(page)).toContainText("无闹钟：日历提醒未开启");
@@ -205,7 +209,7 @@ test("U07 U21 未知补集只计省略；日期与预计无闹钟，隐藏后省
   await expect(preview(page)).toContainText("时间待定 1 条");
   await expect(item(page, "date")).toContainText("无闹钟：只有日期");
   await expect(item(page, "date")).not.toContainText("00:00");
-  await expect(item(page, "estimate")).toContainText("预计或未确定时间");
+  await expect(item(page, "estimate")).toContainText("无闹钟：预计时间");
   expect(
     await preview(page)
       .locator("[data-milestone]")
@@ -253,12 +257,19 @@ test("U21 更正保留事实原因、旧时间与跨窗口新时间，注入文�
   await selectRule(page);
   await expect(preview(page).locator(".is-correction")).toHaveCount(nodes.length);
   for (const id of ["cancelled", "retracted", "deleted", "postponed_unknown"]) {
-    await expect(item(page, id)).toContainText("日历标记为已取消");
+    // 「日历标记为已取消」改为条目上的「已取消」徽标。
+    await expect(item(page, id).locator(".badge--danger")).toHaveText("已取消");
     await expect(item(page, id)).toContainText("无闹钟");
     await expect(item(page, id)).toContainText(`合成事实 ${id}`);
   }
-  await expect(item(page, "rescheduled")).toContainText("不计入基础窗口条目");
-  await expect(preview(page)).toContainText("时间待定 0 条");
+  // 新界面不再逐条写「不计入基础窗口条目」：跨窗口的改期按新日期单独列出，并保留旧时间。
+  await expect(
+    preview(page).locator('h3.preview-day:has-text("4月1日") + ul [data-milestone="rescheduled"]'),
+  ).toHaveCount(1);
+  await expect(item(page, "rescheduled")).toContainText("合成事实 rescheduled");
+  await expect(item(page, "rescheduled")).toContainText("（原 10月2日 20:00）");
+  // 省略行只在有省略时出现；延期待定的更正不计入「时间待定」。
+  await expect(preview(page)).not.toContainText(/时间待定 [1-9]\d* 条/);
   await expect(preview(page).locator("img")).toHaveCount(0);
   await screenshot(page, "corrections", info.project.name);
 });
@@ -334,7 +345,7 @@ for (const failure of ["503", "offline"] as const) {
           ? r.abort()
           : r.fulfill({ status: 503, json: {} }),
     );
-    await expect(preview(page)).toContainText("样例预览（合成）");
+    await expect(preview(page)).toContainText("样例预览（合成数据）");
     await expect(preview(page)).toContainText("未保存草稿");
     await expect(preview(page)).not.toContainText("真实数据 · 完整");
     await screenshot(page, failure, info.project.name);
@@ -378,7 +389,7 @@ test("U07 U21 下载期间改变草稿只按新配置计算，不重复请求", 
     await gate;
     await r.fulfill({ json: dataset() });
   });
-  await expect(preview(page)).toContainText("正在更新");
+  await expect(status(page)).toContainText("正在读取公开数据");
   await page.locator('input[name="alarms_enabled"]').uncheck();
   await page.locator('input[name="node_types"][value="end"]').uncheck();
   release();
@@ -390,11 +401,11 @@ test("U07 U21 下载期间改变草稿只按新配置计算，不重复请求", 
 test("U21 已保存与草稿区分，保存后更新；读取公开数据不带会话，不启用通道", async ({ page }) => {
   const mock = await open(page, (r) => r.fulfill({ json: dataset() }), true);
   await ready(page);
-  await expect(preview(page)).toContainText("已保存设置 · 版本 1");
+  await expect(preview(page)).toContainText("已保存设置 · 第 1 版");
   await page.locator('input[name="node_types"][value="end"]').uncheck();
   await expect(preview(page)).toContainText("未保存草稿");
   await page.getByRole("button", { name: "保存订阅", exact: true }).click();
-  await expect(preview(page)).toContainText("已保存设置 · 版本 2");
+  await expect(preview(page)).toContainText("已保存设置 · 第 2 版");
   expect(mock.privateWrites).toEqual(["/api/v2/me/subscription"]);
   expect(mock.count()).toBe(1);
 });
@@ -420,7 +431,7 @@ test("U21 身份失效清除已保存预览，迟到的旧请求不能恢复旧�
       new CustomEvent("hoyo:draft-identity", { detail: { status: "unknown" } }),
     ),
   );
-  await expect(preview(page)).toContainText("身份待确认");
+  await expect(preview(page)).toContainText("登录状态待确认");
   release();
   await page.evaluate(() =>
     document.dispatchEvent(
@@ -449,8 +460,7 @@ test("U21 成功读取全部页后才展示全量；真实零匹配才能显示�
   expect(mock.count()).toBe(2);
   await preview(page).getByRole("button", { name: "刷新预览数据" }).click();
   await expect(preview(page)).toContainText("真实数据中没有符合这份设置");
-  await expect(preview(page)).toContainText("真实数据 · 完整");
-  await expect(preview(page)).toContainText("未经验证的客户端不保证提醒可用");
+  await ready(page);
 });
 
 test("U21 连续跨代中止重试，诊断不冒充样例或空日历", async ({ page }) => {
@@ -485,7 +495,8 @@ test("U21 更新期间旧结果标记不完整，新代整份替换", async ({ p
   });
   await ready(page);
   await preview(page).getByRole("button", { name: "刷新预览数据" }).click();
-  await expect(preview(page)).toContainText("不完整 · 正在更新");
+  await expect(preview(page)).toContainText("真实数据 · 不完整");
+  await expect(status(page)).toContainText("正在读取公开数据");
   await expect(item(page, "old")).toHaveCount(1);
   await expect(preview(page)).not.toContainText("真实数据 · 完整");
   release();
@@ -539,7 +550,9 @@ test("U21 无法取消的旧身份响应晚于新身份返回，仍不得覆盖�
 });
 
 test("U21 到达注册表新鲜期后重新获取整份数据", async ({ page }) => {
-  await page.clock.install({ time: now });
+  // install 后假时钟会走动；若从 now 起装，负载高时 pauseAt(now) 可能已在过去而抛错。
+  // 尚未加载页面、没有任何计时器，提前一分钟起装再停在 now，之后状态与原写法相同。
+  await page.clock.install({ time: now - 60_000 });
   await page.clock.pauseAt(now);
   const mock = await open(page, async (r, count) => {
     const data = dataset([node(count === 1 ? "old" : "new")], count);

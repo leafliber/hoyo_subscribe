@@ -207,8 +207,10 @@ async function readFacts(): Promise<void> {
     knownUserId = summary.user_id;
     const saved = facts.summary?.recovery_code_saved;
     el("code-state").textContent = saved
-      ? "当前恢复码已确认保存；服务器无法重新显示旧码。"
-      : "尚未确认保存。若刷新、离开或响应丢失导致新码不再显示，请重新生成并保存；未确认的上一份码会作废。";
+      ? "恢复码已保存。出于安全考虑，旧码无法再次显示。"
+      : "还没有保存恢复码。点「生成新恢复码」后请立即保存；如果离开页面前没有确认，需要重新生成，未确认的码会作废。";
+    el("code-state").className =
+      `code-state callout ${saved ? "callout--success" : "callout--warning"}`;
   } catch (error) {
     if (error instanceof StaleIdentityError) throw error;
     facts.clear();
@@ -280,7 +282,11 @@ async function refresh(): Promise<void> {
     // Never regenerate on a read/refresh: users may have a usable delivered code in another tab.
     if (!code && !rotationKey) retry = null;
     el("use-recovery").hidden = facts.summary?.session.recovery_code_required !== false;
-    message("已读取当前状态。请保存恢复码；查看页面不会自动开启通道。");
+    message(
+      facts.summary?.recovery_code_saved
+        ? "你已经保存过恢复码。"
+        : "请生成并保存恢复码。查看本页不会自动开启任何通知。",
+    );
   } else throw new Error("unknown_session_state");
 }
 function choose(value: Purpose): void {
@@ -424,16 +430,23 @@ async function activate(): Promise<void> {
         : "最近活动精度未知。";
     for (const row of rows.filter((row) => row.state === "active" && !row.is_current)) {
       const label = document.createElement("label");
+      label.className = "check check--bordered device-option";
       const checkbox = document.createElement("input");
       checkbox.type = "checkbox";
       checkbox.name = "revoke";
       checkbox.value = row.id;
       const stamp = (time: number) =>
         new Date(time).toLocaleString("zh-CN", { timeZone: "Asia/Shanghai" });
-      label.append(
-        checkbox,
-        `${row.label} · 创建 ${stamp(row.created_at)} · 最近活动 ${stamp(row.renewed_at)}`,
-      );
+      const text = document.createElement("span");
+      text.className = "check-text";
+      const name = document.createElement("span");
+      name.className = "check-title";
+      name.textContent = row.label;
+      const meta = document.createElement("span");
+      meta.className = "check-desc";
+      meta.textContent = `创建 ${stamp(row.created_at)} · 最近活动 ${stamp(row.renewed_at)}`;
+      text.append(name, meta);
+      label.append(checkbox, text);
       el("session-list").append(label);
     }
     message("名额已满或选择已变化，请自行选择要撤销的旧会话。");
@@ -453,7 +466,7 @@ function showCode(value: Json): void {
   el<HTMLTextAreaElement>("code-output").value = `${code.recovery_id}\n${code.secret}`;
   input("saved-check").checked = false;
   retry = null;
-  message("新恢复码已交付。请单独复制或下载，然后明确确认已保存。");
+  message("新恢复码已生成。请复制或下载保存，然后勾选并点「确认已保存」。");
   render();
   el("save-title").focus();
 }
@@ -498,7 +511,7 @@ async function confirm(): Promise<void> {
         /* Saved state remains authoritative. */
       }
     }
-    message("当前恢复码已确认保存。外部备份可靠性仍由你自行核对；通道没有自动开启。");
+    message("恢复码已确认保存。之后可以去「我的订阅」启用日历订阅；各项通知不会自动开启。");
   };
   setRetry(async () => {
     await readFacts();
@@ -694,7 +707,7 @@ el("copy-code").addEventListener("click", async () => {
   try {
     await navigator.clipboard.writeText(el<HTMLTextAreaElement>("code-output").value);
     if (generation !== identityGeneration) return;
-    message("恢复码已复制，请保存到安全位置后勾选确认。");
+    message("恢复码已复制。请粘贴到安全的地方保存，然后勾选确认。");
   } catch {
     if (generation !== identityGeneration) return;
     message("复制失败，请手动选择恢复码复制，或单独下载。");

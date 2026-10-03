@@ -15,7 +15,9 @@ for (const ignoreAbort of [false, true]) {
       page,
     }) => {
       await mockPublicApi(page);
-      await page.clock.install({ time: clock });
+      // 假时钟 install 后会走动；从 clock 起装时负载高会让 pauseAt(clock) 落在过去而抛错。
+      // 页面尚未加载、没有计时器，提前一分钟起装再停在 clock，之后状态与原写法相同。
+      await page.clock.install({ time: clock.getTime() - 60_000 });
       await page.clock.pauseAt(clock);
       if (ignoreAbort)
         await page.addInitScript(() => {

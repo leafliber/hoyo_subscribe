@@ -299,7 +299,7 @@ test("U15 U25 激活后立即交付新码，明确保存前禁止通道与换邮
   await expect(page.locator("#confirm-code")).toBeDisabled();
   for (const button of await page.locator("#restricted-actions button").all())
     await expect(button).toBeDisabled();
-  await expect(page.locator("#recovery-pause")).toContainText("订阅内容仍保留");
+  await expect(page.locator("#recovery-pause")).toContainText("订阅设置仍然保留");
   expect(state.calls.find((call) => call.path === "auth/recovery")?.csrf).toBe("synthetic-preauth");
   expect(state.calls.find((call) => call.path === "auth/activate")?.csrf).toBe("synthetic-session");
   const storage = await page.evaluate(() => JSON.stringify([localStorage, sessionStorage]));
@@ -516,7 +516,12 @@ test("U15 U25 恢复入口窄屏不横向溢出，留存无凭证的界面证据
   await setup(page);
   await page.goto("/recover");
   await expect(page.locator("#recovery")).toHaveAttribute("aria-busy", "false");
-  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  // 移动端模拟下内容溢出会把 innerWidth（布局视口）一起撑宽；clientWidth 才保持设备宽度。
+  expect(
+    await page.evaluate(
+      () => document.documentElement.scrollWidth <= document.documentElement.clientWidth,
+    ),
+  ).toBe(true);
   await page.screenshot({ path: test.info().outputPath("public-entry.png"), fullPage: true });
 });
 

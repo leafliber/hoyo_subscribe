@@ -23,18 +23,20 @@ test("U09a U10 清空全部提前规则仍可开变更消息；最后一条只�
   expect(await rules.count()).toBeGreaterThan(0);
   while ((await rules.count()) > 0) await rules.first().uncheck();
   await expect(page.locator('input[name="rule_ids"]:checked')).toHaveCount(0);
+  await expect(page.locator("#rule-empty-note")).toBeVisible();
   await expect(page.locator("#rule-empty-note")).toHaveText(
-    "将不再收到提前提醒，变更消息仍按所选游戏与日历显示范围发送。",
+    "不会收到提前提醒；活动取消或改期的通知仍会按下方设置发送。",
   );
-  await page.locator("#change-settings summary").click();
   const change = page.getByRole("checkbox", { name: "新事件公布" });
   await expect(change).toBeEnabled();
   await change.check();
   await expect(change).toBeChecked();
-  await page.getByRole("button", { name: "保存订阅" }).click();
-  await expect(page.locator("#save-result")).toContainText("未写入云端");
-  await expect(page.locator("#game-error")).toBeHidden();
-  await expect(page.locator("#event-type-error")).toBeHidden();
+  // 游客（含已改过选项的游客）的保存按钮是「登录并保存」：空提醒通过本地校验后
+  // 一次点击即准备续接并跳转登录页（不写云端、不弹确认）。
+  const save = page.locator("#save-subscription");
+  await expect(save).toHaveText("登录并保存");
+  await save.click();
+  await expect(page).toHaveURL(/\/login\?returnTo=%2Fsubscription$/);
   expect(dialogs).toEqual([]);
 });
 
@@ -44,17 +46,17 @@ test("U09 关闭日历提醒只改变日历选择，规则及邮件和 Push 区�
     .locator('input[name="rule_ids"]:checked')
     .evaluateAll((items) => items.map((item) => (item as HTMLInputElement).value));
   const mailBefore = await page.locator("#mail-channel").innerText();
-  const pushBefore = await page.locator("#push-channel").innerText();
-  await page.locator("#calendar-settings summary").click();
-  await page.getByRole("checkbox", { name: "日历提醒" }).uncheck();
-  await expect(page.locator("#alarm-status")).toContainText("已关闭日历提醒");
+  // 浏览器通知（Push）区域已移除；改为核对另一个接收方式（日历订阅）区域不受影响。
+  const calendarBefore = await page.locator("#calendar-channel").innerText();
+  await page.getByRole("checkbox", { name: "在日历中提醒我" }).uncheck();
+  await expect(page.locator("#alarm-status")).toContainText("已关闭");
   expect(
     await page
       .locator('input[name="rule_ids"]:checked')
       .evaluateAll((items) => items.map((item) => (item as HTMLInputElement).value)),
   ).toEqual(selectedRules);
   expect(await page.locator("#mail-channel").innerText()).toBe(mailBefore);
-  expect(await page.locator("#push-channel").innerText()).toBe(pushBefore);
+  expect(await page.locator("#calendar-channel").innerText()).toBe(calendarBefore);
 });
 
 test("U09 初始值来自 DEFAULT_*，只是本机预选；没有 Feed 时不宣称外部提醒已开启", async ({
@@ -78,9 +80,9 @@ test("U09 初始值来自 DEFAULT_*，只是本机预选；没有 Feed 时不宣
   expect(await page.locator('input[name="alarms_enabled"]').isChecked()).toBe(
     CALENDAR_ALARMS_DEFAULT,
   );
-  await expect(page.locator("#cloud-state")).toContainText("尚无已保存订阅");
-  await expect(page.locator("#draft-state")).toContainText("本机预选");
-  await expect(page.locator("#alarm-status")).toContainText("已选择日历提醒");
+  await expect(page.locator("#cloud-state")).toHaveText("未登录 · 设置仅保存在本机");
+  await expect(page.locator("#draft-state")).toHaveText("登录后可保存到云端");
+  await expect(page.locator("#alarm-status")).toContainText("按下方规则提前提醒");
   await expect(page.locator("#alarm-status")).not.toContainText("已在外部日历开启");
   await expect(page.locator("#calendar-channel")).not.toContainText("已在外部日历开启");
 });
@@ -93,20 +95,19 @@ test("U09a 规则选项与推荐分组来自 contracts；变更范围取 calenda
     .locator('input[name="rule_ids"]')
     .evaluateAll((items) => items.map((item) => (item as HTMLInputElement).value));
   expect(renderedRules.sort()).toEqual(SUBSCRIPTION_RULE_COPY.map((rule) => rule.rule_id).sort());
+  // 全部规则按事件类型分组展示；推荐项以「推荐」徽标标出。
   const recommended = await page
-    .locator('#recommended-rules input[name="rule_ids"]')
+    .locator('#recommended-rules label:has(.badge) input[name="rule_ids"]')
     .evaluateAll((items) => items.map((item) => (item as HTMLInputElement).value));
   expect(recommended).toEqual([...DEFAULT_RULE_IDS]);
 
-  await page.locator("#calendar-settings summary").click();
   await page.locator('input[name="event_types"][value="gacha"]').uncheck();
   await expect(page.locator("#change-scope")).toContainText("卡池");
   await page.locator('input[name="rule_ids"][value="gacha_end_1d"]').uncheck();
   await expect(page.locator("#change-scope")).not.toContainText("卡池");
   await page.locator('input[name="event_types"][value="gacha"]').check();
   await expect(page.locator("#change-scope")).toContainText("卡池");
-  await page.locator("#change-settings summary").click();
-  await expect(page.locator("#change-summary")).not.toContainText("规则已配置");
+  // 原 #change-settings 折叠摘要（#change-summary）已移除，变化通知开关始终可见，无摘要可核对。
   for (const source of [
     "apps/web/src/pages/subscription.astro",
     "apps/web/src/features/subscription/page.ts",
@@ -120,27 +121,29 @@ test("U09 U10 一个主按钮、无自由分钟输入；空游戏和空日历类
   page,
 }, info) => {
   await page.goto("/subscription");
-  await expect(page.locator(".subscription-page .button")).toHaveCount(1);
+  // 新设计有多个次级按钮；「一个主按钮」对应表单里唯一的提交（保存）按钮。
+  await expect(page.locator('#subscription-form [type="submit"]')).toHaveCount(1);
   await expect(page.locator('input[type="number"]')).toHaveCount(0);
   await expect(page.locator('[name="lead_minutes"]')).toHaveCount(0);
   const checkedGames = page.locator('input[name="games"]:checked');
   while ((await checkedGames.count()) > 0) await checkedGames.first().uncheck();
-  await page.getByRole("button", { name: "保存订阅" }).click();
+  await page.locator("#save-subscription").click();
   await expect(page.locator("#game-error")).toBeFocused();
   await expect(page.locator("#game-error")).toBeVisible();
   await page.locator('input[name="games"]').first().check();
-  await page.locator("#calendar-settings summary").click();
   const checkedEventTypes = page.locator('input[name="event_types"]:checked');
   while ((await checkedEventTypes.count()) > 0) await checkedEventTypes.first().uncheck();
-  await page.getByRole("button", { name: "保存订阅" }).click();
-  await expect(page.locator("#calendar-settings")).toHaveAttribute("open", "");
+  await page.locator("#save-subscription").click();
+  // 活动类型已是常显卡片，不再需要展开 #calendar-settings 才能看到错误。
+  await expect(page.locator("#event-type-error")).toBeVisible();
   await expect(page.locator("#event-type-error")).toBeFocused();
+  await expect(page).toHaveURL(/\/subscription$/);
   const viewport = info.project.name.startsWith("mobile") ? "mobile" : "desktop";
   if (viewport === "mobile") await page.setViewportSize({ width: 320, height: 800 });
   expect(
     await page.evaluate(() => document.documentElement.scrollWidth - innerWidth),
   ).toBeLessThanOrEqual(1);
-  for (const selector of ["#event-type-error", "#push-channel"]) {
+  for (const selector of ["#event-type-error", "#mail-channel"]) {
     const el = page.locator(selector);
     await el.scrollIntoViewIfNeeded();
     const box = await el.boundingBox();
@@ -175,13 +178,24 @@ test("U09a 页面仅维护本机选择，不请求订阅 API；实际预览和�
   });
   await page.goto("/subscription");
   await expect(page.locator("#actual-preview")).toContainText("未保存草稿");
-  await expect(page.locator("#actual-preview")).toContainText("样例预览（合成）");
+  await expect(page.locator("#actual-preview")).toContainText("样例预览（合成数据）");
   await expect(page.locator("#calendar-channel")).toBeVisible();
   await expect(page.locator("#mail-channel")).toBeVisible();
-  await expect(page.locator("#push-channel")).toBeVisible();
-  await page.getByRole("button", { name: "保存订阅" }).click();
-  await expect(page.locator("#save-result")).toContainText("未写入云端");
-  await expect(page.locator("#cloud-state")).toContainText("尚无已保存订阅");
+  // 浏览器通知（Push）区域已从新界面移除；现有两个接收方式都给出明确的未登录状态。
+  await expect(page.locator("#calendar-channel")).toContainText("登录并保存订阅后");
+  await expect(page.locator("#mail-channel")).toContainText("登录并保存订阅后");
+  await expect(page.locator("#cloud-state")).toHaveText("未登录 · 设置仅保存在本机");
+  // 游客的保存按钮只跳转登录页；拦下这次跳转，确认页面本身没有为此发出任何 API 请求。
+  await page.route(
+    (url) => url.pathname === "/login",
+    (route) => route.abort("aborted"),
+  );
+  const navigation = page.waitForRequest((request) =>
+    request.url().endsWith("/login?returnTo=%2Fsubscription"),
+  );
+  await page.getByRole("button", { name: "登录并保存" }).click();
+  expect((await navigation).isNavigationRequest()).toBe(true);
+  await expect(page).toHaveURL(/\/subscription$/);
   expect(apiRequests.map((url) => new URL(url).pathname)).toEqual(["/api/v2/calendar/nodes"]);
 });
 

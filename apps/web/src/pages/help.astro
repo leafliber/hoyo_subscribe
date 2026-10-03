@@ -1,4 +1,5 @@
 ---
+import "../styles/base.css";
 import {
   ACCOUNT_GRACE_DAYS,
   ACCOUNT_IDLE_DAYS,
@@ -14,41 +15,110 @@ import {
   MAIL_USER_BASE_DAY,
   MAIL_USER_URGENT_DAY,
 } from "@hoyo/contracts";
+import Icon from "../components/Icon.astro";
 import Layout from "./_Layout.astro";
+import "../features/info/info.css";
 ---
 <Layout title="使用帮助">
-  <h1>使用帮助</h1>
-  <p>HoYo日历整理官方活动日程。先浏览日程、选择关注范围，再保存到账号并设置接收方式。活动安排以官方最新公告为准。</p>
-  <nav aria-label="帮助目录"><ul><li><a href="#calendar">订阅日历</a></li><li><a href="#preview">预览未完成怎么办</a></li><li><a href="#mail">邮件名额与预算</a></li><li><a href="#account">账号与恢复码</a></li></ul></nav>
-  <section id="calendar" aria-labelledby="calendar-title">
-    <h2 id="calendar-title">订阅日历与客户端范围</h2>
-    <ol><li>在<a href="/subscription">我的订阅</a>保存关注范围，查看已保存设置的实际预览与提醒关联节点。</li><li>完整预览通过后确认启用，按需复制个人日历订阅地址。</li><li>在目标客户端使用“订阅日历”的地址入口，粘贴地址并确认是否允许提醒。单次下载导入不会持续更新。</li></ol>
-    <p>个人地址是只读凭证，请勿公开分享或放进截图。复制成功只表示取得地址，不表示客户端已添加或已同步。重置会使旧地址失效，所有客户端都需替换；停用不能删除已下载的副本。</p>
-    <ul><li><strong>Apple Calendar / macOS：已测。</strong>2026-09-22 所有者在本机测试台验证了完整快照删除、重新加入、改期、取消、故障保留旧结果、恢复更新与 VALARM 弹出。客户端版本和刷新延迟未记录，正式站点端到端表现仍需验证。</li><li><strong>Google Calendar：未测。</strong>完整替换、提醒与刷新延迟均未知。</li><li><strong>Outlook 桌面版与 Web 版：未测。</strong>完整替换、提醒与刷新延迟均未知。其他设备也不能套用 macOS 结论。</li></ul>
-    <p>日历刷新由客户端控制，提醒非必达。纯日期、预计和未知时间不生成精确闹钟。本站显示北京时间（UTC+8）。</p>
-    <p>若提示“本次输出未通过完整性检查”，服务会暂停更新以保护现有日历内容。保留订阅，稍后重试并查看<a href="/status">服务状态</a>；不要为此重置地址或重新订阅。</p>
-  </section>
-  <section id="preview" aria-labelledby="preview-title">
-    <h2 id="preview-title">预览未完成或范围过大</h2>
-    <p>草稿预览与已保存设置的权威预览不同；分页尚未取完、来源未知、数据过期或输出受阻时，都不能当作完整或空日历，也不能据此确认启用。</p>
-    <p>极大受阻集合可能始终无法在一次游标有效期内取全。同一范围反复重试仍可能过期。请回到我的订阅，减少关注游戏、事件类型或节点类型；提醒规则可能保留关联节点，必要时一并缩小提醒规则，保存后重新取得完整预览。不要连续无限刷新。</p>
-    <p>限流时按页面提示等待；预览过期后需重新核对整轮结果。一个成功样本不代表任意范围都能一次取全。</p>
-  </section>
-  <section id="mail" aria-labelledby="mail-title">
-    <h2 id="mail-title">邮件名额、发送机会与日预算</h2>
-    <p>账号容量为 {ACCOUNT_MAX_STORED}，邮件席位上限为 {MAIL_SEATS_MAX}，其中常规提醒子名额最多 {MAIL_ROUTINE_SEATS_MAX}。这表示服务容量，不表示当前剩余名额。两层都需本人明确同意。</p>
-    <p>邮件席位用于取消、重要更正和晚收录补充；常规层另外提供提前提醒与新事件通知。常规层默认关闭，已使用日历提醒时通常会重复。名额满时暂不提供候补，也不承诺开放时间；可到<a href="/subscription">我的订阅设置日历提醒</a>，但缺少邮件时无法得到邮件渠道的取消/改期主动通知。</p>
-    <p>每人每 UTC 日最多 {MAIL_USER_BASE_DAY} 次基础发送机会、{MAIL_USER_URGENT_DAY} 次紧急发送机会。同一时段的多条提醒会合并一封；这是最多发送机会，非保证每条必达。日额度按 UTC 零点重置（北京时间早晨），不按浏览器当地午夜重置。</p>
-    <p>全站认证、基础、紧急三个日池分别为 {MAIL_AUTH_DAY}、{MAIL_BASE_DAY}、{MAIL_URGENT_DAY} 次；各池独立，不互借，不跨日结转。认证池剩余不高于 {MAIL_AUTH_FLOOR} 时仅接受已有账号首次登录意图，暂停新注册发信与重发；紧急池剩余不高于 {MAIL_URGENT_FLOOR} 时仅发取消/撤回。日池次日恢复不代表旧通知补发。</p>
-    <p>平台明确要求稍后重试时，首版不自动补发：验证码请重新申请，业务通知到期即作废。结果未知也不等于送达，不盲目重发。“已提交平台”或 accepted 不表示收件人已收到或已读。</p>
-    <p>日历与邮件独立，可能跨通道重复；没有自动故障转移。关闭邮件不影响日历和账号。浏览器推送首版未开放。</p>
-  </section>
-  <section id="account" aria-labelledby="account-title">
-    <h2 id="account-title">账号回收与保存恢复码</h2>
-    <p>邮件席位租期为 {MAIL_SEAT_LEASE} 天，有账号活动会自动续租，不要求专门回网页。有效 Feed 拉取也算活动；邮件被接受、投递成功或扫描器打开退订页不算活动。</p>
-    <p>连续 {ACCOUNT_IDLE_DAYS} 天没有真实交互、有效日历拉取或有效客户端处理信号，账号会进入 {ACCOUNT_GRACE_DAYS} 天回收宽限；恢复使用可终止沉睡判定。回收前维护者必须复核清单，活动记录不可信时暂停账号与席位回收。</p>
-    <p>删除或清理释放实际存量，不退还已消耗的日额度，也不能擦除已送达邮件、客户端副本或尚未到期的备份。</p>
-    <p>首次登录后请离线保存恢复码，与邮箱分开保管，不要分享或截图公开。邮件不可用时可通过<a href="/recover">恢复入口</a>取回控制权；紧急停用不会消费恢复码，恢复登录会消耗所用码，并要求保存新码。本站无法替你找回丢失的恢复码。</p>
-  </section>
-  <p><a href="/status">查看当前来源与服务开放状态</a></p>
+  <div class="info-page">
+    <header class="page-header">
+      <div>
+        <p class="eyebrow"><Icon name="help-circle" />帮助中心</p>
+        <h1>使用帮助</h1>
+        <p class="lead">HoYo日历整理米哈游官方公告里的活动时间。浏览日程不需要登录；登录后可以把关注的内容订阅到自己的日历。</p>
+      </div>
+    </header>
+    <div class="info-layout">
+      <nav class="info-toc" aria-label="帮助目录">
+        <p class="info-toc-title">目录</p>
+        <ul>
+          <li><a href="#calendar">订阅到日历</a></li>
+          <li><a href="#clients">支持的日历应用</a></li>
+          <li><a href="#preview">预览与范围</a></li>
+          <li><a href="#mail">邮件通知与名额</a></li>
+          <li><a href="#account">账号与恢复码</a></li>
+          <li><a href="#data">数据来源与准确性</a></li>
+        </ul>
+      </nav>
+      <div class="info-content">
+        <section id="calendar" class="card info-section" aria-labelledby="calendar-title">
+          <h2 id="calendar-title">怎样订阅到日历？</h2>
+          <ol class="info-steps">
+            <li><strong>选择内容</strong>：在<a href="/subscription">我的订阅</a>选好关注的游戏、活动类型和提醒，登录后保存。</li>
+            <li><strong>保存恢复码</strong>：第一次启用前，需要保存一份恢复码（只需一次）。</li>
+            <li><strong>启用并添加</strong>：在「日历订阅」中核对预览并确认启用，然后复制链接，或直接用日历应用打开。</li>
+          </ol>
+          <p>请在日历应用里选择<strong>「订阅日历」</strong>或「通过网址添加」，不要用「导入文件」——导入的内容不会自动更新。</p>
+          <div class="callout callout--info">
+            <Icon name="lock" />
+            <div class="callout-body"><p>订阅链接是你的私人凭证：拿到链接的人都能看到你的订阅内容。不要公开分享或截图。如果泄露了，可以在「管理订阅链接」里重置，旧链接会立即失效。</p></div>
+          </div>
+          <p>复制成功只表示拿到了链接，不代表日历应用已经添加或同步。停用订阅不会删除日历应用里已经同步的内容。</p>
+        </section>
+
+        <section id="clients" class="card info-section" aria-labelledby="clients-title">
+          <h2 id="clients-title">支持哪些日历应用？</h2>
+          <ul class="client-list">
+            <li>
+              <div><strong>Apple 日历（iPhone / iPad / Mac）</strong><p>2026-09-22 在本机测试台验证了新增、删除、改期、取消、故障时保留旧内容、恢复更新以及提醒弹出。客户端版本和刷新延迟未记录。</p></div>
+              <span class="badge badge--success">已实测</span>
+            </li>
+            <li>
+              <div><strong>Google 日历</strong><p>同步较慢（可能数小时），一般不会使用订阅里的提醒。完整替换和刷新延迟尚未测试。</p></div>
+              <span class="badge">未实测</span>
+            </li>
+            <li>
+              <div><strong>Outlook（桌面版与网页版）</strong><p>完整替换、提醒与刷新延迟尚未测试。其他设备也不能套用 macOS 的结论。</p></div>
+              <span class="badge">未实测</span>
+            </li>
+          </ul>
+          <p>日历多久刷新一次由日历应用决定，提醒不保证每次都能弹出。只有日期、预计时间或时间待定的活动不会设置精确提醒。本站时间均为北京时间（UTC+8）。</p>
+          <div class="callout callout--warning">
+            <Icon name="alert-triangle" />
+            <div class="callout-body"><p class="callout-title">看到「本次输出未通过完整性检查」？</p><p>服务暂停了更新，以保护你日历里现有的内容。请保留订阅，稍后再看<a href="/status">服务状态</a>；不要为此重置链接或重新订阅。</p></div>
+          </div>
+        </section>
+
+        <section id="preview" class="card info-section" aria-labelledby="preview-title">
+          <h2 id="preview-title">预览显示「不完整」或范围过大怎么办？</h2>
+          <p>「我的订阅」右侧的预览在浏览器中生成，用来快速查看设置效果；启用日历时，服务器会按已保存的设置再完整核对一次。数据没取完、来源未知、数据过期或输出受阻时，预览都不能当作完整或空日历。</p>
+          <p>订阅范围特别大时，可能无法在一次有效期内取全，反复重试也可能过期。请减少关注的游戏、活动类型或节点类型（必要时一并减少提醒规则），保存后再预览，不要连续刷新。</p>
+        </section>
+
+        <section id="mail" class="card info-section" aria-labelledby="mail-title">
+          <h2 id="mail-title">邮件通知怎么收费？名额有限吗？</h2>
+          <p>邮件通知免费，但内测期间名额有限：账号容量 {ACCOUNT_MAX_STORED} 个，邮件席位最多 {MAIL_SEATS_MAX} 个，其中常规提醒子名额最多 {MAIL_ROUTINE_SEATS_MAX} 个。这是服务容量，不是当前剩余名额。两层邮件都需要你本人明确同意。</p>
+          <dl class="kv">
+            <dt>重要变化（席位）</dt><dd>活动取消、重要更正、晚收录补充。日历无法主动告诉你这些变化，这是邮件最有用的地方。</dd>
+            <dt>常规提醒和新活动</dt><dd>提前提醒和新活动公布。默认关闭：已经在用日历提醒的话通常会重复。</dd>
+            <dt>每日发送上限</dt><dd>每人每个 UTC 日最多 {MAIL_USER_BASE_DAY} 次常规发送机会、{MAIL_USER_URGENT_DAY} 次紧急发送机会；同一时段的多条提醒会合并成一封。按 UTC 零点（北京时间早上 8 点）重置。</dd>
+            <dt>名额租期</dt><dd>{MAIL_SEAT_LEASE} 天，只要你还在使用（包括日历应用在拉取）就会自动续期，不需要专门回来点击。</dd>
+          </dl>
+          <details class="disclosure">
+            <summary>全站发送预算的细节</summary>
+            <p>全站认证、基础、紧急三个日池分别为 {MAIL_AUTH_DAY}、{MAIL_BASE_DAY}、{MAIL_URGENT_DAY} 次，各池独立、不互借、不跨日结转。认证池剩余不高于 {MAIL_AUTH_FLOOR} 时，只接受已有账号首次登录，暂停新注册发信与重发；紧急池剩余不高于 {MAIL_URGENT_FLOOR} 时只发取消/撤回通知。日池次日恢复不代表旧通知会补发。</p>
+            <p>平台要求稍后重试时，首版不会自动补发：验证码请重新申请，业务通知到期即作废。「已提交平台」不代表对方已收到或已读。</p>
+          </details>
+          <p>名额满时暂不提供候补，也不承诺开放时间；可以先用<a href="/subscription">日历提醒</a>，但没有邮件就收不到取消/改期的主动通知。日历和邮件相互独立，可能重复提醒，也没有自动故障转移。浏览器推送首版未开放。</p>
+        </section>
+
+        <section id="account" class="card info-section" aria-labelledby="account-title">
+          <h2 id="account-title">账号会被回收吗？恢复码是什么？</h2>
+          <p>连续 {ACCOUNT_IDLE_DAYS} 天没有任何使用（包括网页操作和日历应用拉取），账号会进入 {ACCOUNT_GRACE_DAYS} 天回收宽限期；期间恢复使用即可保留。回收前维护者会人工复核；活动记录不可信时会暂停回收。删除或回收不会退还当天已用的发送额度，也无法擦除已送达的邮件、日历应用里的副本或尚未到期的备份。</p>
+          <p><strong>恢复码</strong>是邮箱无法使用时找回账号的凭证。首次启用日历订阅或邮件前需要保存一次，请离线保管、和邮箱分开存放。邮箱无法使用时，可以在<a href="/recover">恢复入口</a>：</p>
+          <ul>
+            <li><strong>恢复登录</strong>：会消耗所用的恢复码，登录后必须保存新码。</li>
+            <li><strong>紧急停用</strong>：撤销所有登录和日历链接、关闭邮件，不会消耗恢复码。</li>
+          </ul>
+          <p>本站无法替你找回丢失的恢复码。</p>
+        </section>
+
+        <section id="data" class="card info-section" aria-labelledby="data-title">
+          <h2 id="data-title">数据从哪里来？准确吗？</h2>
+          <p>活动信息来自原神、崩坏：星穹铁道、绝区零的官方公告（国服、简体中文），经过规则抽取和人工核对后发布。官方改期或取消时会同步更新，并在日程中标注。</p>
+          <p>本站不是米哈游官方网站，活动安排以官方最新公告为准。来源维护或数据延迟时，会在<a href="/status">服务状态</a>页如实显示。</p>
+        </section>
+      </div>
+    </div>
+  </div>
 </Layout>

@@ -1,10 +1,23 @@
 ---
-import "../../features/schedule/detail.css";
-import "../../features/schedule/schedule.css";
+import "../../styles/base.css";
+import Icon from "../../components/Icon.astro";
 import Layout from "../_Layout.astro";
+import "../../features/schedule/schedule.css";
+import "../../features/schedule/detail.css";
 ---
-<Layout title="事件详情" activeNav="schedule">
-  <div id="event-detail" aria-busy="true"><h1>事件详情</h1><p role="status">正在读取最新已发布事实…</p></div>
-  <noscript><p>启用 JavaScript 后可读取当前事件详情。</p></noscript>
+<Layout title="活动详情" activeNav="schedule">
+  <div class="detail-page">
+    <a class="back-link" id="back-link" href="/"><Icon name="arrow-left" />返回日程</a>
+    <div id="event-detail" aria-busy="true">
+      <div class="detail-skeleton" role="status">
+        <h1 class="sr-only">活动详情</h1>
+        <span class="sr-only">正在读取最新已发布事实…</span>
+        <div class="skeleton skeleton-title"></div>
+        <div class="skeleton skeleton-block"></div>
+        <div class="skeleton skeleton-block"></div>
+      </div>
+    </div>
+    <noscript><p class="callout callout--warning">启用 JavaScript 后可读取当前活动详情。</p></noscript>
+  </div>
   <script>import "../../features/schedule/detail-page";</script>
 </Layout>

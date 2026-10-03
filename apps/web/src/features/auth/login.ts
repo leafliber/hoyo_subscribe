@@ -27,7 +27,7 @@ el<HTMLAnchorElement>("continue-login").href = returnPath;
 if (requestedReturn !== null) {
   el("login-return-notice").hidden = false;
   el("login-return-notice").textContent =
-    "完成并激活当前浏览器后，将返回站内原任务；设置仍需明确保存。";
+    "登录完成后会回到刚才的页面，未保存的设置仍需你手动保存。";
 }
 // F3-01 permits a modest presentation limit for the optional device label.
 el<HTMLInputElement>("device-label").maxLength = 80;
@@ -55,11 +55,24 @@ function invalidateIdentity(): void {
     channel.close();
   }
 }
-function message(text: string): void {
+type Tone = "info" | "success" | "warning" | "danger";
+function message(text: string, tone: Tone = "info"): void {
   el("auth-result").textContent = text;
-  announce(text, "info");
+  el("auth-result").className = `callout callout--${tone} result-message`;
+  announce(text, tone === "danger" ? "error" : tone === "warning" ? "warning" : "info");
+}
+function renderProgress(): void {
+  const order = ["email", "code", "pending"];
+  const index = phase === "done" ? order.length : order.indexOf(phase);
+  for (const item of document.querySelectorAll<HTMLElement>("[data-auth-step]")) {
+    const position = order.indexOf(item.dataset.authStep ?? "");
+    item.dataset.state = position < index ? "done" : position === index ? "current" : "todo";
+    if (position === index) item.setAttribute("aria-current", "step");
+    else item.removeAttribute("aria-current");
+  }
 }
 function render(): void {
+  renderProgress();
   el("email-form").hidden = phase !== "email";
   el("code-section").hidden = phase !== "code";
   el("pending-section").hidden = phase !== "pending";
@@ -82,7 +95,7 @@ function render(): void {
   const left = Math.max(0, Math.ceil((cooldownUntil - Date.now()) / 1000));
   el<HTMLButtonElement>("resend").disabled =
     busy || !!retry || needsRestart || left > 0 || mailAvailable === false;
-  el("resend").textContent = left > 0 ? `重新发送验证码（${left} 秒后）` : "重新发送验证码";
+  el("resend").textContent = left > 0 ? `重新发送验证码（${left} 秒后可用）` : "重新发送验证码";
   el<HTMLButtonElement>("activate").disabled =
     busy ||
     !!retry ||
@@ -90,7 +103,7 @@ function render(): void {
     (selectionRequired && !root.querySelector("input[name=revoke]:checked"));
   if (challengeStart !== null)
     el("challenge-time").textContent =
-      `如果验证码已发出，按最初提交时刻估算有效至 ${stamp(challengeStart + OTP_TTL * 1000)}（北京时间）。实际结果以服务端校验为准。`;
+      `验证码约在 ${stamp(challengeStart + OTP_TTL * 1000)}（北京时间）前有效。`;
 }
 async function run(work: () => Promise<void>, waiting: string): Promise<void> {
   if (busy) return;
@@ -116,38 +129,42 @@ function setRetry(work: () => Promise<void>, label: string): void {
 }
 function failure(error: unknown): void {
   if (!isApiErrorBody(error)) {
-    message("结果未知：请求可能已执行。请核对结果，不要重复创建新的操作。");
+    message(
+      "暂时无法确认结果，请求可能已经完成。请点「核对结果」，不要重复发起新的操作。",
+      "warning",
+    );
     return;
   }
   const detail = error.error.details;
   if (detail?.code === "unauthorized") {
     if (detail.reason === "pending_activation") {
       phase = "pending";
-      setRetry(loadSessions, "读取待激活会话");
-      message("还需完成激活，当前并非登录失败。");
+      setRetry(loadSessions, "读取待确认的登录");
+      message("还差最后一步：确认在这台设备登录。");
       return;
     }
     retry = null;
     needsRestart = true;
     message(
       detail.reason === "session_expired"
-        ? "会话已失效，请重新建立登录流程。这不是设备名额问题。"
-        : "认证上下文已丢失或过期，请重新建立登录流程。这不表示验证码错误。",
+        ? "登录已过期，请点「重新开始」再登录一次。"
+        : "登录流程已过期，请点「重新开始」。这不是验证码错误。",
+      "warning",
     );
     return;
   }
   if (detail?.code === "validation") {
     const field = detail.fields?.[0];
     const reasons: Record<string, string> = {
-      mismatch: "验证码不匹配，请核对输入。错误尝试累计计算，重发不会重置。",
+      mismatch: "验证码不正确，请核对后重试。输错次数会累计，重新发送不会清零。",
       malformed_code: `请输入完整的 ${OTP_DIGITS} 位数字验证码。`,
-      no_open_challenge: "没有可用的验证码挑战，可能已过期或结束，请重新建立登录流程。",
-      attempts_exhausted: "本次验证码的错误尝试已用尽，请重新建立登录流程。",
-      login_required: "认证状态已变化，请重新走登录流程收取验证码；这不是验证码错误。",
-      verification_failed: "人机验证失败或已过期，请完成新的验证后重试原申请。",
+      no_open_challenge: "没有可用的验证码，可能已经过期，请点「重新开始」。",
+      attempts_exhausted: "这个验证码输错次数太多，已失效。请点「重新开始」获取新验证码。",
+      login_required: "登录状态有变化，请重新开始获取验证码。这不是验证码错误。",
+      verification_failed: "人机验证失败或已过期，请重新完成验证后再试。",
       canonicalization_failed: "请检查邮箱格式，首版支持 ASCII 邮箱。",
     };
-    message(reasons[field?.reason ?? ""] ?? "请检查填写内容，输入已保留。");
+    message(reasons[field?.reason ?? ""] ?? "请检查填写内容，输入已保留。", "danger");
     if (
       ["no_open_challenge", "attempts_exhausted", "login_required"].includes(field?.reason ?? "")
     ) {
@@ -162,12 +179,13 @@ function failure(error: unknown): void {
     needsRestart = true;
     retry = null;
     message(
-      "挑战在处理期间已变化，或全站当日注册完成名额已满；这不表示验证码错误。请稍后重新建立登录流程。",
+      "验证码在处理期间发生了变化，或今日新用户注册名额已满（这不是验证码错误）。请稍后重新开始。",
+      "warning",
     );
     return;
   }
   const feedback = feedbackForApiError(error, { affectedOperation: "验证码邮件服务" });
-  message(`${feedback.title}。${feedback.explanation} ${feedback.nextStep}`);
+  message(`${feedback.title}。${feedback.explanation} ${feedback.nextStep}`, "warning");
   if (
     (detail?.code === "rate_limited" || detail?.code === "temporarily_unavailable") &&
     typeof detail.retry_after_ms === "number" &&
@@ -181,34 +199,39 @@ async function status(): Promise<void> {
     if (http !== 200) throw new Error("status_unknown");
     mailAvailable =
       typeof body.mail_sending_available === "boolean" ? body.mail_sending_available : null;
-    const registration =
-      body.registration_open === true
-        ? "当前开放注册。"
-        : body.registration_open === false
-          ? "全站暂停注册，已有账号仍可登录。"
-          : "注册状态未知。";
-    el("auth-service").textContent =
-      registration +
-      (mailAvailable === false
-        ? "验证码邮件服务全局不可用，可使用恢复入口或稍后重试。"
-        : mailAvailable === true
-          ? "邮件发送服务当前可用，不代表邮件已送达。"
-          : "邮件发送状态未知。");
+    const service = el("auth-service");
+    if (mailAvailable === false) {
+      service.className = "auth-service callout callout--warning";
+      service.textContent =
+        body.registration_open === false
+          ? "验证码邮件暂时无法发送，新用户注册也已暂停。请稍后再试，或用恢复码找回账号。"
+          : "验证码邮件暂时无法发送，请稍后再试，或用恢复码找回账号。";
+    } else if (body.registration_open === false) {
+      service.className = "auth-service callout callout--info";
+      service.textContent = "目前暂停新用户注册，已有账号可以正常登录。";
+    } else if (mailAvailable === null || body.registration_open !== true) {
+      service.className = "auth-service callout callout--info";
+      service.textContent = "暂时无法确认注册与邮件服务状态，可以先尝试发送验证码。";
+    } else {
+      service.className = "auth-service";
+      service.textContent = "";
+    }
   } catch {
     mailAvailable = null;
-    el("auth-service").textContent = "全局注册与邮件状态未知，可查看服务状态后重试。";
+    el("auth-service").className = "auth-service callout callout--info";
+    el("auth-service").textContent = "暂时无法确认注册与邮件服务状态，可以查看服务状态后再试。";
   }
   render();
 }
 async function send(resend: boolean): Promise<void> {
   const targetEmail = email.value.trim();
   if (!canonicalizeEmail(targetEmail).ok) {
-    message("请检查邮箱格式，首版支持 ASCII 邮箱。");
+    message("请检查邮箱格式，首版支持 ASCII 邮箱。", "danger");
     email.focus();
     return;
   }
   if (mailAvailable === false) {
-    message("验证码邮件服务全局不可用，请稍后查看服务状态或使用恢复入口。");
+    message("验证码邮件暂时无法发送，请稍后再试，或用恢复码找回账号。", "warning");
     render();
     return;
   }
@@ -227,7 +250,7 @@ async function send(resend: boolean): Promise<void> {
     if (!resend) {
       const token = captcha.take();
       if (!token) {
-        message("请先完成人机验证，再重试申请。");
+        message("请先完成人机验证，再点发送。", "warning");
         captcha.reset();
         return;
       }
@@ -250,15 +273,20 @@ async function send(resend: boolean): Promise<void> {
       cooldownUntil = Math.max(cooldownUntil, submittedAt + OTP_COOLDOWN * 1000);
       phase = "code";
       retry = null;
-      message(AUTH_INTENT_PUBLIC_BODY.message);
+      message(
+        resend
+          ? "已重新发送（如果这个邮箱符合条件）。请查看最新的一封邮件。"
+          : "如果这个邮箱可以登录或注册，验证码已经发出。",
+        "success",
+      );
       render();
       focusAfter = code;
     } finally {
       if (!resend) captcha.reset();
     }
   };
-  setRetry(attempt, "重试原申请（不新增发送意图）");
-  await run(attempt, "正在申请验证码…");
+  setRetry(attempt, "重试发送（不会重复发信）");
+  await run(attempt, "正在发送验证码…");
 }
 async function complete(): Promise<void> {
   const result = await request("auth/complete", {}, operationKey, abort?.signal);
@@ -273,14 +301,14 @@ async function complete(): Promise<void> {
 async function verify(): Promise<void> {
   const value = code.value.trim();
   if (!new RegExp(`^\\d{${OTP_DIGITS}}$`).test(value)) {
-    message(`请输入完整的 ${OTP_DIGITS} 位数字验证码。`);
+    message(`请输入完整的 ${OTP_DIGITS} 位数字验证码。`, "danger");
     code.focus();
     return;
   }
   operationKey = crypto.randomUUID();
   completionStart = Date.now();
   await run(async () => {
-    setRetry(complete, "通过完成回执核对登录");
+    setRetry(complete, "核对登录结果");
     try {
       const body = { email: email.value.trim(), code: value };
       let result = await request("auth/challenges/verify", body, operationKey, abort?.signal);
@@ -289,12 +317,12 @@ async function verify(): Promise<void> {
         result.body.preauth_renewal_required === true &&
         result.body.verified === false
       ) {
-        message("正在续接认证上下文，并用同一码重试一次…");
+        message("正在续接登录流程，并用同一个验证码重试一次…");
         result = await request("auth/challenges/verify", body, operationKey, abort?.signal);
         if (result.status === 409 && result.body.preauth_renewal_required === true) {
           retry = null;
           needsRestart = true;
-          message("认证上下文仍无法续接，请重新建立登录流程；这不是验证码错误。");
+          message("登录流程无法续接，请点「重新开始」。这不是验证码错误。", "warning");
           return;
         }
       }
@@ -309,7 +337,7 @@ async function verify(): Promise<void> {
         retry = null;
         throw error;
       }
-      message("验证结果未知，正在通过完成回执核对…");
+      message("暂时没收到验证结果，正在核对…");
       // Cancellation also follows the receipt path, but only after explicit retry.
       if (abort?.signal.aborted) throw error;
       await complete();
@@ -324,8 +352,8 @@ async function pending(): Promise<void> {
   invalidateIdentity();
   if (completionStart !== null)
     el("completion-time").textContent =
-      `请尽量在 ${stamp(completionStart + Math.min(AUTH_COMPLETION_TTL, SESSION_PENDING_TTL) * 1000)}（北京时间）前完成登录。此时间按提交时刻估算；以服务端会话状态为准。`;
-  setRetry(loadSessions, "重新读取待激活会话");
+      `请在 ${stamp(completionStart + Math.min(AUTH_COMPLETION_TTL, SESSION_PENDING_TTL) * 1000)}（北京时间）前完成确认。`;
+  setRetry(loadSessions, "重新读取待确认的登录");
   render();
   await loadSessions();
 }
@@ -345,12 +373,8 @@ async function loadSessions(): Promise<void> {
   phase = "pending";
   retry = null;
   el("session-notice").textContent =
-    result.body.current_needs_reverification === true
-      ? "当前会话即将到期，请及时重新验证。"
-      : result.body.current_needs_reverification === false
-        ? "设备信息已读取，等待你确认激活。"
-        : "会话临期状态未知。";
-  message("正在完成登录：请确认激活当前浏览器。");
+    result.body.current_needs_reverification === true ? "这次登录即将过期，请尽快确认。" : "";
+  message("验证通过！请确认在这台设备登录。", "success");
   render();
   focusAfter = el("activate");
 }
@@ -363,17 +387,25 @@ function deviceList(body: Json): void {
     typeof body.renewed_at_max_lag_ms === "number" &&
     Number.isFinite(body.renewed_at_max_lag_ms) &&
     body.renewed_at_max_lag_ms >= 0
-      ? `最近活动最多滞后 ${body.renewed_at_max_lag_ms / 1000 / 60} 分钟，不代表实时在线。以下时间均为北京时间。`
-      : "最近活动的滞后精度未知，不代表实时在线。以下时间均为北京时间。";
+      ? `「最近活动」最多滞后 ${body.renewed_at_max_lag_ms / 1000 / 60} 分钟，不代表实时在线。时间均为北京时间。`
+      : "「最近活动」有一定滞后，不代表实时在线。时间均为北京时间。";
   el("session-list").replaceChildren();
   for (const row of rows.filter((row) => row.state === "active" && !row.is_current)) {
     const label = document.createElement("label");
+    label.className = "check check--bordered device-option";
     const input = document.createElement("input");
     input.type = "checkbox";
     input.name = "revoke";
     input.value = row.id;
     const text = document.createElement("span");
-    text.textContent = `${row.label} · 创建：${stamp(row.created_at)} · 最近活动：${stamp(row.renewed_at)}`;
+    text.className = "check-text";
+    const name = document.createElement("span");
+    name.className = "check-title";
+    name.textContent = row.label;
+    const meta = document.createElement("span");
+    meta.className = "check-desc";
+    meta.textContent = `创建：${stamp(row.created_at)} · 最近活动：${stamp(row.renewed_at)}`;
+    text.append(name, meta);
     label.append(input, text);
     el("session-list").append(label);
   }
@@ -396,14 +428,14 @@ async function activate(): Promise<void> {
     if (result.status === 409 && result.body.selection_required === true) {
       deviceList(result.body);
       retry = null;
-      message("请选择要撤销的旧会话后，再确认激活。");
+      message("登录设备已满，请选择要退出的旧设备，再确认登录。", "warning");
       return;
     }
     if (result.status !== 200 || result.body.activated !== true)
       throw new Error("unknown_activation");
     done();
   };
-  setRetry(attempt, "重试并核对激活结果");
+  setRetry(attempt, "核对登录结果");
   await run(attempt, "正在完成登录…");
 }
 function done(): void {
@@ -413,7 +445,12 @@ function done(): void {
   email.value = "";
   operationKey = "";
   invalidateIdentity();
-  message("登录已完成。仅恢复账号身份，订阅设置尚未因此保存，日历及邮件等通道也未因此开启。");
+  message(
+    requestedReturn !== null
+      ? "登录成功，正在返回…"
+      : "登录成功！订阅设置和通知不会因登录自动改变。",
+    "success",
+  );
   if (requestedReturn !== null) window.location.assign(returnPath);
 }
 el<HTMLFormElement>("email-form").addEventListener("submit", (event) => {
@@ -445,7 +482,7 @@ el("restart-auth").addEventListener("click", () => {
   el("device-selection").hidden = true;
   el("session-list").replaceChildren();
   captcha.reset();
-  message("已重新建立登录页面。请确认邮箱并完成人机验证，再申请新验证码。");
+  message("已重新开始。请确认邮箱并完成人机验证，再发送验证码。");
   render();
   email.focus();
   void status();
@@ -462,7 +499,7 @@ void request("me/sessions")
       sessions(result.body.sessions)
     ) {
       phase = "pending";
-      message("检测到待激活会话，请确认后完成登录。");
+      message("你有一次未完成的登录，请确认在这台设备登录。");
       render();
     }
   })

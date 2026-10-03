@@ -106,48 +106,98 @@ export async function savedPreview(
 }
 export function renderSavedPreview(root: HTMLElement, preview: CalendarPreviewResponse): void {
   root.replaceChildren();
-  const p = (text: string) => {
-    const el = document.createElement("p");
-    el.textContent = text;
-    root.append(el);
+  const time = (ms: number) =>
+    new Date(ms).toLocaleString("zh-CN", {
+      timeZone: "Asia/Shanghai",
+      month: "long",
+      day: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+      hourCycle: "h23",
+    });
+  const make = <K extends keyof HTMLElementTagNameMap>(tag: K, className: string, text = "") => {
+    const node = document.createElement(tag);
+    node.className = className;
+    node.textContent = text;
+    return node;
   };
-  const time = (ms: number) => new Date(ms).toLocaleString("zh-CN", { timeZone: "Asia/Shanghai" });
-  p(
-    `服务端已保存设置 · 版本 ${preview.subscription.revision} · 发布代次 ${preview.publication.generation} · 数据时间 ${time(preview.asOf)}（北京时间 UTC+8）`,
+  const box = make("div", "confirm-summary");
+  box.append(
+    make("p", "confirm-title", preview.outcome === "ok" ? "完整预览 · 即将启用的日历" : "预览受阻"),
   );
-  p(
-    `基础窗口：${time(preview.window.start)} 至 ${time(preview.window.end)}（不含结束时刻）；更正条目可能延长窗口。`,
+  if (preview.outcome !== "ok") {
+    box.append(
+      make(
+        "p",
+        "callout callout--warning",
+        `预览受阻：${FEED_DIAGNOSTICS[preview.diagnostic]}。请缩小订阅范围；如果是数据源过期，请稍后重试。`,
+      ),
+    );
+  } else {
+    const stats = make("div", "preview-stats");
+    for (const [value, label] of [
+      [preview.totals.items, "个日程"],
+      [preview.totals.withAlarm, "个带提醒"],
+      [preview.totals.reminderAssociated, "个提醒关联"],
+    ] as const) {
+      const stat = make("div", "stat");
+      stat.append(make("strong", "", String(value)), make("span", "", label));
+      stats.append(stat);
+    }
+    box.append(stats);
+  }
+  box.append(
+    make(
+      "p",
+      "text-aux",
+      `基于已保存的第 ${preview.subscription.revision} 版设置 · 数据时间 ${time(preview.asOf)} · 发布代次 ${preview.publication.generation}。包含 ${time(preview.window.start)} 至 ${time(preview.window.end)} 的活动（不含结束时刻）。`,
+    ),
   );
-  p(
-    preview.outcome === "ok"
-      ? `完整预览 · ${preview.totals.items} 条；提醒关联 ${preview.totals.reminderAssociated} 条，带闹钟 ${preview.totals.withAlarm} 条。`
-      : `预览受阻：${FEED_DIAGNOSTICS[preview.diagnostic]}。请缩小已保存范围；来源过期时稍后重试。`,
-  );
-  p(
-    `未进入日历：时间待定 ${preview.omitted.unknownTime} 条；提醒时间不精确 ${preview.omitted.reminderNotExact} 条。`,
-  );
-  if (preview.outcome === "ok" && preview.items.length === 0) p("真实没有匹配的日历条目。");
+  if (preview.outcome === "ok" && preview.items.length === 0)
+    box.append(
+      make("p", "text-secondary", "真实没有匹配的日历条目。你仍可以启用，以后有新活动会自动出现。"),
+    );
   const rules = (ids: string[]) =>
     ids.map((id) => SUBSCRIPTION_RULE_COPY.find((r) => r.rule_id === id)?.label ?? id).join("、");
-  const list = document.createElement("ol");
+  const list = make("ol", "confirm-list");
   for (const item of preview.items) {
-    const li = document.createElement("li");
-    li.textContent = `${item.eventTitle} · ${item.milestoneTitle} · ${item.time.precision === "date" ? `${item.time.date}（具体时刻未公布）` : time(item.time.utc_ms)}。`;
+    const li = make("li", "confirm-item");
+    li.dataset.milestone = item.milestoneId;
+    li.append(
+      make(
+        "span",
+        "confirm-when",
+        item.time.precision === "date" ? `${item.time.date} 全天` : time(item.time.utc_ms),
+      ),
+    );
+    const main = make("span", "confirm-what", `${item.eventTitle} · ${item.milestoneTitle}`);
+    li.append(main);
+    const notes: string[] = [];
     if (item.inclusion.kind === "reminder_associated")
-      li.append(
-        `提醒关联节点：为「${rules(item.inclusion.ruleIds)}」保留；${item.inclusion.hiddenBy.map((by) => (by === "event_type" ? "事件类型已隐藏" : "节点类型已隐藏")).join("、")}。`,
+      notes.push(
+        `提醒关联节点：为「${rules(item.inclusion.ruleIds)}」保留；${item.inclusion.hiddenBy.map((by) => (by === "event_type" ? "事件类型已隐藏" : "节点类型已隐藏")).join("、")}`,
       );
-    if (item.patch) li.append(`更正：${item.patch.factReason}。`);
-    if (item.cancelled) li.append("已取消，不是即将发生的安排。");
+    if (item.patch) notes.push(`更正：${item.patch.factReason}`);
+    if (item.cancelled) notes.push("已取消，不是即将发生的安排");
     if (item.alarm)
-      li.append(
+      notes.push(
         item.alarm.blocked
-          ? `无精确闹钟：${{ alarms_disabled: "日历提醒已关闭", cancelled: "条目已取消", date_only: "只有日期", estimated: "预计或未确定时间" }[item.alarm.blocked]}。`
-          : `闹钟：${rules(item.alarm.ruleIds)}。`,
+          ? `无精确闹钟：${{ alarms_disabled: "日历提醒已关闭", cancelled: "条目已取消", date_only: "只有日期", estimated: "预计或未确定时间" }[item.alarm.blocked]}`
+          : `闹钟：${rules(item.alarm.ruleIds)}`,
       );
-    else li.append("没有匹配的提醒规则。");
+    else notes.push("没有匹配的提醒规则");
+    li.append(make("span", "confirm-note", `${notes.join("；")}。`));
     list.append(li);
   }
-  root.append(list);
-  p("订阅后内容随官方更新变化；此预览不保证客户端稍后所见一致。地址是只读凭证，请勿公开分享。");
+  if (preview.items.length) box.append(list);
+  if (preview.omitted.unknownTime || preview.omitted.reminderNotExact)
+    box.append(
+      make(
+        "p",
+        "text-aux",
+        `未进入日历：时间待定 ${preview.omitted.unknownTime} 条；提醒时间不精确 ${preview.omitted.reminderNotExact} 条。`,
+      ),
+    );
+  box.append(make("p", "text-aux", "订阅后内容会随官方公告更新；日历应用何时刷新由应用决定。"));
+  root.append(box);
 }
