@@ -6,25 +6,27 @@
 
 | 项 | 已确认值 / 当前状态 |
 | --- | --- |
-| Worker | 尚未创建；所有者已确认名称改为 `hoyo-subscribe`，替代最初的 `hoyo_subcribe`。官方配置文档要求名称不含下划线 |
-| D1 | 所有者已创建并确认空库；名称 `hoyo-d1`，真实 UUID 与所属账户 ID 已由所有者提供并填入源码外私有配置，绑定仍为 `DB`。Agent 未读取远端核验 |
+| Worker | 尚未创建；部署名称已由所有者确认并保存到源码外私有配置。命名须符合官方规则 |
+| D1 | 所有者已创建并确认空库；数据库名、真实 UUID 与所属账户 ID 已由所有者提供并填入源码外私有配置，绑定仍为 `DB`。Agent 未读取远端核验 |
 | 正式域名 | `https://hoyo.airo.cc`，所有者确认当前没有其他网站，可由其配置 DNS/Worker 域名 |
-| Turnstile | 已有组件；公开 Site Key 为 `0x4AAAAAAFMspypfMWsFcEg1`。允许主机名包含 `hoyo.airo.cc` 尚待所有者确认，secret 配对和目标实测尚未完成 |
+| Turnstile | 已有组件；公开 Site Key 已由所有者提供，仅保存在本地构建/部署环境。允许主机名包含 `hoyo.airo.cc` 尚待所有者确认，secret 配对和目标实测尚未完成 |
 | 备份 | 所有者选择本地备份，但存放位置与独立副本尚未准备。仍须按备份手册落实加密磁盘、独立离线副本、解密/业务恢复材料与当前 epoch 分离保管 |
 
-**眼下可做的操作：**D1 已创建且账户映射已给齐，无须重建。在已有 Turnstile 组件的设置中确认允许主机名包含 `hoyo.airo.cc`，不需要提供 Secret Key。保留现有组件及 clearance 设置。暂不把空白示例 Worker 当作本项目部署、不把未迁移的数据库连接到公开入口。后续从已验收构建按下方关闭门步骤首次部署 `hoyo-subscribe`，由所有者执行。
+**眼下可做的操作：**D1 已创建且账户映射已给齐，无须重建。在已有 Turnstile 组件的设置中确认允许主机名包含 `hoyo.airo.cc`，不需要提供 Secret Key。保留现有组件及 clearance 设置。暂不把空白示例 Worker 当作本项目部署、不把未迁移的数据库连接到公开入口。后续从已验收构建按下方关闭门步骤首次部署目标 Worker，由所有者执行。
 
 并行代码工作只有 P2-01 的 Turnstile 接入维护，见 [卡上 2026-10-03 上线接入复核](../../tasks/P2.md)。当前生产校验器仅判 success，不核对 hostname/action；独立探针已确认，修补通过前正式认证仍不放行。卡数仍按历史交付统计，不把维护项隐藏在“69/69”里。
 
 公开构建变量已经过本地检查，仍需在**每次正式前端构建前**设置；只在 Worker 运行时设置同名变量不会修改已生成的网页：
 
 ```sh
-CI=1 WRANGLER_SEND_METRICS=false PUBLIC_TURNSTILE_SITE_KEY=0x4AAAAAAFMspypfMWsFcEg1 pnpm --filter @hoyo/web build
+: "${PUBLIC_TURNSTILE_SITE_KEY:?请先在本地构建环境设置已有组件的公开 Site Key}"
+export PUBLIC_TURNSTILE_SITE_KEY
+CI=1 WRANGLER_SEND_METRICS=false pnpm --filter @hoyo/web build
 ```
 
 验收方已在源码外生成关闭门配置模板，保留两固定 DO 与静态路由，移除首轮 send_email/Queue 消费者/Cron，设置上述 Worker/D1 名称和 SITE_ORIGIN，禁用 workers.dev/preview_urls。收到所有者提供的真实账户与 D1 映射后已填入模板并重新验证，锁定 Wrangler 4.136.0 的 `deploy --dry-run` exit 0（外层 300 秒未触发）。另在新建临时本地 D1 完整应用 0001–0026，并从 policy 输出生成首次空库初始化 SQL：18 项控制状态正确，重放写入 0 项；仅 read_only/reclaim_paused 为 true。初始化会在已有 system_state 或账号时拒绝写入，不能以 0 行当首次成功。相关文件和所有者操作步骤留源码外；仅私有配置保存真实平台 ID。本地验证不证明远端已执行，正式认证还须待修补；更换提交后需重建并同步配置路径。
 
-此命令仅含公开 Site Key。Secret Key 只存 Worker 的 `TURNSTILE_SECRET_KEY`，不得进入 `PUBLIC_*`、前端构建变量、Git、PR、日志或对话。
+上述命令只读取本地已 export 的公开构建变量；文档不记录其具体值。Secret Key 只存 Worker 的 `TURNSTILE_SECRET_KEY`，不得进入 `PUBLIC_*`、前端构建变量、Git、PR、日志或对话。
 
 按所有者指定的 [Turnstile Spin 已有组件流程](https://developers.cloudflare.com/turnstile/spin/prompt.md)，Worker 尚不存在且没有已确认的其他秘密目的地时，Agent 在取回 secret 之前停止。首次关闭门部署形成真实 Worker 后，由所有者在 Cloudflare 的 Worker 设置中以 **Secret** 类型注入 `TURNSTILE_SECRET_KEY`；只反馈绑定已设置，不反馈值。若之后改由 Agent 自动恢复 secret，则另需确认源码外可信 Wrangler 的绝对路径及精确版本、账户、配置/环境、目标 Worker/binding 和域名清单，展示写入清单并获明确确认；不得使用项目内 `pnpm exec`/`npx` 跑该 secret getter 或写入。本段专指 Turnstile 自动秘密恢复，不把后文既有部署命令算作本轮执行过。
 
