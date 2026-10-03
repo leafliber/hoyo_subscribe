@@ -11,6 +11,7 @@ import {
   SUBSCRIPTION_RULE_COPY,
   SUPPORTED_SCOPE_REGIONS,
 } from "@hoyo/contracts";
+import { CalendarChannelLifecycle } from "../channels/calendar/lifecycle";
 import { EmailChannelLifecycle } from "../channels/email/lifecycle";
 import { SubscriptionDraftController } from "./draft/controller";
 import { CalendarPreview } from "./preview/controller";
@@ -75,7 +76,7 @@ if (form instanceof HTMLFormElement) {
     if (emptyRuleNote) emptyRuleNote.hidden = ruleIds.length !== 0;
     if (alarmStatus) {
       alarmStatus.textContent = alarm
-        ? "已选择日历提醒；个人 Feed 尚未启用。"
+        ? "已选择日历提醒；请在接收方式核对地址与客户端状态。"
         : "已关闭日历提醒；只影响日历闹钟与提醒关联节点。";
     }
     if (calendarSummary) {
@@ -168,6 +169,8 @@ if (form instanceof HTMLFormElement) {
 
   let drafts: SubscriptionDraftController | undefined;
   let email: EmailChannelLifecycle | undefined;
+  let calendar: CalendarChannelLifecycle | undefined;
+  let calendarEnabled = false;
   let savePhase: Phase = "guest";
   function createMachine(): SubscriptionSaveMachine {
     return new SubscriptionSaveMachine(
@@ -178,6 +181,7 @@ if (form instanceof HTMLFormElement) {
           drafts?.paint(phase);
           savePhase = phase;
           email?.update(phase, snapshot);
+          calendar?.update(phase, snapshot);
           const saved = snapshot?.config;
           if (cloudState)
             cloudState.textContent = saved
@@ -195,7 +199,9 @@ if (form instanceof HTMLFormElement) {
                 uncertain: "云端结果尚未确认",
               } satisfies Record<Phase, string>
             )[phase];
-          if (saveResult) saveResult.textContent = message;
+          if (saveResult)
+            saveResult.textContent =
+              message + (phase === "saved" && calendarEnabled ? " 地址保持不变。" : "");
           if (saveButton instanceof HTMLButtonElement)
             saveButton.disabled = phase === "saving" || phase === "loading" || phase === "conflict";
           if (discardButton instanceof HTMLButtonElement)
@@ -256,6 +262,7 @@ if (form instanceof HTMLFormElement) {
     machine: () => machine,
     reset() {
       email?.invalidate();
+      calendar?.invalidate();
       identityGeneration += 1;
       preview?.invalidate();
       savePhase = "guest";
@@ -332,6 +339,27 @@ if (form instanceof HTMLFormElement) {
     if (document.visibilityState === "visible") void drafts?.refresh();
   });
 
+  const calendarRoot = document.getElementById("calendar-channel");
+  if (calendarRoot)
+    calendar = new CalendarChannelLifecycle(calendarRoot, {
+      machine: () => machine,
+      readDraft: draftFromForm,
+      phase: () => savePhase,
+      save: async () => {
+        await drafts?.save();
+      },
+      current: () => drafts?.current() ?? false,
+      addressChanged: (enabled) => {
+        calendarEnabled = enabled;
+      },
+      disableAlarms: async () => {
+        const draft = draftFromForm();
+        applyDraft({ ...draft, calendar: { ...draft.calendar, alarms_enabled: false } });
+        machine.edited();
+        drafts?.edited();
+        await drafts?.save();
+      },
+    });
   const mailRoot = document.getElementById("mail-channel");
   if (mailRoot) {
     email = new EmailChannelLifecycle(mailRoot, {
@@ -345,6 +373,7 @@ if (form instanceof HTMLFormElement) {
     });
   }
   window.addEventListener("pagehide", () => {
+    calendar?.destroy();
     preview?.destroy();
     preview = undefined;
   });

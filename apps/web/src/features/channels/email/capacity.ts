@@ -30,18 +30,13 @@ export function paintCapacityNotice(
   paragraph(
     "这是默认的提醒方案，可满足大多数提醒需求。需要你确认启用，并在外部日历客户端订阅；不会因邮件名额不足而自动开启。",
   );
-  // F3-04 is not connected on this baseline. Do not link to a placeholder as if it can enable.
-  const button = document.createElement("button");
-  button.type = "button";
-  button.textContent = "去启用日历提醒（暂不可用）";
-  button.disabled = true;
-  button.setAttribute("aria-describedby", "email-calendar-unavailable");
-  root.append(button);
-  const unavailable = document.createElement("p");
-  unavailable.id = "email-calendar-unavailable";
-  unavailable.textContent =
-    "日历启用入口尚未接通，本页目前无法完成启用。已有日历订阅不受邮件名额限制；客户端是否支持提醒，以实测说明为准。";
-  root.append(unavailable);
+  const link = document.createElement("a");
+  link.href = "#calendar-channel";
+  link.textContent = "去启用日历提醒";
+  root.append(link);
+  paragraph(
+    "请在日历区域核对已保存设置的服务端预览并明确确认；不会自动开通。已有订阅不占邮件名额，客户端支持以实测说明为准。",
+  );
 
   paragraph(
     seatFull
