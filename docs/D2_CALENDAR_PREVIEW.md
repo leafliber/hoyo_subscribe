@@ -176,6 +176,8 @@
 - 只在启用确认时调用（§5.1），调用量很小。按会话近似限速（P1-07 原语）；不是写操作，不计入 `USER_MUTATIONS_DAY`。
   **2026-10-02 所有者已定值**：见 [ADR-0006](adr/0006-private-calendar-preview-rate-limit.md) 的 `CALENDAR_PREVIEW_RATE_WINDOW` / `CALENDAR_PREVIEW_RATE_LIMIT`；每会话、每 isolate 首屏与续页共用限额，超限 429。先注册参数再实现，最大分页与恢复成本仍须实测。本批准不代表代码已通过。
 
+**2026-10-02 实施与限制登记**：ADR-0006 的每会话/每 isolate 限流已由 P3-15 落地。按 #68 最新报告中的所有者接受决定，极大 blocked 集合可能始终无法在一次游标新鲜期内取全，反例及边界见 [ADR-0008](adr/0008-blocked-preview-pagination-limit.md)。不放宽参数、不截断或伪装完整；429 按 retry_after_ms 等待，409 丢弃整轮并重新确认。相同范围反复过期时提示缩小已保存范围，不自动无限重试。
+
 ## 4. 条目与解释（浏览器与服务端共用）
 
 contracts 提供一个纯函数，输入配置、节点、`asOf`，输出条目、`totals`、`omitted` 与条目上限结论。
