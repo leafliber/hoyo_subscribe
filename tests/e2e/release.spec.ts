@@ -152,3 +152,15 @@ test("A-P5-RELEASE U28 测试夹具与本地负载入口不进入生产产物", 
     expect(text).not.toContain("打开示例弹窗");
   }
 });
+
+test("A-P5-RELEASE 页面停留至副本到期后，旧开放状态降为未知", async ({ page }) => {
+  await page.clock.install();
+  await page.route("**/api/v2/status", (r) =>
+    r.fulfill({ json: { ...status(), registration_open: true } }),
+  );
+  await page.goto("/status");
+  await expect(page.locator("#release-status-facts")).toContainText("注册：已开放");
+  await page.clock.fastForward((PUBLIC_CACHE_FRESH + 1) * 1000);
+  await expect(page.locator("#release-status-message")).toContainText("副本已过期");
+  await expect(page.locator("#release-status-facts")).not.toContainText("已开放");
+});

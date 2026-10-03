@@ -1,3 +1,4 @@
+import { GAME_NAMES } from "@hoyo/contracts";
 import { el } from "../../features/schedule/dom";
 import { sourceFeedback } from "../../features/schedule/source-status";
 import { PublicApiClient } from "../../lib/public-api/client";
@@ -8,9 +9,11 @@ const facts = document.getElementById("release-status-facts");
 const retry = document.getElementById("release-status-retry");
 const capability = { open: "已开放", closed: "已关闭", unknown: "未知" } as const;
 let busy = false;
+let expiry: ReturnType<typeof setTimeout> | undefined;
 async function refresh() {
   if (busy || !message || !facts) return;
   busy = true;
+  clearTimeout(expiry);
   if (retry instanceof HTMLButtonElement) retry.disabled = true;
   message.textContent = "正在读取公开状态…";
   facts.replaceChildren();
@@ -31,6 +34,15 @@ async function refresh() {
     ])
       list.append(el("li", {}, `${label}：${stale ? "未知（副本过期）" : value}`));
     facts.append(el("h2", {}, "能力开放状态"), list);
+    if (!stale)
+      expiry = setTimeout(
+        () => {
+          message.textContent = "公开状态副本已过期，当前能力未知，请稍后刷新。";
+          for (const item of list.children)
+            item.textContent = `${item.textContent?.split("：")[0]}：未知（副本过期）`;
+        },
+        Math.max(0, status.cache.freshUntil - Date.now() + 1),
+      );
     facts.append(
       el("h2", {}, "公开数据"),
       el(
@@ -47,7 +59,7 @@ async function refresh() {
         el(
           "li",
           {},
-          `${source.game} / ${source.sourceId}：${sourceFeedback(source).label}；最近成功：${source.verifiedAt === null ? "未知" : new Date(source.verifiedAt).toISOString()}`,
+          `${GAME_NAMES[source.game]} / ${source.sourceId}：${sourceFeedback(source).label}；最近成功：${source.verifiedAt === null ? "未知" : new Date(source.verifiedAt).toISOString()}`,
         ),
       );
     facts.append(
@@ -60,7 +72,11 @@ async function refresh() {
     const gaps = el("ul");
     for (const gap of status.reviewGaps)
       gaps.append(
-        el("li", {}, `${gap.game} 待审核缺口：${gap.count === null ? "未知" : gap.count}`),
+        el(
+          "li",
+          {},
+          `${GAME_NAMES[gap.game]} 待审核缺口：${gap.count === null ? "未知" : gap.count}`,
+        ),
       );
     facts.append(
       gaps,

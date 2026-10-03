@@ -2,6 +2,7 @@
 import { spawnSync } from "node:child_process";
 
 const files = [
+  "src/auth/preauth/admission.test.ts",
   "src/storage/ledger/mail-ledger.test.ts",
   "src/mail/budget/budget.test.ts",
   "src/mail/outbox/outbox.test.ts",
