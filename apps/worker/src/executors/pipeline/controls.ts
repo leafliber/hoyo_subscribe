@@ -1,4 +1,5 @@
-// P3-11：P5-01 的唯一运行开关读取接入点；本卡不建立存储、不决定缺省值。
+import { controlsAllow, readControl } from "../../shell/observability/controls";
+import { SOURCE_REGISTRY } from "../../sources/registry";
 import type { PollMode } from "./source-poll";
 export interface PipelineControls {
   readonly sources: Readonly<Record<string, { enabled: boolean; mode: PollMode }>>;
@@ -6,5 +7,26 @@ export interface PipelineControls {
   readonly model: boolean;
 }
 export type PipelineControlReader = () => Promise<PipelineControls | null>;
-/** P5-01 替换此读取实现。null 表示尚未配置，调用方报告并停止扩大，不伪装成开关值。 */
-export const readPipelineControls: PipelineControlReader = async () => null;
+export async function readPipelineControls(db: D1Database): Promise<PipelineControls> {
+  const outbound = await controlsAllow(db, "outbound_enabled");
+  const writable = (await readControl(db, "read_only")).value !== true;
+  const sources = Object.fromEntries(
+    await Promise.all(
+      SOURCE_REGISTRY.map(async (entry) => [
+        entry.sourceId,
+        {
+          enabled:
+            outbound &&
+            writable &&
+            (await readControl(db, "source_enabled", entry.sourceId)).value === true,
+          mode: "normal" as PollMode,
+        },
+      ]),
+    ),
+  );
+  return {
+    sources,
+    automaticPublication: writable && (await controlsAllow(db, "automatic_publication_enabled")),
+    model: outbound && writable && (await controlsAllow(db, "model_enabled")),
+  };
+}

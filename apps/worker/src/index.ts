@@ -45,7 +45,11 @@ import { unsubscribeAvailable, unsubscribeKeys } from "./mail/unsubscribe/enviro
 import { makeUnsubscribeRoutes } from "./mail/unsubscribe/routes";
 import { publicRoutes } from "./public/routes";
 import { scheduled } from "./scheduled";
+import { maintainFeedback } from "./scheduled/feedback";
 import { applySecurityHeaders } from "./shell/headers";
+import { controlsAllow } from "./shell/observability/controls";
+import { withOperationalControls } from "./shell/observability/route-controls";
+import { makeObservabilityRoutes } from "./shell/observability/routes";
 import { createApiShell } from "./shell/router";
 import { fromHex } from "./storage/crypto/bytes";
 import { Keyring } from "./storage/crypto/keyring";
@@ -121,7 +125,8 @@ function getShell(env: Env): Shell {
       // 秘密未注入时 getKeyring 抛错 → 写路由折叠为 temporarily_unavailable
       // （失败关闭）；读路径与 Feed 协议校验不受影响。
       csrfKey: () => getKeyring(env as Env & ShellSecrets).then((ring) => ring.csrf()),
-      routes: [
+      routes: withOperationalControls([
+        ...makeObservabilityRoutes(),
         ...makeAdminSessionRoutes({
           keys: () => getKeyring(env as Env & ShellSecrets),
           config: env as Env & AdminConfiguration,
@@ -157,6 +162,7 @@ function getShell(env: Env): Shell {
           keys: () => getKeyring(env as Env & ShellSecrets),
           sendingAvailable: async () =>
             (await environmentMailAvailable(env)) &&
+            (await controlsAllow(env.DB, "business_mail_enabled")) &&
             (await unsubscribeAvailable(env as Env & ShellSecrets)),
         }),
         ...makeSubscriptionRoutes(),
@@ -167,7 +173,7 @@ function getShell(env: Env): Shell {
           rateGate: authRateGate,
           turnstile: authTurnstile,
         }),
-      ],
+      ]),
     });
     shellByEnv.set(env, shell);
   }
@@ -176,7 +182,13 @@ function getShell(env: Env): Shell {
 
 export default {
   queue,
-  scheduled,
+  async scheduled(controller: ScheduledController, env: Env) {
+    await scheduled(controller, env);
+    await maintainFeedback(env.DB, async () => {
+      const ring = await getKeyring(env as Env & ShellSecrets);
+      return { lookup: ring.emailLookup(), field: ring.fieldEncryption() };
+    });
+  },
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     if (new URL(request.url).pathname === "/") {
       // P1-01 探针 banner：根路径保持 200 文本（index.test.ts 依赖），叠安全头。

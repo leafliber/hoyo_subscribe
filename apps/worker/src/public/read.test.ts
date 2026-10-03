@@ -14,6 +14,7 @@ import {
 import { beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { writeRegistrationOpen } from "../accounts/admission/registration";
 import worker from "../index";
+import { seedOperationalControls } from "../shell/observability/test-support";
 import { PUBLIC_HEAD_SQL, PUBLIC_PENDING_SQL, PUBLIC_SOURCES_SQL } from "./queries";
 import { readCatalog, readEventDetail, readEvents, readPublicStatus } from "./read";
 import { makeNode, migratePublicTest, NOW, resetPublicTest, seedNodes } from "./test-support";
@@ -90,7 +91,10 @@ async function seedApprovedEvidence() {
 }
 
 beforeAll(migratePublicTest);
-beforeEach(resetPublicTest);
+beforeEach(async () => {
+  await resetPublicTest();
+  await seedOperationalControls(env.DB);
+});
 describe("A-P3-PUBLIC 真实本地 D1 公共闭环", () => {
   it("超过 2 MB 的真实尺寸整代按字节分页，既不截断也不跨 D1 单值上限", async () => {
     const nodes = Array.from({ length: LIMITS.detailNodes }, (_, i) => {

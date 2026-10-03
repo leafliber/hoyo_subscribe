@@ -1,9 +1,11 @@
 // P4-04 · 只新增业务批次编排；批次/预算等待独立于认证与发生项展开。
+
 import { SEND_CONCURRENCY, utcDayPeriod, WATCHDOG_INTERVAL } from "@hoyo/contracts";
 import { approveBudgetedDispatch } from "../../mail/budget/dispatch";
 import { loadDispatchBatch, startDispatchBatch } from "../../mail/dispatch/batch";
 import { selectDispatchCandidate } from "../../mail/dispatch/dispatch";
 import { logEvent } from "../../shell/logger";
+import { recordMetric } from "../../shell/observability/metrics";
 import { conditionalCommit } from "../../storage/cas";
 import { classifyPipelineFailure } from "../pipeline/failure";
 
@@ -118,6 +120,7 @@ export async function runDispatchPass(
         job.lease_version,
       )
       .run();
+    await recordMetric(db, "delivery_dispatch_failed", now());
     logEvent("error", "delivery_dispatch_failed", { reason_code: failure.reason });
   }
 }

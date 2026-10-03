@@ -3,6 +3,7 @@ import { EMAIL_CONSENT_VERSION, SECRET_BITS } from "@hoyo/contracts";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { saveSubscription } from "../../accounts/subscription/service";
 import worker from "../../index";
+import { seedOperationalControls } from "../../shell/observability/test-support";
 import { createApiShell } from "../../shell/router";
 import { randomBytes, testKeyring } from "../../shell/test-support";
 import { encryptField } from "../../storage/crypto/aead";
@@ -34,6 +35,7 @@ beforeEach(async () => {
     "system_state",
   ])
     await env.DB.exec(`DELETE FROM ${table}`);
+  await seedOperationalControls(env.DB);
 });
 const keySource = async () => (await testKeyring).unsubscribeMac();
 const channelDeps = async () => ({
@@ -216,6 +218,21 @@ describe("A-P4-UNSUB 当前绑定稳定退订", () => {
     expect(await state(f.userId)).toMatchObject({ enabled: 0, routine_enabled: 0 });
   });
 
+  it("P5 关闭全部运行开关及只读时仍实际退订当前业务", async () => {
+    const f = await fixture();
+    await run("UPDATE system_state SET value_json='false'");
+    await run(
+      "INSERT INTO system_state(key,value_json,updated_at) VALUES ('read_only','true',?)",
+      now,
+    );
+    const response = await shell().fetch(post(f.links.oneClick));
+    expect(response.status).toBe(204);
+    expect(await state(f.userId)).toMatchObject({
+      enabled: 0,
+      routine_enabled: 0,
+      lease_expires_at: null,
+    });
+  });
   it.each([false, true])(
     "重复停止零写入：one-click=%s，真实 D1 每句 rows_written 均为零",
     async (oneClick) => {

@@ -1528,6 +1528,15 @@ describe("A-P2-PREAUTH P2-09 SQL 折叠与边界", () => {
       }
     }
     for (const statements of paths) expect(statements).toEqual(paths[0]);
+    console.log(
+      JSON.stringify({
+        metric: "P5_auth_four_paths_local",
+        statements: paths.map((path) => path.length),
+        directGuardReads: paths.map(
+          (path) => path.filter((sql) => sql === "SELECT changes() AS guard_changes").length,
+        ),
+      }),
+    );
   });
 
   it("跨 UTC 日仍保留重发冷却；同键重发重放不再扣额度", async () => {

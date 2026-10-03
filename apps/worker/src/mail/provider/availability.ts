@@ -1,5 +1,6 @@
 // P4-03 · §2.3；缺省关闭。P5 负责受控恢复开关，失败不能自动重新开通。
 import { ApiError } from "../../shell/errors";
+import { controlsAllow } from "../../shell/observability/controls";
 export const MAIL_AVAILABILITY_KEY = "mail_sending_available";
 export async function mailAvailable(db: D1Database, now = Date.now()): Promise<boolean> {
   const row = await db
@@ -8,7 +9,11 @@ export async function mailAvailable(db: D1Database, now = Date.now()): Promise<b
     )
     .bind(MAIL_AVAILABILITY_KEY, now)
     .first<{ value_json: string }>();
-  return row !== null && JSON.parse(row.value_json) === true;
+  return (
+    row !== null &&
+    JSON.parse(row.value_json) === true &&
+    (await controlsAllow(db, "outbound_enabled"))
+  );
 }
 export async function pauseMail(db: D1Database, now: number): Promise<void> {
   await db

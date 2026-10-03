@@ -1,6 +1,8 @@
 import { EXECUTOR_BATCH_WALL_LIMIT, WATCHDOG_INTERVAL } from "@hoyo/contracts";
 import { classifyPipelineFailure } from "../../executors/pipeline/failure";
 import { logEvent } from "../../shell/logger";
+import { controlPredicate, controlsAllow } from "../../shell/observability/controls";
+import { recordMetric } from "../../shell/observability/metrics";
 import type { MailProvider, MailResult } from "../provider/types";
 import { type MailContentDeps, prepareMail } from "./prepare";
 import { claimMail, transitionMail } from "./state";
@@ -34,7 +36,15 @@ export async function sendOneMail(deps: SendDeps, owner: string, id?: string): P
       });
       return true;
     }
-    if (!(await deps.available()) || now() >= deadline) {
+    if (
+      !(await deps.available()) ||
+      !(await controlsAllow(deps.db, "outbound_enabled")) ||
+      ((row.purpose === "base_business" || row.purpose === "urgent_business") &&
+        !(await controlsAllow(deps.db, "business_mail_enabled"))) ||
+      (row.purpose === "base_business" &&
+        !(await controlsAllow(deps.db, "email_routine_enabled"))) ||
+      now() >= deadline
+    ) {
       await transitionMail(deps.db, row, now(), {
         status: "retry_wait",
         reason: "paused_or_wall_limit",
@@ -52,7 +62,10 @@ export async function sendOneMail(deps: SendDeps, owner: string, id?: string): P
     calling = await transitionMail(deps.db, row, now(), {
       status: "calling_provider",
       budget: { from: "reserved", to: "uncertain" },
-      extraGuard: prepared.guard,
+      extraGuard: {
+        sql: `(${prepared.guard.sql}) AND ${controlPredicate("outbound_enabled")} ${row.purpose === "base_business" || row.purpose === "urgent_business" ? `AND ${controlPredicate("business_mail_enabled")}` : ""} ${row.purpose === "base_business" ? `AND ${controlPredicate("email_routine_enabled")}` : ""}`,
+        params: prepared.guard.params,
+      },
     });
     if (!calling) {
       await transitionMail(deps.db, row, now(), {
@@ -76,6 +89,15 @@ export async function sendOneMail(deps: SendDeps, owner: string, id?: string): P
     ]).finally(() => {
       if (timer !== undefined) clearTimeout(timer);
     });
+    if (row.purpose === "base_business" || row.purpose === "urgent_business") {
+      const items = await deps.db
+        .prepare("SELECT COUNT(*) AS n FROM deliveries WHERE mail_outbox_ref=?")
+        .bind(row.id)
+        .first<{ n: number }>()
+        .catch(() => null);
+      await recordMetric(deps.db, "mail_call", now());
+      if (items) await recordMetric(deps.db, "mail_delivery_items", now(), items.n);
+    }
     const called = { ...row, status: "calling_provider" as const };
     if (result.kind === "accepted") {
       await transitionMail(deps.db, called, now(), {
@@ -100,6 +122,7 @@ export async function sendOneMail(deps: SendDeps, owner: string, id?: string): P
           : {}),
       });
       if (result.kind === "rejected" && result.pause) await deps.pause();
+      if (result.kind === "unknown") await recordMetric(deps.db, "mail_provider_unknown", now());
       logEvent("error", "mail_provider_failed", { reason_code: reason, count: row.attempts + 1 });
     }
   } catch (error) {
@@ -109,6 +132,7 @@ export async function sendOneMail(deps: SendDeps, owner: string, id?: string): P
         reason_code: "await_watchdog",
         count: row.attempts + 1,
       });
+      await recordMetric(deps.db, "mail_provider_unknown", now());
       // 已领取的单封邮件独立终止；只有连这个条件写回也失败才上抛为执行器故障。
       await transitionMail(deps.db, { ...row, status: "calling_provider" }, now(), {
         status: "unknown",

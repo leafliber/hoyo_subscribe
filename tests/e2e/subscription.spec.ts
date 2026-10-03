@@ -155,18 +155,34 @@ test("U09a 页面仅维护本机选择，不请求订阅 API；实际预览和�
   page,
 }) => {
   const apiRequests: string[] = [];
+  // F2-02：仅允许同页公开预览读取，其余 API 仍受原断言保护。
+  await page.route(
+    (url) => url.pathname === "/api/v2/calendar/nodes",
+    async (route) => {
+      const request = route.request();
+      const url = new URL(request.url());
+      expect(request.method()).toBe("GET");
+      expect(url.origin).toBe(new URL(page.url()).origin);
+      expect([...url.searchParams.keys()].every((key) => key === "cursor")).toBe(true);
+      expect(request.headers().cookie).toBeUndefined();
+      expect(request.headers()["x-csrf-token"]).toBeUndefined();
+      await route.fulfill({ status: 503, json: {} });
+    },
+  );
+
   page.on("request", (request) => {
     if (request.url().includes("/api/")) apiRequests.push(request.url());
   });
   await page.goto("/subscription");
-  await expect(page.locator("#actual-preview")).toContainText("尚无实际日历预览");
+  await expect(page.locator("#actual-preview")).toContainText("未保存草稿");
+  await expect(page.locator("#actual-preview")).toContainText("样例预览（合成）");
   await expect(page.locator("#calendar-channel")).toBeVisible();
   await expect(page.locator("#mail-channel")).toBeVisible();
   await expect(page.locator("#push-channel")).toBeVisible();
   await page.getByRole("button", { name: "保存订阅" }).click();
   await expect(page.locator("#save-result")).toContainText("未写入云端");
   await expect(page.locator("#cloud-state")).toContainText("尚无已保存订阅");
-  expect(apiRequests).toEqual([]);
+  expect(apiRequests.map((url) => new URL(url).pathname)).toEqual(["/api/v2/calendar/nodes"]);
 });
 
 test("U09 U09a U10 E2 桌面与手机实际截图", async ({ page }, info) => {

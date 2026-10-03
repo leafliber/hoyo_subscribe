@@ -9,7 +9,10 @@ export class PipelineDO {
     private readonly state: DurableObjectState,
     env: Env,
   ) {
-    this.runtime = new PipelineRuntime({ db: env.DB, readControls: readPipelineControls });
+    this.runtime = new PipelineRuntime({
+      db: env.DB,
+      readControls: () => readPipelineControls(env.DB),
+    });
   }
   // 包含网络 await 的整个工作单元串行化，避免 alarm 与 watchdog 在 await 处交错窃取租约。
   private exclusive<T>(work: () => Promise<T>): Promise<T> {
