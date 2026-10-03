@@ -555,3 +555,85 @@ it("A-P3-PREVIEW 启用缺字段拒绝，未初始化拒绝；专用 GET 优先 
   const body = (await response.json()) as { url: string };
   expect(new URL(body.url).origin).toBe("https://canonical.example");
 });
+
+it("U20 reset真实提交后读失败返回标准503，同键恢复不再次换证", async () => {
+  const s = await seed();
+  await mutate(s, "enable", 0);
+  let batches = 0,
+    failedReads = 0,
+    failNextFeedRead = false;
+  const db = new Proxy(env.DB, {
+    get(target, key) {
+      if (key === "batch")
+        return async (statements: D1PreparedStatement[]) => {
+          const result = await target.batch(statements);
+          batches++;
+          // Observe the real committed row before injecting the following read failure.
+          expect((await row(s.userId))?.token_generation).toBe(2);
+          failNextFeedRead = true;
+          return result;
+        };
+      if (key === "prepare")
+        return (sql: string) => {
+          if (failNextFeedRead && sql === "SELECT * FROM calendar_feeds WHERE user_id=?") {
+            failNextFeedRead = false;
+            failedReads++;
+            throw new Error("synthetic_post_commit_read_failure");
+          }
+          return target.prepare(sql);
+        };
+      const value = Reflect.get(target, key);
+      return typeof value === "function" ? value.bind(target) : value;
+    },
+  });
+  const shell = createApiShell({
+    authenticator: sessionAuthenticator(env.DB, () => now),
+    csrfKey: async () => (await testKeyring).csrf(),
+    routes: makeCalendarRoutes(
+      () => testKeyring,
+      () => now,
+    ),
+  });
+  const csrf = await mintCsrfToken(
+    (await testKeyring).csrf(),
+    s.sessionTokenHash,
+    randomBytes(SECRET_BITS / 8),
+  );
+  const key = crypto.randomUUID();
+  const request = () =>
+    shell.fetch(
+      new Request(`${site}/api/v2/me/calendar/reset`, {
+        method: "POST",
+        headers: {
+          origin: site,
+          "content-type": "application/json",
+          "idempotency-key": key,
+          cookie: `__Host-session=${s.cookie}; ${CSRF_COOKIE_NAME}=${csrf}`,
+          [CSRF_HEADER_NAME]: csrf,
+        },
+        body: JSON.stringify({ confirmed: true, expected_generation: 1 }),
+      }),
+      { ...env, DB: db },
+      fakeExecutionContext,
+    );
+  const failed = await request();
+  expect(failed.status).toBe(503);
+  expect(await failed.json()).toMatchObject({ error: { code: "temporarily_unavailable" } });
+  expect(batches).toBe(1);
+  expect(failedReads).toBe(1);
+  const committed = await row(s.userId);
+  expect(committed?.token_generation).toBe(2);
+  const { userKey } = mutationCounterKeys(s.userId, utcDayPeriod(now).key);
+  const spent = () =>
+    env.DB.prepare("SELECT value FROM capacity_state WHERE key=?").bind(userKey).first("value");
+  const charged = await spent();
+  expect((await view(s)).token_generation).toBe(2);
+  const replay = await request();
+  expect(replay.status).toBe(200);
+  expect(await replay.json()).toMatchObject({ token_generation: 2, address_state: "enabled" });
+  expect(batches).toBe(1);
+  expect(failedReads).toBe(1);
+  // Do not dump private rows even if this assertion fails.
+  expect(JSON.stringify(await row(s.userId)) === JSON.stringify(committed)).toBe(true);
+  expect(await spent()).toBe(charged);
+});
