@@ -76,7 +76,7 @@ macOS 本机，Node v26.8.1、pnpm 11.11.0，仓库锁定 workerd/Wrangler/Chrom
 | `node scripts/load/regression.mjs` | exit0，9个既有workerd文件180/180：preauth/admission、ledger、budget、outbox、reclaim、reclaim/routes、reclaim/combined、preview/rate、mail/channel |
 | `pnpm exec tsx scripts/load/reconcile.mjs docs/evidence/p5/reconcile.synthetic.json` | exit0；平台所有项null，finalRelease=not_decided |
 | `pnpm exec tsx scripts/load/policy.mjs` | exit0；只读输出当前contracts参数和关闭门目标，不执行写入 |
-| `pnpm exec playwright test tests/e2e/a11y.spec.ts tests/e2e/release.spec.ts` | 恢复后33通过/5既有跳过；其中release12、U28通过21；最终又被全量覆盖 |
+| `pnpm exec playwright test --config tests/e2e/playwright.config.ts tests/e2e/release.spec.ts tests/e2e/a11y.spec.ts` | 恢复后33通过/5既有跳过；其中release12、U28通过21；最终又被全量覆盖 |
 
 三条变异在干净a6af0b2上执行：对账遗漏uncertain、contracts占用遗漏uncertain、页面把unknown写成已开放。每条先断言替换恰1次、git diff非空、临时探针留源码外；三条各自测试exit1检出。每条逐字节还原且git status干净；还原后工具9/9、网页重建成功、两页面专项33/5。随后仅时间展示改用既有UTC+8 helper并执行最终整轮。详见 [mutations.json](mutations.json)。contracts仅临时变异，提交中没有contracts更改。
 
