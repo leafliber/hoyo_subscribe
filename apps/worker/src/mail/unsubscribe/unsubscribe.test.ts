@@ -1,11 +1,12 @@
 import { createExecutionContext, env } from "cloudflare:test";
-import { EMAIL_CONSENT_VERSION, SECRET_BITS } from "@hoyo/contracts";
+import { EMAIL_CONSENT_VERSION, OPERATIONAL_CONTROLS, SECRET_BITS } from "@hoyo/contracts";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { saveSubscription } from "../../accounts/subscription/service";
 import worker from "../../index";
 import { seedOperationalControls } from "../../shell/observability/test-support";
 import { createApiShell } from "../../shell/router";
 import { randomBytes, testKeyring } from "../../shell/test-support";
+import { SOURCE_REGISTRY } from "../../sources/registry";
 import { encryptField } from "../../storage/crypto/aead";
 import { fromHex, toHex } from "../../storage/crypto/bytes";
 import { Keyring } from "../../storage/crypto/keyring";
@@ -233,6 +234,94 @@ describe("A-P4-UNSUB 当前绑定稳定退订", () => {
       lease_expires_at: null,
     });
   });
+  it("U26 真实 Worker 在运行门全关/read_only=true 时 GET 零写入、正文幂等、旧绑定三个入口 410", async () => {
+    const f = await fixture();
+    const controlKeys = [
+      ...OPERATIONAL_CONTROLS.filter((key) => key !== "source_enabled"),
+      ...SOURCE_REGISTRY.map((source) => `source:${source.sourceId}`),
+    ];
+    await env.DB.batch(
+      controlKeys.map((key) =>
+        env.DB.prepare(
+          "INSERT INTO system_state(key,value_json,updated_at) VALUES (?,?,?) ON CONFLICT(key) DO UPDATE SET value_json=excluded.value_json",
+        ).bind(key, key === "read_only" ? "true" : "false", now),
+      ),
+    );
+    const config = {
+      ...env,
+      CRYPTO_MASTER_SECRET: toHex(randomBytes(SECRET_BITS / 8)),
+      CRYPTO_OTP_PEPPER: toHex(randomBytes(SECRET_BITS / 8)),
+      CRYPTO_UNSUBSCRIBE_KEY_ID: "synthetic",
+      SITE_ORIGIN: "https://synthetic.example",
+    };
+    const links = await environmentUnsubscribe(config)(f.binding);
+    // 所有 GET 都经真实 Worker 入口；代理仅拒绝写语句，SELECT 仍在真实 D1 执行。
+    const readonly = new Proxy(env.DB, {
+      get(target, key) {
+        if (key === "prepare")
+          return (sql: string) => {
+            if (!sql.trimStart().startsWith("SELECT")) throw new Error("GET_must_be_readonly");
+            return target.prepare(sql);
+          };
+        if (key === "batch" || key === "exec")
+          return () => {
+            throw new Error("GET_must_be_readonly");
+          };
+        const value = Reflect.get(target, key);
+        return typeof value === "function" ? value.bind(target) : value;
+      },
+    });
+    const fetch = (request: Request) =>
+      worker.fetch(
+        request,
+        { ...config, DB: request.method === "GET" ? readonly : env.DB },
+        createExecutionContext(),
+      );
+    const snapshot = async () =>
+      Promise.all(
+        ["users", "email_channels", "consent_events", "system_state"].map((table) =>
+          env.DB.prepare(`SELECT * FROM ${table} ORDER BY rowid`)
+            .all()
+            .then((result) => result.results),
+        ),
+      );
+    const before = await snapshot();
+    const get = await fetch(new Request(links.page));
+    expect(get.status).toBe(200);
+    expect(await get.text()).toContain("关闭此邮箱的业务邮件");
+    expect(get.headers.get("content-security-policy")).toContain("form-action 'self'");
+    expect(get.headers.get("cache-control")).toBe("no-store");
+    expect(get.headers.get("referrer-policy")).toBe("no-referrer");
+    expect(await snapshot()).toEqual(before);
+    expect((await fetch(post(links.page, false))).status).toBe(200);
+    expect(await state(f.userId)).toMatchObject({
+      enabled: 0,
+      routine_enabled: 0,
+      lease_expires_at: null,
+    });
+    const closed = await snapshot();
+    const closedGet = await fetch(new Request(links.page));
+    expect(closedGet.status).toBe(200);
+    expect(await closedGet.text()).toContain("当前业务邮件已关闭");
+    expect((await fetch(post(links.page, false))).status).toBe(200);
+    expect(await snapshot()).toEqual(closed);
+    await run(
+      "UPDATE users SET email_binding_id=?,email_version=email_version+1 WHERE id=?",
+      crypto.randomUUID(),
+      f.userId,
+    );
+    await run("UPDATE email_channels SET enabled=1,routine_enabled=1 WHERE user_id=?", f.userId);
+    const changed = await snapshot();
+    for (const req of [new Request(links.page), post(links.page, false), post(links.oneClick)]) {
+      const res = await fetch(req);
+      expect(res.status).toBe(410);
+      expect(await res.text()).toContain("旧绑定已失效");
+      expect(res.headers.get("set-cookie")).toBeNull();
+      expect(res.headers.get("location")).toBeNull();
+    }
+    expect(await snapshot()).toEqual(changed);
+  });
+
   it.each([false, true])(
     "重复停止零写入：one-click=%s，真实 D1 每句 rows_written 均为零",
     async (oneClick) => {

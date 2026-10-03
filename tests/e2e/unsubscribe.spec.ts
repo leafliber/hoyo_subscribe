@@ -8,7 +8,12 @@ import path from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import { fileURLToPath } from "node:url";
 import { expect, test } from "@playwright/test";
-import { EMAIL_CONSENT_VERSION, SECRET_BITS } from "../../packages/contracts/src";
+import { SOURCE_REGISTRY } from "../../apps/worker/src/sources/registry";
+import {
+  EMAIL_CONSENT_VERSION,
+  OPERATIONAL_CONTROLS,
+  SECRET_BITS,
+} from "../../packages/contracts/src";
 
 // 合成数据 + 真实 wrangler dev --local / D1 / 生产 Worker 入口。
 // 浏览器只访问无能力的别名；route 仅转发原始 HTTP 请求/响应，不制作页面或模拟退订。
@@ -28,7 +33,7 @@ async function freePort() {
   return address.port;
 }
 
-test("U26 真实本地 Worker/D1：GET→确认→幂等→重新开启→旧链接→换绑；one-click 无交互", async ({
+test("U26 真实本地 Worker/D1 全关/read_only：GET→确认→幂等→重新开启→旧链接→换绑；one-click 无交互", async ({
   page,
 }, info) => {
   test.setTimeout(180_000);
@@ -133,6 +138,22 @@ test("U26 真实本地 Worker/D1：GET→确认→幂等→重新开启→旧链
       VALUES ('synthetic-f4-03',1,'active','synthetic-f4-03','${binding}',X'00',1,1,1);
       INSERT INTO email_channels(user_id,enabled,routine_enabled,consent_version,address_version,created_at,updated_at)
       VALUES ('synthetic-f4-03',1,1,${EMAIL_CONSENT_VERSION},1,1,1);`);
+    const controlKeys = [
+      ...OPERATIONAL_CONTROLS.filter((key) => key !== "source_enabled"),
+      ...SOURCE_REGISTRY.map((source) => `source:${source.sourceId}`),
+    ];
+    // 仅合成数据库显式关闭所有运行门；不改变生产默认或借缺失配置冒充 false。
+    await sql(`INSERT INTO system_state(key,value_json,updated_at)
+      SELECT value,CASE WHEN value='read_only' THEN 'true' ELSE 'false' END,1
+      FROM json_each('${JSON.stringify(controlKeys)}')
+      WHERE true ON CONFLICT(key) DO UPDATE SET value_json=excluded.value_json;`);
+    const controls = await sql("SELECT key,value_json FROM system_state ORDER BY key;");
+    expect(controls[0].results).toEqual(
+      controlKeys.sort().map((key) => ({
+        key,
+        value_json: key === "read_only" ? "true" : "false",
+      })),
+    );
     const port = await freePort();
     const origin = `http://127.0.0.1:${port}`;
     server = start([
@@ -249,7 +270,8 @@ test("U26 真实本地 Worker/D1：GET→确认→幂等→重新开启→旧链
       "UPDATE users SET email_binding_id='synthetic-new-binding',email_version=2; UPDATE email_channels SET enabled=1,routine_enabled=1;",
     );
     const changed = await snapshot();
-    await page.goto("/synthetic-unsubscribe");
+    const stale = await page.goto("/synthetic-unsubscribe");
+    expect(stale?.status()).toBe(410);
     await expect(page.getByRole("heading", { level: 1 })).toHaveText("旧绑定已失效");
     await expect(page.getByText(/此链接不适用于当前邮箱/)).toBeVisible();
     await expect(page.getByRole("button")).toHaveCount(0);
