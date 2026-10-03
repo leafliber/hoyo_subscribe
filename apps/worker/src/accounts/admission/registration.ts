@@ -36,14 +36,16 @@ export function registrationsDayKey(now: number): string {
 /** 全局注册开关：行缺失、值非 true 一律视为关闭（失败关闭，不默认开放）。 */
 export async function readRegistrationOpen(db: D1Database): Promise<boolean> {
   const row = await db
-    .prepare("SELECT value_json FROM system_state WHERE key = ?")
+    .prepare(
+      "SELECT value_json,(SELECT value_json FROM system_state WHERE key='read_only') AS read_only FROM system_state WHERE key = ?",
+    )
     .bind(REGISTRATION_OPEN_STATE_KEY)
-    .first<{ value_json: string }>();
+    .first<{ value_json: string; read_only: string | null }>();
   if (row === null) {
     return false;
   }
   try {
-    return JSON.parse(row.value_json) === true;
+    return JSON.parse(row.value_json) === true && JSON.parse(row.read_only ?? "false") !== true;
   } catch {
     return false;
   }

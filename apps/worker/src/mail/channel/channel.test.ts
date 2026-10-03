@@ -27,6 +27,7 @@ import { mutateCalendar } from "../../calendar/manage/service";
 import worker from "../../index";
 import { CSRF_COOKIE_NAME, CSRF_HEADER_NAME, createApiShell, mintCsrfToken } from "../../shell";
 import { USER_SESSION_COOKIE_NAME } from "../../shell/domains";
+import { seedOperationalControls } from "../../shell/observability/test-support";
 import { fakeExecutionContext, randomBytes, testKeyring } from "../../shell/test-support";
 import { encryptField } from "../../storage/crypto/aead";
 import { toHex } from "../../storage/crypto/bytes";
@@ -190,6 +191,7 @@ beforeAll(migrate, 180_000);
 beforeEach(async () => {
   await run("UPDATE email_channels SET enabled=0,routine_enabled=0");
   await run("DELETE FROM capacity_state");
+  await seedOperationalControls(env.DB);
 });
 describe("A-P4-CONSENT 两层同意 API", () => {
   it("登录与导入偏好不构成同意；GET 只给事实、脱敏、no-store 与精确名额", async () => {

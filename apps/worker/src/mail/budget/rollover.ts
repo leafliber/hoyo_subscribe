@@ -1,4 +1,5 @@
 // P4-04 · 旧日未调用预留先撤回；未取得新日预算的发送意图仍保留。
+
 import {
   AUTH_MAIL_POOLS,
   MATCH_PAGE,
@@ -10,6 +11,7 @@ import {
 } from "@hoyo/contracts";
 import { classifyPipelineFailure } from "../../executors/pipeline/failure";
 import { logEvent } from "../../shell/logger";
+import { recordMetric } from "../../shell/observability/metrics";
 import { conditionalCommit } from "../../storage/cas";
 import {
   insertUsageRowStatement,
@@ -206,6 +208,7 @@ export async function rolloverBudgetPage(db: D1Database, now: number): Promise<n
             mailJobId(row.id),
           ),
       ]);
+      await recordMetric(db, "delivery_budget_failed", now);
       logEvent("error", "delivery_budget_failed", { reason_code: failure.reason });
     }
   }

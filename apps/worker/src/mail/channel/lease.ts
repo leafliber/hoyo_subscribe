@@ -1,4 +1,5 @@
 import { type EmailActivityFacts, emailSeatRenewal } from "@hoyo/contracts";
+import { recordMetric } from "../../shell/observability/metrics";
 import { channelRow } from "./state";
 
 /** P5-02 的有界后台扫描调用本原语；不依赖用户访问本 API，不做沉睡回收。 */
@@ -35,5 +36,6 @@ export async function renewEmailSeat(
       user.last_push_processed_at,
     )
     .run();
+  if (result.meta.changes === 1) await recordMetric(db, "seat_renewed", now);
   return result.meta.changes === 1;
 }

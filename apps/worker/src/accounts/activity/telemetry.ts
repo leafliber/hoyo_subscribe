@@ -2,6 +2,7 @@
 // P5-02 必须在账号与席位回收前调用 readReclaimGate；修复/补齐后由维护者解除 reclaim_paused。
 import { activityTelemetryStale, utcDayPeriod } from "@hoyo/contracts";
 import { logEvent } from "../../shell/logger";
+import { readControl } from "../../shell/observability/controls";
 
 const failedLocally = new WeakSet<D1Database>();
 export async function recordActivityFailure(db: D1Database, now: number): Promise<void> {
@@ -37,8 +38,8 @@ export async function readReclaimGate(db: D1Database, now: number) {
       row.paused !== "false" ||
       activityTelemetryStale(row.last_success_at, now);
     return {
-      accounts_paused: paused,
-      seats_paused: paused,
+      accounts_paused: paused || (await readControl(db, "account_reclaim_enabled")).value !== true,
+      seats_paused: paused || (await readControl(db, "seat_reclaim_enabled")).value !== true,
       last_success_at: row?.last_success_at ?? null,
     };
   } catch {

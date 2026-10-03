@@ -783,6 +783,8 @@ export const EXPECTED_UNIQUE_CONSTRAINTS: Record<string, readonly string[][]> = 
 
 /** 不变式触发器（合同显式不变式的数据库层落点）。 */
 export const EXPECTED_TRIGGERS: readonly string[] = [
+  "trg_observe_mail_depletion_insert",
+  "trg_observe_mail_depletion_update",
   "trg_feed_activity_merge",
   "trg_feed_revoke",
   "trg_article_versions_immutable",

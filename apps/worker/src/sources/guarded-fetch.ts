@@ -21,6 +21,7 @@ export type GuardRejectionCode =
   | "host_not_in_allowlist";
 
 export interface GuardedFetchLimits {
+  readonly onTruncated?: (host: string) => Promise<void>;
   /** 精确主机名白名单（来自来源注册项 approved_hosts，非用户输入）。 */
   readonly allowedHosts: readonly string[];
   readonly timeoutMs: number;
@@ -210,6 +211,7 @@ export async function guardedSourceFetch(
         reason_code: "response_cap_exceeded",
         count: 1,
       });
+      await limits.onTruncated?.(url.hostname);
       return {
         kind: "response-too-large",
         bytes: body.observedAtLeastBytes,

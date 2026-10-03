@@ -17,6 +17,12 @@ import {
 import { readSubscription } from "../../accounts/subscription/service";
 import type { ActiveRecoverySession } from "../../auth/recovery/credential";
 import { ApiError } from "../../shell/errors";
+import {
+  controlPredicate,
+  controlsAllow,
+  readControl,
+  WRITABLE_PREDICATE,
+} from "../../shell/observability/controls";
 import { readContext } from "./state";
 import { type ChannelDeps, readEmailChannel } from "./view";
 
@@ -97,6 +103,12 @@ export async function updateEmailChannel(
     if (!decision.allowed) rejectEnable(decision.reason, "routine");
   }
   if (enabling) {
+    if ((await readControl(db, "read_only")).value === true)
+      throw new ApiError("temporarily_unavailable");
+    if (enableSeat && !(await controlsAllow(db, "email_seats_open")))
+      throw new ApiError("temporarily_unavailable");
+    if (enableRoutine && !(await controlsAllow(db, "email_routine_enabled")))
+      throw new ApiError("temporarily_unavailable");
     const seat = emailChannelEnableAvailability(facts, "seat");
     if (!seat.allowed) rejectEnable(seat.reason, "seat");
     if (enableRoutine) {
@@ -135,7 +147,10 @@ export async function updateEmailChannel(
       AND NOT EXISTS(SELECT 1 FROM suppressions WHERE address_key=? AND (expires_at IS NULL OR expires_at>?))
       AND (SELECT value FROM capacity_state WHERE key=?)<? AND (SELECT value FROM capacity_state WHERE key=?)<?))
     AND (?=0 OR (SELECT COUNT(*) FROM email_channels WHERE enabled=1)<?)
-    AND (?=0 OR (SELECT COUNT(*) FROM email_channels WHERE enabled=1 AND routine_enabled=1)<?)`)
+    AND (?=0 OR (SELECT COUNT(*) FROM email_channels WHERE enabled=1 AND routine_enabled=1)<?)
+    ${enabling ? `AND ${WRITABLE_PREDICATE}` : ""}
+    ${enableSeat ? `AND ${controlPredicate("email_seats_open")}` : ""}
+    ${enableRoutine ? `AND ${controlPredicate("email_routine_enabled")}` : ""}`)
       .bind(
         session.userId,
         context.user.email_binding_id,

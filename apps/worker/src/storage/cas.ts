@@ -165,6 +165,8 @@ export async function conditionalCommit(
   const statements = [
     ...preamble.map((statement) => prepare(db, statement.sql, statement.params)),
     prepare(db, plan.guard.sql, plan.guard.params),
+    // D1 meta.changes 包含触发器写入；同事务 SQLite changes() 只计守卫直接命中。
+    db.prepare("SELECT changes() AS guard_changes"),
     ...effects.map((effect) => {
       const compiled =
         effect.kind === "insert"
@@ -175,13 +177,13 @@ export async function conditionalCommit(
       return prepare(db, compiled.sql, compiled.params);
     }),
   ];
-  const results = await db.batch(statements);
+  const results = await db.batch<Record<string, unknown>>(statements);
 
   const guardIndex = preamble.length;
-  const guardChanges = results[guardIndex]?.meta?.changes;
+  const guardChanges = results[guardIndex + 1]?.results[0]?.guard_changes;
   if (typeof guardChanges !== "number") {
     throw new CasInvariantError(
-      "D1 未报告守卫语句的 meta.changes；条件判定失去依据（对照 P0-01 证据复测）",
+      "D1 未报告守卫语句的直接 changes()；条件判定失去依据（对照 P0-01 证据复测）",
     );
   }
   if (guardChanges > 1) {
@@ -191,7 +193,7 @@ export async function conditionalCommit(
   }
 
   for (const [index, effect] of effects.entries()) {
-    const changed = results[guardIndex + 1 + index]?.meta?.changes;
+    const changed = results[guardIndex + 2 + index]?.meta?.changes;
     if (typeof changed !== "number") {
       throw new CasInvariantError(`依赖写入 #${index} 未报告 meta.changes`);
     }

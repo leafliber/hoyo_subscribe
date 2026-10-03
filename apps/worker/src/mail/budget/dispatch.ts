@@ -1,5 +1,6 @@
 // P4-04 · 预算与公平批准共用一个条件提交；不改 P4-02 的计划生成器。
 import { planMailReservation, utcDayPeriod } from "@hoyo/contracts";
+import { controlPredicate, controlsAllow } from "../../shell/observability/controls";
 import { type ConditionalCommitPlan, conditionalCommit } from "../../storage/cas";
 import {
   insertUsageRowStatement,
@@ -14,6 +15,11 @@ export async function planBudgetedDispatch(
   proposal: DispatchProposal,
   now: number,
 ): Promise<{ outboxId: string; plan: ConditionalCommitPlan } | null> {
+  if (
+    !(await controlsAllow(db, "business_mail_enabled")) ||
+    (proposal.pool === "base_business" && !(await controlsAllow(db, "email_routine_enabled")))
+  )
+    return null;
   const dispatch = await planDispatchAttempt(db, proposal, now);
   if (!dispatch) return null;
   const period = utcDayPeriod(now);
@@ -31,7 +37,7 @@ export async function planBudgetedDispatch(
         insertUsageRowStatement(reservation.pool, period, now, proposal.userId),
       ],
       guard: {
-        sql: `${dispatch.plan.guard.sql} AND (${capacity.sql})`,
+        sql: `${dispatch.plan.guard.sql} AND (${capacity.sql}) AND ${controlPredicate("business_mail_enabled")} ${proposal.pool === "base_business" ? `AND ${controlPredicate("email_routine_enabled")}` : ""}`,
         params: [...(dispatch.plan.guard.params ?? []), ...capacity.params],
       },
       effects: [

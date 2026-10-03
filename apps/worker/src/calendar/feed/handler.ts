@@ -13,6 +13,7 @@ import {
   personalCalendarNodes,
 } from "@hoyo/contracts";
 import { logEvent } from "../../shell/logger";
+import { recordMetric } from "../../shell/observability/metrics";
 import type { RouteContext } from "../../shell/router";
 import { toHex } from "../../storage/crypto/bytes";
 import { serializeCalendar } from "./ical";
@@ -112,6 +113,7 @@ export function makeFeedHandler(
             ))
           )
             return null;
+          if (reason === "shrink_guard") await recordMetric(env.DB, "feed_shrink_guard", at);
           metric(`feed_${reason}`);
           return failure(request, 503, reason);
         };
