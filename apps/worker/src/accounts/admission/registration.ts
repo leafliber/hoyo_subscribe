@@ -1,3 +1,4 @@
+import { SYSTEM_AUDIT_TTL } from "@hoyo/contracts";
 // 注册准入判定与注册槽预占（任务卡 P2-01 交付物三/四；主方案 §4.2、§9.4、附录 A.2）。
 //
 // 合同约束（§4.2）：
@@ -199,7 +200,7 @@ export async function releaseExpiredRegistration(
       actorId: "system",
       action: "registration_slot_expired",
       reason: "challenge deadline passed without conversion (§4.2)",
-      expiresAt: expired.expiresAt,
+      expiresAt: now + SYSTEM_AUDIT_TTL * 1000,
     },
   });
   return outcome.outcome === "committed";

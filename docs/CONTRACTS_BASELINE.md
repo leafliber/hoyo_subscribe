@@ -325,6 +325,11 @@ pending 期限重合，没有问题。**若把 `AUTH_COMPLETION_TTL` 调得比 `
 
 ## 11. 附录 A.5 启动等式（`pnpm params:verify` 必须实现全部）
 
+P5-02 查询预算：`RECLAIM_QUERY_BUDGET` 为安全整数、至少容纳 `9 × MATCH_PAGE + 6` 条（一页最坏语句数及状态读取/提交），且小于 D1 每调用 1000 条平台上限（所有者在 #78 提案后批准 800）；与执行器墙钟同时约束。
+
+P5-02 / ADR-0007：`SYSTEM_AUDIT_TTL` 为独立正安全整数，乘 1000 后仍为安全整数；系统审计期限从 `created_at` 计算，历史行先校正后清理。
+
+
 P3-06 工程等式 `public-snapshot-chunk-within-d1`：`API_BODY_MAX_BYTES < PUBLIC_SNAPSHOT_WRITE_PROFILE.chunkBytes / 2`，`2 < chunkBytes <= singleValueBytes / 2`，`queryLimit > 18`，分块字节数和查询上限为安全整数。只约束 D1 集合写入，不改变日历业务语义（ENGINEERING §5.4）。
 
 > 邮件部分按 **ADR-0003** 改写；其余不变。

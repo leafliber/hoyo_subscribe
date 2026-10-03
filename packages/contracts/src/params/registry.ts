@@ -533,6 +533,12 @@ export const CONSENT_AUDIT_AFTER_CLOSE = 15_552_000 as const;
 /** 管理员写操作的审计记录保留（180 天）；附录原文没有这一项，ADR-0005 增补（所有者 2026-09-30 决定）。附录 A.5；§8.1 第 14 组。 */
 export const ADMIN_AUDIT_TTL = 15_552_000 as const;
 
+/** 系统审计独立保留 180 天；ADR-0007。 */
+export const SYSTEM_AUDIT_TTL = 15_552_000 as const;
+
+/** P5-02 所有者批准：每次维护的 D1 SQL 预算，低于平台每调用 1000 条。 */
+export const RECLAIM_QUERY_BUDGET = 800 as const;
+
 /** 独立加密备份间隔（附录原值 7 天）。附录 A.5；§10.3。 */
 export const BACKUP_INTERVAL = 604_800 as const;
 
@@ -686,6 +692,8 @@ export const PARAMS = {
   EVENT_EVIDENCE_TTL,
   CONSENT_AUDIT_AFTER_CLOSE,
   ADMIN_AUDIT_TTL,
+  SYSTEM_AUDIT_TTL,
+  RECLAIM_QUERY_BUDGET,
   BACKUP_INTERVAL,
   BACKUP_COPIES,
 } as const;
@@ -698,6 +706,8 @@ export type ParamStatus =
   | "baseline"
   | "adr-0003"
   | "adr-0005"
+  | "adr-0007"
+  | "p5-02-approved"
   | "measured"
   | "measured-ref"
   | "pending-p0"
@@ -1546,6 +1556,18 @@ export const PARAM_META: Readonly<Record<keyof ParamValues, ParamMeta>> = {
     unit: "秒（原文 180 天）",
     description: "通道同意关闭后的最小脱敏记录；平台抑制不自动到期解封",
     status: "baseline",
+  },
+  RECLAIM_QUERY_BUDGET: {
+    section: "A.5",
+    unit: "条 SQL/维护调用",
+    description: "回收维护查询硬预算；墙钟与分页同时约束，所有者在 PR #78 提案后批准",
+    status: "p5-02-approved",
+  },
+  SYSTEM_AUDIT_TTL: {
+    section: "A.5",
+    unit: "秒（ADR-0007 取 180 天）",
+    description: "系统审计从 created_at 独立计算期限；历史行先校正再有界清理",
+    status: "adr-0007",
   },
   ADMIN_AUDIT_TTL: {
     section: "A.5",

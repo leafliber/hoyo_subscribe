@@ -1,3 +1,5 @@
+import { makeReclaimRoutes } from "./accounts/reclaim/routes";
+import { runScheduledMaintenance } from "./scheduled/reclaim";
 // P3-10 获准跨卡：组合两域鉴权器并挂管理员会话与审核路由；不创建平台资源。
 // P4-07 获准接线：仅挂载受控 Queue 处理器。
 // P3-06 获准跨卡：只挂载个人 Feed handler，沿用外壳协议路径。
@@ -127,6 +129,7 @@ function getShell(env: Env): Shell {
       csrfKey: () => getKeyring(env as Env & ShellSecrets).then((ring) => ring.csrf()),
       routes: withOperationalControls([
         ...makeObservabilityRoutes(),
+        ...makeReclaimRoutes([calendarLifecycle, emailLifecycleHook]),
         ...makeAdminSessionRoutes({
           keys: () => getKeyring(env as Env & ShellSecrets),
           config: env as Env & AdminConfiguration,
@@ -184,10 +187,12 @@ export default {
   queue,
   async scheduled(controller: ScheduledController, env: Env) {
     await scheduled(controller, env);
-    await maintainFeedback(env.DB, async () => {
-      const ring = await getKeyring(env as Env & ShellSecrets);
-      return { lookup: ring.emailLookup(), field: ring.fieldEncryption() };
-    });
+    await runScheduledMaintenance(env.DB, (db) =>
+      maintainFeedback(db, async () => {
+        const ring = await getKeyring(env as Env & ShellSecrets);
+        return { lookup: ring.emailLookup(), field: ring.fieldEncryption() };
+      }),
+    );
   },
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     if (new URL(request.url).pathname === "/") {

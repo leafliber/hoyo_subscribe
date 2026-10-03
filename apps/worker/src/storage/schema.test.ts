@@ -2479,3 +2479,92 @@ it("A-P3-PREVIEW 两接口热读在 2000 条历史代次、节点、来源及账
   expect([...after.public, ...after.private].every((n) => n < 30)).toBe(true);
   console.info(JSON.stringify({ event: "p3_15_hot_rows_read", history: 2000, before, after }));
 }, 120000);
+
+it("A-P5-RECLAIM 系统审计校正和删除 rows_read 不随其他审计历史增长", async () => {
+  const { SYSTEM_AUDIT_HISTORY_SQL, SYSTEM_AUDIT_EXPIRED_SQL } = await import(
+    "../accounts/reclaim/audit"
+  );
+  const at = T0 + DAY;
+  await env.DB.prepare(
+    `INSERT INTO audit_log(id,actor_type,actor_id,action,target_type,created_at,expires_at) VALUES('reclaim-cost-system','system','synthetic','fixture','fixture',?,?)`,
+  )
+    .bind(at, at)
+    .run();
+  const measure = async () => ({
+    history: (
+      await env.DB.prepare(SYSTEM_AUDIT_HISTORY_SQL)
+        .bind(at - 1, "", MATCH_PAGE)
+        .all()
+    ).meta.rows_read,
+    expiry: (await env.DB.prepare(SYSTEM_AUDIT_EXPIRED_SQL).bind(at, MATCH_PAGE).all()).meta
+      .rows_read,
+  });
+  const before = await measure();
+  for (let n = 0; n < 2000; n += MATCH_PAGE)
+    await env.DB.batch(
+      Array.from({ length: MATCH_PAGE }, (_, offset) =>
+        env.DB.prepare(
+          `INSERT INTO audit_log(id,actor_type,actor_id,action,target_type,created_at,expires_at) VALUES(?,'admin','synthetic','fixture','fixture',?,?)`,
+        ).bind(`reclaim-cost-admin-${n + offset}`, at, at),
+      ),
+    );
+  const after = await measure();
+  expect(after).toEqual(before);
+  expect(after.history).toBeLessThanOrEqual(MATCH_PAGE * 2);
+  expect(after.expiry).toBeLessThanOrEqual(MATCH_PAGE * 2);
+  console.log(
+    "A-P5-RECLAIM synthetic audit rows_read",
+    JSON.stringify({ before, after, unrelated: 2000 }),
+  );
+});
+
+it("A-P5-RECLAIM 实际历史校正及 DELETE 成本不随 2000 条管理员行增长", async () => {
+  const { SYSTEM_AUDIT_TTL } = await import("@hoyo/contracts");
+  const { maintainSystemAuditPage } = await import("../accounts/reclaim/audit");
+  const { observeDatabase } = await import("../accounts/reclaim/test-observer");
+  const measure = async () => {
+    await env.DB.prepare(
+      "DELETE FROM system_state WHERE key='reclaim:system_audit_correction'",
+    ).run();
+    await env.DB.prepare("DELETE FROM audit_log WHERE actor_type='system'").run();
+    for (const [id, created] of [
+      ["reclaim-recent", T0 - DAY],
+      ["reclaim-expired", T0 - SYSTEM_AUDIT_TTL * 1000 - 1],
+    ] as const)
+      await env.DB.prepare(
+        "INSERT INTO audit_log(id,actor_type,actor_id,action,target_type,created_at,expires_at) VALUES(?,'system','synthetic','fixture','fixture',?,?)",
+      )
+        .bind(id, created, T0 - DAY)
+        .run();
+    const measured = observeDatabase(env.DB);
+    await maintainSystemAuditPage(measured.db, T0);
+    await maintainSystemAuditPage(measured.db, T0);
+    expect(
+      await env.DB.prepare("SELECT expires_at FROM audit_log WHERE id='reclaim-recent'").first(
+        "expires_at",
+      ),
+    ).toBe(T0 - DAY + SYSTEM_AUDIT_TTL * 1000);
+    expect(
+      await env.DB.prepare("SELECT COUNT(*) n FROM audit_log WHERE id='reclaim-expired'").first(
+        "n",
+      ),
+    ).toBe(0);
+    return measured.stats;
+  };
+  const before = await measure();
+  for (let n = 0; n < 2000; n += MATCH_PAGE)
+    await env.DB.batch(
+      Array.from({ length: MATCH_PAGE }, (_, i) =>
+        env.DB.prepare(
+          "INSERT INTO audit_log(id,actor_type,actor_id,action,target_type,created_at,expires_at) VALUES(?,'admin','synthetic','fixture','fixture',?,?)",
+        ).bind(`reclaim-actual-admin-${n + i}`, T0 - DAY, T0 - DAY),
+      ),
+    );
+  const after = await measure();
+  expect(after.rows_read).toBe(before.rows_read);
+  expect(after.queries).toBe(before.queries);
+  console.log(
+    "A-P5-RECLAIM actual audit correction/delete",
+    JSON.stringify({ before, after, unrelated: 2000 }),
+  );
+});

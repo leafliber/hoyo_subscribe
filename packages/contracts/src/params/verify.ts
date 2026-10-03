@@ -76,6 +76,29 @@ const maxOccurrenceTtl = (v: WritableParamValues): number =>
 // 附录 A.5 / CONTRACTS_BASELINE.md §11 全部数值等式。行序与 §11 一致。
 export const PARAM_EQUATIONS: readonly EquationDefinition[] = [
   eq(
+    "reclaim-query-budget",
+    "回收维护",
+    "RECLAIM_QUERY_BUDGET 为安全整数，容纳一页最坏 9×MATCH_PAGE + 6 条且低于 D1 每调用硬上限",
+    (v) =>
+      `9 × MATCH_PAGE(${v.MATCH_PAGE}) + 6 <= RECLAIM_QUERY_BUDGET(${v.RECLAIM_QUERY_BUDGET}) < D1 queryLimit(${v.PUBLIC_SNAPSHOT_WRITE_PROFILE.queryLimit})`,
+    (v) =>
+      Number.isSafeInteger(v.RECLAIM_QUERY_BUDGET) &&
+      v.RECLAIM_QUERY_BUDGET >= v.MATCH_PAGE * 9 + 6 &&
+      v.RECLAIM_QUERY_BUDGET < v.PUBLIC_SNAPSHOT_WRITE_PROFILE.queryLimit,
+    { RECLAIM_QUERY_BUDGET: 1000 },
+  ),
+  eq(
+    "system-audit-retention",
+    "系统审计（ADR-0007）",
+    "SYSTEM_AUDIT_TTL 为正安全整数，毫秒转换仍为安全整数",
+    (v) => `SYSTEM_AUDIT_TTL(${v.SYSTEM_AUDIT_TTL}) > 0；×1000 为安全整数`,
+    (v) =>
+      Number.isSafeInteger(v.SYSTEM_AUDIT_TTL) &&
+      v.SYSTEM_AUDIT_TTL > 0 &&
+      Number.isSafeInteger(v.SYSTEM_AUDIT_TTL * 1000),
+    { SYSTEM_AUDIT_TTL: 0 },
+  ),
+  eq(
     "observability-capacity-ratio",
     "观测",
     "0 < OBS_CAPACITY_WARN_RATIO < 1",

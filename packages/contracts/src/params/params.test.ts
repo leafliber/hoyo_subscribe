@@ -69,8 +69,8 @@ describe("A-P1-PARAM 附录 A.5 启动等式", () => {
     expect(results.every((r) => r.ok)).toBe(true);
   });
 
-  it("覆盖 §11、P3 工程依赖、ADR-0006 与 P5-01（30 条），另有 1 条语义条款", () => {
-    expect(PARAM_EQUATIONS).toHaveLength(30);
+  it("覆盖 §11、P3 工程依赖、ADR-0006 与 P5-01/P5-02（32 条），另有 1 条语义条款", () => {
+    expect(PARAM_EQUATIONS).toHaveLength(32);
     expect(SEMANTIC_INVARIANTS.map((s) => s.id)).toEqual(["mail-digest-window-forward-only"]);
   });
 
@@ -160,3 +160,12 @@ describe("A-P1-PARAM 文档同源", () => {
     expect(onDisk).toBe(buildAppendixMarkdown());
   });
 });
+
+it.each([0, -1, 0.5, Number.MAX_SAFE_INTEGER, Number.NaN])(
+  "A-P5-RECLAIM 拒绝非法系统审计期限 %s",
+  (value) => {
+    expect(() => verifyParams({ ...PARAMS, SYSTEM_AUDIT_TTL: value })).toThrow(
+      "system-audit-retention",
+    );
+  },
+);
