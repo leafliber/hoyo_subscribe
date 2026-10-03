@@ -6,7 +6,6 @@ import {
   type CalendarView,
   deriveCalendarActions,
   FEED_DIAGNOSTICS,
-  isApiErrorBody,
 } from "@hoyo/contracts";
 import { feedbackForFailure } from "../../../lib/errors/feedback";
 import { publishDraftIdentity } from "../../../lib/storage/identity";
@@ -401,11 +400,9 @@ export class CalendarPanel {
     } catch (error) {
       if (!this.current()) return;
       outdated = errorDetail(error).reason === "preview_outdated";
-      if (
-        error instanceof CalendarRequestError &&
-        (error.status < 500 || isApiErrorBody(error.body))
-      )
-        this.operation = null;
+      // A standard 5xx can follow a committed CAS and a failed result read.
+      // Keep the original action/key/generation until replay confirms the outcome.
+      if (error instanceof CalendarRequestError && error.status < 500) this.operation = null;
       this.failed(error);
       if (this.operation)
         this.message(

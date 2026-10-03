@@ -7,7 +7,7 @@ import {
   syntheticPreview,
   syntheticView,
 } from "../../apps/web/src/features/channels/calendar/testing/fixtures";
-import { buildApiErrorBody } from "../../packages/contracts/src";
+import { buildApiErrorBody, CalendarPreviewResponseSchema } from "../../packages/contracts/src";
 
 test.use({ trace: "off" }); // Never retain private API response URLs in traces.
 const part = (page: Page, name: string) => page.locator(`[data-calendar="${name}"]`);
@@ -223,7 +223,7 @@ test("U20 ADR-0008 巨大blocked重复过期停止自动刷新并提示缩小范
   await expect(part(page, "confirmation")).toBeHidden();
   await expect(part(page, "preview")).not.toContainText("完整预览");
 });
-for (const shape of ["blocked", "missing", "mixed"] as const)
+for (const shape of ["blocked", "missing", "empty_cursor"] as const)
   test(`U20 不完整预览拒绝启用：${shape}`, async ({ page }) => {
     const preview = syntheticPreview();
     await open(page, {
@@ -481,3 +481,124 @@ test("U20 非身份失效401保留账号，服务端错误详情决定下一步"
   await expect(part(page, "begin")).toBeEnabled();
   expect(run.renewals()).toBe(0);
 });
+
+for (const status of [500, 503])
+  test(`U20 结构化${status}提交后失败保留原重置操作并同键恢复`, async ({ page }) => {
+    const view = syntheticView();
+    view.address_state = "enabled";
+    const run = await open(page, {
+      view,
+      write: async (route, calls) => {
+        if (calls === 1) {
+          view.token_generation++;
+          return route.fulfill({ status, json: buildApiErrorBody("temporarily_unavailable") });
+        }
+        return route.fulfill({
+          json: {
+            changed: false,
+            address_state: "enabled",
+            token_generation: view.token_generation,
+          },
+        });
+      },
+    });
+    let readsAfterWrite = 0;
+    await page.route("**/api/v2/me/calendar", (route) => {
+      if (run.writes.length) readsAfterWrite++;
+      return route.fulfill({ json: view });
+    });
+    page.on("dialog", (dialog) => dialog.accept());
+    await page.getByText("管理日历地址", { exact: true }).click();
+    await part(page, "reset").click();
+    await expect(part(page, "retry")).toBeVisible();
+    await expect(page.locator("#calendar-channel")).toHaveAttribute("aria-busy", "false");
+    await expect(part(page, "message")).toContainText("操作结果未知");
+    await expect(part(page, "reset")).toBeDisabled();
+    expect(readsAfterWrite).toBe(1);
+    expect(run.renewals()).toBe(0);
+    expect(run.writes).toHaveLength(1);
+    expect(run.writes[0].action).toBe("reset");
+    expect(run.writes[0].body).toEqual({ confirmed: true, expected_generation: 7 });
+    expect(run.writes[0].key).toBeTruthy();
+    await part(page, "refresh").click();
+    await expect(part(page, "message")).toContainText("原操作结果仍须用同一操作键核对");
+    await expect(part(page, "reset")).toBeDisabled();
+    expect(run.renewals()).toBe(0);
+    await part(page, "retry").click();
+    await expect(part(page, "retry")).toBeHidden();
+    await expect(part(page, "message")).toContainText("日历订阅地址已创建");
+    expect(run.writes).toHaveLength(2);
+    expect(run.writes[1]).toEqual(run.writes[0]);
+    expect(view.token_generation).toBe(8);
+    await expect.poll(run.renewals).toBe(1);
+  });
+
+for (const mismatch of ["publication", "subscription"] as const)
+  test(`U20 合法非空跨页${mismatch}不一致丢弃整轮并重新确认`, async ({ page }) => {
+    const original = syntheticPreview();
+    const first = CalendarPreviewResponseSchema.parse({
+      ...original,
+      totals: { ...original.totals, items: 2 },
+      nextCursor: "synthetic-page-two",
+    });
+    const second = CalendarPreviewResponseSchema.parse({
+      ...first,
+      nextCursor: null,
+      items: first.items.map((item) => ({ ...item, milestoneId: "synthetic-other-node" })),
+      ...(mismatch === "publication"
+        ? { publication: { ...first.publication, generation: first.publication.generation + 1 } }
+        : { subscription: { revision: first.subscription.revision + 1 } }),
+    });
+    expect(first.items.length).toBeGreaterThan(0);
+    expect(second.items.length).toBeGreaterThan(0);
+    expect(first.items[0].milestoneId).not.toBe(second.items[0].milestoneId);
+    expect(first.totals).toEqual(second.totals);
+    const fresh = CalendarPreviewResponseSchema.parse({
+      ...second,
+      totals: original.totals,
+      items: original.items.map((item) => ({
+        ...item,
+        milestoneId: "synthetic-fresh-node",
+        eventTitle: "整轮重取的新活动",
+      })),
+    });
+    const run = await open(page, {
+      preview: async (route, calls) => {
+        const cursor = new URL(route.request().url()).searchParams.get("cursor");
+        expect(cursor).toBe(calls === 3 ? "synthetic-page-two" : null);
+        return route.fulfill({
+          json: calls === 1 ? original : calls === 2 ? first : calls === 3 ? second : fresh,
+        });
+      },
+      write: async (route, calls) =>
+        route.fulfill(
+          calls === 1
+            ? {
+                status: 409,
+                json: buildApiErrorBody("conflict", {
+                  code: "conflict",
+                  reason: "preview_outdated",
+                }),
+              }
+            : { json: { changed: true, address_state: "enabled", token_generation: 8 } },
+        ),
+    });
+    await part(page, "begin").click();
+    await confirm(page);
+    await expect.poll(run.previews).toBe(4);
+    await expect(part(page, "preview")).toContainText("整轮重取的新活动");
+    await expect(part(page, "preview").locator("li")).toHaveCount(1);
+    await expect(part(page, "preview")).not.toContainText("合成活动");
+    await expect(part(page, "consent")).not.toBeChecked();
+    await expect(part(page, "confirm")).toBeDisabled();
+    expect(run.writes).toHaveLength(1);
+    expect(run.renewals()).toBe(0);
+    await confirm(page);
+    await expect.poll(() => run.writes.length).toBe(2);
+    expect(run.writes[1].body).toEqual({
+      confirmed: true,
+      expected_generation: 7,
+      expected_revision: fresh.subscription.revision,
+      publication_generation: fresh.publication.generation,
+    });
+  });
