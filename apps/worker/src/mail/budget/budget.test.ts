@@ -14,6 +14,7 @@ import {
 import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { nextDispatchAlarm, runDispatchPass } from "../../executors/delivery/dispatch";
 import { DeliveryRuntime } from "../../executors/delivery/runtime";
+import { seedOperationalControls } from "../../shell/observability/test-support";
 import { testKeyring } from "../../shell/test-support";
 import { conditionalCommit } from "../../storage/cas";
 import { insertUsageRowStatement, readMailDayLedger } from "../../storage/ledger/mail-ledger";
@@ -54,6 +55,7 @@ beforeEach(async () => {
     "users",
   ])
     await env.DB.exec(`DELETE FROM ${table}`);
+  await seedOperationalControls(env.DB);
 });
 const ledger = (now = T, uid?: string) => readMailDayLedger(env.DB, utcDayPeriod(now).key, uid);
 async function mail(id: string) {

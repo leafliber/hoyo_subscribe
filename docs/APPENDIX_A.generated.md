@@ -164,6 +164,8 @@ P0 待定项（`MODEL_MAX_INPUT`、`MODEL_MAX_BILLED_OUTPUT`）未填写前，�
 
 | 参数 | 值 | 单位 | 含义 | 状态与备注 |
 | --- | --- | --- | --- | --- |
+| OBS_CAPACITY_WARN_RATIO | 0.8 | 比例 | 反馈及已取证平台容量的逼近告警比例，不是收费封顶 | 策略；所有者 2026-10-02 批准 P5-01 |
+| FEEDBACK_MAINTENANCE_ROUNDS | 4 | 轮/次 Cron | 每轮最多一页清理和一页再关联，同时受执行器墙钟约束 | 策略；所有者 2026-10-02 批准 P5-01 |
 | DELIVERY_PENDING_MAX | 5,000 | 条 | 未完成 Delivery 上限；不通过删除未完成任务腾容量 | 基线 |
 | DELIVERY_RECORD_MAX | 50,000 | 条 | Delivery 记录容量；同样不靠删除腾容量 | 基线 |
 | DELIVERY_DEDUPE_TTL | 604,800 | 秒（原文 7 天） | 大于发生项/重试有效期；发生项结束后不得重新展开 | 基线 |
@@ -200,6 +202,8 @@ P0 待定项（`MODEL_MAX_INPUT`、`MODEL_MAX_BILLED_OUTPUT`）未填写前，�
 
 | 等式 ID | 分组 | 合同 | 当前值 |
 | --- | --- | --- | --- |
+| observability-capacity-ratio | 观测 | 0 < OBS_CAPACITY_WARN_RATIO < 1 | 0 < OBS_CAPACITY_WARN_RATIO(0.8) < 1 |
+| feedback-maintenance-bounds | 反馈维护 | FEEDBACK_MAINTENANCE_ROUNDS 为正整数；每相页预算不超过反馈容量 | FEEDBACK_MAINTENANCE_ROUNDS(4) × FEEDBACK_BATCH(10) <= MAIL_FEEDBACK_MAX(20000) |
 | calendar-preview-rate-bounds | 私人预览限流（ADR-0006） | CALENDAR_PREVIEW_RATE_WINDOW 与 CALENDAR_PREVIEW_RATE_LIMIT 为正安全整数；CALENDAR_PREVIEW_RATE_WINDOW < PUBLIC_CACHE_FRESH | CALENDAR_PREVIEW_RATE_WINDOW(60) < PUBLIC_CACHE_FRESH(300); CALENDAR_PREVIEW_RATE_LIMIT(30) > 0; 两者为安全整数 |
 | public-snapshot-chunk-within-d1 | D1 工程上限 | API_BODY_MAX_BYTES < chunkBytes / 2；2 < chunkBytes <= singleValueBytes / 2；queryLimit > 18 | API_BODY_MAX_BYTES(8192) < chunkBytes(262144) / 2 <= singleValueBytes(2000000) / 4; queryLimit(1000) > 18 |
 | mail-total-day-sum | 邮件（纯日额度） | MAIL_TOTAL_DAY = MAIL_AUTH_DAY + MAIL_BASE_DAY + MAIL_URGENT_DAY | MAIL_TOTAL_DAY(260) = MAIL_AUTH_DAY(90) + MAIL_BASE_DAY(50) + MAIL_URGENT_DAY(120) → 260 = 260 |
@@ -235,5 +239,5 @@ P0 待定项（`MODEL_MAX_INPUT`、`MODEL_MAX_BILLED_OUTPUT`）未填写前，�
 
 ### 等式数量核对
 
-数值等式 28 条、语义条款 1 条。
+数值等式 30 条、语义条款 1 条。
 `pnpm params:verify` 与 Worker 启动路径逐条校验数值等式，任一不成立即拒绝并指明该条。

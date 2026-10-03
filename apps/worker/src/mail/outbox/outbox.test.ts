@@ -13,6 +13,7 @@ import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { clearExpiredOtpPayloads } from "../../auth/challenges/cleanup";
 import { encryptOtpPayload, OTP_PAYLOAD_KIND } from "../../auth/challenges/payload";
 import { DeliveryRuntime } from "../../executors/delivery/runtime";
+import { seedOperationalControls } from "../../shell/observability/test-support";
 import { Keyring } from "../../storage/crypto/keyring";
 import { readMailDayLedger, reserveMailBudget } from "../../storage/ledger/mail-ledger";
 import { splitSqlStatements } from "../../storage/split-sql";
@@ -143,8 +144,98 @@ beforeEach(async () => {
   now = T;
   sent = [];
   result = { kind: "accepted", messageId: `<${id()}>` };
+  await seedOperationalControls(env.DB);
 });
 describe("A-P4-OUTBOX 租约与外部不确定边界", () => {
+  it("P5 全部外发关闭阻断认证；业务关闭不影响认证", async () => {
+    const oid = await seed();
+    await run(
+      "UPDATE system_state SET value_json='false' WHERE key IN ('business_mail_enabled','email_routine_enabled')",
+    );
+    await sendOneMail(deps(), "background", oid);
+    expect(sent).toHaveLength(1);
+    const closed = await seed();
+    await run("UPDATE system_state SET value_json='false' WHERE key='outbound_enabled'");
+    await sendOneMail(deps(), "background", closed);
+    expect(sent).toHaveLength(1);
+    expect((await row(closed))?.status).toBe("retry_wait");
+    expect((await row(closed))?.attempts).toBe(0);
+  });
+  it("P5 准备期间关全部外发不得调用供应商", async () => {
+    const oid = await seed();
+    await sendOneMail(
+      deps({
+        fieldKey: async () => {
+          await run("UPDATE system_state SET value_json='false' WHERE key='outbound_enabled'");
+          return keys.fieldEncryption();
+        },
+      }),
+      "background",
+      oid,
+    );
+    expect(sent).toHaveLength(0);
+    expect((await row(oid))?.status).toBe("retry_wait");
+    expect(await budget()).toEqual({ reserved: 1, settled: 0, uncertain: 0 });
+  });
+
+  it("A-P5-OBS 最终 calling_provider batch 前关全部外发，拒绝外调且保留预留", async () => {
+    const oid = await seed();
+    const callingStatements = new WeakSet<D1PreparedStatement>();
+    const beforeFinalBatch: {
+      outbound: string | null;
+      mail: MailRow | null;
+      budget: Awaited<ReturnType<typeof budget>>;
+    }[] = [];
+    const db = new Proxy(env.DB, {
+      get(target, key) {
+        if (key === "prepare")
+          return (sql: string) => {
+            const statement = target.prepare(sql);
+            if (!sql.startsWith("UPDATE mail_outbox SET status = ?")) return statement;
+            return new Proxy(statement, {
+              get(stmt, prop) {
+                if (prop === "bind")
+                  return (...params: unknown[]) => {
+                    const bound = stmt.bind(...params);
+                    if (params[0] === "calling_provider") callingStatements.add(bound);
+                    return bound;
+                  };
+                const value = Reflect.get(stmt, prop);
+                return typeof value === "function" ? value.bind(stmt) : value;
+              },
+            });
+          };
+        if (key === "batch")
+          return async (statements: D1PreparedStatement[]) => {
+            if (statements.some((statement) => callingStatements.has(statement))) {
+              // 仅在最终 batch 真正执行前插入并发关闸；prepare/bind 和预检查均不改开关。
+              beforeFinalBatch.push({
+                outbound: await target
+                  .prepare("SELECT value_json FROM system_state WHERE key='outbound_enabled'")
+                  .first<string>("value_json"),
+                mail: await row(oid),
+                budget: await budget(),
+              });
+              await run("UPDATE system_state SET value_json='false' WHERE key='outbound_enabled'");
+            }
+            return target.batch(statements);
+          };
+        const value = Reflect.get(target, key);
+        return typeof value === "function" ? value.bind(target) : value;
+      },
+    });
+    await sendOneMail(deps({ db }), "background", oid);
+    expect(beforeFinalBatch).toHaveLength(1);
+    expect(beforeFinalBatch[0]).toMatchObject({
+      outbound: "true",
+      mail: { status: "leased", attempts: 0 },
+      budget: { reserved: 1, settled: 0, uncertain: 0 },
+    });
+    expect(sent).toHaveLength(0);
+    expect(await row(oid)).toMatchObject({ status: "retry_wait", attempts: 0 });
+    expect(await budget()).toEqual({ reserved: 1, settled: 0, uncertain: 0 });
+  });
+
   it("HTTP 与后台真实并发竞争同一租约，只外调一次；accepted 结算并清除载荷", async () => {
     const oid = await seed();
     const d = deps();

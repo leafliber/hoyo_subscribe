@@ -8,6 +8,7 @@ import {
 } from "@hoyo/contracts";
 import { beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { DELIVERY_ADDRESS_RECORD_TYPE } from "../../auth/challenges/delivery";
+import { seedOperationalControls } from "../../shell/observability/test-support";
 import { testKeyring } from "../../shell/test-support";
 import { conditionalCommit } from "../../storage/cas";
 import { encryptField } from "../../storage/crypto/aead";
@@ -201,6 +202,7 @@ beforeEach(async () => {
     "users",
   ])
     await env.DB.exec(`DELETE FROM ${table}`);
+  await seedOperationalControls(env.DB);
 });
 
 let sent: ServerMail[] = [];
@@ -244,6 +246,23 @@ beforeEach(() => {
   sent = [];
 });
 describe("A-P4-OUTBOX 合并通知发送前复核", () => {
+  it.each(["outbound_enabled", "business_mail_enabled", "email_routine_enabled"])(
+    "P5 关闭 %s 后已批准业务也不外调",
+    async (control) => {
+      const uid = await user(1);
+      await fact();
+      const oid = await digest(uid);
+      await env.DB.prepare("UPDATE system_state SET value_json='false' WHERE key=?")
+        .bind(control)
+        .run();
+      await sendOneMail(sender(), "test", oid);
+      expect(sent).toHaveLength(0);
+      expect(
+        await env.DB.prepare("SELECT status FROM mail_outbox WHERE id=?").bind(oid).first("status"),
+      ).toBe("retry_wait");
+    },
+  );
+
   it("真实批准的未预算 outbox 不发送；预留后合并全体 Delivery，一封一位收件人", async () => {
     const uid = await user(1);
     await fact();

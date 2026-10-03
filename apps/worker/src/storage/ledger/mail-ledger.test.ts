@@ -676,6 +676,37 @@ describe("A-P1-BUDGET 真并发预占不超卖（Promise.all 在真实 D1 上交
       settled: MAIL_URGENT_DAY - 5,
       uncertain: 0,
     });
+    // 0025 与最后一个预占同事务写入；不能把这次触发器写入误报为第二个守卫命中。
+    const depleted = await env.DB.prepare(
+      "SELECT value_json FROM system_state WHERE key='obs:depleted:urgent'",
+    ).first<string>("value_json");
+    expect(JSON.parse(depleted ?? "null")).toEqual({ day: day.key, at: T0 });
+  });
+
+  it("A-P1-BUDGET A-P5-OBS 最后一个紧急额度并发争用：仅一方成功且耗尽观测原子落库", async () => {
+    const day = period(2030, 1, 1);
+    await seedUsageRow("urgent_business", day.key, { settled: MAIL_URGENT_DAY - 1 });
+    const summary = await runConcurrently(
+      Array.from({ length: 12 }, () =>
+        reserveMailBudget(env.DB, {
+          intent: "urgent_cancelled_or_retracted",
+          period: day,
+          now: day.startMs,
+        }),
+      ),
+    );
+    expect(summary.committed).toBe(1);
+    expect(summary.missed).toBe(11);
+    expect(summary.rejected).toBe(0);
+    expect(await poolOccupancy("urgent_business", day.key)).toEqual({
+      reserved: 1,
+      settled: MAIL_URGENT_DAY - 1,
+      uncertain: 0,
+    });
+    const depleted = await env.DB.prepare(
+      "SELECT value_json FROM system_state WHERE key='obs:depleted:urgent'",
+    ).first<string>("value_json");
+    expect(JSON.parse(depleted ?? "null")).toEqual({ day: day.key, at: day.startMs });
   });
 
   it("A-P1-BUDGET 认证降级线前最后一格：10 个并发重发 → 恰好 1 成功，合计停在 70", async () => {

@@ -76,6 +76,26 @@ const maxOccurrenceTtl = (v: WritableParamValues): number =>
 // 附录 A.5 / CONTRACTS_BASELINE.md §11 全部数值等式。行序与 §11 一致。
 export const PARAM_EQUATIONS: readonly EquationDefinition[] = [
   eq(
+    "observability-capacity-ratio",
+    "观测",
+    "0 < OBS_CAPACITY_WARN_RATIO < 1",
+    (v) => `0 < OBS_CAPACITY_WARN_RATIO(${v.OBS_CAPACITY_WARN_RATIO}) < 1`,
+    (v) => v.OBS_CAPACITY_WARN_RATIO > 0 && v.OBS_CAPACITY_WARN_RATIO < 1,
+    { OBS_CAPACITY_WARN_RATIO: 1 },
+  ),
+  eq(
+    "feedback-maintenance-bounds",
+    "反馈维护",
+    "FEEDBACK_MAINTENANCE_ROUNDS 为正整数；每相页预算不超过反馈容量",
+    (v) =>
+      `FEEDBACK_MAINTENANCE_ROUNDS(${v.FEEDBACK_MAINTENANCE_ROUNDS}) × FEEDBACK_BATCH(${v.FEEDBACK_BATCH}) <= MAIL_FEEDBACK_MAX(${v.MAIL_FEEDBACK_MAX})`,
+    (v) =>
+      Number.isSafeInteger(v.FEEDBACK_MAINTENANCE_ROUNDS) &&
+      v.FEEDBACK_MAINTENANCE_ROUNDS > 0 &&
+      v.FEEDBACK_MAINTENANCE_ROUNDS * v.FEEDBACK_BATCH <= v.MAIL_FEEDBACK_MAX,
+    { FEEDBACK_MAINTENANCE_ROUNDS: 0 },
+  ),
+  eq(
     "calendar-preview-rate-bounds",
     "私人预览限流（ADR-0006）",
     "CALENDAR_PREVIEW_RATE_WINDOW 与 CALENDAR_PREVIEW_RATE_LIMIT 为正安全整数；CALENDAR_PREVIEW_RATE_WINDOW < PUBLIC_CACHE_FRESH",

@@ -2,6 +2,7 @@ import { env } from "cloudflare:test";
 import { SECRET_BITS, utcDayPeriod } from "@hoyo/contracts";
 import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { DeliveryRuntime } from "../../executors/delivery/runtime";
+import { seedOperationalControls } from "../../shell/observability/test-support";
 import { randomBytes, testKeyring } from "../../shell/test-support";
 import { toHex } from "../../storage/crypto/bytes";
 import { readMailDayLedger } from "../../storage/ledger/mail-ledger";
@@ -38,6 +39,7 @@ beforeEach(async () => {
     "users",
   ])
     await env.DB.exec(`DELETE FROM ${table}`);
+  await seedOperationalControls(env.DB);
 });
 
 describe("A-P4-UNSUB 业务依赖注入与邮件内容", () => {
