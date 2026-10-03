@@ -1,5 +1,5 @@
 import { GAME_NAMES } from "@hoyo/contracts";
-import { el } from "../../features/schedule/dom";
+import { el, timestamp } from "../../features/schedule/dom";
 import { sourceFeedback } from "../../features/schedule/source-status";
 import { PublicApiClient } from "../../lib/public-api/client";
 
@@ -59,7 +59,7 @@ async function refresh() {
         el(
           "li",
           {},
-          `${GAME_NAMES[source.game]} / ${source.sourceId}：${sourceFeedback(source).label}；最近成功：${source.verifiedAt === null ? "未知" : new Date(source.verifiedAt).toISOString()}`,
+          `${GAME_NAMES[source.game]} / ${source.sourceId}：${sourceFeedback(source).label}；最近成功：${timestamp(source.verifiedAt)}`,
         ),
       );
     facts.append(
@@ -78,10 +78,7 @@ async function refresh() {
           `${GAME_NAMES[gap.game]} 待审核缺口：${gap.count === null ? "未知" : gap.count}`,
         ),
       );
-    facts.append(
-      gaps,
-      el("p", {}, `公开副本有效至：${new Date(status.cache.freshUntil).toISOString()}（UTC）`),
-    );
+    facts.append(gaps, el("p", {}, `公开副本有效至：${timestamp(status.cache.freshUntil)}`));
   } catch {
     message.textContent = "公开状态读取失败，当前状态未知。请稍后刷新，或查看帮助中的限制说明。";
   } finally {
