@@ -133,6 +133,24 @@
 - 两项真实 D1 探针均通过：错峰窗口/撤销即时生效；2000 个每项 8192 B 的成功条目，32 页在真实 429 后完整取回。注入时钟含处理为 60.728 秒；冷/热/拒绝 rows_read 总数为 2009/8/2，无写入。公开/私人历史增长基准包含在 schema 13 项中。
 - 独立复现 ADR-0008 的 11341 项/181 页反例：180 页后于 360 秒得到 409；这是限制成立的证据，**不是取全通过**。使用生产路由/投影/限流和内存 DB/cache，CPU 仅 Node 代理。极大 blocked 预览不保证一次取全；未完成不得显示完整或空日历，F3-04 处理，P5-04 公开。具体证据与初轮临时夹具失败见 P3-15 卡末。
 
+**首版代码收尾补充（2026-10-03，#71 `d3c9448` / #83 `22b48ba`）**：从 main `d54891e` 在独立临时克隆依次合入 #71 `d3c9448`、#83 `22b48ba`，集成 `9544a92`，无冲突、无迁移改号。统一 `CI=1 WRANGLER_SEND_METRICS=false`，依次完整执行 `pnpm install --frozen-lockfile`、`pnpm lint`、`pnpm typecheck`、`pnpm params:verify`、`pnpm migrate:check`、`pnpm test`、`pnpm build`、`pnpm test:e2e`，全部 exit 0：参数 32/32、迁移 0001–0026/schema 15、contracts 279、Worker 1086、网页 919 通过/5 项既有视口跳过；build 1.95 秒，外层 300 秒未触发。使用锁定 Chromium，无浏览器补丁。这是一轮两 PR 联合集成，不冒充两次分别完整运行。实际依次 squash 为 `64dd5ea`、`ec89300`，最终主干树与实测树 `e1efae20e1368351eaeecea9d1dadd5033ce43cb` 完全一致。 本轮独立探针19/19（账号摘要2、公开状态双视口8、对账9）；真实首次保存22/22、原日历链、站点23/23、备份12/12与CLI九步、负载13组、依赖回归180/180通过。P5-04仅代码/本地证据通过，平台E3/最终上线仍未放行。
+
+本轮9条不同精确变异均被检出、0存活；每条先确认替换恰1次且diff非空，探针先移出，逐条还原干净；网页逐条重建，还原后再构建并复跑247通过/5既有跳过、真实全链22/22、工具9/9。
+
+| 验收ID/接缝 | 变异 | 确证承重的现有测试及结果 |
+| --- | --- | --- |
+| U11/U20 | 日历保存后继续额外续期 | calendar.spec.ts“未保存草稿：保存后继续”，双视口2失败 |
+| U11/U20 | 关闭提醒保存后额外续期 | calendar.spec.ts“关闭日历提醒走保存状态机，地址不变且不清规则”，2失败 |
+| U11/§12.2跨卡 | 上游保存状态机绕过成功回执校验 | 下游calendar.spec.ts两入口的unsaved/same-revision/wrong-config/skipped-revision，共16失败 |
+| U12/U20 | BFCache返回不重挂日历 | subscription-flow.spec.ts“页面恢复重新挂载日历”，2失败 |
+| A-P2-ACCOUNT→U12/U15a跨卡 | contracts摘要重新拒绝初始邮箱版本0 | subscription/testing/local-flow.mjs真实新注册在激活后摘要503而失败；13项已过，余项未运行；此专项需显式执行 |
+| A-P5-RELEASE跨卡 | contracts occupancyTotal漏uncertain | 下游scripts/load/reconcile.test.mjs的floor与超限用例2失败 |
+| A-P5-RELEASE | 对账漏跨日incoming | reconcile.test.mjs“拒绝也已结算，跨日按接受日，其他应用独立归因”1失败 |
+| A-P5-RELEASE | unknown显示为开放 | release.spec.ts“状态未知、来源缺失与空发布不冒充正常”2失败 |
+| A-P5-RELEASE | 过期计时器保留旧开放值 | release.spec.ts“页面停留至副本到期后，旧开放状态降为未知”2失败 |
+
+本轮保留失败：#83执行者两次build124、CI首轮Worker超时；验收摘要探针用UPDATE触发换邮箱会话撤销，改建号夹具后2/2；原日历脚本初次路径错误未运行，纠正后通过。对账/真实链专项不在根测试自动收集，不因CI绿灯声称自动覆盖。本轮证据在验收机源码外 `/private/tmp/hoyo-acceptor-20261003-release-final/`：full/、extras/、probe-*.json、已移出的探针、mutations/、restored/ 与真实链路结果；执行者按登记场景复现，不依赖此临时目录。未提交探针、日志或业务修复，未部署、真实发信或操作 Cloudflare。
+
 ## 3. 后端与管线验收表
 
 ### P0（全部 E3；Agent 交付探测代码与登记模板，结论由所有者填写）
