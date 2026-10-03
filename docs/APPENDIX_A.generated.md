@@ -102,6 +102,8 @@ P0 待定项（`MODEL_MAX_INPUT`、`MODEL_MAX_BILLED_OUTPUT`）未填写前，�
 | PUBLIC_READ_LIMITS | {"scanPage":100,"recentChanges":20,"detailNodes":1000,"sourcesPerGame":16,"pendingCandidates":1000,"nodeBytes":8192,"responseBytes":524288,"queryBytes":4096} | 混合（条/字节） | P3-14 公共读 API 的扫描页、变更数、详情、来源、待审聚合与字节保护 | 策略；近期变更期限使用共享更正层 retain_until；响应超限分页，单节点/详情超限报不可用，状态聚合超限为未知，不截断冒充完整 |
 | PUBLIC_SNAPSHOT_WRITE_PROFILE | {"chunkBytes":262144,"singleValueBytes":2000000,"queryLimit":1000} | 字节 / 查询 | 公共快照按 UTF-8 字节分块；单值及单次调用不得超过 D1 工程边界 | 策略；P3-06 返工 / ENGINEERING §5.4；分块不裁剪节点，边界来自平台约束 |
 | PUBLIC_CACHE_FRESH | 300 | 秒 | 公共快照新鲜窗口 | 基线 |
+| CALENDAR_PREVIEW_RATE_WINDOW | 60 | 秒 | 私人日历预览每会话、每 Worker isolate 的限流窗口 | 基线；ADR-0006 所有者批准；首屏与续页共桶，不写 D1、不续期、不计写操作额度 |
+| CALENDAR_PREVIEW_RATE_LIMIT | 30 | 次 | 私人日历预览同会话、同 isolate 窗口内受理次数上限 | 基线；ADR-0006 所有者批准；超限 429，isolate 切换或重启可重置局部状态 |
 | FEED_MAX_STALE | 86,400 | 秒（原文 24 小时） | 私人 Feed 只用当前完整发布代次，不回退旧代次 | 基线 |
 | REMINDER_GRACE | 300 | 秒 | 正常提前提醒有效期，且不超过节点时刻 | 基线 |
 | NEW_EVENT_TTL | 21,600 | 秒 | 新事件公布有效期 | 基线 |
@@ -162,6 +164,8 @@ P0 待定项（`MODEL_MAX_INPUT`、`MODEL_MAX_BILLED_OUTPUT`）未填写前，�
 
 | 参数 | 值 | 单位 | 含义 | 状态与备注 |
 | --- | --- | --- | --- | --- |
+| OBS_CAPACITY_WARN_RATIO | 0.8 | 比例 | 反馈及已取证平台容量的逼近告警比例，不是收费封顶 | 策略；所有者 2026-10-02 批准 P5-01 |
+| FEEDBACK_MAINTENANCE_ROUNDS | 4 | 轮/次 Cron | 每轮最多一页清理和一页再关联，同时受执行器墙钟约束 | 策略；所有者 2026-10-02 批准 P5-01 |
 | DELIVERY_PENDING_MAX | 5,000 | 条 | 未完成 Delivery 上限；不通过删除未完成任务腾容量 | 基线 |
 | DELIVERY_RECORD_MAX | 50,000 | 条 | Delivery 记录容量；同样不靠删除腾容量 | 基线 |
 | DELIVERY_DEDUPE_TTL | 604,800 | 秒（原文 7 天） | 大于发生项/重试有效期；发生项结束后不得重新展开 | 基线 |
@@ -175,6 +179,8 @@ P0 待定项（`MODEL_MAX_INPUT`、`MODEL_MAX_BILLED_OUTPUT`）未填写前，�
 | UNREFERENCED_VERSION_TTL | 7,776,000 | 秒（原文 90 天） | 未被引用版本保留 | 基线 |
 | EVENT_EVIDENCE_TTL | 31,536,000 | 秒（原文 365 天） | 事件证据保留；活跃、争议和未到期公共更正可延长 | 基线 |
 | CONSENT_AUDIT_AFTER_CLOSE | 15,552,000 | 秒（原文 180 天） | 通道同意关闭后的最小脱敏记录；平台抑制不自动到期解封 | 基线 |
+| RECLAIM_QUERY_BUDGET | 800 | 条 SQL/维护调用 | 回收维护查询硬预算；墙钟与分页同时约束，所有者在 PR #78 提案后批准 | P5-02 所有者已批准 |
+| SYSTEM_AUDIT_TTL | 15,552,000 | 秒（ADR-0007 取 180 天） | 系统审计从 created_at 独立计算期限；历史行先校正再有界清理 | ADR-0007 已批准 |
 | ADMIN_AUDIT_TTL | 15,552,000 | 秒（ADR-0005 取 180 天） | 管理员写操作的审计记录保留；到期按索引分页清理，审计不含秘密 | ADR-0005 增补 |
 | BACKUP_INTERVAL | 604,800 | 秒（原文 7 天） | 独立加密备份间隔 | 基线 |
 | BACKUP_COPIES | 4 | 份 | 备份份数；密钥另存，完成恢复演练 | 基线 |
@@ -198,6 +204,11 @@ P0 待定项（`MODEL_MAX_INPUT`、`MODEL_MAX_BILLED_OUTPUT`）未填写前，�
 
 | 等式 ID | 分组 | 合同 | 当前值 |
 | --- | --- | --- | --- |
+| reclaim-query-budget | 回收维护 | RECLAIM_QUERY_BUDGET 为安全整数，容纳一页最坏 9×MATCH_PAGE + 6 条且低于 D1 每调用硬上限 | 9 × MATCH_PAGE(20) + 6 <= RECLAIM_QUERY_BUDGET(800) < D1 queryLimit(1000) |
+| system-audit-retention | 系统审计（ADR-0007） | SYSTEM_AUDIT_TTL 为正安全整数，毫秒转换仍为安全整数 | SYSTEM_AUDIT_TTL(15552000) > 0；×1000 为安全整数 |
+| observability-capacity-ratio | 观测 | 0 < OBS_CAPACITY_WARN_RATIO < 1 | 0 < OBS_CAPACITY_WARN_RATIO(0.8) < 1 |
+| feedback-maintenance-bounds | 反馈维护 | FEEDBACK_MAINTENANCE_ROUNDS 为正整数；每相页预算不超过反馈容量 | FEEDBACK_MAINTENANCE_ROUNDS(4) × FEEDBACK_BATCH(10) <= MAIL_FEEDBACK_MAX(20000) |
+| calendar-preview-rate-bounds | 私人预览限流（ADR-0006） | CALENDAR_PREVIEW_RATE_WINDOW 与 CALENDAR_PREVIEW_RATE_LIMIT 为正安全整数；CALENDAR_PREVIEW_RATE_WINDOW < PUBLIC_CACHE_FRESH | CALENDAR_PREVIEW_RATE_WINDOW(60) < PUBLIC_CACHE_FRESH(300); CALENDAR_PREVIEW_RATE_LIMIT(30) > 0; 两者为安全整数 |
 | public-snapshot-chunk-within-d1 | D1 工程上限 | API_BODY_MAX_BYTES < chunkBytes / 2；2 < chunkBytes <= singleValueBytes / 2；queryLimit > 18 | API_BODY_MAX_BYTES(8192) < chunkBytes(262144) / 2 <= singleValueBytes(2000000) / 4; queryLimit(1000) > 18 |
 | mail-total-day-sum | 邮件（纯日额度） | MAIL_TOTAL_DAY = MAIL_AUTH_DAY + MAIL_BASE_DAY + MAIL_URGENT_DAY | MAIL_TOTAL_DAY(260) = MAIL_AUTH_DAY(90) + MAIL_BASE_DAY(50) + MAIL_URGENT_DAY(120) → 260 = 260 |
 | mail-total-day-within-platform-limit | 邮件（纯日额度） | MAIL_TOTAL_DAY <= PLATFORM_MAIL_DAY_LIMIT（平台实测日上限） | MAIL_TOTAL_DAY(260) <= PLATFORM_MAIL_DAY_LIMIT(1000) |
@@ -232,5 +243,5 @@ P0 待定项（`MODEL_MAX_INPUT`、`MODEL_MAX_BILLED_OUTPUT`）未填写前，�
 
 ### 等式数量核对
 
-数值等式 27 条、语义条款 1 条。
+数值等式 32 条、语义条款 1 条。
 `pnpm params:verify` 与 Worker 启动路径逐条校验数值等式，任一不成立即拒绝并指明该条。

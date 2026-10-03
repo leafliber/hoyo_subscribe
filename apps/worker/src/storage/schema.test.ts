@@ -2366,3 +2366,205 @@ it("A-P3-ADMIN 管理员审计一页清理 rows_read 不随 2000 条已到期系
     );
   }
 });
+
+// P3-15：执行真实接口热路径（含会话校验），不复制生产 SQL。
+it("A-P3-PREVIEW 两接口热读在 2000 条历史代次、节点、来源及账号配置后读量不涨", async () => {
+  const { seed, snapshot, node, T } = await import("../calendar/preview/test-support");
+  const { FeedPublicCache } = await import("../calendar/feed/public-read");
+  const { makeCalendarPreviewRoutes } = await import("../calendar/preview/routes");
+  const { createApiShell } = await import("../shell/router");
+  const { sessionAuthenticator } = await import("../auth/sessions/authenticator");
+  const { fakeExecutionContext } = await import("../shell/test-support");
+  const actor = await seed();
+  await snapshot([node("synthetic-benchmark-node")]);
+  const samples: number[] = [];
+  function wrap(stmt: D1PreparedStatement): D1PreparedStatement {
+    return new Proxy(stmt, {
+      get(target, key) {
+        if (key === "bind") return (...args: unknown[]) => wrap(target.bind(...args));
+        if (key === "first" || key === "all")
+          return async (column?: string) => {
+            const result = await target.all<Record<string, unknown>>();
+            expect(typeof result.meta.rows_read).toBe("number");
+            samples.push(result.meta.rows_read);
+            return key === "all"
+              ? result
+              : column
+                ? (result.results[0]?.[column] ?? null)
+                : (result.results[0] ?? null);
+          };
+        const value = Reflect.get(target, key);
+        return typeof value === "function" ? value.bind(target) : value;
+      },
+    });
+  }
+  const measured = new Proxy(env.DB, {
+    get(target, key) {
+      if (key === "prepare") return (sql: string) => wrap(target.prepare(sql));
+      const value = Reflect.get(target, key);
+      return typeof value === "function" ? value.bind(target) : value;
+    },
+  });
+  const shell = createApiShell({
+    authenticator: sessionAuthenticator(measured, () => T),
+    routes: makeCalendarPreviewRoutes({ cache: new FeedPublicCache(), now: () => T }),
+  });
+  async function measurePreview(path: string) {
+    samples.length = 0;
+    const response = await shell.fetch(
+      new Request(`https://app.test/api/v2/${path}`, {
+        headers: { cookie: `__Host-session=${actor.cookie}` },
+      }),
+      { ...env, DB: measured },
+      fakeExecutionContext,
+    );
+    expect(response.status).toBe(200);
+    await response.arrayBuffer();
+    return [...samples];
+  }
+  await measurePreview("calendar/nodes"); // 冷读装载完整代次；随后验证热读。
+  const before = {
+    public: await measurePreview("calendar/nodes"),
+    private: await measurePreview("me/calendar/preview"),
+  };
+  const ids = JSON.stringify(Array.from({ length: 2000 }, (_, i) => i));
+  await run(
+    `INSERT INTO public_snapshots(id,generation,state,published_at,node_count,created_at)
+    SELECT 'p315-history-'||value,50000+value,'superseded',?,1,? FROM json_each(?)`,
+    T,
+    T,
+    ids,
+  );
+  await run(
+    `INSERT INTO public_snapshot_nodes(snapshot_id,milestone_id,node_json)
+    SELECT 'p315-history-'||value,'synthetic-benchmark-node','{}' FROM json_each(?)`,
+    ids,
+  );
+  await run(
+    `INSERT INTO sources(source_id,game,region,adapter,approved_hosts_json,verified_publishers_json,cursor_json,poll_policy_json,verification_state,created_at,updated_at)
+    SELECT 'p315-history-'||value,'genshin','cn','synthetic','[]','[]','{}','{}','unknown',?,? FROM json_each(?)`,
+    T,
+    T,
+    ids,
+  );
+  await run(
+    `INSERT INTO users(id,"order",status,email_key,email_binding_id,email_ciphertext,email_version,created_at,updated_at)
+    SELECT 'p315-history-'||value,950000+value,'active','p315-key-'||value,'p315-binding-'||value,X'00',1,?,? FROM json_each(?)`,
+    T,
+    T,
+    ids,
+  );
+  await run(
+    `INSERT INTO user_subscriptions(user_id,state,schema_version,revision,created_at,updated_at)
+    SELECT 'p315-history-'||value,'uninitialized',3,0,?,? FROM json_each(?)`,
+    T,
+    T,
+    ids,
+  );
+  await run(
+    `INSERT INTO calendar_feeds(user_id,namespace,state,token_hash,token_ciphertext,token_generation,view_revision,changed_at,created_at,updated_at)
+    SELECT 'p315-history-'||value,'p315-ns-'||value,'disabled','p315-hash-'||value,X'00',0,0,?,?,? FROM json_each(?)`,
+    T,
+    T,
+    T,
+    ids,
+  );
+  const after = {
+    public: await measurePreview("calendar/nodes"),
+    private: await measurePreview("me/calendar/preview"),
+  };
+  expect(after).toEqual(before);
+  expect(after.public).toHaveLength(2);
+  expect(after.private).toHaveLength(5);
+  expect([...after.public, ...after.private].every((n) => n < 30)).toBe(true);
+  console.info(JSON.stringify({ event: "p3_15_hot_rows_read", history: 2000, before, after }));
+}, 120000);
+
+it("A-P5-RECLAIM 系统审计校正和删除 rows_read 不随其他审计历史增长", async () => {
+  const { SYSTEM_AUDIT_HISTORY_SQL, SYSTEM_AUDIT_EXPIRED_SQL } = await import(
+    "../accounts/reclaim/audit"
+  );
+  const at = T0 + DAY;
+  await env.DB.prepare(
+    `INSERT INTO audit_log(id,actor_type,actor_id,action,target_type,created_at,expires_at) VALUES('reclaim-cost-system','system','synthetic','fixture','fixture',?,?)`,
+  )
+    .bind(at, at)
+    .run();
+  const measure = async () => ({
+    history: (
+      await env.DB.prepare(SYSTEM_AUDIT_HISTORY_SQL)
+        .bind(at - 1, "", MATCH_PAGE)
+        .all()
+    ).meta.rows_read,
+    expiry: (await env.DB.prepare(SYSTEM_AUDIT_EXPIRED_SQL).bind(at, MATCH_PAGE).all()).meta
+      .rows_read,
+  });
+  const before = await measure();
+  for (let n = 0; n < 2000; n += MATCH_PAGE)
+    await env.DB.batch(
+      Array.from({ length: MATCH_PAGE }, (_, offset) =>
+        env.DB.prepare(
+          `INSERT INTO audit_log(id,actor_type,actor_id,action,target_type,created_at,expires_at) VALUES(?,'admin','synthetic','fixture','fixture',?,?)`,
+        ).bind(`reclaim-cost-admin-${n + offset}`, at, at),
+      ),
+    );
+  const after = await measure();
+  expect(after).toEqual(before);
+  expect(after.history).toBeLessThanOrEqual(MATCH_PAGE * 2);
+  expect(after.expiry).toBeLessThanOrEqual(MATCH_PAGE * 2);
+  console.log(
+    "A-P5-RECLAIM synthetic audit rows_read",
+    JSON.stringify({ before, after, unrelated: 2000 }),
+  );
+});
+
+it("A-P5-RECLAIM 实际历史校正及 DELETE 成本不随 2000 条管理员行增长", async () => {
+  const { SYSTEM_AUDIT_TTL } = await import("@hoyo/contracts");
+  const { maintainSystemAuditPage } = await import("../accounts/reclaim/audit");
+  const { observeDatabase } = await import("../accounts/reclaim/test-observer");
+  const measure = async () => {
+    await env.DB.prepare(
+      "DELETE FROM system_state WHERE key='reclaim:system_audit_correction'",
+    ).run();
+    await env.DB.prepare("DELETE FROM audit_log WHERE actor_type='system'").run();
+    for (const [id, created] of [
+      ["reclaim-recent", T0 - DAY],
+      ["reclaim-expired", T0 - SYSTEM_AUDIT_TTL * 1000 - 1],
+    ] as const)
+      await env.DB.prepare(
+        "INSERT INTO audit_log(id,actor_type,actor_id,action,target_type,created_at,expires_at) VALUES(?,'system','synthetic','fixture','fixture',?,?)",
+      )
+        .bind(id, created, T0 - DAY)
+        .run();
+    const measured = observeDatabase(env.DB);
+    await maintainSystemAuditPage(measured.db, T0);
+    await maintainSystemAuditPage(measured.db, T0);
+    expect(
+      await env.DB.prepare("SELECT expires_at FROM audit_log WHERE id='reclaim-recent'").first(
+        "expires_at",
+      ),
+    ).toBe(T0 - DAY + SYSTEM_AUDIT_TTL * 1000);
+    expect(
+      await env.DB.prepare("SELECT COUNT(*) n FROM audit_log WHERE id='reclaim-expired'").first(
+        "n",
+      ),
+    ).toBe(0);
+    return measured.stats;
+  };
+  const before = await measure();
+  for (let n = 0; n < 2000; n += MATCH_PAGE)
+    await env.DB.batch(
+      Array.from({ length: MATCH_PAGE }, (_, i) =>
+        env.DB.prepare(
+          "INSERT INTO audit_log(id,actor_type,actor_id,action,target_type,created_at,expires_at) VALUES(?,'admin','synthetic','fixture','fixture',?,?)",
+        ).bind(`reclaim-actual-admin-${n + i}`, T0 - DAY, T0 - DAY),
+      ),
+    );
+  const after = await measure();
+  expect(after.rows_read).toBe(before.rows_read);
+  expect(after.queries).toBe(before.queries);
+  console.log(
+    "A-P5-RECLAIM actual audit correction/delete",
+    JSON.stringify({ before, after, unrelated: 2000 }),
+  );
+});

@@ -325,6 +325,11 @@ pending 期限重合，没有问题。**若把 `AUTH_COMPLETION_TTL` 调得比 `
 
 ## 11. 附录 A.5 启动等式（`pnpm params:verify` 必须实现全部）
 
+P5-02 查询预算：`RECLAIM_QUERY_BUDGET` 为安全整数、至少容纳 `9 × MATCH_PAGE + 6` 条（一页最坏语句数及状态读取/提交），且小于 D1 每调用 1000 条平台上限（所有者在 #78 提案后批准 800）；与执行器墙钟同时约束。
+
+P5-02 / ADR-0007：`SYSTEM_AUDIT_TTL` 为独立正安全整数，乘 1000 后仍为安全整数；系统审计期限从 `created_at` 计算，历史行先校正后清理。
+
+
 P3-06 工程等式 `public-snapshot-chunk-within-d1`：`API_BODY_MAX_BYTES < PUBLIC_SNAPSHOT_WRITE_PROFILE.chunkBytes / 2`，`2 < chunkBytes <= singleValueBytes / 2`，`queryLimit > 18`，分块字节数和查询上限为安全整数。只约束 D1 集合写入，不改变日历业务语义（ENGINEERING §5.4）。
 
 > 邮件部分按 **ADR-0003** 改写；其余不变。
@@ -370,6 +375,14 @@ DELIVERY_DEDUPE_TTL > 业务发生项最大有效期 + 最大重试余量
 P3-14 工程依赖：`PUBLIC_READ_LIMITS` 所有值为正整数；`recentChanges <= scanPage <= detailNodes`；
 `nodeBytes × (recentChanges + 1) < responseBytes <= FEED_RESPONSE_MAX_BYTES`；`queryBytes <= nodeBytes`。
 近期重要变更期限取当前共享更正的 `retain_until`，条数取 `recentChanges`。详情/单节点超限明确不可用，状态聚合超限为未知，不静默截断。
+
+P5-01 所有者 2026-10-02 批准的观测依赖：`0 < OBS_CAPACITY_WARN_RATIO < 1`；
+`FEEDBACK_MAINTENANCE_ROUNDS` 为正整数，且 `FEEDBACK_MAINTENANCE_ROUNDS × FEEDBACK_BATCH <= MAIL_FEEDBACK_MAX`。
+反馈维护同时受 `EXECUTOR_BATCH_WALL_LIMIT` 约束；平台 query-limit 的真实本地最坏路径测试不得超限。
+
+P3-15 / ADR-0006 启动校验 `calendar-preview-rate-bounds`：`CALENDAR_PREVIEW_RATE_WINDOW` 与
+`CALENDAR_PREVIEW_RATE_LIMIT` 均为正安全整数，且 `CALENDAR_PREVIEW_RATE_WINDOW < PUBLIC_CACHE_FRESH`。
+首屏与续页共用每会话、每 isolate 的限额；窗口小于新鲜期为等待后的续页留余量，不代替最大分页测量。
 
 ## 12. API 分组速查（§8.2）
 

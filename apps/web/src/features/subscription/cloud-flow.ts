@@ -166,7 +166,7 @@ export class SubscriptionCloudFlow {
                 ? "云端订阅已保存；恢复码状态尚未确认，请重新核对账号状态。"
                 : !this.facts.recovery_code_saved
                   ? "云端订阅已保存。下一步：保存并确认恢复码；离开本页不会撤销已保存内容。"
-                  : "订阅与恢复码已保存。日历启用流程尚待接通；邮件与本浏览器通知需分别同意，不会附带开启。";
+                  : "订阅与恢复码已保存。请在下方日历订阅区读取状态、核对完整服务端预览，再明确确认启用；邮件与本浏览器通知不会附带开启。";
     }
     // These are explanatory placeholders, never a second calendar / Push controller.
     for (const id of ["calendar-first-save", "push-first-save"]) {

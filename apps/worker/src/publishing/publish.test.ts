@@ -311,7 +311,8 @@ describe("A-P3-PUBLISH 原子发布、身份与版本", () => {
     expect(await publishApprovedCandidate(db, candidate, T0 + 1)).toEqual(initial);
     // 结构断言：两个形状都只有 11 个守卫参数；不是新增平台可调阈值。
     expect(guardBindings).toEqual([11]);
-    expect(batchSizes).toEqual([3 + eventCount * (4 + nodeCount * 3)]);
+    // P5-01：同一 batch 额外读取一次守卫直接 changes()，不增加业务写入。
+    expect(batchSizes).toEqual([4 + eventCount * (4 + nodeCount * 3)]);
     for (const item of data.events) {
       const eventId = await eventIdentity("genshin-ann", external, item.event_key);
       expect(

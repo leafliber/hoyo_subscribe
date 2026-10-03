@@ -23,9 +23,15 @@ export const REFERRER_POLICY = "no-referrer";
 export const CORS_ALLOW_HEADERS = "content-type, x-csrf-token";
 
 /** 给响应叠加安全头。Response 头部不可变，这里统一克隆重建。 */
-export function applySecurityHeaders(response: Response): Response {
+export function applySecurityHeaders(
+  response: Response,
+  policy: "strict" | "html-same-origin" = "strict",
+): Response {
   const headers = new Headers(response.headers);
-  headers.set("content-security-policy", CSP_STRICT);
+  headers.set(
+    "content-security-policy",
+    policy === "html-same-origin" ? CSP_HTML_SAME_ORIGIN : CSP_STRICT,
+  );
   headers.set("referrer-policy", REFERRER_POLICY);
   headers.set("x-content-type-options", "nosniff");
   headers.set("vary", appendVaryOrigin(headers.get("vary")));

@@ -118,7 +118,16 @@ async function mutate(
   g: number,
   key = crypto.randomUUID(),
 ) {
-  return mutateCalendar(env.DB, await testKeyring, s, a, g, key, now);
+  return mutateCalendar(
+    env.DB,
+    await testKeyring,
+    s,
+    a,
+    g,
+    key,
+    now,
+    a === "enable" ? { expected_revision: 1, publication_generation: 1 } : undefined,
+  );
 }
 function token(url: string | null) {
   if (!url) throw new Error("missing synthetic URL");
@@ -134,6 +143,11 @@ beforeAll(async () => {
     await env.DB.batch(
       splitSqlStatements(migrations[name] ?? "").map((sql) => env.DB.prepare(sql)),
     );
+  await run(
+    "INSERT INTO public_snapshots(id,generation,state,published_at,node_count,created_at) VALUES ('synthetic-preview',1,'current',?,0,?)",
+    now,
+    now,
+  );
 }, 60000);
 describe("A-P3-FEEDAPI 管理接口", () => {
   it("未启用视图不创建默认配置；保存确认前不得启用", async () => {
@@ -144,7 +158,10 @@ describe("A-P3-FEEDAPI 管理接口", () => {
       configuration: { state: "uninitialized", revision: 0, alarms_enabled: null },
     });
     await run("UPDATE recovery_credentials SET saved_confirmed_at=NULL WHERE user_id=?", s.userId);
-    await expect(mutate(s, "enable", 0)).rejects.toMatchObject({ code: "conflict" });
+    await expect(mutate(s, "enable", 0)).rejects.toMatchObject({
+      code: "unauthorized",
+      details: { reason: "recovery_code_not_saved" },
+    });
     expect(await row(s.userId)).toBeNull();
   });
   it("签发 hash+认证密文，重复 enable/reset 不换第二次；保留 namespace/view_revision/成功基线", async () => {
@@ -344,11 +361,17 @@ describe("A-P3-FEEDAPI 管理接口", () => {
         env,
         fakeExecutionContext,
       );
-    const body = { confirmed: true, expected_generation: 0 };
+    const body = {
+      confirmed: true,
+      expected_generation: 0,
+      expected_revision: 1,
+      publication_generation: 1,
+    };
     expect((await request(body, "https://other.test")).status).toBe(401);
     expect((await request(body, site, false)).status).toBe(401);
     expect((await request({ ...body, user_id: "other" })).status).toBe(400);
     expect((await request({ ...body, confirmed: false })).status).toBe(400);
+    expect((await request({ confirmed: true, expected_generation: 0 })).status).toBe(400);
     await run("UPDATE sessions SET state='pending' WHERE id=?", s.sessionId);
     expect((await request(body)).status).toBe(401);
     await run(
@@ -420,4 +443,197 @@ describe("A-P3-FEEDAPI 凭证安全竞态", () => {
     expect(await view(b)).toMatchObject({ address_state: "disabled", url: null });
     await expect(mutate(b, "enable", 0, key)).rejects.toMatchObject({ code: "conflict" });
   });
+});
+
+describe("A-P3-PREVIEW enable 原子版本绑定", () => {
+  it("过期版本或发布代次不启用，成功后同键旧预览重放仍返回原地址", async () => {
+    const s = await seed(),
+      key = crypto.randomUUID();
+    const enable = (revision: number, generation: number, operation = key) =>
+      mutateCalendar(env.DB, awaitKeys, s, "enable", 0, operation, now, {
+        expected_revision: revision,
+        publication_generation: generation,
+      });
+    const awaitKeys = await testKeyring;
+    for (const [revision, generation] of [
+      [2, 1],
+      [1, 2],
+    ])
+      await expect(enable(revision ?? 0, generation ?? 0)).rejects.toMatchObject({
+        code: "conflict",
+        details: { reason: "preview_outdated" },
+      });
+    expect(await row(s.userId)).toBeNull();
+    const success = await enable(1, 1);
+    const original = await row(s.userId);
+    await run("UPDATE user_subscriptions SET revision=revision+1 WHERE user_id=?", s.userId);
+    await run("UPDATE public_snapshots SET generation=2 WHERE state='current'");
+    try {
+      expect(await enable(1, 1)).toEqual(success);
+      expect((await row(s.userId))?.token_hash).toBe(original?.token_hash);
+      // 同键不同版本不能冒充成功重放（新字段确实参与操作摘要）。
+      await expect(enable(2, 2)).rejects.toMatchObject({ code: "conflict" });
+    } finally {
+      await run("UPDATE public_snapshots SET generation=1 WHERE state='current'");
+    }
+  });
+  it.each(["revision", "generation"])(
+    "%s 在 guard 提交前改变，条件提交必须拒绝且不扣额度",
+    async (kind) => {
+      const s = await seed();
+      let raced = false;
+      const db = new Proxy(env.DB, {
+        get(target, key) {
+          if (key === "batch")
+            return async (statements: D1PreparedStatement[]) => {
+              if (!raced) {
+                raced = true;
+                if (kind === "revision")
+                  await run("UPDATE user_subscriptions SET revision=2 WHERE user_id=?", s.userId);
+                else await run("UPDATE public_snapshots SET generation=2 WHERE state='current'");
+              }
+              return target.batch(statements);
+            };
+          const value = Reflect.get(target, key);
+          return typeof value === "function" ? value.bind(target) : value;
+        },
+      });
+      try {
+        await expect(
+          mutateCalendar(db, await testKeyring, s, "enable", 0, crypto.randomUUID(), now, {
+            expected_revision: 1,
+            publication_generation: 1,
+          }),
+        ).rejects.toMatchObject({ code: "conflict", details: { reason: "preview_outdated" } });
+        expect(await row(s.userId)).toBeNull();
+        const { userKey } = mutationCounterKeys(s.userId, utcDayPeriod(now).key);
+        expect(
+          await env.DB.prepare("SELECT value FROM capacity_state WHERE key=?")
+            .bind(userKey)
+            .first("value"),
+        ).toBe(0);
+      } finally {
+        await run("UPDATE public_snapshots SET generation=1 WHERE state='current'");
+      }
+    },
+  );
+  it("受限恢复会话三个动作都返回已有 recovery_code_unconfirmed", async () => {
+    const s = await seed();
+    await run("UPDATE sessions SET recovery_code_required=1 WHERE id=?", s.sessionId);
+    for (const action of ["enable", "disable", "reset"] as const)
+      await expect(mutate(s, action, 0)).rejects.toMatchObject({
+        code: "unauthorized",
+        details: { reason: "recovery_code_unconfirmed" },
+      });
+  });
+});
+
+it("A-P3-PREVIEW 启用缺字段拒绝，未初始化拒绝；专用 GET 优先 SITE_ORIGIN", async () => {
+  const s = await seed(false);
+  await expect(mutate(s, "enable", 0)).rejects.toMatchObject({
+    code: "conflict",
+    details: { reason: "preview_outdated" },
+  });
+  const initialized = await seed();
+  await mutate(initialized, "enable", 0);
+  const shell = createApiShell({
+    authenticator: sessionAuthenticator(env.DB, () => now),
+    routes: makeCalendarRoutes(
+      () => testKeyring,
+      () => now,
+    ),
+  });
+  const runtime = { ...env, SITE_ORIGIN: "https://canonical.example" };
+  const response = await shell.fetch(
+    new Request(`${site}/api/v2/me/calendar`, {
+      headers: { cookie: `__Host-session=${initialized.cookie}` },
+    }),
+    runtime,
+    fakeExecutionContext,
+  );
+  expect(response.status).toBe(200);
+  const body = (await response.json()) as { url: string };
+  expect(new URL(body.url).origin).toBe("https://canonical.example");
+});
+
+it("U20 reset真实提交后读失败返回标准503，同键恢复不再次换证", async () => {
+  const s = await seed();
+  await mutate(s, "enable", 0);
+  let batches = 0,
+    failedReads = 0,
+    failNextFeedRead = false;
+  const db = new Proxy(env.DB, {
+    get(target, key) {
+      if (key === "batch")
+        return async (statements: D1PreparedStatement[]) => {
+          const result = await target.batch(statements);
+          batches++;
+          // Observe the real committed row before injecting the following read failure.
+          expect((await row(s.userId))?.token_generation).toBe(2);
+          failNextFeedRead = true;
+          return result;
+        };
+      if (key === "prepare")
+        return (sql: string) => {
+          if (failNextFeedRead && sql === "SELECT * FROM calendar_feeds WHERE user_id=?") {
+            failNextFeedRead = false;
+            failedReads++;
+            throw new Error("synthetic_post_commit_read_failure");
+          }
+          return target.prepare(sql);
+        };
+      const value = Reflect.get(target, key);
+      return typeof value === "function" ? value.bind(target) : value;
+    },
+  });
+  const shell = createApiShell({
+    authenticator: sessionAuthenticator(env.DB, () => now),
+    csrfKey: async () => (await testKeyring).csrf(),
+    routes: makeCalendarRoutes(
+      () => testKeyring,
+      () => now,
+    ),
+  });
+  const csrf = await mintCsrfToken(
+    (await testKeyring).csrf(),
+    s.sessionTokenHash,
+    randomBytes(SECRET_BITS / 8),
+  );
+  const key = crypto.randomUUID();
+  const request = () =>
+    shell.fetch(
+      new Request(`${site}/api/v2/me/calendar/reset`, {
+        method: "POST",
+        headers: {
+          origin: site,
+          "content-type": "application/json",
+          "idempotency-key": key,
+          cookie: `__Host-session=${s.cookie}; ${CSRF_COOKIE_NAME}=${csrf}`,
+          [CSRF_HEADER_NAME]: csrf,
+        },
+        body: JSON.stringify({ confirmed: true, expected_generation: 1 }),
+      }),
+      { ...env, DB: db },
+      fakeExecutionContext,
+    );
+  const failed = await request();
+  expect(failed.status).toBe(503);
+  expect(await failed.json()).toMatchObject({ error: { code: "temporarily_unavailable" } });
+  expect(batches).toBe(1);
+  expect(failedReads).toBe(1);
+  const committed = await row(s.userId);
+  expect(committed?.token_generation).toBe(2);
+  const { userKey } = mutationCounterKeys(s.userId, utcDayPeriod(now).key);
+  const spent = () =>
+    env.DB.prepare("SELECT value FROM capacity_state WHERE key=?").bind(userKey).first("value");
+  const charged = await spent();
+  expect((await view(s)).token_generation).toBe(2);
+  const replay = await request();
+  expect(replay.status).toBe(200);
+  expect(await replay.json()).toMatchObject({ token_generation: 2, address_state: "enabled" });
+  expect(batches).toBe(1);
+  expect(failedReads).toBe(1);
+  // Do not dump private rows even if this assertion fails.
+  expect(JSON.stringify(await row(s.userId)) === JSON.stringify(committed)).toBe(true);
+  expect(await spent()).toBe(charged);
 });

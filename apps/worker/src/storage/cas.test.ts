@@ -17,7 +17,7 @@ import {
   SESSION_ACTIVE_MAX,
   SESSION_PENDING_TTL,
 } from "@hoyo/contracts";
-import { beforeAll, describe, expect, it } from "vitest";
+import { beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { releaseAdmissionSlot, reserveAdmissionSlot } from "./admission";
 import { type ConditionalCommitOutcome, conditionalCommit } from "./cas";
 import { splitSqlStatements } from "./split-sql";
@@ -1000,5 +1000,164 @@ describe("A-P2-SUB CAS 通用效果扩展", () => {
         ],
       }),
     ).rejects.toThrow("只能放在效果链末尾");
+  });
+});
+
+// P5-01：直接命中与触发器附带写入分开计数，全部使用真实本地 D1。
+describe("A-P1-CAS A-P5-OBS 触发器兼容", () => {
+  beforeEach(async () => {
+    await env.DB.batch([
+      env.DB.prepare(
+        "CREATE TABLE IF NOT EXISTS cas_probe_guard(id TEXT PRIMARY KEY, value INTEGER NOT NULL)",
+      ),
+      env.DB.prepare(
+        "CREATE TABLE IF NOT EXISTS cas_probe_effect(id TEXT PRIMARY KEY, value INTEGER NOT NULL)",
+      ),
+      env.DB.prepare(
+        "CREATE TABLE IF NOT EXISTS cas_probe_audit(id TEXT PRIMARY KEY, value INTEGER NOT NULL)",
+      ),
+      env.DB.prepare(
+        "CREATE TRIGGER IF NOT EXISTS cas_probe_guard_trigger AFTER UPDATE ON cas_probe_guard BEGIN INSERT INTO cas_probe_audit VALUES ('guard:' || NEW.id, NEW.value); END",
+      ),
+      env.DB.prepare(
+        "CREATE TRIGGER IF NOT EXISTS cas_probe_effect_trigger AFTER INSERT ON cas_probe_effect BEGIN INSERT INTO cas_probe_audit VALUES ('effect:' || NEW.id, NEW.value); END",
+      ),
+      env.DB.prepare("DELETE FROM cas_probe_guard"),
+      env.DB.prepare("DELETE FROM cas_probe_effect"),
+      env.DB.prepare("DELETE FROM cas_probe_audit"),
+      env.DB.prepare("INSERT INTO cas_probe_guard VALUES ('a',0),('b',0)"),
+    ]);
+  });
+
+  function probe() {
+    let results: D1Result[] = [];
+    const db = new Proxy(env.DB, {
+      get(target, key) {
+        if (key === "batch")
+          return async (statements: D1PreparedStatement[]) => {
+            results = await target.batch(statements);
+            return results;
+          };
+        const value = Reflect.get(target, key);
+        return typeof value === "function" ? value.bind(target) : value;
+      },
+    });
+    return { db, results: () => results };
+  }
+  const preamble = [{ sql: "INSERT INTO cas_probe_audit VALUES ('preamble',1)" }];
+  const effects = [
+    {
+      kind: "insert" as const,
+      table: "cas_probe_effect",
+      columns: ["id", "value"],
+      rows: [["first", 1]],
+    },
+    {
+      kind: "insert" as const,
+      table: "cas_probe_effect",
+      columns: ["id", "value"],
+      rows: [["second", 2]],
+    },
+  ];
+
+  it.each([0, 1, 2])(
+    "带触发器守卫直接命中 %i 行：preamble 不干扰判断，多效果遵守串链",
+    async (hits) => {
+      const p = probe();
+      const result = conditionalCommit(p.db, {
+        preamble,
+        guard: {
+          sql: "UPDATE cas_probe_guard SET value=value+1 WHERE id IN (SELECT id FROM cas_probe_guard ORDER BY id LIMIT ?)",
+          params: [hits],
+        },
+        effects,
+      });
+      if (hits > 1) await expect(result).rejects.toThrow("守卫语句命中 2 行");
+      else expect(await result).toEqual({ outcome: hits === 1 ? "committed" : "condition_missed" });
+      const results = p.results();
+      expect(results[1]?.meta.changes).toBe(hits * 2);
+      expect(results[2]?.results).toEqual([{ guard_changes: hits }]);
+      expect(results.slice(3).map((r) => r.meta.changes)).toEqual(hits === 1 ? [2, 2] : [0, 0]);
+      expect(await query("SELECT * FROM cas_probe_effect ORDER BY id")).toEqual(
+        hits === 1
+          ? [
+              { id: "first", value: 1 },
+              { id: "second", value: 2 },
+            ]
+          : [],
+      );
+      expect(await query("SELECT id FROM cas_probe_audit ORDER BY id")).toEqual([
+        ...(hits === 1 ? [{ id: "effect:first" }, { id: "effect:second" }] : []),
+        ...["a", "b"].slice(0, hits).map((id) => ({ id: `guard:${id}` })),
+        { id: "preamble" },
+      ]);
+    },
+  );
+
+  it("带触发器守卫与效果后允许末尾零行，返回真实提交", async () => {
+    const p = probe();
+    expect(
+      await conditionalCommit(p.db, {
+        guard: { sql: "UPDATE cas_probe_guard SET value=1 WHERE id='a'" },
+        effects: [
+          ...effects,
+          {
+            kind: "update",
+            table: "cas_probe_effect",
+            set: { value: 3 },
+            where: { sql: "id='missing'" },
+            allowZeroRowsIfLast: true,
+          },
+        ],
+      }),
+    ).toEqual({ outcome: "committed" });
+    expect(p.results().map((r) => r.meta.changes)).toEqual([2, 0, 2, 2, 0]);
+    expect(await query("SELECT * FROM cas_probe_effect ORDER BY id")).toEqual([
+      { id: "first", value: 1 },
+      { id: "second", value: 2 },
+    ]);
+  });
+
+  it("必需效果零行仍报错，后续带触发器的效果也不得写入", async () => {
+    await expect(
+      conditionalCommit(env.DB, {
+        guard: { sql: "UPDATE cas_probe_guard SET value=1 WHERE id='a'" },
+        effects: [
+          {
+            kind: "update",
+            table: "cas_probe_effect",
+            set: { value: 1 },
+            where: { sql: "id='missing'" },
+          },
+          ...effects,
+        ],
+      }),
+    ).rejects.toThrow("依赖写入 #0 只改了 0 行");
+    expect(await query("SELECT * FROM cas_probe_effect")).toEqual([]);
+    expect(await query("SELECT id FROM cas_probe_audit")).toEqual([{ id: "guard:a" }]);
+  });
+
+  it("SQL 失败回滚 preamble、守卫、多个效果及其触发器写入", async () => {
+    await expect(
+      conditionalCommit(env.DB, {
+        preamble,
+        guard: { sql: "UPDATE cas_probe_guard SET value=1 WHERE id='a'" },
+        effects: [
+          ...effects,
+          {
+            kind: "insert",
+            table: "cas_probe_effect",
+            columns: ["id", "value"],
+            rows: [["invalid", null]],
+          },
+        ],
+      }),
+    ).rejects.toThrow(/NOT NULL/);
+    expect(await query("SELECT * FROM cas_probe_guard ORDER BY id")).toEqual([
+      { id: "a", value: 0 },
+      { id: "b", value: 0 },
+    ]);
+    expect(await query("SELECT * FROM cas_probe_effect")).toEqual([]);
+    expect(await query("SELECT * FROM cas_probe_audit")).toEqual([]);
   });
 });

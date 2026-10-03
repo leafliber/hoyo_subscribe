@@ -149,7 +149,7 @@ const moreRules = SUBSCRIPTION_RULE_COPY.filter((rule) => !recommendedIds.has(ru
 
       <section id="actual-preview" class="subscription-step" aria-labelledby="preview-heading">
         <h2 id="preview-heading">5. 实际日历预览</h2>
-        <p class="preview-empty">尚无实际日历预览。当前选项只是本机预选，尚未连接个人日历。</p>
+        <div id="calendar-preview-content"><p>正在准备日历预览；尚未取得完整公开数据。</p></div>
       </section>
 
       <div class="subscription-save-bar">
@@ -175,11 +175,11 @@ const moreRules = SUBSCRIPTION_RULE_COPY.filter((rule) => !recommendedIds.has(ru
       <h2 id="receive-heading">接收方式</h2>
       <p class="subscription-hint">接收方式与上方内容设置分别管理。</p>
       <p id="channel-saved-summary" class="subscription-hint">尚无已保存配置可用于开通接收方式。</p>
+      <p id="calendar-first-save" class="subscription-hint">日历订阅：先保存一次订阅内容</p>
       <div class="receive-grid">
         <section id="calendar-channel" class="receive-item" aria-labelledby="calendar-channel-heading">
           <h3 id="calendar-channel-heading">日历订阅</h3>
-          <p id="calendar-first-save">先保存一次订阅内容</p>
-          <p>尚未启用个人日历。选中日历提醒不表示外部日历已经开启。</p>
+          <p>身份与已保存订阅待确认；日历状态尚未读取。</p>
         </section>
         <section id="mail-channel" class="receive-item" aria-labelledby="mail-channel-heading">
           <h3 id="mail-channel-heading">邮件提醒</h3>

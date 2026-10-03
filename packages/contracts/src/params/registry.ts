@@ -287,6 +287,12 @@ export const CAL_PATCH_GLOBAL_MAX = 10_000 as const;
 /** 公共快照新鲜窗口。附录 A.3；§6.4。 */
 export const PUBLIC_CACHE_FRESH = 300 as const;
 
+/** 私人预览每会话、每 isolate 的滑动窗口（秒）。ADR-0006；D2 §3.5。 */
+export const CALENDAR_PREVIEW_RATE_WINDOW = 60 as const;
+
+/** 私人预览窗口内受理次数；首屏与续页共桶。ADR-0006；D2 §3.5。 */
+export const CALENDAR_PREVIEW_RATE_LIMIT = 30 as const;
+
 /** P3-14 工程保护：公共扫描按页，超限明确失败，不把残缺详情/计数当完整结果。
  * 近期变更期限复用共享更正层 retain_until（CAL_PATCH_MIN_DAYS/TAIL_DAYS），不另设 TTL。
  */
@@ -428,6 +434,11 @@ export const MAIL_FEEDBACK_MAX = 20_000 as const;
 /** 未关联反馈的有限保留。附录 A.4；§7.4。 */
 export const MAIL_UNMATCHED_MAX = 1000 as const;
 
+/** P5-01 所有者 2026-10-02 批准：容量逼近告警比例，非收费封顶。 */
+export const OBS_CAPACITY_WARN_RATIO = 0.8 as const;
+/** P5-01 所有者 2026-10-02 批准：每次 Cron 反馈维护最多轮数。 */
+export const FEEDBACK_MAINTENANCE_ROUNDS = 4 as const;
+
 /** Queue 小批消费条数。附录 A.4；§7.4。 */
 export const FEEDBACK_BATCH = 10 as const;
 
@@ -522,6 +533,12 @@ export const CONSENT_AUDIT_AFTER_CLOSE = 15_552_000 as const;
 /** 管理员写操作的审计记录保留（180 天）；附录原文没有这一项，ADR-0005 增补（所有者 2026-09-30 决定）。附录 A.5；§8.1 第 14 组。 */
 export const ADMIN_AUDIT_TTL = 15_552_000 as const;
 
+/** 系统审计独立保留 180 天；ADR-0007。 */
+export const SYSTEM_AUDIT_TTL = 15_552_000 as const;
+
+/** P5-02 所有者批准：每次维护的 D1 SQL 预算，低于平台每调用 1000 条。 */
+export const RECLAIM_QUERY_BUDGET = 800 as const;
+
 /** 独立加密备份间隔（附录原值 7 天）。附录 A.5；§10.3。 */
 export const BACKUP_INTERVAL = 604_800 as const;
 
@@ -603,6 +620,8 @@ export const PARAMS = {
   CAL_PATCH_TAIL_DAYS,
   CAL_PATCH_GLOBAL_MAX,
   PUBLIC_CACHE_FRESH,
+  CALENDAR_PREVIEW_RATE_WINDOW,
+  CALENDAR_PREVIEW_RATE_LIMIT,
   PUBLIC_READ_LIMITS,
   PUBLIC_SNAPSHOT_WRITE_PROFILE,
   FEED_MAX_STALE,
@@ -640,6 +659,8 @@ export const PARAMS = {
   MAIL_RECORD_MAX,
   MAIL_FEEDBACK_MAX,
   MAIL_UNMATCHED_MAX,
+  OBS_CAPACITY_WARN_RATIO,
+  FEEDBACK_MAINTENANCE_ROUNDS,
   FEEDBACK_BATCH,
   FEEDBACK_MAX_RETRIES,
   PUSH_USER_MAX,
@@ -671,6 +692,8 @@ export const PARAMS = {
   EVENT_EVIDENCE_TTL,
   CONSENT_AUDIT_AFTER_CLOSE,
   ADMIN_AUDIT_TTL,
+  SYSTEM_AUDIT_TTL,
+  RECLAIM_QUERY_BUDGET,
   BACKUP_INTERVAL,
   BACKUP_COPIES,
 } as const;
@@ -683,6 +706,8 @@ export type ParamStatus =
   | "baseline"
   | "adr-0003"
   | "adr-0005"
+  | "adr-0007"
+  | "p5-02-approved"
   | "measured"
   | "measured-ref"
   | "pending-p0"
@@ -1121,6 +1146,20 @@ export const PARAM_META: Readonly<Record<keyof ParamValues, ParamMeta>> = {
     description: "公共快照新鲜窗口",
     status: "baseline",
   },
+  CALENDAR_PREVIEW_RATE_WINDOW: {
+    section: "A.3",
+    unit: "秒",
+    description: "私人日历预览每会话、每 Worker isolate 的限流窗口",
+    status: "baseline",
+    note: "ADR-0006 所有者批准；首屏与续页共桶，不写 D1、不续期、不计写操作额度",
+  },
+  CALENDAR_PREVIEW_RATE_LIMIT: {
+    section: "A.3",
+    unit: "次",
+    description: "私人日历预览同会话、同 isolate 窗口内受理次数上限",
+    status: "baseline",
+    note: "ADR-0006 所有者批准；超限 429，isolate 切换或重启可重置局部状态",
+  },
   FEED_MAX_STALE: {
     section: "A.3",
     unit: "秒（原文 24 小时）",
@@ -1339,6 +1378,20 @@ export const PARAM_META: Readonly<Record<keyof ParamValues, ParamMeta>> = {
     description: "未关联反馈的有限保留",
     status: "baseline",
   },
+  OBS_CAPACITY_WARN_RATIO: {
+    section: "A.5",
+    unit: "比例",
+    description: "反馈及已取证平台容量的逼近告警比例，不是收费封顶",
+    status: "strategy",
+    note: "所有者 2026-10-02 批准 P5-01",
+  },
+  FEEDBACK_MAINTENANCE_ROUNDS: {
+    section: "A.5",
+    unit: "轮/次 Cron",
+    description: "每轮最多一页清理和一页再关联，同时受执行器墙钟约束",
+    status: "strategy",
+    note: "所有者 2026-10-02 批准 P5-01",
+  },
   FEEDBACK_BATCH: { section: "A.4", unit: "条", description: "Queue 小批消费", status: "baseline" },
   FEEDBACK_MAX_RETRIES: {
     section: "A.4",
@@ -1503,6 +1556,18 @@ export const PARAM_META: Readonly<Record<keyof ParamValues, ParamMeta>> = {
     unit: "秒（原文 180 天）",
     description: "通道同意关闭后的最小脱敏记录；平台抑制不自动到期解封",
     status: "baseline",
+  },
+  RECLAIM_QUERY_BUDGET: {
+    section: "A.5",
+    unit: "条 SQL/维护调用",
+    description: "回收维护查询硬预算；墙钟与分页同时约束，所有者在 PR #78 提案后批准",
+    status: "p5-02-approved",
+  },
+  SYSTEM_AUDIT_TTL: {
+    section: "A.5",
+    unit: "秒（ADR-0007 取 180 天）",
+    description: "系统审计从 created_at 独立计算期限；历史行先校正再有界清理",
+    status: "adr-0007",
   },
   ADMIN_AUDIT_TTL: {
     section: "A.5",

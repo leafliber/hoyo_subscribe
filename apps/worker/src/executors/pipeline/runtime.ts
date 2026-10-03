@@ -1,4 +1,5 @@
 // P3-11：D1 是待办/进度事实源；DO 串行调度。每次 alarm 只处理一个工作单元。
+
 import {
   EXECUTOR_BATCH_WALL_LIMIT,
   MATCH_PAGE,
@@ -14,6 +15,8 @@ import { generatePublicationOccurrences } from "../../mail/occurrences/generate"
 import { publishApprovedCandidate } from "../../publishing/publish";
 import { runCleanup } from "../../scheduled/cleanup";
 import { logEvent } from "../../shell/logger";
+import { readControl } from "../../shell/observability/controls";
+import { recordMetric } from "../../shell/observability/metrics";
 import { articleRowId, saveArticleVersion } from "../../sources/articles/ingest";
 import { getSourceEntry, SOURCE_REGISTRY } from "../../sources/registry";
 import { type CollectedPage, collectSource } from "./collect";
@@ -73,6 +76,7 @@ export class PipelineRuntime {
     try {
       await buildPublicSnapshot(this.db, now);
     } catch {
+      await recordMetric(this.db, "snapshot_build_failed", this.now());
       logEvent("error", "pipeline_snapshot_failed", { reason_code: "snapshot_build" });
     }
     await runCleanup(this.db, now, deadline, this.now);
@@ -251,7 +255,14 @@ export class PipelineRuntime {
     const nextDue = this.now() + pollIntervalSeconds(entry, setting.mode) * 1000;
     if (data.page === undefined) {
       data.page = await collectSource(
-        entry,
+        {
+          ...entry,
+          requestLimits: {
+            ...entry.requestLimits,
+            onTruncated: (host) =>
+              recordMetric(this.db, "source_response_truncated", this.now(), 1, host),
+          },
+        },
         JSON.parse(source.cursor_json) as SourcePollState,
         this.now(),
         this.deps.fetchFn ?? fetch,
@@ -345,6 +356,16 @@ export class PipelineRuntime {
     if (typeof object.versionId !== "string" || typeof object.backfill !== "boolean")
       throw new PipelineDataError("publication_job_shape");
     const data = object as unknown as PublicationPayload;
+    if ((await readControl(this.db, "read_only")).value === true) {
+      await this.finish(
+        job,
+        "pending",
+        job.payload_json,
+        this.now() + WATCHDOG_INTERVAL * 1000,
+        "read_only",
+      );
+      return;
+    }
     const result = await extractArticleVersion(this.db, data.versionId, this.now());
     const controls = await this.deps.readControls();
     let reason: string | null = null;

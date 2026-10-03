@@ -1,3 +1,5 @@
+import { SYSTEM_AUDIT_TTL } from "@hoyo/contracts";
+import { releaseExpiredRegistration } from "./registration";
 // P4-03 所有者补充授权：状态响应新增全局邮件故障字段的对应断言。
 // A-P2-PREAUTH · 注册准入：全局开关、/status 公布与路由清单（任务卡 P2-01 交付物三）。
 //
@@ -173,4 +175,25 @@ describe("A-P2-PREAUTH 路由清单（★ 不提供按邮箱查询是否注册�
     expect(res.status).toBe(503);
     expect(res.headers.get("content-type")).toContain("application/json");
   });
+});
+
+it("A-P5-RECLAIM 注册释放系统审计从创建时刻独立保留，不沿用已过期预占期限", async () => {
+  await env.DB.prepare(
+    "INSERT OR REPLACE INTO capacity_state(key,value,version,updated_at) VALUES('accounts_total',1,0,?)",
+  )
+    .bind(T0)
+    .run();
+  await env.DB.prepare(
+    "INSERT INTO admission_reservations(id,kind,email_key,state,reserved_at,expires_at,created_at,updated_at) VALUES('synthetic-reclaim','registration','synthetic','reserved',?,?,?,?)",
+  )
+    .bind(T0 - 2, T0 - 1, T0 - 2, T0 - 2)
+    .run();
+  expect(
+    await releaseExpiredRegistration(env.DB, { id: "synthetic-reclaim", expiresAt: T0 - 1 }, T0),
+  ).toBe(true);
+  expect(
+    await env.DB.prepare(
+      "SELECT created_at,expires_at FROM audit_log WHERE target_id='synthetic-reclaim'",
+    ).first(),
+  ).toEqual({ created_at: T0, expires_at: T0 + SYSTEM_AUDIT_TTL * 1000 });
 });

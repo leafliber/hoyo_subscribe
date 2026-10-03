@@ -75,6 +75,63 @@ const maxOccurrenceTtl = (v: WritableParamValues): number =>
 
 // 附录 A.5 / CONTRACTS_BASELINE.md §11 全部数值等式。行序与 §11 一致。
 export const PARAM_EQUATIONS: readonly EquationDefinition[] = [
+  eq(
+    "reclaim-query-budget",
+    "回收维护",
+    "RECLAIM_QUERY_BUDGET 为安全整数，容纳一页最坏 9×MATCH_PAGE + 6 条且低于 D1 每调用硬上限",
+    (v) =>
+      `9 × MATCH_PAGE(${v.MATCH_PAGE}) + 6 <= RECLAIM_QUERY_BUDGET(${v.RECLAIM_QUERY_BUDGET}) < D1 queryLimit(${v.PUBLIC_SNAPSHOT_WRITE_PROFILE.queryLimit})`,
+    (v) =>
+      Number.isSafeInteger(v.RECLAIM_QUERY_BUDGET) &&
+      v.RECLAIM_QUERY_BUDGET >= v.MATCH_PAGE * 9 + 6 &&
+      v.RECLAIM_QUERY_BUDGET < v.PUBLIC_SNAPSHOT_WRITE_PROFILE.queryLimit,
+    { RECLAIM_QUERY_BUDGET: 1000 },
+  ),
+  eq(
+    "system-audit-retention",
+    "系统审计（ADR-0007）",
+    "SYSTEM_AUDIT_TTL 为正安全整数，毫秒转换仍为安全整数",
+    (v) => `SYSTEM_AUDIT_TTL(${v.SYSTEM_AUDIT_TTL}) > 0；×1000 为安全整数`,
+    (v) =>
+      Number.isSafeInteger(v.SYSTEM_AUDIT_TTL) &&
+      v.SYSTEM_AUDIT_TTL > 0 &&
+      Number.isSafeInteger(v.SYSTEM_AUDIT_TTL * 1000),
+    { SYSTEM_AUDIT_TTL: 0 },
+  ),
+  eq(
+    "observability-capacity-ratio",
+    "观测",
+    "0 < OBS_CAPACITY_WARN_RATIO < 1",
+    (v) => `0 < OBS_CAPACITY_WARN_RATIO(${v.OBS_CAPACITY_WARN_RATIO}) < 1`,
+    (v) => v.OBS_CAPACITY_WARN_RATIO > 0 && v.OBS_CAPACITY_WARN_RATIO < 1,
+    { OBS_CAPACITY_WARN_RATIO: 1 },
+  ),
+  eq(
+    "feedback-maintenance-bounds",
+    "反馈维护",
+    "FEEDBACK_MAINTENANCE_ROUNDS 为正整数；每相页预算不超过反馈容量",
+    (v) =>
+      `FEEDBACK_MAINTENANCE_ROUNDS(${v.FEEDBACK_MAINTENANCE_ROUNDS}) × FEEDBACK_BATCH(${v.FEEDBACK_BATCH}) <= MAIL_FEEDBACK_MAX(${v.MAIL_FEEDBACK_MAX})`,
+    (v) =>
+      Number.isSafeInteger(v.FEEDBACK_MAINTENANCE_ROUNDS) &&
+      v.FEEDBACK_MAINTENANCE_ROUNDS > 0 &&
+      v.FEEDBACK_MAINTENANCE_ROUNDS * v.FEEDBACK_BATCH <= v.MAIL_FEEDBACK_MAX,
+    { FEEDBACK_MAINTENANCE_ROUNDS: 0 },
+  ),
+  eq(
+    "calendar-preview-rate-bounds",
+    "私人预览限流（ADR-0006）",
+    "CALENDAR_PREVIEW_RATE_WINDOW 与 CALENDAR_PREVIEW_RATE_LIMIT 为正安全整数；CALENDAR_PREVIEW_RATE_WINDOW < PUBLIC_CACHE_FRESH",
+    (v) =>
+      `CALENDAR_PREVIEW_RATE_WINDOW(${v.CALENDAR_PREVIEW_RATE_WINDOW}) < PUBLIC_CACHE_FRESH(${v.PUBLIC_CACHE_FRESH}); CALENDAR_PREVIEW_RATE_LIMIT(${v.CALENDAR_PREVIEW_RATE_LIMIT}) > 0; 两者为安全整数`,
+    (v) =>
+      Number.isSafeInteger(v.CALENDAR_PREVIEW_RATE_WINDOW) &&
+      v.CALENDAR_PREVIEW_RATE_WINDOW > 0 &&
+      Number.isSafeInteger(v.CALENDAR_PREVIEW_RATE_LIMIT) &&
+      v.CALENDAR_PREVIEW_RATE_LIMIT > 0 &&
+      v.CALENDAR_PREVIEW_RATE_WINDOW < v.PUBLIC_CACHE_FRESH,
+    { CALENDAR_PREVIEW_RATE_WINDOW: PARAMS.PUBLIC_CACHE_FRESH },
+  ),
   // —— 邮件：纯日额度模型（ADR-0003）——
   eq(
     "public-snapshot-chunk-within-d1",

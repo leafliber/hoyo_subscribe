@@ -21,6 +21,8 @@ const SECTION_TITLES: Record<ParamMeta["section"], string> = {
 };
 
 const STATUS_LABELS: Record<ParamMeta["status"], string> = {
+  "adr-0007": "ADR-0007 已批准",
+  "p5-02-approved": "P5-02 所有者已批准",
   baseline: "基线",
   "adr-0003": "ADR-0003 修订",
   "adr-0005": "ADR-0005 增补",

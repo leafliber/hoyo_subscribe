@@ -1,6 +1,7 @@
 import { fromHex } from "../../storage/crypto/bytes";
 import { Keyring } from "../../storage/crypto/keyring";
 import type { SendDeps } from "../outbox/send";
+import { environmentUnsubscribe } from "../unsubscribe/environment";
 import { mailAvailable, pauseMail } from "./availability";
 import { NativeMailProvider } from "./native";
 import type { NativeMailBinding } from "./types";
@@ -34,6 +35,7 @@ export function mailDependencies(env: Env & MailEnvironment): SendDeps {
   let keys: Promise<Keyring> | undefined;
   return {
     db: env.DB,
+    unsubscribe: environmentUnsubscribe(env),
     origin: env.SITE_ORIGIN ?? "",
     available: () => environmentMailAvailable(env),
     pause: () => pauseMail(env.DB, Date.now()),

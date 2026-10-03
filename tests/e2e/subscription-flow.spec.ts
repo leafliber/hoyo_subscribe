@@ -3,6 +3,10 @@ import path from "node:path";
 import { expect, type Page, type Route, test } from "@playwright/test";
 import { GUEST_HANDOFF_KEY } from "../../apps/web/src/features/auth/return-path";
 import {
+  syntheticPreview,
+  syntheticView,
+} from "../../apps/web/src/features/channels/calendar/testing/fixtures";
+import {
   type AccountSummary,
   AUTH_INTENT_PUBLIC_BODY,
   AUTH_INTENT_PUBLIC_STATUS,
@@ -28,7 +32,7 @@ import {
 } from "../../packages/contracts/src/index";
 
 // F3-05 / E2: synthetic accounts, auth and API responses only; no real mail.
-// Deliberately stop at /recover#save until F3-04 supplies the actual calendar flow.
+// Calendar steps use the single F3-04 controller; local-flow.mjs separately exercises real D1/APIs.
 test.use({ trace: "off", screenshot: "off", video: "off" });
 
 const stamp = Date.UTC(2026, 9, 2);
@@ -61,6 +65,7 @@ type Scenario = {
   facts: AccountSummary;
   calls: Call[];
   badFacts: boolean;
+  calendar: ReturnType<typeof syntheticView>;
   write?: (route: Route, body: SaveBody, state: Scenario) => Promise<void>;
   renew?: (route: Route) => Promise<void>;
 };
@@ -158,6 +163,7 @@ async function setup(
     facts: account(),
     calls: [],
     badFacts: false,
+    calendar: syntheticView(baseline),
   };
   state.facts.subscription.state = state.cloud.state;
   state.facts.session.recovery_code_required = options.restricted ?? false;
@@ -273,6 +279,36 @@ async function setup(
       if (state.session !== "active") return unauthorized();
       if (req.method() === "GET") return reply(emailFacts(state));
       return reply({}, 500);
+    }
+    if (endpoint === "me/calendar") {
+      if (state.session !== "active") return unauthorized();
+      state.calendar.configuration = {
+        state: state.cloud.state,
+        revision: state.cloud.revision,
+        alarms_enabled: state.cloud.config?.calendar.alarms_enabled ?? null,
+      };
+      return reply(state.calendar);
+    }
+    if (endpoint === "me/calendar/preview") {
+      if (!state.cloud.config) return reply(buildApiErrorBody("validation"), 400);
+      return reply(syntheticPreview(state.cloud.config));
+    }
+    if (endpoint === "me/calendar/enable") {
+      expect(state.facts.recovery_code_saved).toBe(true);
+      expect(body).toEqual({
+        confirmed: true,
+        expected_generation: state.calendar.token_generation,
+        expected_revision: state.cloud.revision,
+        publication_generation: 31,
+      });
+      state.calendar.address_state = "enabled";
+      state.calendar.token_generation++;
+      state.calendar.url = "https://example.invalid/feeds/u/synthetic-flow.ics";
+      return reply({
+        changed: true,
+        token_generation: state.calendar.token_generation,
+        address_state: "enabled",
+      });
     }
     if (endpoint === "auth/renew") {
       if (state.renew) return state.renew(route);
@@ -392,8 +428,38 @@ for (const choice of ["keep", "cloud"] as const) {
       await expect(page.locator("#cloud-flow-status")).toContainText("日历");
       expect(state.cloud.config?.notifications.new_event).toBe(true);
       expect(renewals(state)).toHaveLength(1);
+      const part = (name: string) => page.locator(`[data-calendar="${name}"]`);
+      await part("refresh").click();
+      await expect(part("begin")).toBeEnabled();
+      expectNoChannelWrites(state);
+      await part("begin").click();
+      await expect(part("preview")).toContainText("完整预览");
+      await expect(part("confirm")).toBeDisabled();
+      expect(renewals(state)).toHaveLength(1);
+      await evidence(page, "calendar-confirmation");
+      await part("consent").check();
+      await part("confirm").click();
+      await expect(part("address")).toContainText("日历订阅地址已创建");
+      await expect.poll(() => renewals(state).length).toBe(2);
+      await page.evaluate(() =>
+        Object.defineProperty(navigator, "clipboard", {
+          configurable: true,
+          value: { writeText: async () => {} },
+        }),
+      );
+      await part("copy").click();
+      await expect(part("message")).toContainText("不等于外部客户端已添加");
+      await evidence(page, "calendar-copied");
+      expect(matching(state, "me/calendar/enable")).toHaveLength(1);
+      expect(renewals(state)).toHaveLength(2);
+      expect(await page.evaluate(() => document.body.innerHTML.includes("/feeds/u/"))).toBe(false);
     }
-    expectNoChannelWrites(state);
+    if (choice === "cloud") expectNoChannelWrites(state);
+    expect(
+      state.calls.filter(
+        (call) => call.method !== "GET" && /^me\/(email-channel|push-bindings)/.test(call.path),
+      ),
+    ).toEqual([]);
   });
 }
 
@@ -406,6 +472,10 @@ test("U15a 新账号只有注册表预选，首次显式保存后引导已有恢
   await expect(page.locator("#calendar-first-save")).toContainText("先保存一次订阅内容");
   await expect(page.locator("#push-first-save")).toContainText("先保存一次订阅内容");
   await expect(page.locator('#mail-channel [data-email="seat-start"]')).toBeDisabled();
+  await page.locator('[data-calendar="refresh"]').click();
+  await expect(page.locator("#calendar-first-save")).toBeVisible();
+  await expect(page.locator('[data-calendar="reason"]')).toContainText("保存并确认恢复码");
+  await expect(page.locator('[data-calendar="begin"]')).toBeDisabled();
   await expect(page.locator("#cloud-state")).toContainText("尚无已保存订阅");
   for (const game of DEFAULT_SCOPE_GAMES)
     await expect(page.locator(`input[name="games"][value="${game}"]`)).toBeChecked();
@@ -888,6 +958,31 @@ test("U12 没有 returnTo 的旧登录入口仍保留完成页", async ({ page }
   await page.locator("#activate").click();
   await expect(page.locator("#login-done")).toBeVisible();
   await expect(page).toHaveURL(/\/login$/);
+  expect(renewals(state)).toHaveLength(0);
+  expectNoChannelWrites(state);
+});
+
+test("U12/U20 页面恢复重新挂载日历，三方私人视图先失效再确认且不续期", async ({ page }) => {
+  const state = await setup(page);
+  state.facts.recovery_code_saved = true;
+  await openSaved(page, state);
+  const calendar = (name: string) => page.locator(`[data-calendar="${name}"]`);
+  await calendar("refresh").click();
+  await calendar("begin").click();
+  await expect(calendar("preview")).toContainText("完整预览");
+  await page.evaluate(() =>
+    window.dispatchEvent(new PageTransitionEvent("pagehide", { persisted: true })),
+  );
+  await expect(calendar("preview")).toHaveCount(0);
+  await expect(page.locator("#calendar-preview-content")).toBeEmpty();
+  await expect(page.locator("#mail-channel")).toContainText("身份");
+  await page.evaluate(() =>
+    window.dispatchEvent(new PageTransitionEvent("pageshow", { persisted: true })),
+  );
+  await expect(page.locator("#cloud-state")).toContainText("版本 1");
+  await calendar("refresh").click();
+  await expect(calendar("begin")).toBeEnabled();
+  await expect(page.locator('#mail-channel [data-email="seat-start"]')).toBeVisible();
   expect(renewals(state)).toHaveLength(0);
   expectNoChannelWrites(state);
 });

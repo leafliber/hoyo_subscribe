@@ -1,3 +1,5 @@
+import { makeReclaimRoutes } from "./accounts/reclaim/routes";
+import { runScheduledMaintenance } from "./scheduled/reclaim";
 // P3-10 获准跨卡：组合两域鉴权器并挂管理员会话与审核路由；不创建平台资源。
 // P4-07 获准接线：仅挂载受控 Queue 处理器。
 // P3-06 获准跨卡：只挂载个人 Feed handler，沿用外壳协议路径。
@@ -32,15 +34,24 @@ import { InMemoryRecoverySourceGate } from "./auth/recovery/rate";
 import { makeRecoveryRoutes } from "./auth/recovery/routes";
 import { makeSessionRoutes } from "./auth/sessions/routes";
 import { makeFeedHandler } from "./calendar/feed/handler";
+import { FeedPublicCache } from "./calendar/feed/public-read";
 import { calendarLifecycle, pauseCalendar } from "./calendar/manage/hooks";
 import { makeCalendarRoutes } from "./calendar/manage/routes";
+import { makeCalendarPreviewRoutes } from "./calendar/preview/routes";
 import { emailLifecycleHook, emailSafetyPauseHook } from "./mail/channel/hooks";
 import { makeEmailChannelRoutes } from "./mail/channel/routes";
 import { queue } from "./mail/feedback";
 import { mailAdmissionHook } from "./mail/provider/admission";
+import { environmentMailAvailable } from "./mail/provider/environment";
+import { unsubscribeAvailable, unsubscribeKeys } from "./mail/unsubscribe/environment";
+import { makeUnsubscribeRoutes } from "./mail/unsubscribe/routes";
 import { publicRoutes } from "./public/routes";
 import { scheduled } from "./scheduled";
+import { maintainFeedback } from "./scheduled/feedback";
 import { applySecurityHeaders } from "./shell/headers";
+import { controlsAllow } from "./shell/observability/controls";
+import { withOperationalControls } from "./shell/observability/route-controls";
+import { makeObservabilityRoutes } from "./shell/observability/routes";
 import { createApiShell } from "./shell/router";
 import { fromHex } from "./storage/crypto/bytes";
 import { Keyring } from "./storage/crypto/keyring";
@@ -107,15 +118,18 @@ function getShell(env: Env): Shell {
   let shell = shellByEnv.get(env);
   if (shell === undefined) {
     const authRateGate = new InMemoryAuthRateGate();
+    const calendarCache = new FeedPublicCache();
     const authTurnstile = () =>
       siteverifyTurnstileVerifier((env as Env & ShellSecrets).TURNSTILE_SECRET_KEY ?? "");
     shell = createApiShell({
       authenticator: combinedAuthenticator(env.DB, () => getKeyring(env as Env & ShellSecrets)),
-      feedHandler: makeFeedHandler(),
+      feedHandler: makeFeedHandler({ cache: calendarCache }),
       // 秘密未注入时 getKeyring 抛错 → 写路由折叠为 temporarily_unavailable
       // （失败关闭）；读路径与 Feed 协议校验不受影响。
       csrfKey: () => getKeyring(env as Env & ShellSecrets).then((ring) => ring.csrf()),
-      routes: [
+      routes: withOperationalControls([
+        ...makeObservabilityRoutes(),
+        ...makeReclaimRoutes([calendarLifecycle, emailLifecycleHook]),
         ...makeAdminSessionRoutes({
           keys: () => getKeyring(env as Env & ShellSecrets),
           config: env as Env & AdminConfiguration,
@@ -128,6 +142,7 @@ function getShell(env: Env): Shell {
         makePreauthInitRoute({ keys: () => getKeyring(env as Env & ShellSecrets) }),
         statusRoute,
         ...publicRoutes,
+        ...makeCalendarPreviewRoutes({ cache: calendarCache }),
         // P2-02 挂载点：申请 / 重发 / 校验三端点（七步准入管线 + 真实第 7 步效果）。
         // 近似限速门每 shell（isolate）一个实例；Turnstile 懒构造——秘密未注入时仅
         // 申请端点失败关闭（503），不影响预认证初始化与其余路由。
@@ -145,7 +160,14 @@ function getShell(env: Env): Shell {
           pauseHooks: [pauseCalendar, emailSafetyPauseHook],
         }),
         ...makeCalendarRoutes(() => getKeyring(env as Env & ShellSecrets)),
-        ...makeEmailChannelRoutes({ keys: () => getKeyring(env as Env & ShellSecrets) }),
+        ...makeUnsubscribeRoutes({ keys: () => unsubscribeKeys(env as Env & ShellSecrets) }),
+        ...makeEmailChannelRoutes({
+          keys: () => getKeyring(env as Env & ShellSecrets),
+          sendingAvailable: async () =>
+            (await environmentMailAvailable(env)) &&
+            (await controlsAllow(env.DB, "business_mail_enabled")) &&
+            (await unsubscribeAvailable(env as Env & ShellSecrets)),
+        }),
         ...makeSubscriptionRoutes(),
         ...makeLifecycleRoutes({
           hooks: [calendarLifecycle, emailLifecycleHook],
@@ -154,7 +176,7 @@ function getShell(env: Env): Shell {
           rateGate: authRateGate,
           turnstile: authTurnstile,
         }),
-      ],
+      ]),
     });
     shellByEnv.set(env, shell);
   }
@@ -163,7 +185,15 @@ function getShell(env: Env): Shell {
 
 export default {
   queue,
-  scheduled,
+  async scheduled(controller: ScheduledController, env: Env) {
+    await scheduled(controller, env);
+    await runScheduledMaintenance(env.DB, (db) =>
+      maintainFeedback(db, async () => {
+        const ring = await getKeyring(env as Env & ShellSecrets);
+        return { lookup: ring.emailLookup(), field: ring.fieldEncryption() };
+      }),
+    );
+  },
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     if (new URL(request.url).pathname === "/") {
       // P1-01 探针 banner：根路径保持 200 文本（index.test.ts 依赖），叠安全头。
