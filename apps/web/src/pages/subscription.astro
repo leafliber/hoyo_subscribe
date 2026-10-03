@@ -30,7 +30,10 @@ const moreRules = SUBSCRIPTION_RULE_COPY.filter((rule) => !recommendedIds.has(ru
       <h1>我的订阅</h1>
       <p id="cloud-state">尚无已保存订阅</p>
       <p id="draft-state" role="status">本机预选 · 尚未保存</p>
-      <p class="subscription-hint">已保存摘要：暂无。下方选项只在本页临时生效；接收方式需要分别开通。</p>
+      <p class="subscription-hint">下方修改是待保存草稿；接收方式需要分别开通。</p>
+      <p id="cloud-flow-status" role="status">先登录并保存一次订阅内容，再保存恢复码和选择接收方式。</p>
+      <a id="subscription-login" href="/login?returnTo=%2Fsubscription">登录后继续处理草稿</a>
+      <a id="save-recovery-link" href="/recover#save" hidden>保存并确认恢复码</a>
     </header>
 
     <form id="subscription-form" novalidate>
@@ -159,7 +162,7 @@ const moreRules = SUBSCRIPTION_RULE_COPY.filter((rule) => !recommendedIds.has(ru
       </div>
       <section id="save-comparison" class="subscription-step" aria-labelledby="save-comparison-heading" hidden>
         <h2 id="save-comparison-heading">比较云端与本机草稿</h2>
-        <p>云端设置已有变化。请逐组核对；这里不会自动合并或覆盖。</p>
+        <p>请逐组核对云端与本机草稿的差异；这里不会自动合并或覆盖。</p>
         <div id="save-differences"></div>
         <div class="save-actions">
           <button id="adopt-cloud" class="secondary-button" type="button">采用云端设置</button>
@@ -172,6 +175,7 @@ const moreRules = SUBSCRIPTION_RULE_COPY.filter((rule) => !recommendedIds.has(ru
       <h2 id="receive-heading">接收方式</h2>
       <p class="subscription-hint">接收方式与上方内容设置分别管理。</p>
       <p id="channel-saved-summary" class="subscription-hint">尚无已保存配置可用于开通接收方式。</p>
+      <p id="calendar-first-save" class="subscription-hint">日历订阅：先保存一次订阅内容</p>
       <div class="receive-grid">
         <section id="calendar-channel" class="receive-item" aria-labelledby="calendar-channel-heading">
           <h3 id="calendar-channel-heading">日历订阅</h3>
@@ -183,6 +187,7 @@ const moreRules = SUBSCRIPTION_RULE_COPY.filter((rule) => !recommendedIds.has(ru
         </section>
         <section id="push-channel" class="receive-item" aria-labelledby="push-channel-heading">
           <h3 id="push-channel-heading">本浏览器通知</h3>
+          <p id="push-first-save">先保存一次订阅内容</p>
           <p>当前尚未开放。开放后需在本浏览器单独启用。</p>
         </section>
       </div>

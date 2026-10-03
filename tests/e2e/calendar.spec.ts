@@ -50,7 +50,14 @@ async function open(
       view.configuration.revision = config.revision;
       view.configuration.alarms_enabled = config.calendar.alarms_enabled;
     }
-    await route.fulfill({ json: { state: "initialized", revision: config.revision, config } });
+    await route.fulfill({
+      json: {
+        state: "initialized",
+        revision: config.revision,
+        config,
+        ...(route.request().method() === "PATCH" ? { saved: true } : {}),
+      },
+    });
   });
   await page.route("**/api/v2/me/calendar", (route) => route.fulfill({ json: view }));
   await page.route("**/api/v2/me/calendar/preview*", (route) => {
@@ -134,10 +141,12 @@ for (const save of [false, true])
     expect(run.previews()).toBe(0);
     await part(page, save ? "save" : "saved").click();
     await expect(part(page, "preview")).toContainText(`版本 ${save ? 5 : 4}`);
+    await expect.poll(run.renewals).toBe(save ? 1 : 0);
     await confirm(page);
     await expect(part(page, "address")).toContainText("有效");
     expect(run.saves()).toBe(save ? 1 : 0);
     expect(run.writes[0].body.expected_revision).toBe(save ? 5 : 4);
+    await expect.poll(run.renewals).toBe(save ? 2 : 1);
   });
 test("U20 续页先429后恢复，取全之前不允许启用", async ({ page }) => {
   const preview = syntheticPreview();
@@ -352,6 +361,10 @@ test("U20 关闭日历提醒走保存状态机，地址不变且不清规则", a
   await expect(page.locator('input[name="rule_ids"][value="limited_end_1d"]')).toBeChecked();
   expect(run.writes).toHaveLength(0);
   expect(run.saves()).toBe(1);
+  await expect.poll(run.renewals).toBe(1);
+  await part(page, "refresh").click();
+  await expect(part(page, "message")).toContainText("没有提交变更");
+  expect(run.renewals()).toBe(1);
 });
 
 test("U20 按需复制地址，不入页面和偏好、不续期、不冒充客户端已添加", async ({ page }) => {
@@ -602,3 +615,97 @@ for (const mismatch of ["publication", "subscription"] as const)
       publication_generation: fresh.publication.generation,
     });
   });
+
+for (const entry of ["save", "alarms"] as const)
+  for (const outcome of [
+    "validation",
+    "conflict",
+    "lost",
+    "5xx",
+    "malformed",
+    "unsaved",
+    "same-revision",
+    "wrong-config",
+    "skipped-revision",
+    "old-identity",
+  ] as const)
+    test(`U11/U20 ${entry === "save" ? "保存后继续" : "关闭日历提醒并保存"} ${outcome} 不续期`, async ({
+      page,
+    }) => {
+      const view = syntheticView();
+      if (entry === "alarms") view.address_state = "enabled";
+      const run = await open(page, { view });
+      let cloud = structuredClone(syntheticConfig);
+      let patches = 0;
+      let release: (() => void) | undefined;
+      const held = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      await page.route("**/api/v2/me/subscription", async (route) => {
+        const snapshot = () => ({ state: "initialized", revision: cloud.revision, config: cloud });
+        if (route.request().method() === "GET") return route.fulfill({ json: snapshot() });
+        patches++;
+        const submitted = route.request().postDataJSON();
+        const next = { ...submitted.config, revision: submitted.expected_revision + 1 };
+        if (outcome === "validation")
+          return route.fulfill({ status: 400, json: buildApiErrorBody("validation") });
+        if (outcome === "conflict")
+          return route.fulfill({
+            status: 409,
+            json: { ...buildApiErrorBody("conflict"), current: snapshot() },
+          });
+        if (outcome === "5xx")
+          return route.fulfill({ status: 503, json: buildApiErrorBody("temporarily_unavailable") });
+        if (outcome === "malformed") return route.fulfill({ json: { saved: true } });
+        if (outcome === "lost") {
+          cloud = next;
+          view.configuration.revision = cloud.revision;
+          view.configuration.alarms_enabled = cloud.calendar.alarms_enabled;
+          return route.abort();
+        }
+        if (outcome === "old-identity") await held;
+        const config =
+          outcome === "wrong-config"
+            ? { ...cloud, revision: next.revision }
+            : outcome === "same-revision"
+              ? { ...next, revision: cloud.revision }
+              : outcome === "skipped-revision"
+                ? { ...next, revision: next.revision + 1 }
+                : next;
+        return route
+          .fulfill({
+            json: {
+              state: "initialized",
+              revision: config.revision,
+              config,
+              saved: outcome !== "unsaved",
+            },
+          })
+          .catch(() => {});
+      });
+      page.on("dialog", (dialog) => dialog.accept());
+      if (entry === "save") {
+        await page.locator('input[name="games"][value="hsr"]').check();
+        await part(page, "begin").click();
+      } else await page.getByText("管理日历地址", { exact: true }).click();
+      await part(page, entry).click();
+      await expect.poll(() => patches).toBe(1);
+      if (outcome === "old-identity") {
+        await page.evaluate(() =>
+          document.dispatchEvent(
+            new CustomEvent("hoyo:draft-identity", { detail: { status: "unknown" } }),
+          ),
+        );
+        release?.();
+        await expect(page.locator("#calendar-channel")).toContainText("身份待确认");
+      } else {
+        await expect(page.locator("#calendar-channel")).toHaveAttribute("aria-busy", "false");
+        if (outcome === "lost") {
+          await expect(page.locator("#save-result")).toContainText("已从云端确认");
+          await page.locator("#recheck-save").click();
+          await expect(page.locator("#cloud-state")).toContainText(`版本 ${cloud.revision}`);
+        }
+      }
+      expect(run.renewals()).toBe(0);
+      expect(run.writes).toHaveLength(0);
+    });

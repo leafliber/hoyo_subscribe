@@ -66,6 +66,17 @@ const facts: AccountSummary = {
 };
 
 describe("A-P2-ACCOUNT 事实摘要与浏览器推导", () => {
+  it("注册首次绑定的地址版本 0 可读取摘要，负数和非整数版本仍拒绝", () => {
+    const initial = { ...facts, email: { ...facts.email, email_version: 0 } };
+    expect(AccountSummarySchema.parse(initial)).toEqual(initial);
+    for (const email_version of [-1, 0.5]) {
+      expect(
+        AccountSummarySchema.safeParse({ ...facts, email: { ...facts.email, email_version } })
+          .success,
+      ).toBe(false);
+    }
+  });
+
   it("严格响应 schema 要求全部事实，拒绝动作表、临期结论及证明内容", () => {
     expect(AccountSummarySchema.parse(facts)).toEqual(facts);
     for (const key of Object.keys(facts)) {

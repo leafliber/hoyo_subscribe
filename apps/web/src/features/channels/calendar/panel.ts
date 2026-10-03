@@ -263,7 +263,7 @@ export class CalendarPanel {
       this.busy = true;
       this.paint();
       try {
-        await this.saveWithRenewal(() => this.host.save());
+        await this.host.save();
       } finally {
         this.busy = false;
       }
@@ -444,19 +444,7 @@ export class CalendarPanel {
       this.paint();
     }
   }
-  // F2-03 owns the save; renew only an observed completed revision, including later draft edits.
-  private async saveWithRenewal(save: () => Promise<void>): Promise<void> {
-    const before = this.host.machine().getSnapshot()?.revision ?? 0;
-    await save();
-    const after = this.host.machine().getSnapshot()?.revision ?? 0;
-    if (
-      this.current() &&
-      after > before &&
-      ["saved", "dirty"].includes(this.host.phase()) &&
-      document.visibilityState === "visible"
-    )
-      void request("auth/renew", this.abort.signal, {}).catch(() => {});
-  }
+  // SubscriptionSaveMachine owns receipt validation and one renewal for either save entry.
   private async disableAlarms(): Promise<void> {
     if (!this.current() || this.button("alarms").disabled) return;
     if (
@@ -469,7 +457,7 @@ export class CalendarPanel {
     this.clearPreview();
     this.paint();
     try {
-      await this.saveWithRenewal(() => this.host.disableAlarms());
+      await this.host.disableAlarms();
       await this.load();
       this.message(
         this.host.phase() === "saved"

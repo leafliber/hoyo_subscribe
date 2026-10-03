@@ -4,6 +4,7 @@ import {
   changeNotificationScope,
   type EventType,
   type GameId,
+  parseSubscriptionConfig,
   SUBSCRIPTION_CHANGE_COPY,
   SUBSCRIPTION_EVENT_TYPE_LABELS,
   SUBSCRIPTION_GAME_LABELS,
@@ -13,6 +14,7 @@ import {
 } from "@hoyo/contracts";
 import { CalendarChannelLifecycle } from "../channels/calendar/lifecycle";
 import { EmailChannelLifecycle } from "../channels/email/lifecycle";
+import { SubscriptionCloudFlow } from "./cloud-flow";
 import { SubscriptionDraftController } from "./draft/controller";
 import { CalendarPreview } from "./preview/controller";
 import {
@@ -150,6 +152,9 @@ if (form instanceof HTMLFormElement) {
         日历显示: "暂无",
         变更消息: "暂无",
       };
+    // Compare normalized sets, not the checkbox/response array display order.
+    const normalized = parseSubscriptionConfig("uninitialized", { ...config, revision: 1 });
+    if (normalized.success) config = normalized.data;
     const gameNames = config.scope.games.map((game) => SUBSCRIPTION_GAME_LABELS[game]);
     const ruleNames = config.notifications.rule_ids.map(
       (id) => SUBSCRIPTION_RULE_COPY.find((rule) => rule.rule_id === id)?.label ?? id,
@@ -169,9 +174,15 @@ if (form instanceof HTMLFormElement) {
 
   let drafts: SubscriptionDraftController | undefined;
   let email: EmailChannelLifecycle | undefined;
+  let flow: SubscriptionCloudFlow | undefined;
   let calendar: CalendarChannelLifecycle | undefined;
   let calendarEnabled = false;
   let savePhase: Phase = "guest";
+  function updateSaveGate(): void {
+    if (saveButton instanceof HTMLButtonElement)
+      saveButton.disabled =
+        ["saving", "loading", "conflict"].includes(savePhase) || (flow?.saveBlocked() ?? false);
+  }
   function createMachine(): SubscriptionSaveMachine {
     return new SubscriptionSaveMachine(
       {
@@ -180,6 +191,7 @@ if (form instanceof HTMLFormElement) {
         render(phase: Phase, message: string, snapshot: Snapshot | null) {
           drafts?.paint(phase);
           savePhase = phase;
+          flow?.update(phase, snapshot);
           email?.update(phase, snapshot);
           calendar?.update(phase, snapshot);
           const saved = snapshot?.config;
@@ -202,8 +214,7 @@ if (form instanceof HTMLFormElement) {
           if (saveResult)
             saveResult.textContent =
               message + (phase === "saved" && calendarEnabled ? " 地址保持不变。" : "");
-          if (saveButton instanceof HTMLButtonElement)
-            saveButton.disabled = phase === "saving" || phase === "loading" || phase === "conflict";
+          updateSaveGate();
           if (discardButton instanceof HTMLButtonElement)
             discardButton.disabled = phase === "saving";
           if (recheck instanceof HTMLButtonElement)
@@ -260,8 +271,10 @@ if (form instanceof HTMLFormElement) {
     form,
     readDraft: draftFromForm,
     machine: () => machine,
+    readIdentity: () => (flow ? flow.identify() : Promise.resolve({ status: "unknown" })),
     reset() {
       email?.invalidate();
+      flow?.invalidate();
       calendar?.invalidate();
       identityGeneration += 1;
       preview?.invalidate();
@@ -296,6 +309,7 @@ if (form instanceof HTMLFormElement) {
   form.addEventListener("submit", async (event) => {
     event.preventDefault();
     if (!drafts?.current()) return;
+    if (flow?.saveBlocked()) return;
     hideErrors();
     if (selected("games").length === 0) {
       if (saveResult) saveResult.textContent = "请先选择至少一个关注的游戏。";
@@ -309,6 +323,7 @@ if (form instanceof HTMLFormElement) {
       return;
     }
     await drafts?.save();
+    void flow?.refresh();
   });
 
   document.getElementById("discard-changes")?.addEventListener("click", () => {
@@ -333,33 +348,47 @@ if (form instanceof HTMLFormElement) {
       drafts?.discarded();
     }
   });
-  document.getElementById("keep-draft")?.addEventListener("click", () => machine.keepDraft());
-  recheck?.addEventListener("click", () => void drafts?.refresh(true));
+  document.getElementById("keep-draft")?.addEventListener("click", () => void drafts?.keepDraft());
+  recheck?.addEventListener("click", () => {
+    void drafts?.refresh(true);
+    void flow?.refresh();
+  });
+  document.getElementById("subscription-login")?.addEventListener("click", async (event) => {
+    event.preventDefault();
+    if (await drafts?.prepareLogin()) window.location.assign("/login?returnTo=%2Fsubscription");
+  });
   document.addEventListener("visibilitychange", () => {
     if (document.visibilityState === "visible") void drafts?.refresh();
   });
 
   const calendarRoot = document.getElementById("calendar-channel");
-  if (calendarRoot)
+  function mountCalendar(): void {
+    if (!calendarRoot || calendar) return;
     calendar = new CalendarChannelLifecycle(calendarRoot, {
       machine: () => machine,
       readDraft: draftFromForm,
       phase: () => savePhase,
       save: async () => {
+        if (flow?.saveBlocked()) return;
         await drafts?.save();
+        void flow?.refresh();
       },
       current: () => drafts?.current() ?? false,
       addressChanged: (enabled) => {
         calendarEnabled = enabled;
       },
       disableAlarms: async () => {
+        if (flow?.saveBlocked()) return;
         const draft = draftFromForm();
         applyDraft({ ...draft, calendar: { ...draft.calendar, alarms_enabled: false } });
         machine.edited();
         drafts?.edited();
         await drafts?.save();
+        void flow?.refresh();
       },
     });
+  }
+  mountCalendar();
   const mailRoot = document.getElementById("mail-channel");
   if (mailRoot) {
     email = new EmailChannelLifecycle(mailRoot, {
@@ -367,15 +396,27 @@ if (form instanceof HTMLFormElement) {
       readDraft: draftFromForm,
       phase: () => savePhase,
       save: async () => {
+        if (flow?.saveBlocked()) return;
         await drafts?.save();
+        void flow?.refresh();
       },
       current: () => drafts?.current() ?? false,
     });
   }
+  flow = new SubscriptionCloudFlow({
+    current: () => drafts?.current() ?? false,
+    gateChanged: updateSaveGate,
+  });
   window.addEventListener("pagehide", () => {
     calendar?.destroy();
+    calendar = undefined;
+    email?.invalidate();
+    flow?.invalidate();
     preview?.destroy();
     preview = undefined;
+  });
+  window.addEventListener("pageshow", (event) => {
+    if (event.persisted) mountCalendar();
   });
   sync();
   void drafts.start();
