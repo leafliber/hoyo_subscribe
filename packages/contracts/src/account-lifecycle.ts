@@ -84,7 +84,8 @@ export type AccountRecentAuth = z.infer<typeof AccountRecentAuthSchema>;
 export const AccountSummarySchema = z.strictObject({
   user_id: z.string().min(1),
   server_time: z.int(),
-  email: z.strictObject({ masked: z.string(), email_version: z.int().positive() }),
+  // Signup persists the first binding at version 0; subsequent address changes increment it.
+  email: z.strictObject({ masked: z.string(), email_version: z.int().nonnegative() }),
   recovery_code_saved: z.boolean(),
   recovery_code_generation: z.int().positive().nullable(),
   subscription: z.strictObject({ state: SubscriptionStateSchema }),
