@@ -1,0 +1,23 @@
+[
+  {
+    "name": "uncertain-range",
+    "matches": 1,
+    "diffBytes": 743,
+    "exit": 1,
+    "detected": true
+  },
+  {
+    "name": "upstream-occupancy",
+    "matches": 1,
+    "diffBytes": 724,
+    "exit": 1,
+    "detected": true
+  },
+  {
+    "name": "status-unknown",
+    "matches": 1,
+    "diffBytes": 742,
+    "exit": 1,
+    "detected": true
+  }
+]
