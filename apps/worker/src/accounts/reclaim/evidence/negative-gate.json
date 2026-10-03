@@ -1,0 +1,13 @@
+{
+  "mutation_exit": 1,
+  "restored_exit": 0,
+  "restored_sha256": "92774f31c30c42a339a1445be642836553880a8c9d47c132abe874b3318d575c",
+  "replacement_count": 1,
+  "diff_bytes": 644,
+  "test": "缺持久暂停记录，即使两个开关和新鲜水位齐全仍全局暂停",
+  "original": "row.paused !== \"false\"",
+  "mutation": "row.paused === \"true\"",
+  "mutant_result": "1 failed, 17 skipped (targeted filter)",
+  "restored_result": "1 passed, 17 skipped (targeted filter)",
+  "source_restored": true
+}
