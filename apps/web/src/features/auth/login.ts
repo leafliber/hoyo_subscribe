@@ -4,6 +4,7 @@ import {
   AUTH_INTENT_PUBLIC_STATUS,
   canonicalizeEmail,
   isApiErrorBody,
+  LOGIN_TURNSTILE_ACTION,
   OTP_COOLDOWN,
   OTP_DIGITS,
   OTP_TTL,
@@ -449,7 +450,7 @@ el("restart-auth").addEventListener("click", () => {
   email.focus();
   void status();
 });
-void captcha.load(root.dataset.sitekey ?? "", el("turnstile"));
+void captcha.load(root.dataset.sitekey ?? "", el("turnstile"), LOGIN_TURNSTILE_ACTION);
 void status();
 // Restore a delivered pending Cookie after navigation; never renew or activate on page load.
 void request("me/sessions")

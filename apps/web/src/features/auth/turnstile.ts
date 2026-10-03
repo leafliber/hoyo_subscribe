@@ -1,3 +1,5 @@
+import type { TurnstileAction } from "@hoyo/contracts";
+
 interface Widget {
   render(element: HTMLElement, options: Record<string, unknown>): string;
   reset(id: string): void;
@@ -7,7 +9,7 @@ export class Turnstile {
   private widget: Widget | undefined;
   private id: string | undefined;
   constructor(private readonly status: HTMLElement) {}
-  async load(sitekey: string, element: HTMLElement): Promise<void> {
+  async load(sitekey: string, element: HTMLElement, action: TurnstileAction): Promise<void> {
     if (!sitekey) {
       this.status.textContent =
         "登录验证暂不可用：尚未配置人机验证。可继续公开浏览或使用恢复入口。";
@@ -27,6 +29,7 @@ export class Turnstile {
       if (!this.widget) throw new Error("widget_unavailable");
       this.id = this.widget.render(element, {
         sitekey,
+        action,
         size: "flexible",
         "response-field": false,
         callback: (token: string) => {

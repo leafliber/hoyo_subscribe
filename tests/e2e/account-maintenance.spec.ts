@@ -5,9 +5,11 @@ import {
   buildApiErrorBody,
   OTP_DIGITS,
   RECENT_AUTH_TTL,
+  recentAuthTurnstileAction,
   SESSION_ABSOLUTE_TTL,
   SESSION_IDLE_TTL,
 } from "../../packages/contracts/src/index";
+import { manualTurnstile, widgetState } from "./turnstile-support";
 
 // Synthetic E2 facts only. The real built /account page handles all interactions.
 const time = Date.UTC(2030, 0, 1);
@@ -615,3 +617,33 @@ for (const reason of ["no_session", "session_expired"] as const) {
     });
   }
 }
+
+for (const mode of ["success", "reject", "timeout"])
+  test(`A-P2-PREAUTH U29 三个账号组件 action 与 ${mode} 后独立清理/reset`, async ({ page }) => {
+    const state = await setup(page);
+    state.challengeMode = mode;
+    await manualTurnstile(page);
+    await open(page);
+    for (const [id, action, role] of [
+      ["email-current", "email_change", "current"],
+      ["email-new", "email_change", "new_address"],
+      ["delete-current", "account_delete", "current"],
+    ] as const) {
+      if (id === "delete-current") await page.locator("#account-delete-open").click();
+      expect(await widgetState(page, `${id}-turnstile`)).toMatchObject({
+        action: recentAuthTurnstileAction(action, role),
+        sitekey: "synthetic-sitekey",
+      });
+      await page.locator(`#${id}-send`).click();
+      await expect.poll(() => widgetState(page, `${id}-turnstile`)).toMatchObject({ resets: 1 });
+      expect(state.writes.at(-1)?.body).toMatchObject({
+        action,
+        role,
+        turnstile_token: `synthetic-first-${id}-turnstile`,
+      });
+      const count = state.writes.length;
+      await page.locator(`#${id}-send`).click();
+      await expect(page.locator(`#${id}-status`)).toContainText("请先完成人机验证");
+      expect(state.writes).toHaveLength(count);
+    }
+  });

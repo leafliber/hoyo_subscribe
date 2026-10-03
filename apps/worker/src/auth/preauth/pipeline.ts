@@ -44,6 +44,7 @@
 import {
   canonicalizeEmail,
   decideMailIntent,
+  LOGIN_TURNSTILE_ACTION,
   type MailIntentKind,
   OTP_TTL,
   utcDayPeriod,
@@ -172,7 +173,10 @@ export async function runPreauthAdmission(
   }
 
   // —— 第 4 步：Turnstile 服务端校验（单次验证；失败关闭）——
-  const turnstile = await deps.turnstile.verify({ token: input.turnstileToken });
+  const turnstile = await deps.turnstile.verify({
+    token: input.turnstileToken,
+    expectedAction: LOGIN_TURNSTILE_ACTION,
+  });
   if (turnstile !== "passed") {
     throw new ApiError("validation", {
       code: "validation",

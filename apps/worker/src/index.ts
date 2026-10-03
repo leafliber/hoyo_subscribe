@@ -75,6 +75,7 @@ interface ShellSecrets {
   readonly CRYPTO_UNSUBSCRIBE_KEY_ID?: string;
   /** Turnstile siteverify 秘密（P2-02：仅申请验证码端点需要；未注入时该端点失败关闭）。 */
   readonly TURNSTILE_SECRET_KEY?: string;
+  readonly SITE_ORIGIN?: string;
 }
 
 /** 每隔离实例缓存一次的密钥环（构造含 HKDF 派生，不逐请求重建）。 */
@@ -120,7 +121,10 @@ function getShell(env: Env): Shell {
     const authRateGate = new InMemoryAuthRateGate();
     const calendarCache = new FeedPublicCache();
     const authTurnstile = () =>
-      siteverifyTurnstileVerifier((env as Env & ShellSecrets).TURNSTILE_SECRET_KEY ?? "");
+      siteverifyTurnstileVerifier(
+        (env as Env & ShellSecrets).TURNSTILE_SECRET_KEY ?? "",
+        (env as Env & ShellSecrets).SITE_ORIGIN ?? "",
+      );
     shell = createApiShell({
       authenticator: combinedAuthenticator(env.DB, () => getKeyring(env as Env & ShellSecrets)),
       feedHandler: makeFeedHandler({ cache: calendarCache }),
