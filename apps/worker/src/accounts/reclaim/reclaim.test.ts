@@ -13,10 +13,13 @@ import {
   ACCOUNT_MAX_STORED,
   CONSENT_AUDIT_AFTER_CLOSE,
   EXPIRED_SESSION_METADATA,
+  GLOBAL_MUTATIONS_DAY,
   MATCH_PAGE,
+  mutationCounterKeys,
   RECLAIM_QUERY_BUDGET,
   RECLAIM_TELEMETRY_STALE_HOURS,
   SYSTEM_AUDIT_TTL,
+  USER_MUTATIONS_DAY,
   utcDayPeriod,
 } from "@hoyo/contracts";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -216,6 +219,33 @@ describe("A-P5-RECLAIM 回收保护及自动续租", () => {
         ).bind(key, T),
       ),
     );
+    const mutationKeys = mutationCounterKeys(id, utcDayPeriod(T).key);
+    await env.DB.batch([
+      env.DB.prepare(
+        "INSERT INTO capacity_state(key,value,version,updated_at) VALUES(?,?,0,?)",
+      ).bind(mutationKeys.userKey, USER_MUTATIONS_DAY, T),
+      env.DB.prepare(
+        "INSERT INTO capacity_state(key,value,version,updated_at) VALUES(?,?,0,?)",
+      ).bind(mutationKeys.globalKey, GLOBAL_MUTATIONS_DAY, T),
+      env.DB.prepare(
+        "INSERT INTO usage_periods(id,pool,period_kind,period_key,user_id,settled,reserved,uncertain,period_start,period_end,created_at,updated_at) VALUES('synthetic-ledger','base_business','utc_day',?,?,1,0,0,?,?,?,?)",
+      ).bind(
+        utcDayPeriod(T).key,
+        id,
+        utcDayPeriod(T).startMs,
+        utcDayPeriod(T).endMsExclusive,
+        T,
+        T,
+      ),
+    ]);
+    const countersBefore = (
+      await env.DB.prepare(
+        "SELECT * FROM capacity_state WHERE key<>'accounts_total' ORDER BY key",
+      ).all()
+    ).results;
+    const ledgerBefore = await env.DB.prepare(
+      "SELECT * FROM usage_periods WHERE id='synthetic-ledger'",
+    ).first();
     const input = await candidate(id);
     const result = await Promise.allSettled([
       confirmReclaim(env.DB, input, "owner", T, hooks),
@@ -238,11 +268,14 @@ describe("A-P5-RECLAIM 回收保护及自动续租", () => {
     ).toBe(0);
     expect(
       (
-        await env.DB.prepare("SELECT value FROM capacity_state WHERE key<>'accounts_total'").all<{
-          value: number;
-        }>()
-      ).results.every((r) => r.value === 1),
-    ).toBe(true);
+        await env.DB.prepare(
+          "SELECT * FROM capacity_state WHERE key<>'accounts_total' ORDER BY key",
+        ).all()
+      ).results,
+    ).toEqual(countersBefore);
+    expect(
+      await env.DB.prepare("SELECT * FROM usage_periods WHERE id='synthetic-ledger'").first(),
+    ).toEqual(ledgerBefore);
     expect(
       await env.DB.prepare("SELECT email_ciphertext,deletion_completed_at FROM users").first(
         "deletion_completed_at",
@@ -275,13 +308,23 @@ describe("A-P5-RECLAIM 回收保护及自动续租", () => {
   });
   it("超过一页的扫描有持久进度，满负载调用不超过 SQL 预算", async () => {
     await gate();
-    for (let n = 1; n <= ACCOUNT_MAX_STORED; n++) await user(`synthetic-${n}`, n);
+    const activity = T - (ACCOUNT_IDLE_DAYS + ACCOUNT_GRACE_DAYS) * DAY;
+    await env.DB.prepare(`INSERT INTO users(id,"order",status,email_key,email_binding_id,email_ciphertext,email_version,last_interactive_at,created_at,updated_at)
+      SELECT 'synthetic-'||value,value,'active','synthetic-key-'||value,'synthetic-binding-'||value,X'01',1,?,?,? FROM json_each(?)`)
+      .bind(
+        activity,
+        activity,
+        activity,
+        JSON.stringify(Array.from({ length: ACCOUNT_MAX_STORED }, (_, i) => i + 1)),
+      )
+      .run();
     const results = [];
-    for (let n = 0; n < 8; n++) {
+    for (let n = 0; n < Math.ceil(ACCOUNT_MAX_STORED / MATCH_PAGE); n++) {
       const measured = observeDatabase(env.DB);
       const result = await maintainReclaim(measured.db, () => T);
       expect(measured.stats.queries).toBeLessThanOrEqual(result.queries);
       results.push({ ...result, actual: measured.stats });
+      if (result.completed) break;
     }
     expect(results.some((r) => !r.completed)).toBe(true);
     expect(results.every((r) => r.queries <= RECLAIM_QUERY_BUDGET)).toBe(true);
