@@ -198,8 +198,11 @@ test("U22a 席位已满：预算解释、日历替代、主动通知差别与无
   await expect(notice).toContainText("取消/改期的主动邮件通知");
   await expect(notice).toContainText("暂不提供候补");
   await expect(notice).toContainText("不承诺具体开放时间");
-  await expect(notice.getByRole("button", { name: "去启用日历提醒（暂不可用）" })).toBeDisabled();
-  await expect(notice).toContainText("日历启用入口尚未接通");
+  await expect(notice.getByRole("link", { name: "去启用日历提醒" })).toHaveAttribute(
+    "href",
+    "#calendar-channel",
+  );
+  await expect(notice).toContainText("服务端预览并明确确认");
   await expect(part(page, "seat-start")).toBeDisabled();
   const beforeFacts = await notice.evaluate((node) => {
     const facts = document.querySelector('[data-email="facts"]');
@@ -353,3 +356,56 @@ for (const mode of ["suppressed", "budget", "failed-read"] as const) {
     await expect(part(page, "capacity")).toBeHidden();
   });
 }
+
+test("U22a 邮件满额链接进入同一个真实日历确认控制器，不自动开通", async ({ page }) => {
+  const { syntheticAccount, syntheticPreview, syntheticView } = await import(
+    "../../apps/web/src/features/channels/calendar/testing/fixtures"
+  );
+  const state = facts();
+  state.remaining.seat = 0;
+  const run = await openSubscription(page, { state });
+  const view = syntheticView(base);
+  let previews = 0,
+    enables = 0;
+  await page.route("**/api/v2/me", (route) => route.fulfill({ json: syntheticAccount() }));
+  await page.route("**/api/v2/me/calendar", (route) => route.fulfill({ json: view }));
+  await page.route("**/api/v2/me/calendar/preview", (route) => {
+    previews++;
+    return route.fulfill({ json: syntheticPreview(base) });
+  });
+  await page.route("**/api/v2/me/calendar/enable", (route) => {
+    enables++;
+    expect(route.request().postDataJSON()).toEqual({
+      confirmed: true,
+      expected_generation: view.token_generation,
+      expected_revision: base.revision,
+      publication_generation: 31,
+    });
+    view.address_state = "enabled";
+    view.token_generation++;
+    return route.fulfill({
+      json: {
+        changed: true,
+        address_state: view.address_state,
+        token_generation: view.token_generation,
+      },
+    });
+  });
+  await part(page, "capacity").getByRole("link", { name: "去启用日历提醒" }).click();
+  await expect(page).toHaveURL(/#calendar-channel$/);
+  expect(previews).toBe(0);
+  expect(enables).toBe(0);
+  const calendar = (name: string) => page.locator(`[data-calendar="${name}"]`);
+  await calendar("refresh").click();
+  await expect(calendar("begin")).toBeEnabled();
+  await calendar("begin").click();
+  await expect(calendar("preview")).toContainText("完整预览");
+  expect(enables).toBe(0);
+  await calendar("consent").check();
+  await calendar("confirm").click();
+  await expect(calendar("address")).toContainText("日历订阅地址已创建");
+  expect(enables).toBe(1);
+  expect(run.writes).toEqual([]);
+  expect(run.saves).toEqual([]);
+  expect(run.unexpected).toEqual([]);
+});

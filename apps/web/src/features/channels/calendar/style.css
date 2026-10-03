@@ -1,0 +1,59 @@
+.calendar-panel {
+  display: grid;
+  gap: var(--space-4);
+  min-width: 0;
+  max-width: var(--width-form-max);
+  overflow-wrap: anywhere;
+  color: var(--color-text-primary);
+}
+.calendar-panel section,
+.calendar-panel details {
+  padding-block: var(--space-2);
+  border-bottom: var(--border-thin) solid var(--color-border);
+}
+.calendar-panel p,
+.calendar-panel h4 {
+  margin-block: var(--space-2);
+}
+.calendar-panel h4 {
+  font-size: var(--font-size-body);
+}
+.calendar-panel button,
+.calendar-panel label,
+.calendar-panel summary {
+  min-height: var(--tap-target-min);
+}
+.calendar-panel button {
+  margin: var(--space-1);
+  padding: var(--space-2) var(--space-3);
+  border: var(--border-thin) solid var(--color-border);
+  border-radius: var(--radius-control);
+  background: var(--color-bg-surface);
+  color: var(--color-text-primary);
+  font: inherit;
+  cursor: pointer;
+}
+.calendar-panel button:disabled {
+  cursor: not-allowed;
+  color: var(--color-text-secondary);
+}
+.calendar-panel label {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+.calendar-panel [data-calendar="preview"] ol {
+  max-height: var(--width-form-max);
+  overflow: auto;
+  padding-inline: var(--space-5);
+}
+.calendar-panel li {
+  margin-block: var(--space-4);
+}
+.calendar-panel [hidden] {
+  display: none;
+}
+.calendar-panel :focus-visible {
+  outline: var(--border-thin) solid var(--color-focus-ring);
+  outline-offset: var(--space-1);
+}

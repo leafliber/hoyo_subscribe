@@ -3,6 +3,7 @@ import {
   activityTelemetryStale,
   calendarMutationSchema,
   calendarOutputState,
+  deriveCalendarActions,
   feedActivityDue,
 } from "./calendar-management";
 import { FEED_ACTIVITY_WRITE_INTERVAL, RECLAIM_TELEMETRY_STALE_HOURS } from "./params/registry";
@@ -33,5 +34,41 @@ describe("A-P3-FEEDAPI D3 草案与合并边界", () => {
       { confirmed: true, expected_generation: 0, user_id: "other" },
     ])
       expect(calendarMutationSchema.safeParse(input).success).toBe(false);
+  });
+});
+
+describe("U20 日历管理准入复用既有权限事实", () => {
+  const facts = {
+    session: { state: "active", recovery_code_required: false },
+    recovery_code_saved: true,
+    subscription: { state: "initialized" },
+  };
+  it("启用、重置不需最近OTP，未保存恢复码仍允许停用", () => {
+    expect(deriveCalendarActions(facts)).toEqual({
+      enable: { allowed: true },
+      disable: { allowed: true },
+      reset: { allowed: true },
+    });
+    const actions = deriveCalendarActions({ ...facts, recovery_code_saved: false });
+    expect(actions.enable).toEqual({ allowed: false, reason: "recovery_code_not_saved" });
+    expect(actions.reset).toEqual(actions.enable);
+    expect(actions.disable.allowed).toBe(true);
+  });
+  it("受限恢复、pending与未初始化分别给准确原因", () => {
+    expect(
+      deriveCalendarActions({
+        ...facts,
+        session: { state: "pending", recovery_code_required: false },
+      }).enable,
+    ).toEqual({ allowed: false, reason: "pending_activation" });
+    expect(
+      deriveCalendarActions({
+        ...facts,
+        session: { state: "active", recovery_code_required: true },
+      }).disable,
+    ).toEqual({ allowed: false, reason: "recovery_code_unconfirmed" });
+    expect(
+      deriveCalendarActions({ ...facts, subscription: { state: "uninitialized" } }).enable,
+    ).toEqual({ allowed: false, reason: "subscription_uninitialized" });
   });
 });
