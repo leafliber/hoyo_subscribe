@@ -1,0 +1,104 @@
+{
+  "base": "304af8b",
+  "environment": {
+    "CI": "1",
+    "WRANGLER_SEND_METRICS": "false",
+    "node": "26.8.1",
+    "pnpm": "11.11.0"
+  },
+  "checks": [
+    {
+      "command": "pnpm install --frozen-lockfile",
+      "exit": 0,
+      "seconds": 0.18,
+      "timeout": false
+    },
+    {
+      "command": "pnpm lint",
+      "exit": 0,
+      "seconds": 0.52,
+      "timeout": false
+    },
+    {
+      "command": "pnpm typecheck",
+      "exit": 0,
+      "seconds": 4.81,
+      "timeout": false
+    },
+    {
+      "command": "pnpm params:verify",
+      "exit": 0,
+      "seconds": 0.38,
+      "timeout": false
+    },
+    {
+      "command": "pnpm migrate:check",
+      "exit": 0,
+      "seconds": 3.13,
+      "timeout": false
+    },
+    {
+      "command": "pnpm test",
+      "exit": 0,
+      "seconds": 24.98,
+      "timeout": false
+    },
+    {
+      "command": "pnpm build",
+      "exit": 0,
+      "seconds": 4.55,
+      "timeout": false
+    },
+    {
+      "command": "pnpm test:e2e",
+      "exit": 0,
+      "seconds": 61.04,
+      "timeout": false
+    }
+  ],
+  "results": {
+    "params": {
+      "passed": 30,
+      "failed": 0
+    },
+    "migrations": "0001–0025",
+    "migrationTests": 13,
+    "contractsTests": 269,
+    "workerTests": 1057,
+    "e2ePassed": 711,
+    "e2eSkipped": 5,
+    "backupTests": 12,
+    "existingRuntimeTests": 93
+  },
+  "d1LocalAggregate": [
+    {
+      "results": [
+        {
+          "active_sessions": 0,
+          "enabled_mail": 0,
+          "enabled_feeds": 0,
+          "usable_old_codes": 0,
+          "evidence_rows": 1
+        }
+      ],
+      "success": true,
+      "meta": {
+        "duration": 0
+      }
+    },
+    {
+      "results": [],
+      "success": true,
+      "meta": {
+        "duration": 0
+      }
+    }
+  ],
+  "targetEnvironment": "not executed",
+  "priorFailedAttempts": [
+    "backup.test.mjs: invalid synthetic Keyring key_id; fixed to accepted k1",
+    "backup.test.mjs: synthetic sources.cursor_json NOT NULL; fixture corrected",
+    "backup.test.mjs: synthetic events.status violated existing CHECK; fixture corrected",
+    "local Wrangler export --persist-to rejected (unknown argument); repeated using isolated --config successfully"
+  ]
+}
