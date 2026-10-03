@@ -43,8 +43,11 @@
 
 **F3-04 最终复核（2026-10-03）**：#76 `f22121a`本轮3/3精准变异检出：HTTP 5xx清原键→4失败；移除跨页signature→4失败；上游deriveCalendarActions放行未保存恢复码→下游页面2失败。原signature存活缺口关闭，旧记录保留。每条一次替换、非空diff、重建后运行；探针先移出，逐条还原并确认干净。恢复后calendar/capacity78/78、管理接口17/17。本轮独立探针15/15（真实D1 1、浏览器14），均非生产证据。
 
+**2026-10-03 Turnstile 维护复核**：#87 `ea1aa94` 已 squash `6c22c87`。独立完整八命令全过，37 个临时探针通过；6 条精准变异全部检出、0 存活：hostname 8、action 8、index 注入 13、上游 contracts 用途→下游 Worker 2、前端 action 10、轮换 CSRF 清理 1 个失败。每条替换一次、diff 非空，探针先移出，逐条还原干净，网页每条重建；恢复后 Worker 70、contracts 2、网页 24 全通过。真实 token/重放未测，后续已授权关闭门发布不等于认证 E3 通过。
+
 已用此法确证承重的测试：`A-P1-CAS`（拆 `changes()=1` 谓词链 → 10 条失败）、
 `A-P1-CRYPTO`（品牌放宽为 `any` → 5 条 `TS2578`）、`A-P1-PARAM`（改参数值 → 逐条点名）、
+`A-P2-PREAUTH` / `U13` / `U15` / `U29` 的 #87 维护（上述 6 条，含 contracts→Worker 用途接缝与 CSRF 失败后的 reset），
 `A-P2-SESSION`（11 条变异逐条被对应用例击杀）、
 `A-P2-RECOVERY`（首轮 6 条、返工复验 5 条变异全部击杀，含外壳拒绝受限会话写入对 P2-06 真实路由的接缝变异）、
 `U20`（F3-04 #76：结构化500/503同键恢复、合法非空publication/subscription跨页，以及改上游contracts后跑下游恢复码准入，以上三条均由标准calendar.spec.ts检出），
