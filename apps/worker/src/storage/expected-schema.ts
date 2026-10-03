@@ -550,6 +550,27 @@ export interface ExpectedIndex {
 
 /** 显式 CREATE INDEX（不含 UNIQUE 约束产生的 sqlite_autoindex_*）。 */
 export const EXPECTED_INDEXES: Record<string, ExpectedIndex> = {
+  idx_jobs_dispatch_reclaim: { table: "jobs", columns: ["id", "created_at"], partial: true },
+  idx_mail_outbox_cleanup: { table: "mail_outbox", columns: ["updated_at", "id"], partial: true },
+  idx_recent_auth_outbox: { table: "recent_auth_challenges", columns: ["outbox_id"] },
+  idx_auth_challenges_reservation: { table: "auth_challenges", columns: ["reservation_id"] },
+  idx_auth_challenges_pending_session: {
+    table: "auth_challenges",
+    columns: ["pending_session_id"],
+  },
+  idx_recovery_rotations_proof: { table: "recovery_rotations", columns: ["proof_id"] },
+  idx_audit_log_system_created: {
+    table: "audit_log",
+    columns: ["created_at", "id"],
+    partial: true,
+  },
+  idx_audit_log_system_expiry: { table: "audit_log", columns: ["expires_at", "id"], partial: true },
+  idx_sessions_revoked_cleanup: { table: "sessions", columns: ["revoked_at", "id"], partial: true },
+  idx_consent_events_cleanup: { table: "consent_events", columns: ["created_at", "id"] },
+  idx_article_versions_cleanup: { table: "article_versions", columns: ["created_at", "id"] },
+  idx_articles_cleanup: { table: "articles", columns: ["created_at", "id"] },
+  idx_users_deleting_cleanup: { table: "users", columns: ["updated_at", "id"], partial: true },
+
   // P3-14 复核授权：0021 公共读热路径索引。
   idx_public_nodes_event: {
     table: "public_snapshot_nodes",

@@ -69,8 +69,8 @@ describe("A-P1-PARAM 附录 A.5 启动等式", () => {
     expect(results.every((r) => r.ok)).toBe(true);
   });
 
-  it("覆盖 §11、P3 工程依赖、ADR-0006 与 P5-01/P5-02（31 条），另有 1 条语义条款", () => {
-    expect(PARAM_EQUATIONS).toHaveLength(31);
+  it("覆盖 §11、P3 工程依赖、ADR-0006 与 P5-01/P5-02（32 条），另有 1 条语义条款", () => {
+    expect(PARAM_EQUATIONS).toHaveLength(32);
     expect(SEMANTIC_INVARIANTS.map((s) => s.id)).toEqual(["mail-digest-window-forward-only"]);
   });
 
