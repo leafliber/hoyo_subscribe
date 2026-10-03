@@ -2,7 +2,7 @@
 //
 // 合同约束：
 // - 服务端 Siteverify 校验一次性 token（[R09]）：向 Cloudflare 的 siteverify 端点提交
-//   secret + response，只有 {"success": true} 才算通过；**网络错误、非 200、任何非
+//   secret + response，严格绑定 success、配置 hostname 和预期 action；**网络错误、非 2xx、任何非
 //   success 响应一律判失败**（失败关闭，绝不放行「没法验证就先过」）。
 // - Turnstile 是**单次验证**，不替代会话或配额（§4.2）：token 用过即废由 siteverify
 //   服务端保证（重放返回 timeout-or-duplicate 等失败码），本模块对一切失败一视同仁地
@@ -13,9 +13,12 @@
 // 配置注入 TURNSTILE_SECRET_KEY（Wrangler secret，「需所有者执行的前置」）后可用，
 // 未注入时工厂抛错、调用方失败关闭（与 P1-08 的 CRYPTO_* 秘密同一纪律）。
 
+import type { TurnstileAction } from "@hoyo/contracts";
+
 /** 校验输入；token 来自请求体 turnstile_token 字段（结构校验已在第 1 步完成）。 */
 export interface TurnstileCheckInput {
   readonly token: string;
+  readonly expectedAction: TurnstileAction;
 }
 
 export type TurnstileCheckResult = "passed" | "failed";
@@ -28,36 +31,53 @@ export interface TurnstileVerifier {
 /** Cloudflare Siteverify 端点（[R09] 官方文档固定地址，非业务参数）。 */
 const SITEVERIFY_URL = "https://challenges.cloudflare.com/turnstile/v0/siteverify";
 
-interface SiteverifyResponse {
-  readonly success?: boolean;
+/** 只信任部署配置，不接受请求 Host/Origin 或浏览器提交的允许域名。 */
+function configuredHostname(siteOrigin: string): string {
+  const url = new URL(siteOrigin);
+  if (
+    url.protocol !== "https:" ||
+    url.username ||
+    url.password ||
+    url.pathname !== "/" ||
+    url.search ||
+    url.hash ||
+    url.hostname === "localhost" ||
+    url.hostname.endsWith(".localhost") ||
+    url.hostname === "127.0.0.1" ||
+    url.hostname === "[::1]"
+  )
+    throw new Error("SITE_ORIGIN 非有效正式站点来源；Turnstile 校验失败关闭");
+  return url.hostname;
 }
 
-/** 生产校验器：真实调用 siteverify；一切异常与非 success 均失败关闭。 */
-export function siteverifyTurnstileVerifier(secret: string): TurnstileVerifier {
-  if (secret.length === 0) {
+/** 生产校验器：真实调用 siteverify；形状、绑定与上游故障均失败关闭。 */
+export function siteverifyTurnstileVerifier(secret: string, siteOrigin: string): TurnstileVerifier {
+  if (secret.trim().length === 0) {
     throw new Error("TURNSTILE_SECRET_KEY 未注入（Wrangler secret）；Turnstile 校验失败关闭");
   }
+  const hostname = configuredHostname(siteOrigin);
   return {
     async verify(input) {
-      let response: Response;
       try {
         const body = new FormData();
         body.set("secret", secret);
         body.set("response", input.token);
-        response = await fetch(SITEVERIFY_URL, { method: "POST", body });
+        const response = await fetch(SITEVERIFY_URL, { method: "POST", body });
+        if (!response.ok) return "failed";
+        const parsed: unknown = await response.json();
+        if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) return "failed";
+        if (!("success" in parsed) || !("hostname" in parsed) || !("action" in parsed))
+          return "failed";
+        return parsed.success === true &&
+          typeof parsed.hostname === "string" &&
+          parsed.hostname === hostname &&
+          typeof parsed.action === "string" &&
+          parsed.action === input.expectedAction
+          ? "passed"
+          : "failed";
       } catch {
         return "failed";
       }
-      if (!response.ok) {
-        return "failed";
-      }
-      let parsed: SiteverifyResponse;
-      try {
-        parsed = (await response.json()) as SiteverifyResponse;
-      } catch {
-        return "failed";
-      }
-      return parsed.success === true ? "passed" : "failed";
     },
   };
 }

@@ -3,12 +3,14 @@ import {
   AUTH_INTENT_PUBLIC_BODY,
   AUTH_INTENT_PUBLIC_STATUS,
   buildApiErrorBody,
+  LOGIN_TURNSTILE_ACTION,
   OTP_ATTEMPTS,
   OTP_COOLDOWN,
   OTP_DIGITS,
   OTP_TTL,
   SESSION_RENEW_INTERVAL,
 } from "../../packages/contracts/src/index";
+import { manualTurnstile, widgetEvent, widgetState } from "./turnstile-support";
 
 // E2: every API and Turnstile response is synthetic; no mail or production auth is used.
 const sampleEmail = "First.Last+tag@example.invalid";
@@ -581,3 +583,61 @@ test("U13 正在验证与正在完成登录分别播报且按钮不可重复提�
   await held?.fulfill({ json: { activated: true, csrf_token: "synthetic-active" } });
   await expect(page.locator("#login-done")).toBeVisible();
 });
+
+for (const result of ["success", "reject", "network"] as const)
+  test(`A-P2-PREAUTH U13 登录组件 action 与 ${result} 后 token 清理/reset`, async ({ page }) => {
+    const { calls } = await setup(page);
+    await manualTurnstile(page);
+    await page.reload();
+    await expect(page.locator("#turnstile-status")).toContainText("已完成");
+    expect(await widgetState(page, "turnstile")).toMatchObject({
+      action: LOGIN_TURNSTILE_ACTION,
+      sitekey: "synthetic-sitekey",
+    });
+    if (result !== "success")
+      await page.route("**/api/v2/auth/challenges", (route) =>
+        result === "network"
+          ? route.abort("failed")
+          : route.fulfill({
+              status: 400,
+              json: buildApiErrorBody("validation", {
+                code: "validation",
+                fields: [{ path: "turnstile_token", reason: "verification_failed" }],
+              }),
+            }),
+      );
+    const requests: unknown[] = [];
+    page.on("request", (req) => {
+      if (req.url().endsWith("/auth/challenges")) requests.push(req.postDataJSON());
+    });
+    await page.getByLabel("邮箱地址", { exact: true }).fill(sampleEmail);
+    await page.getByRole("button", { name: "发送验证码", exact: true }).click();
+    await expect.poll(() => widgetState(page, "turnstile")).toMatchObject({ resets: 1 });
+    expect(requests).toEqual([
+      expect.objectContaining({ turnstile_token: "synthetic-first-turnstile" }),
+    ]);
+    if (result !== "success") {
+      await page.locator("#retry-auth").click();
+      await expect(page.locator("#auth-result")).toContainText("请先完成人机验证");
+      expect(requests).toHaveLength(1);
+    }
+    expect(calls.some((c) => c.path === "auth/challenges/verify")).toBe(false);
+  });
+
+for (const event of ["expired", "error"] as const)
+  test(`A-P2-PREAUTH U13 组件 ${event} 清除旧 token`, async ({ page }) => {
+    await setup(page);
+    await manualTurnstile(page);
+    await page.reload();
+    await expect(page.locator("#turnstile-status")).toContainText("已完成");
+    await page.getByLabel("邮箱地址", { exact: true }).fill(sampleEmail);
+    const requests: unknown[] = [];
+    page.on("request", (req) => {
+      if (req.url().endsWith("/auth/challenges")) requests.push(req.postDataJSON());
+    });
+    await widgetEvent(page, "turnstile", "complete");
+    await widgetEvent(page, "turnstile", event);
+    await page.getByRole("button", { name: "发送验证码", exact: true }).click();
+    await expect(page.locator("#auth-result")).toContainText("请先完成人机验证");
+    expect(requests).toHaveLength(0);
+  });

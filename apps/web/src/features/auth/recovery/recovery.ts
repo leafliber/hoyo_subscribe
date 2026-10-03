@@ -1,4 +1,9 @@
-import { AccountSummarySchema, isApiErrorBody, subscriptionConfigSchemaFor } from "@hoyo/contracts";
+import {
+  AccountSummarySchema,
+  isApiErrorBody,
+  recentAuthTurnstileAction,
+  subscriptionConfigSchemaFor,
+} from "@hoyo/contracts";
 import { announce } from "../../../components/status";
 import { feedbackForFailure } from "../../../lib/errors/feedback";
 import {
@@ -513,7 +518,11 @@ async function requestRotation(): Promise<void> {
   const generation = identityGeneration;
   if (!captchaReady) {
     captcha ??= new Turnstile(el("captcha-status"));
-    await captcha.load(root.dataset.sitekey ?? "", el("rotation-captcha"));
+    await captcha.load(
+      root.dataset.sitekey ?? "",
+      el("rotation-captcha"),
+      recentAuthTurnstileAction("recovery_code_rotate", "current"),
+    );
     assertIdentity(generation);
     captchaReady = true;
     message("请完成人机验证后，再申请本次轮换的邮箱验证码。");
@@ -526,8 +535,8 @@ async function requestRotation(): Promise<void> {
       message("请先完成人机验证。");
       return;
     }
-    await sessionCsrf();
     try {
+      await sessionCsrf();
       const result = await request(
         "me/recent-auth/challenges",
         {

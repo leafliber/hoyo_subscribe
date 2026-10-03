@@ -7,6 +7,7 @@ import {
   isSessionExpiryNotice,
   type RecentAuthAction,
   type RecentAuthRole,
+  recentAuthTurnstileAction,
   SESSION_RENEW_INTERVAL,
 } from "@hoyo/contracts";
 import { closeDialog } from "../../../components/dialog";
@@ -690,7 +691,11 @@ function loadProofWidgets(): void {
   if (widgetsLoaded) return;
   widgetsLoaded = true;
   for (const [id, slot] of Object.entries(proofSlots))
-    void slot.widget.load(el("account-page").dataset.sitekey ?? "", el(`${id}-turnstile`));
+    void slot.widget.load(
+      el("account-page").dataset.sitekey ?? "",
+      el(`${id}-turnstile`),
+      recentAuthTurnstileAction(slot.action, slot.role),
+    );
 }
 el("email-maintenance").addEventListener("toggle", () => {
   if ((el("email-maintenance") as HTMLDetailsElement).open) loadProofWidgets();

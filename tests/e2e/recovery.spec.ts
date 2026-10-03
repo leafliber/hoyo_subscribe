@@ -10,9 +10,11 @@ import {
   buildApiErrorBody,
   OTP_DIGITS,
   RECENT_AUTH_TTL,
+  recentAuthTurnstileAction,
   SESSION_RENEW_INTERVAL,
   type UnauthorizedReason,
 } from "../../packages/contracts/src/index";
+import { manualTurnstile, widgetState } from "./turnstile-support";
 
 test.use({ trace: "off", screenshot: "off", video: "off" });
 
@@ -892,3 +894,43 @@ for (const reason of ["recent_auth_required", "csrf_mismatch"] as const) {
     expect(state.calls.filter((call) => call.body.action === "generate")).toHaveLength(1);
   });
 }
+
+for (const result of ["success", "reject", "network", "csrf"] as const)
+  test(`A-P2-PREAUTH U15 轮换组件 action 与 ${result} 后 token 清理/reset`, async ({ page }) => {
+    const state = await setup(page, "active", false, true);
+    await manualTurnstile(page);
+    await page.goto("/recover#save");
+    await page.locator("#request-rotation").click();
+    await expect(page.locator("#captcha-status")).toContainText("已完成");
+    expect(await widgetState(page, "rotation-captcha")).toMatchObject({
+      action: recentAuthTurnstileAction("recovery_code_rotate", "current"),
+      sitekey: "synthetic-sitekey",
+    });
+    const requests: unknown[] = [];
+    page.on("request", (req) => {
+      if (req.url().endsWith("/me/recent-auth/challenges")) requests.push(req.postDataJSON());
+    });
+    if (result === "csrf")
+      await page.route("**/api/v2/me/sessions", (route) => route.abort("failed"));
+    else if (result !== "success")
+      await page.route("**/api/v2/me/recent-auth/challenges", (route) =>
+        result === "network"
+          ? route.abort("failed")
+          : route.fulfill({
+              status: 400,
+              json: buildApiErrorBody("validation", {
+                code: "validation",
+                fields: [{ path: "turnstile_token", reason: "verification_failed" }],
+              }),
+            }),
+      );
+    await page.locator("#request-rotation").click();
+    await expect.poll(() => widgetState(page, "rotation-captcha")).toMatchObject({ resets: 1 });
+    expect(requests).toHaveLength(result === "csrf" ? 0 : 1);
+    if (result !== "csrf")
+      expect(requests[0]).toMatchObject({ turnstile_token: "synthetic-first-rotation-captcha" });
+    await page.locator("#request-rotation").click();
+    await expect(page.locator("#recovery-result")).toContainText("请先完成人机验证");
+    expect(requests).toHaveLength(result === "csrf" ? 0 : 1);
+    expect(state.calls.some((c) => c.path === "me/recovery-code")).toBe(false);
+  });

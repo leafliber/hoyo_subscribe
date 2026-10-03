@@ -13,6 +13,7 @@ import {
   type RecentAuthAction,
   type RecentAuthRole,
   recentAuthOtpPurpose,
+  recentAuthTurnstileAction,
   utcDayPeriod,
 } from "@hoyo/contracts";
 import { ApiError } from "../../shell/errors";
@@ -147,7 +148,12 @@ export async function startRecentOtp(
       code: "rate_limited",
       retry_after_ms: gate.retryAfterMs,
     });
-  if ((await admission.turnstile.verify({ token: admission.turnstileToken })) !== "passed") {
+  if (
+    (await admission.turnstile.verify({
+      token: admission.turnstileToken,
+      expectedAction: recentAuthTurnstileAction(action, role),
+    })) !== "passed"
+  ) {
     throw new ApiError("validation", {
       code: "validation",
       fields: [{ path: "turnstile_token", reason: "verification_failed" }],
