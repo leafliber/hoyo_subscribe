@@ -1,9 +1,10 @@
 #!/usr/bin/env node
 
-// F1-05：Playwright 使用的前台静态服务。只读取本次 astro build 的 dist。
 import { spawnSync } from "node:child_process";
 import { readFile, stat } from "node:fs/promises";
 import { createServer } from "node:http";
+// F1-05：Playwright 使用的前台静态服务。只读取本次 astro build 的 dist。
+import { createRequire } from "node:module";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -67,6 +68,32 @@ async function serve(request, response) {
     return;
   }
 
+  // P5-04: 仅此测试服务加载夹具；不复制到 dist，不改生产改写规则。
+  if (pathname === "/__test/p5-release/a11y" || pathname === "/__test/p5-release/a11y.js") {
+    const fixture = path.resolve("tests/e2e/fixtures/p5-release");
+    if (pathname.endsWith(".js")) {
+      const require = createRequire(path.resolve("apps/worker/node_modules/wrangler/package.json"));
+      const { build } = require("esbuild");
+      const result = await build({
+        entryPoints: [path.join(fixture, "a11y.ts")],
+        bundle: true,
+        write: false,
+        format: "esm",
+      });
+      response.writeHead(200, { "Content-Type": "application/javascript" });
+      response.end(request.method === "HEAD" ? undefined : result.outputFiles[0].text);
+    } else {
+      const layout = await readFile(path.join(DIST, "help/index.html"), "utf8");
+      const content = await readFile(path.join(fixture, "a11y.html"), "utf8");
+      const html = layout.replace(
+        /(<main[^>]*>)[\s\S]*?(<\/main>)/,
+        (_match, open, close) => open + content + close,
+      );
+      response.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
+      response.end(request.method === "HEAD" ? undefined : html);
+    }
+    return;
+  }
   const rewritten = rewrites.find((rule) => pathname.startsWith(rule.prefix))?.target ?? pathname;
   const filePath = path.resolve(DIST, `.${rewritten}`);
   if (filePath !== DIST && !filePath.startsWith(`${DIST}${path.sep}`)) {

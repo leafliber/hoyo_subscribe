@@ -3,5 +3,15 @@ import Layout from "./_Layout.astro";
 ---
 <Layout title="服务状态">
   <h1>服务状态</h1>
-  <p class="skeleton-note">页面骨架：公开来源状态、服务开放与降级信息由后端联调轮次交付。</p>
+  <p>这里显示公开接口提供的来源、发布代次和能力状态。服务开放不代表客户端已同步或提醒必达。</p>
+  <p id="release-status-message" role="status">状态未知，正在读取公开状态…</p>
+  <button id="release-status-retry" class="button button--secondary" type="button">刷新状态</button>
+  <div id="release-status-facts"></div>
+  <section aria-labelledby="release-boundary"><h2 id="release-boundary">验证范围与已知限制</h2>
+    <p>Apple Calendar / macOS 已在本机测试台通过完整替换与提醒测试；版本和刷新延迟未记录。Google Calendar、Outlook 及其他设备未测。客户端测试不等于正式站点全链验证。</p>
+    <p>当前尚无本轮目标平台负载、账单与恢复演练的完整证据，最终上线放行未完成。平台计费与容量未知，不以本地测试结果宣称已通过。</p>
+    <p>私人预览未取完或受阻时不能称为完整；极大集合反复过期时，请缩小已保存范围后再预览。邮件名额有限、提醒非必达、跨通道可能重复，首版不自动补发。</p>
+    <a href="/help">查看订阅步骤、预算和账号回收说明</a>
+  </section>
+  <script src="./status/_client.ts"></script>
 </Layout>

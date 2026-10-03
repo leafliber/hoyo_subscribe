@@ -1,40 +1,40 @@
 ---
-import Dialog from "../components/Dialog.astro";
+import { ACCOUNT_IDLE_DAYS, ACCOUNT_GRACE_DAYS, ACCOUNT_MAX_STORED, MAIL_SEATS_MAX, MAIL_ROUTINE_SEATS_MAX, MAIL_SEAT_LEASE, MAIL_USER_BASE_DAY, MAIL_USER_URGENT_DAY, MAIL_AUTH_DAY, MAIL_BASE_DAY, MAIL_URGENT_DAY, MAIL_AUTH_FLOOR, MAIL_URGENT_FLOOR } from "@hoyo/contracts";
 import Layout from "./_Layout.astro";
 ---
 <Layout title="使用帮助">
   <h1>使用帮助</h1>
-  <p class="skeleton-note">页面骨架：日历接入指引、实测兼容性与时间说明由后续轮次填充。下方为 F1-01 可访问性基线组件的示例区。</p>
-
-  <section class="baseline-demo" aria-labelledby="baseline-demo-title">
-    <h2 id="baseline-demo-title">可访问性基线示例</h2>
-    <button class="button button--secondary" type="button" data-dialog-open="demo-dialog">
-      打开示例弹窗
-    </button>
-    <details class="collapse" id="demo-collapse">
-      <summary>示例折叠区（含错误自动展开定位）</summary>
-      <div class="collapse-body">
-        <div class="field">
-          <label for="demo-field">示例字段</label>
-          <input id="demo-field" name="demo-field" type="text" placeholder="仅作演示" />
-          <p class="field-error" id="demo-field-error" tabindex="-1" hidden>示例错误：该项不能为空</p>
-        </div>
-      </div>
-    </details>
-    <!-- 触发点在折叠区外：真实场景中校验由外部动作（保存/提交）发起，折叠区只承载被定位的错误 -->
-    <button class="button button--secondary" type="button" id="demo-invalidate">
-      模拟校验失败
-    </button>
-    <button class="button button--secondary" type="button" data-announce-demo>
-      模拟状态播报
-    </button>
+  <p>HoYo日历整理官方活动日程。先浏览日程、选择关注范围，再保存到账号并设置接收方式。活动安排以官方最新公告为准。</p>
+  <nav aria-label="帮助目录"><ul><li><a href="#calendar">订阅日历</a></li><li><a href="#preview">预览未完成怎么办</a></li><li><a href="#mail">邮件名额与预算</a></li><li><a href="#account">账号与恢复码</a></li></ul></nav>
+  <section id="calendar" aria-labelledby="calendar-title">
+    <h2 id="calendar-title">订阅日历与客户端范围</h2>
+    <ol><li>在<a href="/subscription">我的订阅</a>保存关注范围，查看已保存设置的实际预览与提醒关联节点。</li><li>完整预览通过后确认启用，按需复制个人日历订阅地址。</li><li>在目标客户端使用“订阅日历”的地址入口，粘贴地址并确认是否允许提醒。单次下载导入不会持续更新。</li></ol>
+    <p>个人地址是只读凭证，请勿公开分享或放进截图。复制成功只表示取得地址，不表示客户端已添加或已同步。重置会使旧地址失效，所有客户端都需替换；停用不能删除已下载的副本。</p>
+    <ul><li><strong>Apple Calendar / macOS：已测。</strong>2026-09-22 所有者在本机测试台验证了完整快照删除、重新加入、改期、取消、故障保留旧结果、恢复更新与 VALARM 弹出。客户端版本和刷新延迟未记录，正式站点端到端表现仍需验证。</li><li><strong>Google Calendar：未测。</strong>完整替换、提醒与刷新延迟均未知。</li><li><strong>Outlook 桌面版与 Web 版：未测。</strong>完整替换、提醒与刷新延迟均未知。其他设备也不能套用 macOS 结论。</li></ul>
+    <p>日历刷新由客户端控制，提醒非必达。纯日期、预计和未知时间不生成精确闹钟。本站显示北京时间（UTC+8）。</p>
+    <p>若提示“本次输出未通过完整性检查”，服务会暂停更新以保护现有日历内容。保留订阅，稍后重试并查看<a href="/status">服务状态</a>；不要为此重置地址或重新订阅。</p>
   </section>
-
-  <Dialog id="demo-dialog" title="示例弹窗">
-    <p>弹窗打开后焦点移入弹窗，Tab 只在弹窗内循环，背景不可操作；按 Esc 或点「关闭」后，焦点回到触发按钮。</p>
-  </Dialog>
-
-  <script>
-    import "../components/collapse";
-  </script>
+  <section id="preview" aria-labelledby="preview-title">
+    <h2 id="preview-title">预览未完成或范围过大</h2>
+    <p>草稿预览与已保存设置的权威预览不同；分页尚未取完、来源未知、数据过期或输出受阻时，都不能当作完整或空日历，也不能据此确认启用。</p>
+    <p>极大受阻集合可能始终无法在一次游标有效期内取全。同一范围反复重试仍可能过期。请回到我的订阅，减少关注游戏、事件类型或节点类型；提醒规则可能保留关联节点，必要时一并缩小提醒规则，保存后重新取得完整预览。不要连续无限刷新。</p>
+    <p>限流时按页面提示等待；预览过期后需重新核对整轮结果。一个成功样本不代表任意范围都能一次取全。</p>
+  </section>
+  <section id="mail" aria-labelledby="mail-title">
+    <h2 id="mail-title">邮件名额、发送机会与日预算</h2>
+    <p>账号容量为 {ACCOUNT_MAX_STORED}，邮件席位上限为 {MAIL_SEATS_MAX}，其中常规提醒子名额最多 {MAIL_ROUTINE_SEATS_MAX}。这表示服务容量，不表示当前剩余名额。两层都需本人明确同意。</p>
+    <p>邮件席位用于取消、重要更正和晚收录补充；常规层另外提供提前提醒与新事件通知。常规层默认关闭，已使用日历提醒时通常会重复。名额满时暂不提供候补，也不承诺开放时间；可到<a href="/subscription">我的订阅设置日历提醒</a>，但缺少邮件时无法得到邮件渠道的取消/改期主动通知。</p>
+    <p>每人每 UTC 日最多 {MAIL_USER_BASE_DAY} 次基础发送机会、{MAIL_USER_URGENT_DAY} 次紧急发送机会。同一时段的多条提醒会合并一封；这是最多发送机会，非保证每条必达。日额度按 UTC 零点重置（北京时间早晨），不按浏览器当地午夜重置。</p>
+    <p>全站认证、基础、紧急三个日池分别为 {MAIL_AUTH_DAY}、{MAIL_BASE_DAY}、{MAIL_URGENT_DAY} 次；各池独立，不互借，不跨日结转。认证池剩余不高于 {MAIL_AUTH_FLOOR} 时仅接受已有账号首次登录意图，暂停新注册发信与重发；紧急池剩余不高于 {MAIL_URGENT_FLOOR} 时仅发取消/撤回。日池次日恢复不代表旧通知补发。</p>
+    <p>平台明确要求稍后重试时，首版不自动补发：验证码请重新申请，业务通知到期即作废。结果未知也不等于送达，不盲目重发。“已提交平台”或 accepted 不表示收件人已收到或已读。</p>
+    <p>日历与邮件独立，可能跨通道重复；没有自动故障转移。关闭邮件不影响日历和账号。浏览器推送首版未开放。</p>
+  </section>
+  <section id="account" aria-labelledby="account-title">
+    <h2 id="account-title">账号回收与保存恢复码</h2>
+    <p>邮件席位租期为 {MAIL_SEAT_LEASE} 天，有账号活动会自动续租，不要求专门回网页。有效 Feed 拉取也算活动；邮件被接受、投递成功或扫描器打开退订页不算活动。</p>
+    <p>连续 {ACCOUNT_IDLE_DAYS} 天没有真实交互、有效日历拉取或有效客户端处理信号，账号会进入 {ACCOUNT_GRACE_DAYS} 天回收宽限；恢复使用可终止沉睡判定。回收前维护者必须复核清单，活动记录不可信时暂停账号与席位回收。</p>
+    <p>删除或清理释放实际存量，不退还已消耗的日额度，也不能擦除已送达邮件、客户端副本或尚未到期的备份。</p>
+    <p>首次登录后请离线保存恢复码，与邮箱分开保管，不要分享或截图公开。邮件不可用时可通过<a href="/recover">恢复入口</a>取回控制权；紧急停用不会消费恢复码，恢复登录会消耗所用码，并要求保存新码。本站无法替你找回丢失的恢复码。</p>
+  </section>
+  <p><a href="/status">查看当前来源与服务开放状态</a></p>
 </Layout>

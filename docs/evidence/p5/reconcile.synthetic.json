@@ -1,0 +1,74 @@
+{
+  "synthetic": true,
+  "days": [
+    {
+      "day": "2026-10-03",
+      "pools": {
+        "existing_auth": {
+          "settled": 5,
+          "reserved": 2,
+          "uncertain": 1
+        },
+        "new_registration": {
+          "settled": 0,
+          "reserved": 0,
+          "uncertain": 0
+        },
+        "base_business": {
+          "settled": 0,
+          "reserved": 0,
+          "uncertain": 0
+        },
+        "urgent_business": {
+          "settled": 0,
+          "reserved": 0,
+          "uncertain": 0
+        }
+      },
+      "acceptedKnown": 3,
+      "rejectedKnown": 2,
+      "platform": null
+    },
+    {
+      "day": "2026-10-04",
+      "pools": {
+        "existing_auth": {
+          "settled": 0,
+          "reserved": 0,
+          "uncertain": 0
+        },
+        "new_registration": {
+          "settled": 0,
+          "reserved": 0,
+          "uncertain": 0
+        },
+        "base_business": {
+          "settled": 0,
+          "reserved": 0,
+          "uncertain": 0
+        },
+        "urgent_business": {
+          "settled": 0,
+          "reserved": 0,
+          "uncertain": 0
+        }
+      },
+      "acceptedKnown": 0,
+      "rejectedKnown": 0,
+      "platform": null
+    }
+  ],
+  "crossDayAccepts": [
+    {
+      "ledgerDay": "2026-10-03",
+      "acceptedDay": "2026-10-04",
+      "count": 2
+    }
+  ],
+  "meters": {
+    "workers": null,
+    "d1": null,
+    "do": null,
+    "queue": null
+  }
+}

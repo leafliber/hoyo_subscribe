@@ -213,7 +213,7 @@ test("U28 键盘 Tab 走完主要操作（跳过链接→主导航→登录→�
 test("U28 弹窗：焦点移入、Tab 只在弹窗内循环、背景 inert 不可误操作、Esc 关闭并恢复焦点", async ({
   page,
 }) => {
-  await page.goto("/help");
+  await page.goto("/__test/p5-release/a11y");
   const trigger = page.getByRole("button", { name: "打开示例弹窗" });
   const dialog = page.locator("#demo-dialog");
   await trigger.click();
@@ -251,7 +251,7 @@ test("U28 表单标签在 placeholder 之外持续可见并与控件关联", asy
 });
 
 test("U28 折叠区含错误时自动展开并把焦点定位到错误", async ({ page }) => {
-  await page.goto("/help");
+  await page.goto("/__test/p5-release/a11y");
   const details = page.locator("#demo-collapse");
   await expect(details).not.toHaveAttribute("open", "");
   await page.getByRole("button", { name: "模拟校验失败" }).click();
@@ -261,7 +261,7 @@ test("U28 折叠区含错误时自动展开并把焦点定位到错误", async (
 });
 
 test("U28 状态播报：加载/保存/失败消息经 role=status 区域可被辅助技术获知", async ({ page }) => {
-  await page.goto("/help");
+  await page.goto("/__test/p5-release/a11y");
   const region = page.locator("#global-status");
   await expect(region).toHaveAttribute("role", "status");
   await expect(region).toBeHidden(); // 初始为空、不占位
@@ -282,7 +282,7 @@ test("U28 状态播报：加载/保存/失败消息经 role=status 区域可被�
 
 test("U28 触控目标：主要按钮、导航、展开入口与输入的有效点击区 ≥ 44px", async ({ page }) => {
   skipUnlessMobile("移动端视口专测");
-  await page.goto("/help");
+  await page.goto("/__test/p5-release/a11y");
   const targets = page.locator("header a, footer a, main button, main summary, main input");
   const count = await targets.count();
   expect(count).toBeGreaterThan(0);
