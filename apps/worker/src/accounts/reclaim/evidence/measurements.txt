@@ -1,8 +1,0 @@
-Source: /private/tmp/p5-02-specialist-v3.log
-A-P5-RECLAIM combined scheduled {"feedbackQueries":729,"reclaimQueries":271,"totalQueries":1000}
-{"metric":"P5_reclaim_combined_maintenance_local","queries":998,"rowsRead":1430,"rowsWritten":928,"rowsPerPhase":40}
-synthetic reclaim query bounds [{"queries":800,"completed":false,"actual":{"queries":800,"rows_read":1349,"rows_written":131}},{"queries":800,"completed":false,"actual":{"queries":800,"rows_read":1354,"rows_written":122}},{"queries":800,"completed":false,"actual":{"queries":800,"rows_read":1354,"rows_written":121}},{"queries":800,"completed":false,"actual":{"queries":800,"rows_read":1354,"rows_written":121}},{"queries":146,"completed":true,"actual":{"queries":146,"rows_read":263,"rows_written":13}},{"queries":800,"completed":false,"actual":{"queries":800,"rows_read":1354,"rows_written":1}},{"queries":800,"completed":false,"actual":{"queries":800,"rows_read":1354,"rows_written":1}},{"queries":800,"completed":false,"actual":{"queries":800,"rows_read":1354,"rows_written":1}}]
-A-P5-RECLAIM full renewal page {"queries":181,"rows_read":299,"rows_written":41}
-Source: /private/tmp/p5-02-evidence/schema-final.log
-A-P5-RECLAIM synthetic audit rows_read {"before":{"history":1,"expiry":2},"after":{"history":1,"expiry":2},"unrelated":2000}
-A-P5-RECLAIM actual audit correction/delete {"before":{"queries":6,"rows_read":18,"rows_written":9},"after":{"queries":6,"rows_read":18,"rows_written":9},"unrelated":2000}
