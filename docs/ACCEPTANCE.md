@@ -151,6 +151,8 @@
 
 本轮保留失败：#83执行者两次build124、CI首轮Worker超时；验收摘要探针用UPDATE触发换邮箱会话撤销，改建号夹具后2/2；原日历脚本初次路径错误未运行，纠正后通过。对账/真实链专项不在根测试自动收集，不因CI绿灯声称自动覆盖。本轮证据在验收机源码外 `/private/tmp/hoyo-acceptor-20261003-release-final/`：full/、extras/、probe-*.json、已移出的探针、mutations/、restored/ 与真实链路结果；执行者按登记场景复现，不依赖此临时目录。未提交探针、日志或业务修复，未部署、真实发信或操作 Cloudflare。
 
+**2026-10-03 Turnstile 上线接入检查（main `09f24e0`）**：使用所有者公开 key 的本地 Web 构建及 login/recover/account 产物检查通过。真实生产 Siteverify 校验器的临时探针为 **4 通过、4 失败**：错误 hostname、错误 action、缺失两字段均错误放行；null JSON 抛 TypeError。已登记 P2-01 同卡维护。新增变异 **0**，不追加到上面的“已证明承重”清单；未重跑完整八命令、未作真实 Cloudflare/token/密钥配对验证。临时探针已移出且工作树干净，未提交探针或业务代码。`scripts/load/policy.mjs` 首次因本地 IPC 沙箱 EPERM 未执行成功，随后允许本地 IPC 的原命令复跑 exit 0；不把初次失败隐藏为通过。源码外关闭门配置的锁定 Wrangler dry-run exit 0、300 秒未触发；本轮文档 `pnpm lint` exit 0，保留既有 preview.test.ts 的 1 条 info，不修相邻实现。随后所有者提供真实空库 UUID/账户 ID，填入源码外模板后再次 dry-run exit 0；新建临时本地 D1 迁移 26 个文件全部成功，首次初始化 18 项关闭状态、重复初始化 0 条写入，结果逐项核对正确。没有远端数据库操作，不能据此宣布云端部署成功。
+
 ## 3. 后端与管线验收表
 
 ### P0（全部 E3；Agent 交付探测代码与登记模板，结论由所有者填写）
