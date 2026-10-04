@@ -70,8 +70,8 @@ describe("A-P1-PARAM 附录 A.5 启动等式", () => {
     expect(results.every((r) => r.ok)).toBe(true);
   });
 
-  it("覆盖 §11、P3 工程依赖、ADR-0006、ADR-0009、ADR-0012 与 P5-01/P5-02（35 条），另有 1 条语义条款", () => {
-    expect(PARAM_EQUATIONS).toHaveLength(35);
+  it("覆盖 §11、P3 工程依赖、ADR-0006、ADR-0009、ADR-0012、ADR-0013 与 P5-01/P5-02（36 条），另有 1 条语义条款", () => {
+    expect(PARAM_EQUATIONS).toHaveLength(36);
     expect(SEMANTIC_INVARIANTS.map((s) => s.id)).toEqual(["mail-digest-window-forward-only"]);
   });
 
@@ -132,6 +132,20 @@ describe("A-P1-PARAM 附录 A.5 启动等式", () => {
     expect(() => verifyParams(override({ AI_HARD_DAY: PARAMS.AI_INCLUDED_DAY }))).toThrow(
       "ai-hard-within-included",
     );
+  });
+
+  it("A-P3-YEAR 补全年份窗口短于一年，至多一个年份符合（ADR-0013）", () => {
+    expect(
+      PARAMS.YEAR_COMPLETION_WINDOW.beforeDays + PARAMS.YEAR_COMPLETION_WINDOW.afterDays,
+    ).toBeLessThan(365);
+    for (const YEAR_COMPLETION_WINDOW of [
+      { beforeDays: 30, afterDays: 335 },
+      { beforeDays: 0, afterDays: 330 },
+      { beforeDays: 30.5, afterDays: 300 },
+    ])
+      expect(() => verifyParams(override({ YEAR_COMPLETION_WINDOW }))).toThrow(
+        "year-completion-window-single-year",
+      );
   });
 
   it("A-P3-CANDIDATE-SIZE 候选上限不小于请求体上限，且留在 D1 分块写入的安全界内（ADR-0012）", () => {

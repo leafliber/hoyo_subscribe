@@ -46,3 +46,4 @@ export * from "./time";
 
 export * from "./turnstile";
 export * from "./version-time";
+export * from "./year-completion";

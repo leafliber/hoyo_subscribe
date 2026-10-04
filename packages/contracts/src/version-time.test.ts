@@ -22,11 +22,16 @@ describe("A-P3-VERSION 版本锚点", () => {
     expect(parseVersionAnchor("「3.2」版本更新完成后")).toEqual({ version: "3.2", kind: "update" });
     expect(parseVersionAnchor(" 4.6版本结束前 ")).toEqual({ version: "4.6", kind: "end" });
     expect(parseVersionAnchor("4.6版本结束时")).toEqual({ version: "4.6", kind: "end" });
-    // "结束后"用在开始节点时等于"下一版本更新后"，不能推成时刻。
+    // ADR-0013：官方缩写"版更后"、"自…版本上线起"等同更新后。
+    expect(parseVersionAnchor("7.1版更后")).toEqual({ version: "7.1", kind: "update" });
+    expect(parseVersionAnchor("自4.6版本上线起")).toEqual({ version: "4.6", kind: "update" });
+    expect(parseVersionAnchor("4.6版本上线起")).toEqual({ version: "4.6", kind: "update" });
+    // "结束后"用在开始节点时等于"下一版本更新后"，不能推成时刻；"期间"不是时点。
     for (const raw of [
       "4.6版本结束后",
       "7.1版本期间",
-      "7.1版更后",
+      "7.1版本期间持续开放",
+      "7.1版更后永久开放",
       "7.1版本更新后永久开放",
       "版本更新后",
       "2026/10/13 17:59",
