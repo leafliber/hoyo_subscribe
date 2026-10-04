@@ -31,7 +31,10 @@ const LABELS: Record<string, { name: string; desc: string; danger?: boolean }> =
   calendar_enabled: { name: "开放日历订阅", desc: "允许用户启用个人日历订阅。" },
   automatic_publication_enabled: { name: "自动发布", desc: "规则抽取的候选无需人工审核即可发布。" },
   push_enabled: { name: "浏览器推送", desc: "首版未实现。" },
-  model_enabled: { name: "模型抽取", desc: "首版不使用。" },
+  model_enabled: {
+    name: "AI 草稿（模型抽取）",
+    desc: "用 Workers AI 为待审公告预填草稿，人工批准后才发布；需同时打开外发总闸、关闭只读模式。",
+  },
   account_reclaim_enabled: { name: "账号回收", desc: "允许回收长期不活跃的账号。" },
   seat_reclaim_enabled: { name: "邮件席位回收", desc: "允许回收不活跃账号的邮件席位。" },
   source_enabled: { name: "来源抓取", desc: "允许抓取该官方来源。" },

@@ -1,6 +1,21 @@
 import { BROWSE_TIMEZONE, browseTimestamp } from "@hoyo/contracts";
 import { AdminRequestError, request } from "./api";
-import type { CandidateDetail, PublicationReply, QueuePage, ReviewAction } from "./types";
+import {
+  type DraftSelection,
+  draftBadge,
+  gameName,
+  renderDecided,
+  renderDraft,
+  renderReadableBlocks,
+} from "./draft";
+import type {
+  AdoptReply,
+  CandidateDetail,
+  PublicationReply,
+  QueuePage,
+  QueueRow,
+  ReviewAction,
+} from "./types";
 
 function element<T extends HTMLElement>(id: string): T {
   const node = document.getElementById(id);
@@ -14,12 +29,18 @@ const review = element("review");
 const notice = element("notice");
 const proposal = element<HTMLTextAreaElement>("proposal_json");
 const reason = element<HTMLTextAreaElement>("reason");
+const reasonPreset = element<HTMLSelectElement>("reason-preset");
 const articleId = element<HTMLInputElement>("article_version_id");
 const action = element<HTMLSelectElement>("action");
 const target = element<HTMLInputElement>("target_event_id");
 const retryButton = element<HTMLButtonElement>("retry-publication");
 const publication = element("publication");
+const advanced = element<HTMLDetailsElement>("advanced");
+const adoptButton = element<HTMLButtonElement>("adopt-approve");
+const noEventButton = element<HTMLButtonElement>("confirm-no-event");
+const rejectButton = element<HTMLButtonElement>("quick-reject");
 let current: CandidateDetail | null = null;
+let selection: DraftSelection | null = null;
 let creating = false;
 let busy = false;
 let retry: {
@@ -37,6 +58,8 @@ function controls(): void {
     button.disabled = busy;
   });
   secret.disabled = busy;
+  reason.disabled = busy;
+  reasonPreset.disabled = busy;
   element<HTMLFieldSetElement>("editor-fields").disabled = busy || (!creating && current === null);
   articleId.readOnly = !creating;
   action.disabled = creating || busy;
@@ -45,6 +68,20 @@ function controls(): void {
   element("submit").textContent = creating ? "新建候选" : "提交操作";
   retryButton.hidden = retry === null;
   element("retry-help").hidden = retry === null;
+  // 快捷操作：只在读到候选且草稿可用时开放；有歧义的草稿必须先勾选确认。
+  const usable = !busy && !creating && current !== null && selection?.usable === true;
+  // 新建候选时理由仍要填写，只隐藏针对草稿的按钮。
+  element("quick-buttons").hidden = creating;
+  element("quick-help").hidden = creating;
+  noEventButton.hidden = selection?.noEvent !== true;
+  adoptButton.hidden = selection?.noEvent === true;
+  adoptButton.disabled =
+    !usable ||
+    selection?.noEvent === true ||
+    (selection?.keptCount() ?? 0) === 0 ||
+    (selection?.uncertain === true && !selection.confirmed());
+  noEventButton.disabled = !usable || selection?.noEvent !== true;
+  rejectButton.disabled = busy || creating || current === null;
 }
 function clearErrors(): void {
   document.querySelectorAll(".field-error").forEach((node) => {
@@ -56,6 +93,7 @@ function clearErrors(): void {
 }
 function loggedOut(): void {
   current = null;
+  selection = null;
   creating = false;
   retry = null;
   workspace.hidden = true;
@@ -64,11 +102,15 @@ function loggedOut(): void {
   secret.value = "";
   proposal.value = "";
   reason.value = "";
+  reasonPreset.value = "";
   target.value = "";
   articleId.value = "";
   element("queue").replaceChildren();
   element("blocks").replaceChildren();
+  element("readable-blocks").replaceChildren();
+  element("draft-panel").replaceChildren();
   element("evidence").replaceChildren();
+  element("ai-usage").textContent = "";
   publication.textContent = "";
 }
 function waitMessage(error: AdminRequestError): string {
@@ -77,6 +119,7 @@ function waitMessage(error: AdminRequestError): string {
     ? `请求过于频繁，请等待 ${Math.ceil(wait / 1_000)} 秒后再试。`
     : "请求过于频繁，请稍后再试。";
 }
+const KNOWN_FIELDS = ["article_version_id", "proposal_json", "reason", "target_event_id"];
 function showError(error: unknown): void {
   if (error instanceof AdminRequestError) {
     if (error.status === 401) {
@@ -92,9 +135,7 @@ function showError(error: unknown): void {
       let first: HTMLElement | null = null;
       for (const field of error.detail.fields) {
         const fieldName = field.path.replace(/^\$\./, "").split(/[.[]/)[0];
-        const known = ["article_version_id", "proposal_json", "reason", "target_event_id"].includes(
-          fieldName,
-        );
+        const known = KNOWN_FIELDS.includes(fieldName);
         const message = known ? element(`${fieldName}-error`) : element("candidate-error");
         message.textContent += `${field.path}: ${field.reason} `;
         if (known) {
@@ -132,20 +173,26 @@ function textBlock(parent: HTMLElement, value: string): void {
   pre.textContent = value;
   parent.append(pre);
 }
+function articleTitle(detail: CandidateDetail): string | null {
+  const first = detail.article.blocks[0];
+  return first && first.kind !== "html" && first.text.length > 0 ? first.text : null;
+}
 function renderDetail(detail: CandidateDetail, preserveDraft = false): void {
   current = detail;
   creating = false;
   review.hidden = false;
   const { candidate, article, evidence } = detail;
-  element("detail-title").textContent = "候选详情";
+  element("detail-title").textContent = articleTitle(detail) ?? "候选详情";
   element("candidate-meta").textContent =
     `候选 ${candidate.id} · ${candidate.review_status} · 已读版本 ${candidate.updated_at}`;
   element("article-meta").textContent =
     `来源 ${article.sourceId} · 文章 ${article.externalId} · ${article.completeness} · ${article.officialUrl}`;
+  element("media-warning").hidden = !(detail.media_count && detail.media_count > 0);
   articleId.value = article.articleVersionId;
   const saved = JSON.stringify(candidate.proposal_json, null, 2);
   if (!preserveDraft) proposal.value = saved;
   element("saved-proposal").textContent = saved;
+  renderReadableBlocks(element("readable-blocks"), detail);
   const blocks = element("blocks");
   blocks.replaceChildren();
   article.blocks.forEach((block, index) => {
@@ -163,15 +210,66 @@ function renderDetail(detail: CandidateDetail, preserveDraft = false): void {
     li.textContent = "没有已保存的证据引用；候选中的引文请对照正文核验。";
     evidenceList.append(li);
   }
+  // 草稿只对仍待审的候选有意义；没有可用草稿时直接展开高级编辑。
+  selection =
+    candidate.review_status === "pending"
+      ? renderDraft(element("draft-panel"), detail.draft, controls)
+      : renderDecided(element("draft-panel"), candidate.review_status);
+  advanced.open = !selection.usable;
 }
 async function readDetail(id: string, preserveDraft = false): Promise<CandidateDetail> {
   // 读取失败时不能继续用旧版本写入。
   current = null;
+  selection = null;
   const detail = await request<CandidateDetail>(
     `admin/review/candidates/${encodeURIComponent(id)}`,
   );
   renderDetail(detail, preserveDraft);
   return detail;
+}
+function queueItem(row: QueueRow): HTMLLIElement {
+  const li = document.createElement("li");
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = "queue-item";
+  const title = row.title ?? null;
+  // 读屏名固定为"查看候选 + 标题"；没有标题的旧数据退回候选 ID。
+  button.setAttribute("aria-label", `查看候选 ${title ?? row.id}`);
+  button.disabled = busy;
+  const heading = document.createElement("span");
+  heading.className = "queue-title";
+  heading.textContent = title ?? `候选 ${row.id}`;
+  const meta = document.createElement("span");
+  meta.className = "queue-meta";
+  const createdAt = document.createElement("time");
+  const instant = new Date(row.created_at);
+  createdAt.dateTime = instant.toISOString();
+  // 日期与时分共用 contracts 的 UTC+8 展示；秒不受整小时时区偏移影响。
+  createdAt.textContent = `${browseTimestamp(row.created_at)}:${instant.getUTCSeconds().toString().padStart(2, "0")} · ${BROWSE_TIMEZONE}`;
+  const parts = [
+    row.game ? gameName(row.game) : null,
+    row.source_id ? `来源 ${row.source_id}` : null,
+    row.external_id ? `文章 ${row.external_id}` : null,
+  ].filter((part): part is string => part !== null);
+  meta.append(createdAt, parts.length > 0 ? ` · ${parts.join(" · ")}` : "");
+  button.append(heading, meta, draftBadge(row.draft_status));
+  button.addEventListener(
+    "click",
+    () =>
+      void run(async () => {
+        clearErrors();
+        retry = null;
+        publication.textContent = "";
+        reason.value = "";
+        reasonPreset.value = "";
+        target.value = "";
+        await readDetail(row.id);
+        notice.textContent = "已读取候选，请对照原文核对草稿。";
+        element("detail-title").focus();
+      }),
+  );
+  li.append(button);
+  return li;
 }
 async function loadQueue(): Promise<void> {
   const list = element("queue");
@@ -180,6 +278,7 @@ async function loadQueue(): Promise<void> {
   state.textContent = "正在读取待审队列…";
   let cursor: string | null = null;
   let count = 0;
+  let firstPage = true;
   const seen = new Set<string>();
   try {
     do {
@@ -188,43 +287,13 @@ async function loadQueue(): Promise<void> {
       );
       workspace.hidden = false;
       login.hidden = true;
+      if (firstPage && page.ai_usage)
+        element("ai-usage").textContent =
+          `今日 AI 草稿用量 ${page.ai_usage.settled + page.ai_usage.reserved} / ${page.ai_usage.cap} Neurons（UTC ${page.ai_usage.day}）`;
+      firstPage = false;
+      // 队列一页已带标题、来源与草稿状态，不再逐条读详情。
       for (const row of page.candidates) {
-        // 队列摘要不含来源：逐项读详情补齐，不从候选 JSON 推导来源。
-        const detail = await request<CandidateDetail>(
-          `admin/review/candidates/${encodeURIComponent(row.id)}`,
-        );
-        const li = document.createElement("li");
-        const summary = document.createElement("p");
-        const createdAt = document.createElement("time");
-        const instant = new Date(row.created_at);
-        createdAt.dateTime = instant.toISOString();
-        // 日期与时分共用 contracts 的 UTC+8 展示；秒不受整小时时区偏移影响。
-        createdAt.textContent = `${browseTimestamp(row.created_at)}:${instant.getUTCSeconds().toString().padStart(2, "0")} · ${BROWSE_TIMEZONE}`;
-        summary.append(
-          createdAt,
-          ` · 来源 ${detail.article.sourceId} · 文章 ${detail.article.externalId} · ${detail.article.articleVersionId}`,
-        );
-        const button = document.createElement("button");
-        button.type = "button";
-        button.className = "button button--secondary";
-        button.textContent = `查看候选 ${row.id}`;
-        button.disabled = busy;
-        button.addEventListener(
-          "click",
-          () =>
-            void run(async () => {
-              clearErrors();
-              retry = null;
-              publication.textContent = "";
-              reason.value = "";
-              target.value = "";
-              await readDetail(row.id);
-              notice.textContent = "已读取候选，请核对正文与证据。";
-              element("detail-title").focus();
-            }),
-        );
-        li.append(summary, button);
-        list.append(li);
+        list.append(queueItem(row));
         count++;
       }
       cursor = page.next_cursor;
@@ -292,6 +361,44 @@ async function write(
     else throw error;
   }
 }
+function requireReason(): boolean {
+  if (reason.value.trim()) return true;
+  element("reason-error").textContent = "请填写操作理由。";
+  reason.setAttribute("aria-invalid", "true");
+  return false;
+}
+/** 一键批准：先采用草稿（带排除与歧义确认），重新读取最新版本后用同一理由批准。 */
+async function adoptAndApprove(): Promise<void> {
+  clearErrors();
+  if (!current || !selection?.usable || !requireReason()) return;
+  const id = current.candidate.id;
+  retry = null;
+  publication.textContent = "";
+  try {
+    await request<AdoptReply>("admin/review/adopt-draft", {
+      candidate_id: id,
+      expected_updated_at: current.candidate.updated_at,
+      reason: reason.value,
+      exclude: selection.exclude(),
+      confirm_ambiguities: selection.confirmed(),
+    });
+  } catch (error) {
+    if (error instanceof AdminRequestError && error.status === 409) return conflict(id);
+    throw error;
+  }
+  const adopted = await readDetail(id);
+  publication.textContent = "草稿已采用为候选，正在提交批准…";
+  await write(
+    "approve",
+    id,
+    {
+      candidate_id: id,
+      expected_updated_at: adopted.candidate.updated_at,
+      reason: reason.value,
+    },
+    JSON.stringify(adopted.candidate.proposal_json, null, 2),
+  );
+}
 
 login.addEventListener("submit", (event) => {
   event.preventDefault();
@@ -340,34 +447,61 @@ element("logout").addEventListener(
 element("new").addEventListener("click", () => {
   if (busy) return;
   current = null;
+  selection = null;
   creating = true;
   retry = null;
   clearErrors();
   review.hidden = false;
+  advanced.open = true;
   element("detail-title").textContent = "新建候选";
   element("candidate-meta").textContent = "新建绑定不可变文章版本；成功后重新读取正文与候选。";
   element("article-meta").textContent = "请填写已有的 article_version_id。";
+  element("media-warning").hidden = true;
   element("blocks").replaceChildren();
+  element("readable-blocks").replaceChildren();
+  element("draft-panel").replaceChildren();
   element("evidence").replaceChildren();
   element("saved-proposal").textContent = "尚未保存";
   publication.textContent = "";
   articleId.value = "";
   proposal.value = "";
   reason.value = "";
+  reasonPreset.value = "";
   target.value = "";
   controls();
   articleId.focus();
 });
+reasonPreset.addEventListener("change", () => {
+  if (reasonPreset.value) reason.value = reasonPreset.value;
+});
 action.addEventListener("change", controls);
+adoptButton.addEventListener("click", () => void run(adoptAndApprove));
+noEventButton.addEventListener("click", () => void run(adoptAndApprove));
+rejectButton.addEventListener(
+  "click",
+  () =>
+    void run(async () => {
+      clearErrors();
+      if (!current || !requireReason()) return;
+      retry = null;
+      publication.textContent = "";
+      await write(
+        "reject",
+        current.candidate.id,
+        {
+          candidate_id: current.candidate.id,
+          expected_updated_at: current.candidate.updated_at,
+          reason: reason.value,
+        },
+        JSON.stringify(current.candidate.proposal_json, null, 2),
+      );
+    }),
+);
 element<HTMLFormElement>("editor").addEventListener("submit", (event) => {
   event.preventDefault();
   void run(async () => {
     clearErrors();
-    if (!reason.value.trim()) {
-      element("reason-error").textContent = "请填写操作理由。";
-      reason.setAttribute("aria-invalid", "true");
-      return;
-    }
+    if (!requireReason()) return;
     if (creating) {
       // create 没有已有候选，P3-10 schema 不接受 expected_updated_at；文章版本不可变。
       const result = await request<{ candidate: { candidateId: string } }>("admin/review/create", {
