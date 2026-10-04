@@ -33,11 +33,15 @@ export function gameName(game: string | null | undefined): string {
   return game && game in GAME_NAMES ? GAME_NAMES[game as GameId] : (game ?? "未知游戏");
 }
 
-/** 精确时刻固定按北京时间显示；纯日期不补时刻；其余保留官方原文。 */
+/** 精确时刻固定按北京时间显示；纯日期不补时刻；其余保留官方原文。版本时间表推导的值标明推导与原文。 */
 export function formatDraftTime(time: TimeValue): string {
+  const derived = time.time_basis === "deterministic_derived";
   if (time.precision === "datetime")
-    return `${browseTimestamp(time.utc_ms)}（${BROWSE_TIMEZONE}${time.time_basis === "official_estimate" ? "，预计" : ""}）`;
-  if (time.precision === "date") return `${time.date}（仅日期）`;
+    return `${browseTimestamp(time.utc_ms)}（${BROWSE_TIMEZONE}${time.time_basis === "official_estimate" ? "，预计" : ""}${derived ? `，由「${time.raw_expression}」按版本时间表推导` : ""}）`;
+  if (time.precision === "date")
+    return derived
+      ? `${time.date}（仅日期，由「${time.raw_expression}」按版本时间表推导）`
+      : `${time.date}（仅日期）`;
   return `${time.raw_expression}（原文，未定时刻）`;
 }
 

@@ -1,5 +1,9 @@
 import { expect, type Page, type Route, test } from "@playwright/test";
-import type { CandidateDetail, QueuePage } from "../../apps/web/src/features/admin/types";
+import type {
+  CandidateDetail,
+  QueuePage,
+  VersionListing,
+} from "../../apps/web/src/features/admin/types";
 import { buildApiErrorBody } from "../../packages/contracts/src/index";
 
 // E2 合成响应：不访问 Worker、真实账号、官方来源或邮件链路。
@@ -121,6 +125,8 @@ function draftDetail(
       reason_code: null,
       usage: { neurons: 13, prompt_tokens: 1219, completion_tokens: 221 },
       updated_at: 1_900_000_000_000,
+      derived_count: 0,
+      derivation_key: '[["7.1",0]]',
     },
   } as unknown as CandidateDetail;
 }
@@ -177,8 +183,10 @@ async function setup(page: Page, options: { loggedIn?: boolean; pages?: QueuePag
     logoutNetworkFailure: false,
     preauthWait: Promise.resolve(),
     write: null as ((route: Route, call: Call) => Promise<void>) | null,
+    pages: [] as QueuePage[],
+    versions: { versions: [], suggestions: [], pending_references: {} } as VersionListing,
   };
-  const pages = options.pages ?? [
+  state.pages = options.pages ?? [
     {
       candidates: [
         { id: "synthetic-candidate", created_at: 1_900_000_000_000, updated_at: 1_900_000_000_000 },
@@ -240,7 +248,14 @@ async function setup(page: Page, options: { loggedIn?: boolean; pages?: QueuePag
         return route.fulfill({ status: 503, json: buildApiErrorBody("temporarily_unavailable") });
       const cursor = url.searchParams.get("cursor");
       const index = cursor === null ? 0 : Number(cursor);
-      return route.fulfill({ json: pages[index] });
+      return route.fulfill({ json: state.pages[index] });
+    }
+    if (path === "admin/versions" && req.method() === "GET")
+      return route.fulfill({ json: state.versions });
+    if (path.startsWith("admin/versions/") && req.method() === "POST") {
+      state.writes++;
+      if (state.write) return state.write(route, call);
+      return route.fulfill({ json: { version: null } });
     }
     if (path.startsWith("admin/review/candidates/")) {
       state.reads++;
@@ -336,17 +351,15 @@ test.describe("A-F6-REVIEW", () => {
     expect(state.calls.some((call) => call.path === "admin/session/bootstrap")).toBe(false);
     releasePreauth(); // 在预认证响应尚未返回时，输入就必须已经清空。
     await expect(page.getByText("没有待审核的候选", { exact: true })).toBeVisible();
-    // 工作区出现后，运行开关面板只做一次被动读取（GET，无 CSRF、无请求体）；等它落定再核对全部请求。
-    await expect(page.locator("#controls-status")).toHaveText(controlsRead);
+    // P3-19：运行开关拆到独立页面，审核页登录后只读队列。
+    await expect(page.locator("#controls-panel")).toHaveCount(0);
     const nonQueue = state.calls.filter((call) => call.path !== "admin/review/queue");
     expect(nonQueue.map((call) => `${call.method} ${call.path}`)).toEqual([
       "POST auth/preauth",
       "POST admin/session/bootstrap",
-      "GET admin/controls",
     ]);
     expect(nonQueue[1].body).toEqual({ secret: syntheticSecret });
     expect(nonQueue[1].csrf).toBe("synthetic-preauth");
-    expect(nonQueue[2]).toMatchObject({ body: {}, csrf: undefined });
     expect(
       state.calls.filter((call) => JSON.stringify(call).includes(syntheticSecret)),
     ).toHaveLength(1);
@@ -364,7 +377,6 @@ test.describe("A-F6-REVIEW", () => {
     expect(logs.join("\n")).not.toContain(syntheticSecret);
     await page.reload(); // 不依赖本地登录标志，直接查询管理接口。
     await expect(page.getByText("没有待审核的候选", { exact: true })).toBeVisible();
-    await expect(page.locator("#controls-status")).toHaveText(controlsRead);
     await page.getByRole("button", { name: "退出管理端", exact: true }).click();
     await expect(page.locator("#notice")).toHaveText("已退出管理端。");
     await expect(input).toBeVisible();
@@ -374,9 +386,8 @@ test.describe("A-F6-REVIEW", () => {
       csrf: "synthetic-admin",
     });
     // 每次工作区出现只读一次运行开关：不轮询、不写入。
-    expect(
-      state.calls.filter((call) => call.path === "admin/controls").map((call) => call.method),
-    ).toEqual(["GET", "GET"]);
+    // P3-19：开关拆到独立页面，审核页不读取开关。
+    expect(state.calls.filter((call) => call.path === "admin/controls")).toEqual([]);
     expect(state.calls.some((call) => call.path.startsWith("me"))).toBe(false);
   });
   test("登录失败统一提示且不回显响应文本，限速只显示公开等待", async ({ page }) => {
@@ -701,7 +712,13 @@ test.describe("A-F6-REVIEW", () => {
       "noindex, nofollow",
     );
     await expect(page.getByText(/建议用单独的浏览器配置文件/)).toBeVisible();
-    await expect(page.locator("nav")).toHaveCount(0);
+    // 只有管理端内部的三个页签，不出现公共站点导航或指向公共页面的链接。
+    const tabs = page.getByRole("navigation", { name: "管理后台页面" }).getByRole("link");
+    await expect(tabs).toHaveText(["审核", "版本时间表", "运行开关"]);
+    await expect(page.locator("nav")).toHaveCount(1);
+    await expect(
+      page.locator('a[href="/"], a[href^="/subscription"], a[href^="/account"]'),
+    ).toHaveCount(0);
   });
 });
 
@@ -757,6 +774,7 @@ test.describe("A-P3-DRAFT", () => {
       candidate_id: "synthetic-candidate",
       expected_updated_at: 1_900_000_000_000,
       expected_draft_updated_at: 1_900_000_000_000,
+      expected_derivation_key: '[["7.1",0]]',
       reason,
       exclude: ["e0.m0"],
       confirm_ambiguities: false,
@@ -812,5 +830,162 @@ test.describe("A-P3-DRAFT", () => {
     await page.getByRole("button", { name: "采用草稿并批准", exact: true }).click();
     await expect(page.locator("#notice")).toContainText("已在别处改过。已重新读取");
     expect(state.calls.filter((call) => call.path === "admin/review/approve")).toEqual([]);
+  });
+});
+
+test.describe("P3-19 管理端拆页", () => {
+  test("运行开关在独立页面：登录一次三页通用，审核页不再读取开关", async ({ page }) => {
+    const state = await setup(page, {
+      loggedIn: false,
+      pages: [{ candidates: [], next_cursor: null }],
+    });
+    await page.goto("/admin/");
+    await page.getByLabel("引导秘密").fill(syntheticSecret);
+    await page.getByRole("button", { name: "登录管理端", exact: true }).click();
+    await expect(page.getByText("没有待审核的候选", { exact: true })).toBeVisible();
+    await page.getByRole("link", { name: "运行开关", exact: true }).click();
+    await expect(page).toHaveURL(/\/admin\/settings\/$/);
+    await expect(page.locator("#controls-status")).toHaveText(controlsRead);
+    await expect(page.locator("#login")).toBeHidden();
+    await expect(page.getByRole("link", { name: "运行开关", exact: true })).toHaveAttribute(
+      "aria-current",
+      "page",
+    );
+    expect(state.calls.filter((call) => call.path === "admin/session/bootstrap")).toHaveLength(1);
+  });
+
+  test("审核页按游戏与草稿状态筛选；处理完自动打开下一条", async ({ page }) => {
+    const row = (id: string, game: string, title: string, draft: "ready" | null) => ({
+      id,
+      created_at: 1_900_000_000_000,
+      updated_at: 1_900_000_000_000,
+      source_id: `${game}-ann`,
+      external_id: id,
+      game,
+      title,
+      draft_status: draft,
+    });
+    const first = row("synthetic-candidate", "genshin", draftTitle, "ready");
+    const second = row("synthetic-second", "hsr", "「合成」跃迁：第二条", null);
+    const state = await setup(page, {
+      pages: [{ candidates: [first, second], next_cursor: null }],
+    });
+    state.current = draftDetail();
+    await page.goto("/admin/");
+    await expect(page.locator("#queue-state")).toHaveText("已读完队列，共 2 个待审核候选。");
+    await page.getByLabel("游戏").selectOption("hsr");
+    await expect(page.locator("#queue .queue-item")).toHaveCount(1);
+    await expect(page.locator("#queue-state")).toContainText("当前筛选显示 1 个");
+    await page.getByLabel("游戏").selectOption("all");
+    await page.getByLabel("草稿", { exact: true }).selectOption("ready");
+    await expect(page.locator("#queue .queue-item")).toHaveCount(1);
+    await page.getByLabel("草稿", { exact: true }).selectOption("all");
+    await page.getByRole("button", { name: `查看候选 ${draftTitle}`, exact: true }).click();
+    await expect(page.locator(`#queue .queue-item[data-id="synthetic-candidate"]`)).toHaveAttribute(
+      "aria-current",
+      "true",
+    );
+    // 批准后第一条离开队列：队列只剩第二条，页面自动打开它。
+    state.write = async (route, call) => {
+      if (call.path.endsWith("approve"))
+        state.pages = [{ candidates: [second], next_cursor: null }];
+      state.current.candidate.updated_at++;
+      if (call.path.endsWith("adopt-draft"))
+        return route.fulfill({
+          json: {
+            candidate_id: "synthetic-candidate",
+            review_status: "pending",
+            updated_at: state.current.candidate.updated_at,
+          },
+        });
+      state.current.candidate.review_status = "approved";
+      return route.fulfill({
+        json: {
+          candidate_id: "synthetic-candidate",
+          review_status: "approved",
+          updated_at: state.current.candidate.updated_at,
+          publication: { outcome: "published" },
+        },
+      });
+    };
+    await page.getByLabel("操作理由", { exact: true }).fill("合成人工核对理由");
+    await page.getByRole("button", { name: "采用草稿并批准", exact: true }).click();
+    await expect(page.locator("#notice")).toHaveText("已处理完上一条，自动打开队列中的下一条。");
+    await expect(page.locator("#publication")).toContainText("已批准、已发布");
+    await expect(page.locator(`#queue .queue-item[data-id="synthetic-second"]`)).toHaveAttribute(
+      "aria-current",
+      "true",
+    );
+  });
+
+  test("A-P3-VERSION 版本时间表：显示摘录与影响条数，采用与清除都带理由和已读版本", async ({
+    page,
+  }, testInfo) => {
+    const state = await setup(page);
+    state.versions = {
+      versions: [
+        {
+          game: "hsr",
+          version: "4.6",
+          update_start_ms: Date.parse("2026-09-27T22:00:00Z"),
+          update_start_source: "s46",
+          version_end_ms: null,
+          version_end_source: null,
+          version_end_basis: null,
+          updated_at: 1_900_000_000_500,
+        },
+      ],
+      suggestions: [
+        {
+          id: "s46",
+          game: "hsr",
+          version: "4.6",
+          article_version_id: "v46",
+          title: "4.6版本「月升之前，与兽共舞」版本更新说明",
+          update_start_ms: Date.parse("2026-09-27T22:00:00Z"),
+          update_start: { block_ref: "blocks/10", quote: "2026/09/28 06:00:00" },
+          update_duration: { block_ref: "blocks/10", quote: "预计5个小时完成" },
+          version_end_ms: Date.parse("2026-11-10T22:00:00Z"),
+          version_end: { block_ref: "blocks/7", quote: "2026/11/11 06:00:00" },
+          created_at: 1_900_000_000_000,
+        },
+      ],
+      pending_references: { "hsr:4.6": 3 },
+    };
+    await page.goto("/admin/versions/");
+    const card = page.getByRole("article", { name: "崩坏：星穹铁道 4.6 版本" });
+    await expect(card).toContainText("影响 3 条待审草稿");
+    await expect(card).toContainText("2026-09-28 06:00（北京时间 UTC+8）");
+    await expect(card).toContainText("预计5个小时完成");
+    await expect(page.getByRole("article", { name: "原神 7.1 版本" })).toHaveCount(0);
+    await page.screenshot({ path: testInfo.outputPath("admin-versions.png"), fullPage: true });
+    // 没填理由不发请求。
+    await card.getByRole("button", { name: "采用", exact: true }).click();
+    await expect(page.locator("#reason-error")).toHaveText("请先填写或选择确认理由。");
+    expect(state.writes).toBe(0);
+    await page.getByLabel("常用理由").selectOption({ index: 1 });
+    await card.getByRole("button", { name: "采用", exact: true }).click();
+    await expect(page.locator("#notice")).toContainText("已确认");
+    const confirm = state.calls.find((call) => call.path === "admin/versions/confirm");
+    expect(confirm?.body).toEqual({
+      game: "hsr",
+      version: "4.6",
+      field: "version_end",
+      suggestion_id: "s46",
+      expected_updated_at: 1_900_000_000_500,
+      reason: "已对照版本公告原文核对",
+    });
+    await card.getByRole("button", { name: "清除确认", exact: true }).click();
+    const clear = state.calls.find((call) => call.path === "admin/versions/clear");
+    expect(clear?.body).toEqual({
+      game: "hsr",
+      version: "4.6",
+      field: "update_start",
+      expected_updated_at: 1_900_000_000_500,
+      reason: "已对照版本公告原文核对",
+    });
+    expect(
+      state.calls.filter((call) => call.method === "POST").every((call) => call.csrf !== undefined),
+    ).toBe(true);
   });
 });

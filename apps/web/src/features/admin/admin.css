@@ -377,3 +377,177 @@
     align-items: flex-start;
   }
 }
+
+/* P3-19：管理端页签（审核 / 版本时间表 / 运行开关）。 */
+.admin-tabs {
+  display: flex;
+  gap: var(--space-1);
+  margin-left: var(--space-3);
+}
+
+.admin-tab {
+  padding: var(--space-1) var(--space-3);
+  border-radius: var(--radius-pill);
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-small);
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.admin-tab:hover {
+  background: var(--color-bg-hover);
+  color: var(--color-text-primary);
+}
+
+.admin-tab--active {
+  background: var(--color-accent-soft);
+  color: var(--color-accent-strong);
+}
+
+.admin-logout {
+  margin-left: auto;
+}
+
+/* 审核页：左侧队列 + 右侧详情。 */
+.review-layout {
+  display: grid;
+  grid-template-columns: minmax(280px, 340px) minmax(0, 1fr);
+  align-items: start;
+  gap: var(--space-4);
+}
+
+.queue-panel {
+  position: sticky;
+  top: var(--space-4);
+}
+
+.queue-panel .card-body {
+  max-height: calc(100vh - 160px);
+  overflow: auto;
+}
+
+.queue-filters {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-2);
+}
+
+.queue-filters .field {
+  margin: 0;
+}
+
+.queue-item[aria-current="true"] {
+  background: var(--color-accent-soft);
+  box-shadow: inset 3px 0 0 var(--color-accent-strong);
+}
+
+.review-panel {
+  min-width: 0;
+}
+
+/* 版本时间表。 */
+.version-toolbar {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.5fr) auto;
+  align-items: end;
+  gap: var(--space-3);
+}
+
+.version-toolbar .field {
+  margin: 0;
+}
+
+.version-rule {
+  margin: 0;
+  padding: 0 var(--space-4) var(--space-3);
+}
+
+.versions {
+  display: grid;
+  gap: var(--space-4);
+}
+
+.version-card {
+  display: grid;
+  gap: var(--space-3);
+  padding: var(--space-3);
+  border: var(--border-thin) solid var(--color-border);
+  border-radius: var(--radius-control);
+}
+
+.version-card h3 {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  margin: 0;
+}
+
+.version-field {
+  display: grid;
+  gap: var(--space-2);
+}
+
+.version-field > * {
+  margin: 0;
+}
+
+.version-field-name {
+  font-weight: 650;
+}
+
+.version-value {
+  font-weight: 600;
+}
+
+.version-suggestions {
+  display: grid;
+  gap: var(--space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.version-suggestion {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-control);
+  background: var(--color-bg-subtle);
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 960px) {
+  .review-layout,
+  .version-toolbar {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .queue-panel {
+    position: static;
+  }
+
+  .queue-panel .card-body {
+    max-height: none;
+  }
+
+  .admin-bar-inner {
+    flex-wrap: wrap;
+    height: auto;
+    padding-top: var(--space-2);
+    padding-bottom: var(--space-2);
+  }
+
+  .admin-tabs {
+    order: 3;
+    width: 100%;
+    margin-left: 0;
+  }
+}
+
+.version-field > .button {
+  justify-self: start;
+}

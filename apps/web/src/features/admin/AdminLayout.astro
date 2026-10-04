@@ -1,0 +1,73 @@
+---
+// 管理端各页共用的外壳：noindex、顶部页签、登录表单与提示。页签只在管理端内部互链，公共页面不链接管理端。
+import "../../styles/base.css";
+import "./admin.css";
+import Icon from "../../components/Icon.astro";
+
+interface Props {
+  active: "review" | "versions" | "settings";
+  title: string;
+  lead: string;
+}
+const { active, title, lead } = Astro.props;
+const tabs = [
+  { id: "review", href: "/admin/", label: "审核" },
+  { id: "versions", href: "/admin/versions/", label: "版本时间表" },
+  { id: "settings", href: "/admin/settings/", label: "运行开关" },
+] as const;
+---
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="robots" content="noindex, nofollow" />
+    <meta name="referrer" content="no-referrer" />
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <title>{title} · 管理后台 · HoYo日历</title>
+  </head>
+  <body class="admin-body">
+    <a class="skip-link" href="#main">跳到主要内容</a>
+    <header class="admin-bar">
+      <div class="admin-bar-inner">
+        <span class="brand"><span class="brand-mark" aria-hidden="true"><Icon name="calendar" /></span><span>HoYo日历</span></span>
+        <span class="badge badge--warning">管理后台</span>
+        <nav class="admin-tabs" aria-label="管理后台页面">
+          {tabs.map((tab) => (
+            <a
+              href={tab.href}
+              class:list={["admin-tab", { "admin-tab--active": tab.id === active }]}
+              aria-current={tab.id === active ? "page" : undefined}
+            >
+              {tab.label}
+            </a>
+          ))}
+        </nav>
+        <button id="logout" class="button button--ghost button--sm admin-logout" type="button" hidden><Icon name="log-out" />退出管理端</button>
+      </div>
+    </header>
+    <main class="app-main admin-main" id="main" tabindex="-1">
+      <header class="page-header admin-heading">
+        <div>
+          <h1>{title}</h1>
+          <p class="lead">{lead}</p>
+        </div>
+      </header>
+      <p class="callout callout--info admin-help">建议用单独的浏览器配置文件登录管理端。管理员与用户共用 CSRF Cookie；登录管理端会覆盖用户页的 CSRF Cookie，用户页写操作将被拒绝，直到重新取得 CSRF。</p>
+      <p id="notice" class="admin-notice result-message" role="status" aria-live="polite"></p>
+
+      <form id="login" class="card admin-login" hidden autocomplete="off">
+        <h2>登录管理端</h2>
+        <div class="field">
+          <label for="secret">引导秘密</label>
+          <input id="secret" type="password" autocomplete="off" autocapitalize="off" spellcheck="false" required />
+          <p class="field-hint">只通过 HTTPS 请求体提交，换取短期管理员会话；登录一次，三个页面通用。</p>
+        </div>
+        <button class="button button--block" type="submit">登录管理端</button>
+      </form>
+
+      <slot />
+      <noscript>请启用 JavaScript 后使用管理后台。</noscript>
+    </main>
+  </body>
+</html>
