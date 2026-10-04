@@ -82,7 +82,13 @@ async function seedSource(sourceId: string): Promise<void> {
 export async function seedRuleCandidate(
   sourceId: string,
   entry: FixtureEntry,
-  options: { completeness?: ArticleCompleteness; html?: string; nowMs?: number } = {},
+  options: {
+    completeness?: ArticleCompleteness;
+    html?: string;
+    nowMs?: number;
+    /** 载荷里的发布时间；默认取 nowMs。游戏内公告的真实载荷没有发布时间，可传 null。 */
+    publishedAtMs?: number | null;
+  } = {},
 ): Promise<{ candidateId: string; versionId: string; article: StoredArticleVersion }> {
   await seedSource(sourceId);
   const source = getSourceEntry(sourceId);
@@ -117,7 +123,7 @@ export async function seedRuleCandidate(
       JSON.stringify(blocks),
       JSON.stringify(media),
       options.completeness ?? "complete",
-      nowMs,
+      options.publishedAtMs === undefined ? nowMs : options.publishedAtMs,
       nowMs,
       nowMs,
     ),
