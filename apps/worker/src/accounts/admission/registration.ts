@@ -144,6 +144,18 @@ export async function reserveRegistrationSlot(
   db: D1Database,
   plan: RegistrationSlotPlan,
 ): Promise<RegistrationSlotResult> {
+  // 已过期、清理任务尚未释放的同邮箱预占仍占着部分唯一索引，会让重新注册收不到验证码。
+  // 先按清理任务同一 CAS 释放；所有路径执行同形语句（无过期行时守卫零命中、零写入）。
+  const stale = await db
+    .prepare(`SELECT id, expires_at FROM admission_reservations
+      WHERE email_key = ? AND state = 'reserved' AND expires_at <= ? LIMIT 1`)
+    .bind(plan.emailKey, plan.now)
+    .first<{ id: string; expires_at: number }>();
+  await releaseExpiredRegistration(
+    db,
+    { id: stale?.id ?? "", expiresAt: stale?.expires_at ?? plan.now },
+    plan.now,
+  );
   try {
     const outcome = await reserveAdmissionSlot(db, {
       reservationId: plan.reservationId,

@@ -353,6 +353,13 @@ export async function verifyRecentOtp(
   if (recent.verifyAttempts >= EMAIL_VERIFY_ATTEMPTS_HOUR)
     throw new ApiError("rate_limited", { code: "rate_limited" });
   const verifyGuard = authQuotaGuard(row.email_key, now, "verify");
+  // 先扣次数再比对：未抢到名额（并发用尽或邮箱级小时合计到顶）不比对；命中后退回。
+  const reservation = await db
+    .prepare(`UPDATE recent_auth_challenges SET attempts = attempts + 1, updated_at = ?
+    WHERE id = ? AND consumed_at IS NULL AND aborted_at IS NULL AND deadline > ? AND attempts < ? AND ${verifyGuard.sql}`)
+    .bind(now, row.id, now, OTP_ATTEMPTS, ...verifyGuard.params)
+    .run();
+  if (reservation.meta.changes !== 1) throw invalidProof();
   const matched = await verifyOtpMac(
     keys.otpMac(),
     {
@@ -365,14 +372,12 @@ export async function verifyRecentOtp(
     },
     row.mac,
   );
-  if (!matched) {
-    await db
-      .prepare(`UPDATE recent_auth_challenges SET attempts = attempts + 1, updated_at = ?
-      WHERE id = ? AND consumed_at IS NULL AND aborted_at IS NULL AND deadline > ? AND attempts < ? AND ${verifyGuard.sql}`)
-      .bind(now, row.id, now, OTP_ATTEMPTS, ...verifyGuard.params)
-      .run();
-    throw invalidProof();
-  }
+  if (!matched) throw invalidProof();
+  await db
+    .prepare(`UPDATE recent_auth_challenges SET attempts = attempts - 1, updated_at = ?
+    WHERE id = ? AND attempts > 0`)
+    .bind(now, row.id)
+    .run();
   const proofId = crypto.randomUUID();
   const outcome = await conditionalCommit(db, {
     guard: {

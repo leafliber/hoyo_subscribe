@@ -5,6 +5,7 @@ import { ApiError } from "../../shell/errors";
 import { conditionalCommit } from "../../storage/cas";
 import type { RecentSession } from "../challenges/recent-auth";
 import { verifyRecoveryCredential } from "../recovery/action";
+import { chargeRecoveryId } from "../recovery/rate";
 import { targetForAction } from "./target";
 
 const SECOND = 1_000;
@@ -19,6 +20,9 @@ export async function proveWithRecoveryCode(
   now: number,
 ): Promise<string> {
   const target = await targetForAction(action, rawTargetEmail);
+  // §4.6：核验前按 recovery_id 计入与公开恢复入口同一组窗口；未知 ID 与错误秘密同样入账。
+  if (!(await chargeRecoveryId(db, recoveryId, now)))
+    throw new ApiError("rate_limited", { code: "rate_limited" });
   const credential = await verifyRecoveryCredential(db, recoveryId, secret);
   if (credential === null || credential.user_id !== session.userId) {
     throw new ApiError("unauthorized", { code: "unauthorized", reason: "recent_auth_required" });

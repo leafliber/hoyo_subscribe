@@ -2044,3 +2044,142 @@ describe("A-P2-OTP P2-09 复核旧预留归还", () => {
     },
   );
 });
+
+describe("A-P2-OTP 先扣次数再比对", () => {
+  /** 被测请求读完开放挑战后在屏障处等齐，再同时进入扣次数与比对。 */
+  function gatedDb(match: (sql: string) => boolean, total: number): D1Database {
+    let loaded = 0;
+    let release: () => void = () => {};
+    const barrier = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const arrive = async () => {
+      loaded++;
+      if (loaded === total) release();
+      await barrier;
+    };
+    return new Proxy(env.DB, {
+      get(target, prop) {
+        if (prop === "prepare")
+          return (sql: string) => {
+            const statement = target.prepare(sql);
+            if (!match(sql)) return statement;
+            return {
+              bind: (...args: unknown[]) => ({
+                async all() {
+                  const result = await statement.bind(...args).all();
+                  await arrive();
+                  return result;
+                },
+                async first() {
+                  const result = await statement.bind(...args).first();
+                  await arrive();
+                  return result;
+                },
+              }),
+            };
+          };
+        const value = Reflect.get(target, prop, target);
+        return typeof value === "function" ? value.bind(target) : value;
+      },
+    }) as D1Database;
+  }
+  function reasonOf(outcome: PromiseSettledResult<unknown>): string {
+    if (outcome.status === "fulfilled") return "fulfilled";
+    const details = (outcome.reason as { details?: { fields?: { reason: string }[] } }).details;
+    return details?.fields?.[0]?.reason ?? String((outcome.reason as { code?: string }).code);
+  }
+
+  it("同一挑战并发错码最多比对 OTP_ATTEMPTS 次，其余直接耗尽，持久次数不越界", async () => {
+    isolateDay();
+    const email = freshEmail("concurrent-verify");
+    await seedUser(email, email);
+    const ctx = await preauthContext();
+    await apply({ email, preauthValue: ctx.value });
+    const emailKey = await emailKeyOf(email);
+    const challenge = (await challengesOf(emailKey, ctx.id))[0];
+    const correct = (await latestPayload(challenge.id)).code;
+    const wrong = `${correct[0] === "0" ? "1" : "0"}${correct.slice(1)}`;
+    const total = 2 * OTP_ATTEMPTS;
+    const db = gatedDb((sql) => sql.includes("ORDER BY created_at DESC"), total);
+    const keys = await testKeyring;
+    const requests = await Promise.all(
+      Array.from({ length: total }, () =>
+        buildRequest("/api/v2/auth/challenges/verify", { email, preauthValue: ctx.value }, {}),
+      ),
+    );
+    const outcomes = await Promise.allSettled(
+      requests.map((request) =>
+        runVerifyOtp({ db, keys, now: clock }, { request, email, code: wrong }),
+      ),
+    );
+    const reasons = outcomes.map(reasonOf);
+    expect(reasons.filter((reason) => reason === "mismatch")).toHaveLength(OTP_ATTEMPTS);
+    expect(reasons.filter((reason) => reason === "attempts_exhausted")).toHaveLength(
+      total - OTP_ATTEMPTS,
+    );
+    expect((await challengesOf(emailKey, ctx.id))[0].attempts).toBe(OTP_ATTEMPTS);
+    const exhausted = await verify({ email, code: correct, preauthValue: ctx.value });
+    expect(await fieldReason(exhausted)).toBe("attempts_exhausted");
+  });
+
+  it("多条开放挑战每条被比对都扣次数；正确码命中退回预扣，只留错误次数", async () => {
+    isolateDay();
+    const email = freshEmail("refund-verify");
+    await seedUser(email, email);
+    const ctx = await preauthContext();
+    await apply({ email, idempotencyKey: "refund-a", preauthValue: ctx.value });
+    clockMs += OTP_COOLDOWN * SECOND;
+    await apply({ email, idempotencyKey: "refund-b", preauthValue: ctx.value });
+    const emailKey = await emailKeyOf(email);
+    const [older, newer] = await challengesOf(emailKey, ctx.id);
+    const code = (await latestPayload(older.id)).code;
+    const newerCode = (await latestPayload(newer.id)).code;
+    let wrong = `${code[0] === "0" ? "1" : "0"}${code.slice(1)}`;
+    if (wrong === newerCode) wrong = `${wrong.slice(0, -1)}${wrong.endsWith("0") ? "1" : "0"}`;
+    expect(await fieldReason(await verify({ email, code: wrong, preauthValue: ctx.value }))).toBe(
+      "mismatch",
+    );
+    expect((await challengesOf(emailKey, ctx.id)).map((row) => row.attempts)).toEqual([1, 1]);
+    const ok = await verify({ email, code, preauthValue: ctx.value });
+    expect(ok.status).toBe(200);
+    const after = await challengesOf(emailKey, ctx.id);
+    expect(after.map((row) => row.attempts)).toEqual([1, 2]);
+    expect(after[0].consumed_at).not.toBeNull();
+  });
+
+  it("最近认证并发错码同样先扣次数再比对：比对次数与持久次数都不越过 OTP_ATTEMPTS", async () => {
+    isolateDay();
+    const email = freshEmail("concurrent-recent");
+    const owner = await recentOwner(email);
+    const recentId = await recentStart(owner);
+    const code = (await latestPayload(recentId)).code;
+    const wrong = `${code[0] === "0" ? "1" : "0"}${code.slice(1)}`;
+    const total = 2 * OTP_ATTEMPTS;
+    const db = gatedDb((sql) => sql.includes("FROM recent_auth_challenges WHERE id = ?"), total);
+    const keys = await testKeyring;
+    const spy = vi.spyOn(crypto.subtle, "verify");
+    try {
+      const outcomes = await Promise.allSettled(
+        Array.from({ length: total }, () =>
+          verifyRecentOtp(db, keys, owner, recentId, wrong, clockMs),
+        ),
+      );
+      expect(outcomes.every((outcome) => outcome.status === "rejected")).toBe(true);
+      expect(spy.mock.calls.length).toBeLessThanOrEqual(OTP_ATTEMPTS);
+    } finally {
+      spy.mockRestore();
+    }
+    expect(
+      (
+        await query<{ attempts: number }>(
+          "SELECT attempts FROM recent_auth_challenges WHERE id = ?",
+          recentId,
+        )
+      )[0]?.attempts,
+    ).toBe(OTP_ATTEMPTS);
+    await expect(
+      verifyRecentOtp(env.DB, keys, owner, recentId, code, clockMs),
+    ).rejects.toMatchObject({ code: "unauthorized" });
+  });
+});
