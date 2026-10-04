@@ -2,6 +2,7 @@
 // 普通变更日额及新 pending 会话以一个 D1 条件提交决定；0017 触发器同批废止旧权限。
 import {
   ACCOUNT_DELETING_STATUS,
+  AUTH_COMPLETION_TTL,
   GLOBAL_MUTATIONS_DAY,
   mutationCounterKeys,
   RECENT_AUTH_TTL,
@@ -9,6 +10,7 @@ import {
   utcDayPeriod,
 } from "@hoyo/contracts";
 import type { RecentSession } from "../../auth/challenges/recent-auth";
+import { encryptCompletionReceipt } from "../../auth/consume/receipt";
 import { makePendingSession, type PendingSessionValues } from "../../auth/consume/session";
 import { targetForAction } from "../../auth/recent-auth/target";
 import { hashRecoverySecret } from "../../auth/recovery/credential";
@@ -84,6 +86,17 @@ export async function changeEmail(
     target.deliveryAddress ?? "",
   );
   const pendingSession = await makePendingSession(now);
+  // 与登录、恢复登录相同：pending 会话要凭同批写入的完成回执才能由浏览器确认激活（§4.4）。
+  // Cookie 由本响应直接下发；回执的 preauth 标记不是任何真实预认证 ID，/auth/complete 无法领取。
+  const receiptId = crypto.randomUUID();
+  const receiptMarker = `email_change:${pendingSession.id}`;
+  const receiptExpiresAt = Math.min(now + AUTH_COMPLETION_TTL * SECOND, pendingSession.expiresAt);
+  const receiptCiphertext = await encryptCompletionReceipt(keys.fieldEncryption(), receiptId, {
+    preauthId: receiptMarker,
+    operationKey: crypto.randomUUID(),
+    pendingSessionId: pendingSession.id,
+    cookieValue: "",
+  });
   const { userKey, globalKey } = mutationCounterKeys(session.userId, utcDayPeriod(now).key);
   const channelEffects = await collectLifecycleEffects(
     { db, userId: session.userId, now, event: "email_change" },
@@ -121,6 +134,47 @@ export async function changeEmail(
     consumeProof(currentProofId, session.userId, session.sessionId, now),
     consumeProof(newProofId, session.userId, session.sessionId, now),
     ...channelEffects,
+    // 已消费、不可校验的回执行：不进入验证码校验、重发与未消费配额，也不是恢复登录。
+    {
+      kind: "insert",
+      table: "auth_challenges",
+      columns: [
+        "id",
+        "purpose",
+        "email_key",
+        "address_version",
+        "preauth_id",
+        "mac",
+        "generation",
+        "attempts",
+        "deadline",
+        "consumed_at",
+        "receipt_ciphertext",
+        "receipt_expires_at",
+        "pending_session_id",
+        "created_at",
+        "updated_at",
+      ],
+      rows: [
+        [
+          receiptId,
+          "email_change",
+          emailKey,
+          user.email_version + 1,
+          receiptMarker,
+          "never-authorize",
+          0,
+          0,
+          receiptExpiresAt,
+          now,
+          receiptCiphertext,
+          receiptExpiresAt,
+          pendingSession.id,
+          now,
+          now,
+        ],
+      ],
+    },
     {
       kind: "insert",
       table: "sessions",

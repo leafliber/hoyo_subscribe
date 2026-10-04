@@ -194,7 +194,7 @@ export async function processStoredFeedback(
 // 无流量时由后续 P5 维护调用；正常 Queue 重试自行再次关联，不依赖新事件到来。
 export async function reconcileFeedbackPage(
   db: D1Database,
-  keys: FeedbackKeys,
+  keys: FeedbackKeys | (() => Promise<FeedbackKeys>),
   now: number,
 ): Promise<number> {
   const pending = (
@@ -205,8 +205,11 @@ export async function reconcileFeedbackPage(
       .bind(now, FEEDBACK_BATCH)
       .all<Stored>()
   ).results;
+  if (pending.length === 0) return 0;
+  // 只有确有待关联反馈才派生密钥：未配置密钥且无待办是能力关闭，不是维护故障。
+  const resolved = typeof keys === "function" ? await keys() : keys;
   let completed = 0;
-  for (const row of pending) if (await processStoredFeedback(db, row, keys, now)) completed++;
+  for (const row of pending) if (await processStoredFeedback(db, row, resolved, now)) completed++;
   return completed;
 }
 interface ArchiveRow {

@@ -15,6 +15,7 @@ import {
   collectSafetyPauseEffects,
   retireInvalidatedSessions,
   type SafetyPauseEffectHook,
+  safetyPauseOpenSql,
 } from "./pause";
 import { chargeRecoveryId, type RecoverySourceGate } from "./rate";
 
@@ -84,10 +85,10 @@ async function emergencyStop(
   row: CurrentCredential,
   now: number,
 ): Promise<void> {
-  const effects = await collectSafetyPauseEffects(
-    { db: deps.db, userId: row.user_id, now },
-    deps.pauseHooks ?? [],
-  );
+  const hooks = deps.pauseHooks ?? [];
+  const effects = await collectSafetyPauseEffects({ db: deps.db, userId: row.user_id, now }, hooks);
+  // “已停过”不等于“已全部关闭”：恢复登录或上次停用之后重新开启的 Feed/邮件也要算未关闭。
+  const open = safetyPauseOpenSql(hooks);
   await deps.beforeCommit?.();
   const result = await conditionalCommit(deps.db, {
     guard: {
@@ -97,33 +98,27 @@ async function emergencyStop(
           AND EXISTS (SELECT 1 FROM recovery_credentials c WHERE c.id = ?
             AND c.user_id = users.id AND c.secret_hash = ? AND c.consumed_at IS NULL)
           AND (last_recovery_stop_epoch IS NULL OR last_recovery_stop_epoch <> auth_epoch
-            OR EXISTS (SELECT 1 FROM sessions s WHERE s.user_id = users.id
-              AND s.auth_epoch = users.auth_epoch AND s.recovery_epoch = users.recovery_epoch
-              AND s.state IN ('pending','active') AND s.expires_at > ? AND s.absolute_expires_at > ?))`,
+            OR ${open})`,
       params: [now, row.user_id, row.auth_epoch, row.id, row.secret_hash, now, now],
     },
     effects,
   });
   if (result.outcome === "condition_missed") {
-    // 只在另一请求已完成同一停用且当前无有效会话时折叠为幂等成功。
-    // 若 CAS 输给了并发新登录，不能把仍需停用的账号谎报为已停用。
+    // 只在另一请求已完成同一停用、且当前无有效会话和未关闭通道时折叠为幂等成功。
+    // 若 CAS 输给了并发新登录或重新开启，不能把仍需停用的账号谎报为已停用。
     const current = await readCredential(deps.db, row.id);
     if (current === null || current.consumed_at !== null || current.user_status !== "active")
       throw invalidCredential();
     const stop = await deps.db
-      .prepare(`SELECT u.auth_epoch, u.last_recovery_stop_epoch,
-        EXISTS (SELECT 1 FROM sessions s WHERE s.user_id = u.id
-          AND s.auth_epoch = u.auth_epoch AND s.recovery_epoch = u.recovery_epoch
-          AND s.state IN ('pending','active') AND s.expires_at > ?
-          AND s.absolute_expires_at > ?) AS has_current_session
-        FROM users u WHERE u.id = ?`)
+      .prepare(`SELECT auth_epoch, last_recovery_stop_epoch, ${open} AS still_open
+        FROM users WHERE id = ?`)
       .bind(now, now, row.user_id)
       .first<{
         auth_epoch: number;
         last_recovery_stop_epoch: number | null;
-        has_current_session: number;
+        still_open: number;
       }>();
-    if (stop?.last_recovery_stop_epoch !== stop?.auth_epoch || stop?.has_current_session !== 0) {
+    if (stop?.last_recovery_stop_epoch !== stop?.auth_epoch || stop?.still_open !== 0) {
       throw new ApiError("conflict", { code: "conflict" });
     }
   }

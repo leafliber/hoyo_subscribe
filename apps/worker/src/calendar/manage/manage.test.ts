@@ -279,6 +279,80 @@ describe("A-P3-FEEDAPI 管理接口", () => {
       ).toBe(action === "emergency_stop" ? null : now);
     },
   );
+  it.each(["logout", "idle_expiry"] as const)(
+    "上次停用后新会话重新启用 Feed 再结束会话（%s），再次紧急停用仍真实撤销；无可关闭对象时幂等",
+    async (ending) => {
+      const s = await seed();
+      const stop = async () => {
+        const minted = await mintPreauthCookieValue((await testKeyring).preauthCookie(), now);
+        return runRecoveryAction(
+          {
+            db: env.DB,
+            keys: await testKeyring,
+            sourceGate: { charge: async () => true },
+            now: () => now,
+            pauseHooks: [pauseCalendar],
+          },
+          {
+            request: new Request(`${site}/api/v2/auth/recovery`, {
+              method: "POST",
+              headers: {
+                cookie: `__Host-preauth=${minted.value}`,
+                "idempotency-key": crypto.randomUUID(),
+              },
+            }),
+            action: "emergency_stop",
+            recoveryId: s.recoveryId,
+            secret: s.secret,
+          },
+        );
+      };
+      const account = () =>
+        env.DB.prepare("SELECT auth_epoch, calendar_revocation_version FROM users WHERE id=?")
+          .bind(s.userId)
+          .first<{ auth_epoch: number; calendar_revocation_version: number }>();
+      expect((await stop()).status).toBe(200);
+      expect((await account())?.auth_epoch).toBe(1);
+      // 当前代次的新会话（等同普通 OTP 登录）重新启用 Feed。
+      const made = await makePendingSession(now);
+      await run(
+        `INSERT INTO sessions(id,user_id,token_hash,state,label,platform_hint,issued_at,absolute_expires_at,expires_at,renewed_at,auth_epoch,recovery_epoch,created_at,updated_at,activated_at) VALUES (?,?,?,'active','synthetic','unknown',?,?,?,?,1,0,?,?,?)`,
+        made.id,
+        s.userId,
+        made.tokenHash,
+        now,
+        made.absoluteExpiresAt,
+        made.expiresAt,
+        now,
+        now,
+        now,
+        now,
+      );
+      const next = { userId: s.userId, sessionId: made.id, sessionTokenHash: made.tokenHash };
+      await mutate(next, "enable", Number((await row(s.userId))?.token_generation ?? 0));
+      const hash = (await hashFeedToken(token((await view(next)).url))) ?? "";
+      expect(await readFeedState(env.DB, hash, now)).not.toBeNull();
+      if (ending === "logout")
+        await run(
+          "UPDATE sessions SET state='revoked', revoked_at=?, revoke_reason='logout' WHERE id=?",
+          now,
+          made.id,
+        );
+      else await run("UPDATE sessions SET expires_at=? WHERE id=?", now, made.id);
+      expect((await stop()).status).toBe(200);
+      expect(await readFeedState(env.DB, hash, now)).toBeNull();
+      expect((await row(s.userId))?.state).toBe("disabled");
+      expect((await account())?.auth_epoch).toBe(2);
+      expect(
+        await env.DB.prepare("SELECT consumed_at FROM recovery_credentials WHERE id=?")
+          .bind(s.recoveryId)
+          .first("consumed_at"),
+      ).toBeNull();
+      const stopped = await account();
+      expect((await stop()).status).toBe(200);
+      expect(await account()).toEqual(stopped);
+    },
+  );
   it("hook 收集时无 Feed，提交前首次启用仍被原子撤销；删除同理，换邮箱不撤销", async () => {
     for (const deleting of [false, true]) {
       const s = await seed();

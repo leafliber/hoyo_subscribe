@@ -19,6 +19,7 @@ import {
   OUTBOX_UNRESERVED_PERIOD_KEY,
   RECENT_AUTH_ACTIONS,
   RECENT_AUTH_TTL,
+  RECOVERY_ATTEMPTS_HOUR,
   type RecentAuthAction,
   type RecentAuthRole,
   SECRET_BITS,
@@ -37,6 +38,7 @@ import { proveWithRecoveryCode } from "../../auth/recent-auth/proof";
 import { targetForAction } from "../../auth/recent-auth/target";
 import { hashRecoverySecret } from "../../auth/recovery/credential";
 import { sessionAuthenticator } from "../../auth/sessions/authenticator";
+import { activateSession, activationState } from "../../auth/sessions/lifecycle";
 import { CSRF_COOKIE_NAME, CSRF_HEADER_NAME, createApiShell, mintCsrfToken } from "../../shell";
 import { USER_SESSION_COOKIE_NAME } from "../../shell/domains";
 import { fakeExecutionContext, randomBytes, testKeyring } from "../../shell/test-support";
@@ -381,6 +383,29 @@ describe("A-P2-ACCOUNT", () => {
     ).toBeNull();
   });
 
+  it("恢复码证明按 recovery_id 计入恢复尝试窗口，超限后正确秘密也先限速", async () => {
+    const owner = await seed();
+    const prove = (secret: string) =>
+      proveWithRecoveryCode(
+        env.DB,
+        owner.session,
+        "account_delete",
+        undefined,
+        owner.recoveryId,
+        secret,
+        now,
+      );
+    for (let attempt = 0; attempt < RECOVERY_ATTEMPTS_HOUR; attempt++)
+      await expect(prove("synthetic-wrong-secret")).rejects.toMatchObject({
+        code: "unauthorized",
+      });
+    await expect(prove(owner.recoverySecret)).rejects.toMatchObject({ code: "rate_limited" });
+    expect(
+      await env.DB.prepare("SELECT COUNT(*) AS n FROM recent_auth_proofs WHERE user_id=?")
+        .bind(owner.userId)
+        .first("n"),
+    ).toBe(0);
+  });
   it("最近认证证明不能从同账号另一会话消费", async () => {
     const owner = await seed();
     const other = await seed();
@@ -818,6 +843,34 @@ describe("A-P2-ACCOUNT", () => {
         now,
       ),
     ).rejects.toMatchObject({ code: "unauthorized" });
+    // 新 pending 会话凭同批回执仍须浏览器确认才激活；回执行已消费、不是恢复登录。
+    const pendingId = result.pendingSession.id;
+    expect(await activationState(env.DB, fixture.userId, pendingId, now)).toBe("pending");
+    expect(
+      await first(
+        "SELECT purpose,consumed_at,address_version FROM auth_challenges WHERE pending_session_id = ?",
+        pendingId,
+      ),
+    ).toEqual({ purpose: "email_change", consumed_at: now, address_version: 2 });
+    expect(
+      await activateSession({
+        db: env.DB,
+        userId: fixture.userId,
+        sessionId: pendingId,
+        selectedIds: [],
+        platform: "unknown",
+        now,
+      }),
+    ).toBe("activated");
+    expect(await first("SELECT state FROM sessions WHERE id = ?", pendingId)).toEqual({
+      state: "active",
+    });
+    expect(
+      await first(
+        "SELECT receipt_ciphertext FROM auth_challenges WHERE pending_session_id = ?",
+        pendingId,
+      ),
+    ).toEqual({ receipt_ciphertext: null });
   });
 
   it("轮换先交付、可同键重生；确认前旧码仍有效，确认后旧码失效", async () => {

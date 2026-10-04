@@ -68,7 +68,12 @@ async function closeEffects(
     },
   ];
 }
-export const emailSafetyPauseHook: SafetyPauseEffectHook = (context) =>
-  closeEffects(context, "safety_pause");
+export const emailSafetyPauseHook: SafetyPauseEffectHook = Object.assign(
+  (context: SafetyPauseContext) => closeEffects(context, "safety_pause"),
+  // routine 只能在 enabled 之内（0008 CHECK），enabled 未关即未关闭。
+  {
+    openSql: "EXISTS (SELECT 1 FROM email_channels e WHERE e.user_id = users.id AND e.enabled = 1)",
+  },
+);
 export const emailLifecycleHook: LifecycleEffectHook = (context) =>
   closeEffects(context, context.event);

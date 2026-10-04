@@ -38,6 +38,9 @@ export interface PublicSnapshotNode {
   readonly patch: PatchDecision | null;
   readonly source_projection_json: string | null;
   readonly tombstone: boolean;
+  /** 本条内容（除本字段外逐字相同）连续出现的最早完整代次；缩水守卫据此认定它属于上次输出那一代。
+   * 修复前写入、此后内容未变的节点没有该字段。 */
+  readonly content_generation?: number;
 }
 
 /** 分类纠正沿用已存在的越界补偿；单独的分类纠正不扩展窗口。 */

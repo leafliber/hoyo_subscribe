@@ -11,6 +11,8 @@
 //
 // ★ 关键约束（第 2 条）：错误尝试**持久扣减**。attempts 自增是独立的已提交语句，
 // 随后的错误响应不经过任何回滚路径（无事务包裹、无 catch-rollback）。
+// 先扣次数再比对：每次比对前先以条件更新抢到一次尝试名额，并发请求不能越过
+// OTP_ATTEMPTS 与 EMAIL_VERIFY_ATTEMPTS_HOUR；命中后退回这一次，attempts 只计错误。
 //
 // P2-03 获准注入点：仅 MAC 命中后的成功出口改为原子消费、pending Session 与回执。
 // 消费前若原 preauth 剩余期限不足，先交同值续期 Cookie，客户端重试同一码。
@@ -85,19 +87,30 @@ async function loadOpenChallenges(
   return rows.results ?? [];
 }
 
-/** 持久化一次错误尝试（独立提交；错误响应在其后返回，无回滚可抵消）。 */
-async function persistWrongAttempt(
+/** 比对前预扣一次尝试（独立提交；错误响应在其后返回，无回滚可抵消）。未抢到名额不得比对。 */
+async function reserveAttempt(
   db: D1Database,
   challengeId: string,
   emailKey: string,
   now: number,
-): Promise<void> {
+): Promise<boolean> {
   const quota = authQuotaGuard(emailKey, now, "verify");
+  const result = await db
+    .prepare(
+      `UPDATE auth_challenges SET attempts = attempts + 1, updated_at = ? WHERE id = ? AND consumed_at IS NULL AND aborted_at IS NULL AND deadline > ? AND attempts < ? AND ${quota.sql}`,
+    )
+    .bind(now, challengeId, now, OTP_ATTEMPTS, ...quota.params)
+    .run();
+  return result.meta.changes === 1;
+}
+
+/** 命中后退回本次预扣：只有知道正确码才会走到这里，错误次数仍只计错误。 */
+async function refundAttempt(db: D1Database, challengeId: string, now: number): Promise<void> {
   await db
     .prepare(
-      `UPDATE auth_challenges SET attempts = attempts + 1, updated_at = ? WHERE id = ? AND consumed_at IS NULL AND aborted_at IS NULL AND attempts < ? AND ${quota.sql}`,
+      "UPDATE auth_challenges SET attempts = attempts - 1, updated_at = ? WHERE id = ? AND attempts > 0",
     )
-    .bind(now, challengeId, OTP_ATTEMPTS, ...quota.params)
+    .bind(now, challengeId)
     .run();
 }
 
@@ -152,11 +165,18 @@ export async function runVerifyOtp(deps: VerifyOtpDeps, input: VerifyOtpInput): 
     });
   }
 
-  // —— MAC 校验（§4.3 六元组；最新挑战优先） ——
+  // —— MAC 校验（§4.3 六元组；最新挑战优先；每条都先扣次数再比对） ——
+  let candidates = 0;
+  let reserved = 0;
   for (const row of open) {
     if (row.attempts >= OTP_ATTEMPTS) {
       continue;
     }
+    candidates++;
+    if (!(await reserveAttempt(deps.db, row.id, emailKey, now))) {
+      continue;
+    }
+    reserved++;
     if (!isChallengePurpose(row.purpose)) {
       await dummyOtpMacVerify(deps.keys.otpMac());
       continue;
@@ -174,6 +194,7 @@ export async function runVerifyOtp(deps: VerifyOtpDeps, input: VerifyOtpInput): 
       row.mac,
     );
     if (matched) {
+      await refundAttempt(deps.db, row.id, now);
       const operationKey = requireOperationKey(input.request);
       // §4.4：先续期，等浏览器确认新 preauth 到手后再消费一次性凭证。
       if (
@@ -228,15 +249,21 @@ export async function runVerifyOtp(deps: VerifyOtpDeps, input: VerifyOtpInput): 
     }
   }
 
-  // —— 未命中：持久扣减（最新一条未耗尽的挑战），再返回验证码错误 ——
-  const chargeable = open.find((row) => row.attempts < OTP_ATTEMPTS);
-  if (chargeable === undefined) {
+  // —— 一个名额都没抢到：快照之后被并发请求用尽；邮箱级小时合计到顶时同读侧门控返回 429 ——
+  if (reserved === 0) {
+    if (
+      candidates > 0 &&
+      (await readAuthQuotaSnapshot(deps.db, emailKey, now)).verifyAttempts >=
+        EMAIL_VERIFY_ATTEMPTS_HOUR
+    ) {
+      throw new ApiError("rate_limited", { code: "rate_limited" });
+    }
     throw new ApiError("validation", {
       code: "validation",
       fields: [{ path: "code", reason: "attempts_exhausted" }],
     });
   }
-  await persistWrongAttempt(deps.db, chargeable.id, emailKey, now);
+  // —— 未命中：比对过的挑战都已持久扣减，返回验证码错误 ——
   throw new ApiError("validation", {
     code: "validation",
     fields: [{ path: "code", reason: "mismatch" }],

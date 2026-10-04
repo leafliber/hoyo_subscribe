@@ -105,6 +105,22 @@ function nodeFromJson(value: string): PublicSnapshotNode {
   return node;
 }
 
+/** 与当前代逐字相同的节点沿用代次戳，新出现或内容有任何变化的记为本代；
+ * 修复前写入且此后未变的节点保持无戳，缩水守卫对它退回按公共变更时刻近似。 */
+function stampContentGeneration(
+  node: PublicSnapshotNode,
+  old: PublicSnapshotNode | undefined,
+  generation: number,
+): PublicSnapshotNode {
+  const { content_generation: _inherited, ...content } = node;
+  if (old !== undefined) {
+    const { content_generation: since, ...previous } = old;
+    if (JSON.stringify(previous) === JSON.stringify(content))
+      return since === undefined ? content : { ...content, content_generation: since };
+  }
+  return { ...content, content_generation: generation };
+}
+
 async function pendingOutboxes(db: D1Database): Promise<OutboxRow[]> {
   return (
     (
@@ -417,15 +433,19 @@ export async function buildPublicSnapshot(
     reason: change.decision.fact_reason,
     retain_until: change.decision.retain_until,
   }));
-  const nodeChunks = publicSnapshotJsonChunks([...plannedNodes.values()]);
-  const patchChunks = publicSnapshotJsonChunks(patchPlans);
-  // 固定开销最多 18；节点每块一条，更正每块两条；含 finally 清理与容量标记。
-  if (18 + nodeChunks.length + 2 * patchChunks.length > PUBLIC_SNAPSHOT_WRITE_PROFILE.queryLimit)
-    throw new Error("too many SQL statements: public snapshot chunk budget");
   const generationRow = await db
     .prepare("SELECT COALESCE(MAX(generation), 0) AS n FROM public_snapshots")
     .first<{ n: number }>();
   const generation = (generationRow?.n ?? 0) + 1;
+  const nodeChunks = publicSnapshotJsonChunks(
+    [...plannedNodes.entries()].map(([milestoneId, node]) =>
+      stampContentGeneration(node, oldNodes.get(milestoneId), generation),
+    ),
+  );
+  const patchChunks = publicSnapshotJsonChunks(patchPlans);
+  // 固定开销最多 18；节点每块一条，更正每块两条；含 finally 清理与容量标记。
+  if (18 + nodeChunks.length + 2 * patchChunks.length > PUBLIC_SNAPSHOT_WRITE_PROFILE.queryLimit)
+    throw new Error("too many SQL statements: public snapshot chunk budget");
   const snapshotId = crypto.randomUUID();
   await db
     .prepare(`INSERT INTO public_snapshots (id, generation, state, built_at, published_at, created_at)

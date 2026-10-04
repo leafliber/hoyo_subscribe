@@ -335,6 +335,63 @@ describe("A-P3-ICS Feed HTTP 读路径与完整快照", () => {
     expect(await events(response)).toHaveLength(4);
     expect(metrics).not.toContain("feed_shrink_guard");
   });
+  it("基线回收后 5 条自然滑出、另 5 条改了内容仍在，照常输出且之后不持续拦截", async () => {
+    const values = nodes().map((n, i) =>
+      node(n.projection.milestone_id, i < 5 ? T - FEED_PAST_DAYS * day : T + 10 * day),
+    );
+    await snapshot(values);
+    expect(await events(await request())).toHaveLength(10);
+    at = T + day;
+    await fresh();
+    const edited = values.map((n, i) =>
+      i < 5
+        ? n
+        : {
+            ...n,
+            public_ical_revision: 2,
+            public_changed_at: T + 1,
+            projection: {
+              ...n.projection,
+              event: { ...n.projection.event, title: "合成活动改名" },
+            },
+          },
+    );
+    await replaceAndReclaim(edited);
+    for (let poll = 0; poll < 2; poll++) {
+      const response = await request();
+      expect(response.status).toBe(200);
+      expect(await events(response)).toHaveLength(5);
+    }
+    expect(metrics).not.toContain("feed_shrink_guard");
+  });
+  it("代次戳认定上次那一代：输出前发布、下一代才进入快照的节点不当证据", async () => {
+    const values = nodes().map((n, i) => ({
+      ...node(n.projection.milestone_id, i < 5 ? T - FEED_PAST_DAYS * day : T + 10 * day),
+      content_generation: 1,
+    }));
+    await snapshot(values);
+    expect(await events(await request())).toHaveLength(10);
+    at = T + day;
+    await fresh();
+    // 早于上次输出发布、第 2 代才进入快照的 3 条，同样次日滑出。
+    const late = [0, 1, 2].map((i) => ({
+      ...node(`synthetic-late-${i}`, T - FEED_PAST_DAYS * day),
+      public_changed_at: T - 1,
+      content_generation: 2,
+    }));
+    // 先模拟仍在窗口的 5 条整体丢失：只有自然滑出能解释，差额超比例仍拦截。
+    await snapshot([...values.slice(0, 5), ...late], 2);
+    await snapshot([...values.slice(0, 5), ...late], 3);
+    await run("DELETE FROM public_snapshot_nodes WHERE snapshot_id='synthetic-generation-1'");
+    await run("DELETE FROM public_snapshots WHERE generation=1");
+    const blocked = await request();
+    expect(blocked.status).toBe(503);
+    expect(await blocked.json()).toMatchObject({ calendar: { reason: "shrink_guard" } });
+    await snapshot([...values, ...late], 4);
+    const response = await request();
+    expect(response.status).toBe(200);
+    expect(await events(response)).toHaveLength(5);
+  });
   it("基线回收后当前代按旧时刻仍不足原条数，不以新增节点补齐缺失证据", async () => {
     await snapshot(nodes());
     expect((await request()).status).toBe(200);
@@ -399,6 +456,29 @@ describe("A-P3-ICS Feed HTTP 读路径与完整快照", () => {
     at = exit;
     await fresh();
     expect(await events(await request())).toHaveLength(0);
+  });
+  it("更正到期后描述不再带更正理由；时间、UID 与序列不变", async () => {
+    const old = node("synthetic-reschedule", T);
+    const next = node("synthetic-reschedule", T + 100 * day);
+    const value = {
+      ...next,
+      public_ical_revision: 2,
+      patch: decideCalendarPatch(old.projection, next.projection, null, T),
+    };
+    await snapshot([value]);
+    const [during] = await events(await request());
+    expect(during?.description).toBe("官方说明,分号;\n已公布新时间");
+    at = (value.patch?.retain_until ?? 0) + 1;
+    await fresh();
+    const response = await request();
+    expect(response.status).toBe(200);
+    const [expired] = await events(response);
+    expect(expired?.description).toBe("官方说明,分号;");
+    expect([expired?.uid, expired?.sequence, expired?.startDate.toJSDate().getTime()]).toEqual([
+      during?.uid,
+      during?.sequence,
+      T + 100 * day,
+    ]);
   });
   it("基线已回收、到期墓碑与自然滑出证据已清掉，差额超比例时等到自然退出上界", async () => {
     const values = expiryBaseline();

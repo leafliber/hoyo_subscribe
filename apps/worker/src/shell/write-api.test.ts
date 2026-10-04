@@ -5,7 +5,7 @@
 // 覆盖：JSON/尺寸/未知字段/所有权字段校验、Origin 同源、CSRF 双提交 + MAC 绑定、
 // 权限域守卫、所有者服务端派生、§4.2 顺序（结构与尺寸先于同源）。
 import { API_BODY_MAX_BYTES, SECRET_BITS } from "@hoyo/contracts";
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { CSRF_COOKIE_NAME, CSRF_HEADER_NAME, mintCsrfToken } from "./csrf";
 import {
   ADMIN_SESSION_COOKIE_NAME,
@@ -154,6 +154,92 @@ describe("A-P1-SHELL 请求结构与尺寸（§4.2 第一环）", () => {
     expect(handlerCalled).toBe(0);
   });
 
+  it.each([undefined, "1"])(
+    "无/伪造 Content-Length=%s 的分块 JSON 按实际字节计数，超上限即取消读取",
+    async (declared) => {
+      let reads = 0;
+      let cancelled = false;
+      const stream = new ReadableStream<Uint8Array>(
+        {
+          pull(controller) {
+            reads++;
+            controller.enqueue(new Uint8Array(API_BODY_MAX_BYTES).fill(0x20));
+            // 夹具自身有界：即使移除生产流上限，变异测试也会自行结束。
+            if (reads === 3) controller.close();
+          },
+          cancel() {
+            cancelled = true;
+          },
+        },
+        { highWaterMark: 0 },
+      );
+      const token = await validCsrfToken();
+      const res = await makeShell().fetch(
+        new Request(siteUrl(SUBSCRIPTION_PATH), {
+          method: "PATCH",
+          headers: {
+            "content-type": "application/json",
+            origin: "https://app.test",
+            cookie: `${CSRF_COOKIE_NAME}=${token}`,
+            [CSRF_HEADER_NAME]: token,
+            ...(declared ? { "content-length": declared } : {}),
+          },
+          body: stream,
+        }),
+        fakeEnv,
+        fakeExecutionContext,
+      );
+      expect(res.status).toBe(400);
+      const body = (await res.json()) as { error: { details: { fields: { reason: string }[] } } };
+      expect(body.error.details.fields[0]?.reason).toBe("body_too_large");
+      expect(cancelled).toBe(true);
+      expect(reads).toBe(2);
+      expect(handlerCalled).toBe(0);
+    },
+  );
+
+  it("实际字节上限含边界：恰好 API_BODY_MAX_BYTES 通过，多 1 字节拒绝", async () => {
+    const token = await validCsrfToken();
+    const json = '{"expected_revision":1}';
+    const exact = json + " ".repeat(API_BODY_MAX_BYTES - json.length);
+    const ok = await makeShell().fetch(
+      writeRequest(exact, { csrfCookie: token, csrfHeader: token }),
+      fakeEnv,
+      fakeExecutionContext,
+    );
+    expect(ok.status).toBe(200);
+    const over = await makeShell().fetch(
+      writeRequest(`${exact} `, { csrfCookie: token, csrfHeader: token }),
+      fakeEnv,
+      fakeExecutionContext,
+    );
+    expect(over.status).toBe(400);
+    const body = (await over.json()) as { error: { details: { fields: { reason: string }[] } } };
+    expect(body.error.details.fields[0]?.reason).toBe("body_too_large");
+    expect(handlerCalled).toBe(1);
+  });
+
+  it.each(["__proto__", "constructor", "toString", "hasOwnProperty"])(
+    "原型链上的键名 %s 不能冒充已声明字段：顶层与嵌套都按未知字段拒绝",
+    async (key) => {
+      const token = await validCsrfToken();
+      for (const [raw, path] of [
+        [`{"expected_revision":1,"${key}":1}`, key],
+        [`{"expected_revision":1,"notifications":{"${key}":1}}`, `notifications.${key}`],
+      ]) {
+        const res = await makeShell().fetch(
+          writeRequest(raw, { csrfCookie: token, csrfHeader: token }),
+          fakeEnv,
+          fakeExecutionContext,
+        );
+        expect(res.status).toBe(400);
+        const body = (await res.json()) as { error: { details: { fields: unknown[] } } };
+        expect(body.error.details.fields).toContainEqual({ path, reason: "unknown_field" });
+      }
+      expect(handlerCalled).toBe(0);
+    },
+  );
+
   it("Content-Type 非 JSON 被拒；畸形 JSON 被拒", async () => {
     const shell = makeShell();
     const plainText = new Request(siteUrl(SUBSCRIPTION_PATH), {
@@ -254,6 +340,31 @@ describe("A-P1-SHELL Origin 同源与 CSRF（§4.2 第二环）", () => {
     expect(body.error.details.reason).toBe("origin_missing");
     expect(handlerCalled).toBe(0);
   });
+
+  it.each(["null", "not-a-url", "https://app.test:99999"])(
+    "不可解析的 Origin=%s 按跨源拒绝：401 origin_mismatch，不写错误日志",
+    async (origin) => {
+      const log = vi.spyOn(console, "log").mockImplementation(() => {});
+      const error = vi.spyOn(console, "error").mockImplementation(() => {});
+      try {
+        const res = await makeShell().fetch(
+          writeRequest({ expected_revision: 1 }, { origin }),
+          fakeEnv,
+          fakeExecutionContext,
+        );
+        expect(res.status).toBe(401);
+        const body = (await res.json()) as { error: { details: { reason: string } } };
+        expect(body.error.details.reason).toBe("origin_mismatch");
+        expect(handlerCalled).toBe(0);
+        const lines = [...log.mock.calls, ...error.mock.calls].flat().map(String);
+        expect(lines.some((line) => line.includes("handler_error"))).toBe(false);
+        expect(lines.some((line) => line.includes('"level":"error"'))).toBe(false);
+      } finally {
+        log.mockRestore();
+        error.mockRestore();
+      }
+    },
+  );
 
   it("跨源 Origin 被拒：reason origin_mismatch", async () => {
     const res = await makeShell().fetch(

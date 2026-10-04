@@ -4,6 +4,7 @@ import {
   EXECUTOR_BATCH_WALL_LIMIT,
   EXPIRED_AUTH_CLEANUP,
   NOTIFICATION_PUBLICATION_TOPIC,
+  PUBLIC_SNAPSHOT_WRITE_PROFILE,
   SOURCE_POLL,
   WATCHDOG_INTERVAL,
 } from "@hoyo/contracts";
@@ -18,9 +19,11 @@ import {
   reclaimSupersededPublicSnapshotPage,
   writeNoncriticalPublicationPause,
 } from "../../calendar/public/snapshot";
+import { decideCandidate } from "../../extraction/service";
 import { dispatchScheduled, pipelineWatchdog, WATCHDOG_CRON } from "../../scheduled";
 import { cleanupTasks, runCleanup } from "../../scheduled/cleanup";
 import { splitSqlStatements } from "../../storage/split-sql";
+import { boundedDatabase } from "../cron/query-budget";
 import type { PipelineControls } from "./controls";
 import { PipelineRuntime, PUBLICATION_JOB, SOURCE_JOB } from "./runtime";
 
@@ -223,6 +226,63 @@ describe("A-P3-PIPELINE 持久编排与定时接线", () => {
       expect(await state.storage.getAlarm()).not.toBeNull();
       await state.storage.deleteAlarm();
     });
+  });
+  it("待人工裁定的发布待办停放，不随周期重抽；裁定后由 watchdog 放回并收尾", async () => {
+    rows = [{ ann_id: 1, title: "「合成公告」说明", content: "<p>无模板</p>" }];
+    await runtime().watchdog();
+    await drain();
+    const job = () =>
+      env.DB.prepare("SELECT status,attempts,last_error FROM jobs WHERE kind = ?")
+        .bind(PUBLICATION_JOB)
+        .first<{ status: string; attempts: number; last_error: string | null }>();
+    expect(await job()).toEqual({
+      status: "awaiting_review",
+      attempts: 1,
+      last_error: "awaiting_review",
+    });
+    const candidate = await env.DB.prepare("SELECT id,review_status FROM candidates").first<{
+      id: string;
+      review_status: string;
+    }>();
+    expect(candidate?.review_status).toBe("pending");
+    for (let round = 0; round < 3; round++) {
+      now += WATCHDOG_INTERVAL * 1000;
+      await runtime().watchdog();
+      await drain();
+    }
+    expect((await job())?.attempts).toBe(1);
+    now += WATCHDOG_INTERVAL * 1000;
+    await decideCandidate(env.DB, candidate?.id ?? "", "rejected", "synthetic", "合成驳回", now);
+    await runtime().watchdog();
+    await drain();
+    expect(await job()).toEqual({
+      status: "done",
+      attempts: 2,
+      last_error: "candidate_rejected",
+    });
+  });
+  it("过期租约不让 alarm 空转：只为可消费的待办排 alarm，Cron 修复后照常续跑", async () => {
+    await runtime().watchdog();
+    await drain();
+    // 模拟部署重启：工作单元中途被打断，租约留在 leased 并已过期。
+    await env.DB.prepare(
+      "UPDATE jobs SET status = 'leased',lease_version = 7,lease_expires_at = ?,due_at = ? WHERE kind = ?",
+    )
+      .bind(now - 1, now - 1, SOURCE_JOB)
+      .run();
+    const next = await runtime().nextAlarm();
+    expect(next === null || next > now).toBe(true);
+    await drain();
+    requests = [];
+    await runtime().watchdog();
+    expect(
+      await env.DB.prepare("SELECT status,lease_version FROM jobs WHERE kind = ?")
+        .bind(SOURCE_JOB)
+        .first(),
+    ).toEqual({ status: "pending", lease_version: 8 });
+    expect(await runtime().nextAlarm()).toBe(now);
+    await drain();
+    expect(requests.length).toBeGreaterThan(0);
   });
   it("访问控制永久标维护不绕过；其他来源与清理继续执行", async () => {
     controls = {
@@ -648,7 +708,7 @@ describe("A-P3-PIPELINE 持久编排与定时接线", () => {
       }),
     ).toBe(false);
   });
-  it("返工 R1：Cron 在墙钟内循环回收到 done，六个千节点旧代不积压", async () => {
+  it("返工 R1：Cron 在墙钟与回收查询预算内循环回收，六个千节点旧代两轮内回收完毕", async () => {
     await runtime().watchdog();
     await drain();
     const event = await env.DB.prepare("SELECT id FROM events LIMIT 1").first<{ id: string }>();
@@ -678,9 +738,13 @@ describe("A-P3-PIPELINE 持久编排与定时接线", () => {
       removed += result.nodes_deleted;
       return result;
     };
+    // 单次调用的总查询数受平台上限约束；回收用尽预算后推迟到下一周期，不越界报错。
+    const counted = boundedDatabase(env.DB, Number.POSITIVE_INFINITY);
+    await runtime({ reclaim, db: counted.db }).watchdog();
+    expect(counted.used()).toBeLessThanOrEqual(PUBLIC_SNAPSHOT_WRITE_PROFILE.queryLimit);
+    expect(removed).toBeGreaterThan(0);
+    expect(await count("public_snapshot_nodes")).toBeGreaterThan(1002);
     await runtime({ reclaim }).watchdog();
-    expect(removed).toBe(6000);
-    expect(pages).toBe(301);
     expect(await count("public_snapshots")).toBe(2);
     expect(await count("public_snapshot_nodes")).toBe(1002);
     console.log(

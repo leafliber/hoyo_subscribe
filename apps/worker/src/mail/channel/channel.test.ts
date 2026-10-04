@@ -18,6 +18,7 @@ import { changeEmail, markAccountDeleting } from "../../accounts/lifecycle/servi
 import { readSubscription, saveSubscription } from "../../accounts/subscription/service";
 import { asEnvelopeBytes, decryptOtpPayload } from "../../auth/challenges/payload";
 import { startRecentOtp } from "../../auth/challenges/recent-auth";
+import { makePendingSession } from "../../auth/consume/session";
 import { mintPreauthCookieValue } from "../../auth/preauth/cookie";
 import { proveWithRecoveryCode } from "../../auth/recent-auth/proof";
 import { targetForAction } from "../../auth/recent-auth/target";
@@ -515,6 +516,57 @@ describe("A-P4-CONSENT 两层同意 API", () => {
       expect((await http(f, "GET")).status).toBe(401);
     },
   );
+  it("上次停用后新会话重新开启邮件并退出，再次紧急停用仍关闭两层；无可关闭对象时幂等", async () => {
+    const f = await ready();
+    await enable(f, { routine_enabled: true });
+    expect((await recovery(f, "emergency_stop")).status).toBe(200);
+    // 当前代次的新会话（等同普通 OTP 登录）重新开启两层，然后退出。
+    const made = await makePendingSession(now);
+    await run(
+      `INSERT INTO sessions(id,user_id,token_hash,state,label,platform_hint,issued_at,absolute_expires_at,expires_at,renewed_at,auth_epoch,recovery_epoch,recovery_code_required,activated_at,created_at,updated_at) VALUES (?,?,?,'active',?,?,?,?,?,?,1,0,0,?,?,?)`,
+      made.id,
+      f.userId,
+      made.tokenHash,
+      made.label,
+      made.platformHint,
+      now,
+      made.absoluteExpiresAt,
+      made.expiresAt,
+      now,
+      now,
+      now,
+      now,
+    );
+    const next = {
+      ...f,
+      session: { userId: f.userId, sessionId: made.id, sessionTokenHash: made.tokenHash },
+    };
+    await enable(next, { routine_enabled: true });
+    expect(await channelRow(env.DB, f.userId)).toMatchObject({ enabled: 1, routine_enabled: 1 });
+    await run(
+      "UPDATE sessions SET state='revoked', revoked_at=?, revoke_reason='logout' WHERE id=?",
+      now,
+      made.id,
+    );
+    expect((await recovery(f, "emergency_stop")).status).toBe(200);
+    expect(await channelRow(env.DB, f.userId)).toMatchObject({
+      enabled: 0,
+      routine_enabled: 0,
+      lease_expires_at: null,
+    });
+    expect(await first("SELECT auth_epoch FROM users WHERE id=?", f.userId)).toEqual({
+      auth_epoch: 2,
+    });
+    expect(
+      await first("SELECT consumed_at FROM recovery_credentials WHERE id=?", f.recoveryId),
+    ).toEqual({ consumed_at: null });
+    const events = (await audit(f)).length;
+    expect((await recovery(f, "emergency_stop")).status).toBe(200);
+    expect(await first("SELECT auth_epoch FROM users WHERE id=?", f.userId)).toEqual({
+      auth_epoch: 2,
+    });
+    expect(await audit(f)).toHaveLength(events);
+  });
   it("紧急停用在尚无通道行时与首次启用竞争，也能关闭新通道", async () => {
     const f = await ready();
     await recovery(f, "emergency_stop", async () => {

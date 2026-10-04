@@ -257,6 +257,7 @@
 | --- | --- |
 | A-F1-E2E | 完全干净时连续 5 轮 `pnpm test:e2e` 全过、零 `exited early`；4173 被占时**快速明确失败并指出占用者**，不换端口、不复用；`reuseExistingServer: false`；零新增依赖；用例数与通过数与改动前一致；站名 `HoYo日历` 只在 `_Layout.astro` 定义一处且断言同步 |
 | A-F6-REVIEW | 管理审核页面（F6-01）：引导秘密只出现在 bootstrap 请求体里，提交后不留在输入框、地址与浏览器存储；队列翻到底；正文与证据按文本渲染，注入的标签不执行；写操作带已读的 `updated_at`，409 不覆盖并重新读取；批准等操作后如实显示 `publication.outcome`，"已批准、未发布"可重试；字段级 400 显示在对应字段；退出后管理员会话失效、同一 Cookie 访问管理接口得 401；页面须收到明确 `logged_out: true` 才显示已退出，HTTP 200 空对象/false/类型不符不假成功；队列创建时间固定北京时间 UTC+8 并标明，非东八区浏览器同结果；不进普通导航 |
+| A-F6-OPS | 运维页（F6-02）：告警按后端 `alerts` 展示，`unknown` 与读取失败（`null`）不显示成正常；只有维护中的来源可解除，仅列表来源不可解除；来源解除与投递终态解除都带上次读到的 `updated_at` 和闭合原因，不发送自由文本，每次都需人工确认；只有收到 `resumed: true` / `rearmed: true` 才显示成功，200 空对象或 false 不假成功；409 不自动重发并重新读取；解除 `delivery:backoff` 后不自动打开任何运行开关，并列显示邮件开关值与公开状态的实际可用；`last_error` 只作文本；时间固定北京时间并标明；不做批量、定时或自动解除 |
 
 ## 4. 前端验收映射（U01–U29 → 轮次 → 测试位置）
 
@@ -296,7 +297,7 @@
 | U26 | GET 打开旧退订链接后确认 | F4-03 | `tests/e2e/unsubscribe.spec.ts` + A-P4-UNSUB |
 | U27 | 修改额度用尽后仍可停用服务 | F1-04,F3-03 | `tests/e2e/account.spec.ts` |
 | U28 | 手机、键盘、缩放、读屏 | F1-01 全轮复查 | `tests/e2e/a11y.spec.ts` |
-| U29 | 账号删除进行中 | F3-03,F4-04 | `tests/e2e/account-management.spec.ts` + `tests/e2e/account.spec.ts` |
+| U29 | 账号删除进行中；换邮箱后在登录页显式激活新会话 | F3-03,F4-04,F4-05 | `tests/e2e/account-management.spec.ts` + `tests/e2e/account.spec.ts` + `tests/e2e/account-maintenance.spec.ts`；真实本地 `apps/web/src/features/auth/testing/email-change-flow.mjs`（F4-05） |
 
 前端交付另需 **E2 证据**：桌面与手机的实际页面截图（不是效果图）、执行过的测试与结果、剩余问题与回退点（前端 §14.3）。
 

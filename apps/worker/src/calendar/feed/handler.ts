@@ -139,7 +139,11 @@ export function makeFeedHandler(
                 modifiedAt: Math.max(changedAt as number, state.changed_at),
                 time: item.time,
                 summary: `${item.node.projection.event.title} · ${item.node.projection.milestone.title}`,
-                description: [item.node.projection.event.summary, item.node.patch?.fact_reason]
+                // 更正理由只随仍在保留期内的更正输出；模板保留过期更正只为缩水守卫重算。
+                description: [
+                  item.node.projection.event.summary,
+                  item.patch ? item.node.patch?.fact_reason : null,
+                ]
                   .filter(Boolean)
                   .join("\n"),
                 url: item.node.projection.event.official_url,
@@ -177,6 +181,7 @@ export function makeFeedHandler(
             return diagnose("shrink_guard");
         }
         // 最终 CAS 同时核验授权、配置、公共代次、来源水位与上次成功基线；任何变化重新组装。
+        // 基线时刻记组装所用的 at：缩水守卫按它重算上次集合，跨 UTC 日界的请求不能差一天窗口。
         if (
           !(await recordFeedOutput(
             env.DB,
@@ -189,6 +194,7 @@ export function makeFeedHandler(
             null,
             sourceIds,
             feedNaturalExitAt(nodes, at),
+            at,
           ))
         )
           return null;

@@ -49,7 +49,7 @@ pnpm --filter @hoyo/worker exec wrangler d1 execute DB --remote --command "INSER
 pnpm --filter @hoyo/worker exec wrangler d1 execute DB --remote --command "INSERT INTO system_state(key,value_json,updated_at) VALUES ('mail_sending_available','true',unixepoch()*1000) ON CONFLICT(key) DO UPDATE SET value_json='true',updated_at=excluded.updated_at;"
 ```
 
-若执行器核心曾因确定性错误停止，`delivery:backoff` 的 failed 行也会使生成前闸门与公开状态保持关闭；不能只改 true 强行开放。修复核心故障后，**先**解除该行，再执行上述开启命令：
+若执行器核心曾因确定性错误停止，`delivery:backoff` 的 failed 行也会使生成前闸门与公开状态保持关闭；不能只改 true 强行开放。修复核心故障后，**先**解除该行，再执行上述开启命令。优先用管理员接口 `POST /api/v2/admin/delivery/rearm`（同批审计、乐观并发，见 `shell/observability/README.md`）；无法使用时才手工执行：
 
 ```sh
 pnpm --filter @hoyo/worker exec wrangler d1 execute DB --remote --command "UPDATE jobs SET status='done',due_at=unixepoch()*1000,completed_at=unixepoch()*1000,updated_at=unixepoch()*1000,lease_version=lease_version+1 WHERE id='delivery:backoff';"

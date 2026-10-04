@@ -105,6 +105,25 @@ describe("A-P3-ICS RFC 5545 格式", () => {
       components.every((component) => component.getFirstPropertyValue("transp") === "TRANSPARENT"),
     ).toBe(true);
   });
+  it("文本里的 C0 控制字符与 DEL 被丢弃，HTAB 与换行照常；独立解析器整份接受", () => {
+    const controls = `${Array.from({ length: 32 }, (_, i) => String.fromCharCode(i))
+      .filter((c) => !"\t\r\n".includes(c))
+      .join("")}\u007f`;
+    const body = serializeCalendar([
+      { ...event, summary: `A${controls}B`, description: `C\t${controls}\r\nD` },
+    ]);
+    for (const char of body.replaceAll("\r\n", "")) {
+      const code = char.codePointAt(0) ?? 0;
+      expect(code === 0x09 || (code >= 0x20 && code !== 0x7f)).toBe(true);
+    }
+    for (const line of body.split("\r\n"))
+      expect(new TextEncoder().encode(line).length).toBeLessThanOrEqual(75);
+    const parsed = new ICAL.Event(
+      new ICAL.Component(ICAL.parse(body)).getFirstSubcomponent("vevent") ?? undefined,
+    );
+    expect(parsed.summary).toBe("AB");
+    expect(parsed.description).toBe("C\t\nD");
+  });
   it("SEQUENCE 接近协议上限失败关闭，不回绕；拒绝 URL 行注入", () => {
     for (const sequence of [-1, 2 ** 31 - 1, 2 ** 31, 1.5])
       expect(() => serializeCalendar([{ ...event, sequence }])).toThrow();

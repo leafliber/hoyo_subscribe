@@ -31,6 +31,7 @@ import {
   ACCOUNTS_TOTAL_CAPACITY_KEY,
   listExpiredRegistrations,
   releaseExpiredRegistration,
+  reserveRegistrationSlot,
   writeRegistrationOpen,
 } from "../../accounts/admission/registration";
 import { createApiShell, mintCsrfToken, parseCookieHeader, type ShellRoute } from "../../shell";
@@ -1028,5 +1029,42 @@ describe("A-P2-PREAUTH 注册槽过期释放（§4.2：过期释放）", () => {
     const expired = await listExpiredRegistrations(env.DB, T0);
     expect(expired.map((e) => e.id)).not.toContain("res-live");
     await run("DELETE FROM admission_reservations WHERE id = 'res-live'");
+  });
+
+  it("过期未清理的同邮箱预占在重新预占前按同一 CAS 释放；未过期预占仍冲突", async () => {
+    await seedCapacity(ACCOUNTS_TOTAL_CAPACITY_KEY, 1);
+    const audits = await tableCount("audit_log");
+    await run(
+      "INSERT INTO admission_reservations (id, kind, email_key, state, reserved_at, expires_at, created_at, updated_at) VALUES ('res-stale', 'registration', 'ek_stale', 'reserved', ?, ?, ?, ?)",
+      T0 - OTP_TTL * SECOND,
+      T0 - 1,
+      T0 - OTP_TTL * SECOND,
+      T0 - OTP_TTL * SECOND,
+    );
+    const plan = {
+      emailKey: "ek_stale",
+      now: T0,
+      challengeDeadline: T0 + OTP_TTL * SECOND,
+      attempt: true,
+    };
+    expect(await reserveRegistrationSlot(env.DB, { ...plan, reservationId: "res-fresh" })).toBe(
+      "reserved",
+    );
+    expect(
+      await query<{ id: string; state: string }>(
+        "SELECT id, state FROM admission_reservations WHERE email_key = 'ek_stale' ORDER BY id",
+      ),
+    ).toEqual([
+      { id: "res-fresh", state: "reserved" },
+      { id: "res-stale", state: "released" },
+    ]);
+    expect(await capacityValue(ACCOUNTS_TOTAL_CAPACITY_KEY)).toBe(1);
+    expect(await tableCount("audit_log")).toBe(audits + 1);
+    expect(await reserveRegistrationSlot(env.DB, { ...plan, reservationId: "res-again" })).toBe(
+      "email_conflict",
+    );
+    expect(await capacityValue(ACCOUNTS_TOTAL_CAPACITY_KEY)).toBe(1);
+    expect(await tableCount("audit_log")).toBe(audits + 1);
+    await run("DELETE FROM admission_reservations WHERE email_key = 'ek_stale'");
   });
 });

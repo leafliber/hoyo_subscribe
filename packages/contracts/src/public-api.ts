@@ -70,7 +70,8 @@ export const PublicEventsResponseSchema = z.strictObject({
   cache: PublicCacheSchema,
   window: z.strictObject({ start: Timestamp, end: Timestamp.nullable(), yesterday: Timestamp }),
   nodes: z.array(PublicScheduleNodeSchema),
-  /** 只按游戏筛选，不随浏览日期隐藏；仅当前快照中仍在共享更正保留期的有限结果。 */
+  /** 只按游戏筛选，不随浏览日期隐藏；仅当前快照中仍在共享更正保留期的有限结果。
+   * 只随首页（无 cursor）返回；续页恒为 [] 与 false。 */
   recentChanges: z.array(PublicScheduleNodeSchema),
   recentChangesTruncated: z.boolean(),
   nextCursor: z.string().nullable(),

@@ -8,10 +8,24 @@ export interface SafetyPauseContext {
   readonly now: number;
 }
 
-/** 注入的效果必须在 users 守卫命中时恰好命中一行；无通道行时返回空数组。 */
-export type SafetyPauseEffectHook = (
-  context: SafetyPauseContext,
-) => Promise<readonly GuardedEffect[]>;
+/** 注入的效果必须在 users 守卫命中时恰好命中一行；无通道行时返回空数组。
+ * openSql：该通道仍有未关闭对象的 SQL 谓词（关联外层 users.id，不带绑定参数）。紧急停用只在
+ * 当前代次无有效会话且各通道都已关闭时折叠为幂等成功；未声明的通道按始终未关闭处理，
+ * 宁可重复关闭也不谎报已停用。 */
+export interface SafetyPauseEffectHook {
+  (context: SafetyPauseContext): Promise<readonly GuardedEffect[]>;
+  readonly openSql?: string;
+}
+
+/** 安全暂停之后仍需关闭的对象：当前代次的有效会话（依次绑定两个 now），或任一通道声明的未关闭谓词。 */
+export function safetyPauseOpenSql(hooks: readonly SafetyPauseEffectHook[]): string {
+  return [
+    `EXISTS (SELECT 1 FROM sessions s WHERE s.user_id = users.id
+      AND s.auth_epoch = users.auth_epoch AND s.recovery_epoch = users.recovery_epoch
+      AND s.state IN ('pending','active') AND s.expires_at > ? AND s.absolute_expires_at > ?)`,
+    ...hooks.map((hook) => `(${hook.openSql ?? "1"})`),
+  ].join(" OR ");
+}
 
 export async function collectSafetyPauseEffects(
   context: SafetyPauseContext,

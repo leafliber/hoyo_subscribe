@@ -292,6 +292,28 @@ describe("A-P3-PATCH 公共快照与共享更正层", () => {
     expect(current?.nodes[0]?.tombstone).toBe(false);
   });
 
+  it("代次戳：内容不变沿用最早代次，变化记为本代；修复前无戳节点不变时保持无戳", async () => {
+    const restored = await readCurrentPublicSnapshot(env.DB, T0 + 6 * day + 1, true);
+    const since = restored?.generation ?? 0;
+    expect(restored?.nodes[0]?.content_generation).toBe(since);
+    await queue(T0 + 6 * day + 2);
+    expect(await buildPublicSnapshot(env.DB, T0 + 6 * day + 3)).toMatchObject({
+      outcome: "built",
+      generation: since + 1,
+    });
+    expect(
+      (await readCurrentPublicSnapshot(env.DB, T0 + 6 * day + 3, true))?.nodes[0]
+        ?.content_generation,
+    ).toBe(since);
+    await env.DB.prepare(`UPDATE public_snapshot_nodes SET node_json = json_remove(node_json, '$.content_generation')
+      WHERE snapshot_id = (SELECT id FROM public_snapshots WHERE state = 'current')`).run();
+    await queue(T0 + 6 * day + 4);
+    expect((await buildPublicSnapshot(env.DB, T0 + 6 * day + 5)).outcome).toBe("built");
+    const legacy = await readCurrentPublicSnapshot(env.DB, T0 + 6 * day + 5, true);
+    expect(legacy?.nodes[0]).toBeDefined();
+    expect(legacy?.nodes[0]).not.toHaveProperty("content_generation");
+  });
+
   it("暂停标记独立可读写，不改变快照与用户配置", async () => {
     expect(await readNoncriticalPublicationPause(env.DB)).toBe(false);
     await writeNoncriticalPublicationPause(env.DB, true, "容量告警", T0 + 3 * day);

@@ -18,7 +18,7 @@
 - `time` 沿用 `TimeValue`，日期不补午夜。所有其他时间为 UTC 毫秒。
 - `publication.publishedAt` 是完整代次发布时间；`sources[].verifiedAt` 是该来源的成功核验水位（未知为 null）；`noticePublishedAt` 是能绑定的官方公告发布时间；`cache.generatedAt` 是响应生成时间。这四类时间不得互相冒充。
 - `verificationState` 从来源已保存的核验状态派生，不是当前网络连通性探针。维护状态保留最近成功水位；无法确认核验时为 unknown。`verified-working` 有成功水位时 verified；米游社 `maintenance-required-list-only` 同样按列表成功水位判定，并带 `content_unavailable`。有成功水位的运行时 `maintenance-required` 表示已停用 unavailable；没有成功水位时遵循复核末项返回 unknown，仍保留 maintenance_required 原因。服务端不合成整个游戏的来源状态。
-- 近期变更使用当前快照中仍未过 `retain_until` 的共享更正，保留期限沿用 `CAL_PATCH_MIN_DAYS/CAL_PATCH_TAIL_DAYS`，条数取 `PUBLIC_READ_LIMITS.recentChanges`，按保留水位降序再按身份排序。`recentChangesTruncated` 表示还有变更未列出，不能声称变更历史完整。它只按游戏筛选，不被浏览未来窗口隐藏；不建立用户级历史。
+- 近期变更使用当前快照中仍未过 `retain_until` 的共享更正，保留期限沿用 `CAL_PATCH_MIN_DAYS/CAL_PATCH_TAIL_DAYS`，条数取 `PUBLIC_READ_LIMITS.recentChanges`，按保留水位降序再按身份排序。`recentChangesTruncated` 表示还有变更未列出，不能声称变更历史完整。它只按游戏筛选，不被浏览未来窗口隐藏；不建立用户级历史。近期变更只随首页（无 cursor）读取并返回，续页恒为 `[]` / `false`，翻页不重复计算。
 - `historicalTime` 是共享层累计的历史时间水位，可能不是紧邻本次更正的旧时间；必须标“历史”，不能当当前安排。节点删除只在变更区域出现，以 `change.kind=deleted` 与系统撤回表现区分官方取消。
 - 官方发布者与官方更新时间目前未持久化，返回 null。发布时间/证据只在已发布证据、不晚于代次发布、当前投影仍与本代完全一致的条件下补充；证据片段还需逐字段匹配标题、类型、状态、节点键和完整时间。无法绑定时仅显示本代已保存的原始时间表达、官方链接和更正原因，不取更新的未发布事实。
 - `excerpts/evidence` 是需转义的文本，可能含 HTML 字面内容，不能放进 `innerHTML`。不返回文章正文块、完整候选、审核人、内部锁或投影 JSON。

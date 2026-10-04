@@ -30,7 +30,7 @@ export async function maintainFeedback(
       }
     if (reconcile && clock() < deadline)
       try {
-        reconcile = (await steps.reconcile(db, await keys(), clock())) > 0;
+        reconcile = (await steps.reconcile(db, keys, clock())) > 0;
       } catch {
         reconcile = false;
         await recordMetric(db, "feedback_maintenance_failed", clock());
