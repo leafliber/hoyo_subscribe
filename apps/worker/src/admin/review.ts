@@ -341,6 +341,8 @@ export function makeAdminReviewRoutes(clock: () => number = Date.now): ShellRout
       bodySchema: {
         fields: {
           ...writeFields,
+          // ADR-0010：草稿会在后台按新 profile 重新起草；绑定审核员看到的那一版，避免采用没看过的内容。
+          expected_draft_updated_at: { type: "number" },
           exclude: { type: "array", items: { type: "string", minLength: 1, maxLength: 32 } },
           confirm_ambiguities: { type: "boolean" },
         },
@@ -367,8 +369,11 @@ export function makeAdminReviewRoutes(clock: () => number = Date.now): ShellRout
           throw new ApiError("conflict");
         const draft = await readDraft(ctx.env.DB, id);
         if (draft === null || draft.proposal === null) invalid("candidate_id", "draft_missing");
-        // 文章出了新版本时草稿已过期，不能拿旧正文的引文去修正。
-        if (draft.articleVersionId !== current.article.articleVersionId)
+        // 文章出了新版本时草稿已过期，不能拿旧正文的引文去修正；草稿被重新起草过也要重新核对。
+        if (
+          draft.articleVersionId !== current.article.articleVersionId ||
+          draft.updatedAt !== body.expected_draft_updated_at
+        )
           throw new ApiError("conflict");
         const events = draft.proposal.events.flatMap((event, eventIndex) => {
           if (exclude.has(`e${eventIndex}`)) return [];

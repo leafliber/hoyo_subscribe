@@ -756,6 +756,7 @@ test.describe("A-P3-DRAFT", () => {
     expect(writes[0].body).toEqual({
       candidate_id: "synthetic-candidate",
       expected_updated_at: 1_900_000_000_000,
+      expected_draft_updated_at: 1_900_000_000_000,
       reason,
       exclude: ["e0.m0"],
       confirm_ambiguities: false,
