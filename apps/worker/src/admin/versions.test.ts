@@ -125,6 +125,43 @@ describe("A-P3-VERSION 版本时间表", () => {
     expect(list.versions).toEqual([]);
   });
 
+  it("建议入库失败（如迁移尚未应用）时草稿照常写入，不会再次调用模型", async () => {
+    now += 1;
+    const seeded = await seedRuleCandidate("genshin-ann", fixtureEntry(genshin, 21928), {
+      nowMs: now,
+    });
+    // 模拟 0028 尚未应用：涉及建议表的语句报错，其余照常。
+    const db = new Proxy(env.DB, {
+      get(target, key) {
+        if (key === "prepare")
+          return (sql: string) => {
+            if (sql.includes("game_version_suggestions"))
+              throw new Error("no such table: game_version_suggestions");
+            return target.prepare(sql);
+          };
+        const value = Reflect.get(target, key);
+        return typeof value === "function" ? value.bind(target) : value;
+      },
+    });
+    const ai = fakeAi(modelResponse(WINDOW_OUTPUT));
+    const job = () =>
+      runDraftJob({
+        db,
+        ai,
+        candidateId: seeded.candidateId,
+        modelEnabled: true,
+        deadline: now + 120_000,
+        now: () => now,
+      });
+    expect(await job()).toEqual({ kind: "done", reason: null });
+    const row = await env.DB.prepare("SELECT status FROM ai_drafts WHERE candidate_id = ?")
+      .bind(seeded.candidateId)
+      .first<{ status: string }>();
+    expect(row?.status).toBe("ready");
+    await job();
+    expect(ai.calls).toHaveLength(1);
+  });
+
   it("逐项确认：只取已核对的建议，CAS、理由与审计齐备；版本结束可取下一版本的更新开始", async () => {
     const { suggestions } = await listing();
     const suggestion = suggestions.find((row) => row.version === "7.1");
