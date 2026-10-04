@@ -10,6 +10,7 @@ import {
 } from "@hoyo/contracts";
 import { logEvent } from "../../shell/logger";
 import { loadStoredArticleVersion } from "../article";
+import { recordVersionSuggestion } from "../versions";
 import { buildDraftProposal, parseModelJson } from "./build";
 import { reserveNeurons, settleNeurons } from "./ledger";
 import { draftInputBytes, draftMessages } from "./prompt";
@@ -222,6 +223,9 @@ export async function runDraftJob(input: DraftJobInput): Promise<DraftJobOutcome
     return { kind: "done", reason: "unparseable" };
   }
   const built = buildDraftProposal(article, output);
+  // ADR-0011：版本公告摘出的版本时间作为建议入库，由管理员在版本时间表里逐项确认。
+  if (built.versionWindow !== null)
+    await recordVersionSuggestion(db, article, built.versionWindow, input.now());
   await writeDraft(db, {
     candidateId,
     articleVersionId: article.articleVersionId,
