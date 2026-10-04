@@ -15,7 +15,12 @@ import { beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { writeRegistrationOpen } from "../accounts/admission/registration";
 import worker from "../index";
 import { seedOperationalControls } from "../shell/observability/test-support";
-import { PUBLIC_HEAD_SQL, PUBLIC_PENDING_SQL, PUBLIC_SOURCES_SQL } from "./queries";
+import {
+  PUBLIC_CHANGES_SQL,
+  PUBLIC_HEAD_SQL,
+  PUBLIC_PENDING_SQL,
+  PUBLIC_SOURCES_SQL,
+} from "./queries";
 import { readCatalog, readEventDetail, readEvents, readPublicStatus } from "./read";
 import { makeNode, migratePublicTest, NOW, resetPublicTest, seedNodes } from "./test-support";
 
@@ -332,6 +337,57 @@ describe("A-P3-PUBLIC 真实本地 D1 公共闭环", () => {
     ).rejects.toMatchObject({ code: "conflict" });
     await seedNodes([makeNode("replacement")], 2);
     await expect(readEvents(env.DB, nextUrl, NOW)).rejects.toMatchObject({ code: "conflict" });
+  });
+  it("近期变化只在首页读取并返回，续页不再重复查询与取证", async () => {
+    const changed = makeNode("page-0000-change");
+    await seedNodes([
+      {
+        ...changed,
+        patch: {
+          kind: "rescheduled",
+          fact_reason: "rescheduled",
+          old_time: changed.projection.milestone.time,
+          new_time: changed.projection.milestone.time,
+          display_time: changed.projection.milestone.time,
+          extends_window: true,
+          retain_until: NOW + 1000,
+        },
+      },
+      ...Array.from({ length: LIMITS.scanPage }, (_, i) =>
+        makeNode(`page-${String(i + 1).padStart(4, "0")}`),
+      ),
+    ]);
+    let changeQueries = 0;
+    const db = new Proxy(env.DB, {
+      get(target, property) {
+        if (property === "prepare")
+          return (sql: string) => {
+            if (sql === PUBLIC_CHANGES_SQL) changeQueries++;
+            return target.prepare(sql);
+          };
+        const value = Reflect.get(target, property);
+        return typeof value === "function" ? value.bind(target) : value;
+      },
+    });
+    const first = PublicEventsResponseSchema.parse(await (await readEvents(db, url(), NOW)).json());
+    expect(changeQueries).toBe(SUPPORTED_SCOPE.games.length);
+    expect(first.recentChanges.map((n) => n.id)).toEqual(["page-0000-change"]);
+    expect(first.nextCursor).not.toBeNull();
+    changeQueries = 0;
+    const next = PublicEventsResponseSchema.parse(
+      await (
+        await readEvents(
+          db,
+          url(`events?cursor=${encodeURIComponent(must(first.nextCursor))}`),
+          NOW,
+        )
+      ).json(),
+    );
+    expect(changeQueries).toBe(0);
+    expect(next.recentChanges).toEqual([]);
+    expect(next.recentChangesTruncated).toBe(false);
+    expect(next.nodes.length).toBeGreaterThan(0);
+    expect(first.nodes.length + next.nodes.length).toBe(LIMITS.scanPage + 1);
   });
   it("读取中换代拒绝整响应，不能把被回收的节点当完整空列表", async () => {
     await seedNodes([makeNode()]);

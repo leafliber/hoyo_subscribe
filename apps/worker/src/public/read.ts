@@ -166,8 +166,9 @@ export async function readEvents(db: D1Database, url: URL, now = Date.now()): Pr
       .bind(LIMITS.nodeBytes, state.head.id, cursor?.after ?? "", LIMITS.scanPage + 1)
       .all<NodeRow>()
   ).results;
+  // 近期变化只随首页（无 cursor）返回；续页不重复读取和取证，前端也只用首页这份。
   const changeRows: NodeRow[] = [];
-  for (const game of selection.games) {
+  for (const game of cursor === null ? selection.games : []) {
     changeRows.push(
       ...(
         await db

@@ -175,7 +175,9 @@ export function previewIcs(
         modifiedAt: Math.max(changedAt as number, feed?.changed_at ?? asOf),
         time: item.time,
         summary: `${p.event.title} · ${p.milestone.title}`,
-        description: [p.event.summary, item.node.patch?.fact_reason].filter(Boolean).join("\n"),
+        description: [p.event.summary, item.patch ? item.node.patch?.fact_reason : null]
+          .filter(Boolean)
+          .join("\n"),
         url: p.event.official_url,
         cancelled: item.cancelled,
         alarmSeconds: item.alarm_seconds,

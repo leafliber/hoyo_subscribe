@@ -162,6 +162,22 @@ export function feedNeedsShrinkEvidence(
     (baseline.count - count) / baseline.count > FEED_SHRINK_GUARD_RATIO
   );
 }
+/** 当前代节点是否原样属于上次成功输出所用的那一代。有代次戳时精确判断；修复前写入、
+ * 此后未变的节点退回按公共变更时刻近似（发布到重建之间的滞后可能多算，由调用方保守扣除）。 */
+function servedUnchanged(node: PublicSnapshotNode, baseline: FeedBaseline): boolean {
+  const since = node.content_generation;
+  if (since !== undefined)
+    return (
+      baseline.generation !== null && Number.isSafeInteger(since) && since <= baseline.generation
+    );
+  const changedAt = (node as PublicSnapshotNode & { public_changed_at?: number }).public_changed_at;
+  return (
+    changedAt !== undefined &&
+    Number.isSafeInteger(changedAt) &&
+    baseline.served_at !== null &&
+    changedAt <= baseline.served_at
+  );
+}
 /** 只接受逐缺席项证据；代次递增、无关取消、只有部分可解释的收缩都不是通行证。 */
 export function feedShrinkBlocked(input: {
   baseline: FeedBaseline;
@@ -173,49 +189,53 @@ export function feedShrinkBlocked(input: {
 }): boolean {
   const after = personalCalendarNodes(input.config, input.current, input.now);
   if (!feedNeedsShrinkEvidence(input.baseline, after.length, input.view_revision)) return false;
-  if (input.baseline.served_at === null) return true;
-  // 只用仍存在且无公共修订的节点按基线时刻重算；不假定模板永久保留历史。
+  const { count, served_at: servedAt } = input.baseline;
+  if (servedAt === null || count === null) return true;
+  // 上一代已回收时，只用当前代里原样属于上次输出那一代的节点按基线时刻重算；不假定模板永久保留历史。
+  const whole = input.previous !== null;
   const evidence =
-    input.previous ??
-    input.current.filter((node) => {
-      const changedAt = (node as PublicSnapshotNode & { public_changed_at?: number })
-        .public_changed_at;
-      return (
-        changedAt !== undefined &&
-        Number.isSafeInteger(changedAt) &&
-        changedAt <= (input.baseline.served_at as number)
-      );
-    });
-  const before = personalCalendarNodes(input.config, evidence, input.baseline.served_at);
-  if (input.baseline.count === null || before.length > input.baseline.count) return true;
+    input.previous ?? input.current.filter((node) => servedUnchanged(node, input.baseline));
+  const before = personalCalendarNodes(input.config, evidence, servedAt);
+  // 整代证据重算出比基线还多的条目，说明证据本身自相矛盾。
+  if (whole && before.length > count) return true;
   const afterIds = new Set(after.map((item) => item.node.projection.milestone_id));
   const currentById = new Map(input.current.map((node) => [node.projection.milestone_id, node]));
-  const unexplainedKnown = before.some((item) => {
+  let explained = 0;
+  for (const item of before) {
     const id = item.node.projection.milestone_id;
-    if (afterIds.has(id)) return false;
+    if (afterIds.has(id)) continue;
     // 原节点自然移出窗口或已到更正保留期；不是官方取消。
-    if (personalCalendarNodes(input.config, [item.node], input.now).length === 0) return false;
+    if (personalCalendarNodes(input.config, [item.node], input.now).length === 0) {
+      explained++;
+      continue;
+    }
     const current = currentById.get(id);
     // 当前分类/归属纠正后不再符合当前筛选，有明确公共更正证据。
     if (
       current?.patch?.kind === "classification_corrected" &&
       current.public_ical_revision > item.node.public_ical_revision &&
       personalCalendarNodes(input.config, [current], input.now).length === 0
-    )
-      return false;
+    ) {
+      explained++;
+      continue;
+    }
+    // 可重建的缺席项仍逐项核验，不能用标量盖过已有的反证。
     return true;
-  });
-  // 可重建的缺席项仍逐项核验，不能用标量盖过已有的反证。
-  if (unexplainedKnown) return true;
-  const missing = input.baseline.count - before.length;
-  if (missing <= FEED_SHRINK_GUARD_RATIO * input.baseline.count) return false;
+  }
+  // 整代证据：未能重算的差额按最坏未解释计。部分证据：守卫本身按条目数计，当前仍输出的
+  // 条目（含已改内容、无法逐项对应的上次条目）照常抵消；只扣除逐项解释过的移出，
+  // 近似重算多出基线的部分不算解释。
+  const missing = whole
+    ? count - before.length
+    : count - after.length - Math.max(0, explained - Math.max(0, before.length - count));
+  if (missing <= FEED_SHRINK_GUARD_RATIO * count) return false;
   // 只对不可重建部分使用成功时保存的上界；旧行/无值继续保守。
   const exit = input.baseline.natural_exit_at;
   return !(
     exit !== null &&
     exit !== undefined &&
     Number.isSafeInteger(exit) &&
-    exit >= input.baseline.served_at &&
+    exit >= servedAt &&
     input.now >= exit
   );
 }

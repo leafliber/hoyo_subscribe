@@ -86,6 +86,7 @@ export async function recordFeedOutput(
   diagnostic: FeedDiagnostic | null = null,
   requiredSources: readonly string[] = [],
   naturalExitAt: number | null = null,
+  servedAt: number = now,
 ): Promise<boolean> {
   const failed = diagnostic !== null || blocked;
   const set = blocked
@@ -106,7 +107,7 @@ export async function recordFeedOutput(
       AND (? = 1 OR NOT EXISTS (SELECT 1 FROM json_each(?) requested LEFT JOIN sources s ON s.source_id = requested.value
         WHERE s.last_success_at IS NULL OR s.last_success_at > ? OR s.last_success_at < ?))`)
     .bind(
-      ...(blocked ? [now] : failed ? [] : [now, count, generation, naturalExitAt]),
+      ...(blocked ? [now] : failed ? [] : [servedAt, count, generation, naturalExitAt]),
       now,
       diagnostic ?? (blocked ? "shrink_guard" : null),
       hash,

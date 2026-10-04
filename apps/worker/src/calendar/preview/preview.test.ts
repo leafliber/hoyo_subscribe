@@ -297,10 +297,29 @@ describe("A-P3-PREVIEW 真实外壳/D1", () => {
     ).map((e) => e.sourceId);
     expect(requiredFeedSources(config)).toEqual(oldIds);
     expect(requiredCalendarSources(config, SOURCE_REGISTRY).map((s) => s.sourceId)).toEqual(oldIds);
-    const values = [node("normal"), node("history", feedWindow(T).start - 1)];
+    const corrected = node("expired-correction");
+    const values = [
+      node("normal"),
+      node("history", feedWindow(T).start - 1),
+      {
+        ...corrected,
+        public_ical_revision: 2,
+        patch: {
+          kind: "rescheduled" as const,
+          fact_reason: "synthetic-expired-reason",
+          extends_window: true,
+          display_time: corrected.projection.milestone.time,
+          old_time: corrected.projection.milestone.time,
+          new_time: corrected.projection.milestone.time,
+          retain_until: T - 1,
+        },
+      },
+    ];
     await snapshot(values);
     const address = await feed(user.userId);
     const before = await (await request(`/feeds/u/${address.token}.ics`)).text();
+    expect(before).toContain("UID:");
+    expect(before).not.toContain("synthetic-expired-reason");
     await request(publicPath);
     await request(privatePath, true);
     const after = await (await request(`/feeds/u/${address.token}.ics`)).text();

@@ -66,6 +66,7 @@ export async function checkPublishedNodeBytes(
       patch,
       source_projection_json: source,
       tombstone: false,
+      content_generation: Number.MAX_SAFE_INTEGER,
     };
     if (bytes(node) > PUBLIC_READ_LIMITS.nodeBytes) invalid("proposal_json");
   }

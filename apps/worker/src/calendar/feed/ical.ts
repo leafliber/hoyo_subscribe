@@ -14,8 +14,18 @@ export interface IcalEvent {
 }
 const encoder = new TextEncoder();
 
+/** RFC 5545 §3.3.11：TEXT 不含 CONTROL（HTAB 除外）。换行随后转义，其余 C0 与 DEL 直接丢弃。 */
+function withoutControls(value: string): string {
+  let result = "";
+  for (const char of value) {
+    const code = char.codePointAt(0) ?? 0;
+    if ((code < 0x20 && char !== "\t" && char !== "\r" && char !== "\n") || code === 0x7f) continue;
+    result += char;
+  }
+  return result;
+}
 export function escapeText(value: string): string {
-  return value
+  return withoutControls(value)
     .replace(/\\/g, "\\\\")
     .replace(/\r\n|\r|\n/g, "\\n")
     .replace(/;/g, "\\;")

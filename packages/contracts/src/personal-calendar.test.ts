@@ -284,6 +284,96 @@ describe("A-P3-ICS 个人窗口、闹钟与缩水唯一规则", () => {
     expect(feedShrinkBlocked(missingFive)).toBe(false);
     expect(feedShrinkBlocked({ ...missingFive, now: exit + day })).toBe(false);
   });
+  it("上一代已回收：已改内容但仍输出的条目照常抵消，真缺失仍只在自然退出上界兜底", () => {
+    const next = now + day;
+    // 0-4 次日自然滑出；5-9 在上次输出后改了标题，仍在窗口内。
+    const leaving = Array.from({ length: 5 }, (_, i) => ({
+      ...node(`leaving-${i}`, now - FEED_PAST_DAYS * day),
+      public_changed_at: now,
+    }));
+    const kept = Array.from({ length: 5 }, (_, i) => ({
+      ...node(`kept-${i}`, now + 10 * day),
+      public_changed_at: now,
+    }));
+    const edited = kept.map((n) => ({
+      ...n,
+      public_ical_revision: 2,
+      public_changed_at: now + 1,
+      projection: { ...n.projection, event: { ...n.projection.event, title: "改名" } },
+    }));
+    const served = personalCalendarNodes(config, [...leaving, ...kept], now);
+    const exit = feedNaturalExitAt(served, now);
+    const input = {
+      baseline: {
+        count: served.length,
+        view_revision: 0,
+        generation: 1,
+        served_at: now,
+        natural_exit_at: exit,
+      },
+      view_revision: 0,
+      config,
+      previous: null,
+      current: [...leaving, ...edited],
+      now: next,
+    };
+    expect(served).toHaveLength(10);
+    expect(personalCalendarNodes(config, input.current, next)).toHaveLength(5);
+    expect(next).toBeLessThan(exit);
+    expect(feedShrinkBlocked(input)).toBe(false);
+    // 已改条目真的不见了：5 条滑出有解释，其余 5 条差额超过比例。
+    expect(feedShrinkBlocked({ ...input, current: leaving })).toBe(true);
+    expect(feedShrinkBlocked({ ...input, current: leaving, now: exit })).toBe(false);
+  });
+  it("代次戳精确认定上次那一代；输出前发布、下一代才进入快照的节点不当证据，近似重算不直接拦截", () => {
+    // 上次输出用第 1 代 10 条：5 条次日自然滑出、5 条仍在窗口。
+    const leaving = Array.from({ length: 5 }, (_, i) => ({
+      ...node(`leaving-${i}`, now - FEED_PAST_DAYS * day),
+      public_changed_at: now - day,
+      content_generation: 1,
+    }));
+    const staying = Array.from({ length: 5 }, (_, i) => ({
+      ...node(`staying-${i}`, now + day),
+      public_changed_at: now - day,
+      content_generation: 1,
+    }));
+    // 早于上次输出发布，但第 2 代才进入快照；同样次日滑出。
+    const late = Array.from({ length: 3 }, (_, i) => ({
+      ...node(`late-${i}`, now - FEED_PAST_DAYS * day),
+      public_changed_at: now - 1,
+      content_generation: 2,
+    }));
+    const input = {
+      baseline: {
+        count: 10,
+        view_revision: 0,
+        generation: 1,
+        served_at: now,
+        natural_exit_at: null,
+      },
+      view_revision: 0,
+      config,
+      previous: null,
+      current: [...leaving, ...staying, ...late],
+      now: now + day,
+    };
+    expect(feedShrinkBlocked(input)).toBe(false);
+    expect(feedShrinkBlocked({ ...input, current: [...leaving, ...late] })).toBe(true);
+    // 修复前写入的无戳节点按公共变更时刻近似：重算出 13 条超过基线 10 条时不再直接拦截，
+    // 多出的 3 条也不算解释。近似无法认出未超基线的滞后节点（与修复前相同），所以构建器改为写戳。
+    const unstamped = (values: readonly PublicSnapshotNode[]) =>
+      values.map(({ content_generation: _stamp, ...rest }) => rest);
+    expect(feedShrinkBlocked({ ...input, current: unstamped(input.current) })).toBe(false);
+    expect(feedShrinkBlocked({ ...input, current: unstamped(leaving) })).toBe(true);
+    // 戳晚于上次输出那一代的节点不冒充证据，即使公共变更时刻更早。
+    expect(
+      feedShrinkBlocked({
+        ...input,
+        baseline: { ...input.baseline, generation: 0 },
+        current: [...leaving, ...late],
+      }),
+    ).toBe(true);
+  });
   it("标量不能覆盖重算超额或已知缺席项的反证；新公共修订不冒充旧证据", () => {
     const previous = Array.from({ length: 10 }, (_, i) => node(String(i)));
     const input = {
