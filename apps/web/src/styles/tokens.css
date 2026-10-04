@@ -43,20 +43,15 @@
   --color-danger-soft: #fdeeec;
   --color-danger-border: #f3c3bc;
 
-  /* —— 游戏色：游戏标识是「浅 → 基色」渐变圆角块上叠白色图形；
-        浅底与描边用于已选的游戏胶囊。始终伴随游戏名称，颜色不是唯一载体 —— */
-  --color-game-genshin: #b7791f;
-  --color-game-genshin-light: #c4862a;
-  --color-game-genshin-soft: #fbf3e3;
-  --color-game-genshin-border: #e7cd9f;
-  --color-game-hsr: #7c5cd6;
-  --color-game-hsr-light: #8a6ee0;
-  --color-game-hsr-soft: #f3effd;
-  --color-game-hsr-border: #d3c8f5;
-  --color-game-zzz: #d9631a;
-  --color-game-zzz-light: #e6702a;
-  --color-game-zzz-soft: #fdf0e6;
-  --color-game-zzz-border: #f2c9ad;
+  /* —— 游戏色（ADR-0015）：游戏标识改用官方应用图标；这里只剩已选游戏胶囊的浅底与描边。
+        色相避开截止、取消等强调用的红、橙、琥珀：原神青绿、星铁紫、绝区零黄绿。
+        始终伴随游戏名称与图标，颜色不是唯一载体 —— */
+  --color-game-genshin-soft: #e6f5f6;
+  --color-game-genshin-border: #9fd6dc;
+  --color-game-hsr-soft: #f2eefd;
+  --color-game-hsr-border: #cfc2f4;
+  --color-game-zzz-soft: #f0f7e2;
+  --color-game-zzz-border: #c3dd93;
 
   /* —— 焦点 —— */
   --color-focus-ring: #4f46e5;

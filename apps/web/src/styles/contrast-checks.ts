@@ -300,20 +300,8 @@ export const CONTRAST_CHECKS: readonly ContrastCheck[] = [
     text: { color: "--color-warning" },
     ...onPage,
   },
-  // —— 游戏标识：白色图形叠在游戏色渐变块上（图形，按 3:1）；两个渐变端点都要达标 ——
+  // —— 游戏胶囊：已选时的游戏色浅底（ADR-0015 起游戏标识是官方应用图标，不再登记图形对比度） ——
   ...(["genshin", "hsr", "zzz"] as const).flatMap((game) => [
-    {
-      use: `游戏标识图形（${game} 基色）`,
-      min: CONTRAST_UI_COMPONENT,
-      text: { color: "--color-on-accent" },
-      background: { base: `--color-game-${game}` },
-    },
-    {
-      use: `游戏标识图形（${game} 浅色端）`,
-      min: CONTRAST_UI_COMPONENT,
-      text: { color: "--color-on-accent" },
-      background: { base: `--color-game-${game}-light` },
-    },
     {
       use: `已选游戏胶囊文字（${game} 浅底）`,
       min: CONTRAST_NORMAL_TEXT,

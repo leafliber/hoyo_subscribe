@@ -215,39 +215,34 @@ hr {
   white-space: nowrap;
 }
 
-/* 游戏标识：游戏色渐变圆角块 + 白色原创图形（GameIcon.astro / lib/game-icons.ts） */
+/* 游戏标识：官方游戏应用图标（GameIcon.astro / lib/game-icons.ts，ADR-0015），始终与游戏名称同现 */
 .game-icon {
-  --game-base: var(--color-text-aux);
-  --game-light: var(--color-text-aux);
-  display: inline-grid;
-  place-items: center;
+  position: relative;
+  display: inline-block;
   flex: none;
   width: 18px;
   height: 18px;
+  overflow: hidden;
   border-radius: 5px;
-  background: linear-gradient(140deg, var(--game-light), var(--game-base));
-  color: var(--color-on-accent);
+  background: var(--color-bg-sunken);
   line-height: 0;
 }
 
-.game-icon > svg {
-  width: 74%;
-  height: 74%;
+.game-icon > img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
 }
 
-.game-icon[data-game="genshin"] {
-  --game-base: var(--color-game-genshin);
-  --game-light: var(--color-game-genshin-light);
-}
-
-.game-icon[data-game="hsr"] {
-  --game-base: var(--color-game-hsr);
-  --game-light: var(--color-game-hsr-light);
-}
-
-.game-icon[data-game="zzz"] {
-  --game-base: var(--color-game-zzz);
-  --game-light: var(--color-game-zzz-light);
+/* 浅色图标在白底上也看得出边界 */
+.game-icon::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  box-shadow: inset 0 0 0 1px var(--color-border);
+  pointer-events: none;
 }
 
 .game-icon--md {
