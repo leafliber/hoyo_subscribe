@@ -10,7 +10,7 @@
 //   单列为 SEMANTIC_INVARIANTS，由调度实现（P4-02）以测试保证。
 
 import type { ParamValues } from "./registry";
-import { PARAMS } from "./registry";
+import { aiDraftReservation, PARAMS } from "./registry";
 
 /**
  * 数值参数宽化为 number 的快照类型：等式校验与反向验证测试需要注入"人为破坏值"，
@@ -367,6 +367,35 @@ export const PARAM_EQUATIONS: readonly EquationDefinition[] = [
     (v) => `AI_SOFT_DAY(${v.AI_SOFT_DAY}) < AI_HARD_DAY(${v.AI_HARD_DAY})`,
     (v) => v.AI_SOFT_DAY < v.AI_HARD_DAY,
     { AI_SOFT_DAY: 8000 },
+  ),
+  // —— ADR-0009 AI 草稿：硬线在免费额度内；草稿单次预占与 profile 一致且不超过软线 ——
+  eq(
+    "ai-hard-within-included",
+    "usage 单位一致",
+    "AI_HARD_DAY < AI_INCLUDED_DAY（硬线守住即不产生 Workers AI 额外费用；额度为账户共用）",
+    (v) => `AI_HARD_DAY(${v.AI_HARD_DAY}) < AI_INCLUDED_DAY(${v.AI_INCLUDED_DAY})`,
+    (v) => v.AI_HARD_DAY < v.AI_INCLUDED_DAY,
+    { AI_HARD_DAY: 10_000 },
+  ),
+  eq(
+    "ai-draft-reservation-within-soft",
+    "usage 单位一致",
+    "AI_DRAFT_RESERVATION = ⌈((maxInputBytes + templateOverheadTokens) × 输入单价 + maxOutputTokens × 输出单价) / 10⁶⌉ <= AI_SOFT_DAY；profile 各数值为正安全整数（temperature ∈ [0, 1]）",
+    (v) =>
+      `AI_DRAFT_RESERVATION(${v.AI_DRAFT_RESERVATION}) = aiDraftReservation(${aiDraftReservation(v.AI_DRAFT_PROFILE)}) <= AI_SOFT_DAY(${v.AI_SOFT_DAY})`,
+    (v) =>
+      [
+        v.AI_DRAFT_PROFILE.inputNeuronsPerMillion,
+        v.AI_DRAFT_PROFILE.outputNeuronsPerMillion,
+        v.AI_DRAFT_PROFILE.maxInputBytes,
+        v.AI_DRAFT_PROFILE.templateOverheadTokens,
+        v.AI_DRAFT_PROFILE.maxOutputTokens,
+      ].every((n) => Number.isSafeInteger(n) && n > 0) &&
+      v.AI_DRAFT_PROFILE.temperature >= 0 &&
+      v.AI_DRAFT_PROFILE.temperature <= 1 &&
+      v.AI_DRAFT_RESERVATION === aiDraftReservation(v.AI_DRAFT_PROFILE) &&
+      v.AI_DRAFT_RESERVATION <= v.AI_SOFT_DAY,
+    { AI_DRAFT_PROFILE: { ...PARAMS.AI_DRAFT_PROFILE, maxOutputTokens: 300_000 } },
   ),
   // —— SOURCE_LIMIT_PROFILE 工程依赖（P3-08；§3.1 大小限制、附录 A.1）——
   eq(
