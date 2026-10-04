@@ -14,7 +14,7 @@ import {
 } from "../extraction/service";
 import {
   applyVersionDerivations,
-  loadConfirmedVersions,
+  loadVersionsFor,
   versionDerivationIssues,
 } from "../extraction/versions";
 import {
@@ -186,7 +186,12 @@ export function makeAdminReviewRoutes(clock: () => number = Date.now): ShellRout
             ? null
             : applyVersionDerivations(
                 draft.proposal,
-                await loadConfirmedVersions(ctx.env.DB, record.article.game, record.article.region),
+                await loadVersionsFor(
+                  ctx.env.DB,
+                  record.article.game,
+                  record.article.region,
+                  draft.proposal,
+                ),
               );
         return noStore({
           ...record,
@@ -242,7 +247,7 @@ export function makeAdminReviewRoutes(clock: () => number = Date.now): ShellRout
         if (
           versionDerivationIssues(
             parsed.data,
-            await loadConfirmedVersions(ctx.env.DB, article.game, article.region),
+            await loadVersionsFor(ctx.env.DB, article.game, article.region, parsed.data),
           ).length > 0
         )
           invalid("proposal_json", "version_derivation_mismatch");
@@ -297,7 +302,12 @@ export function makeAdminReviewRoutes(clock: () => number = Date.now): ShellRout
         if (
           versionDerivationIssues(
             parsed.data,
-            await loadConfirmedVersions(ctx.env.DB, current.article.game, current.article.region),
+            await loadVersionsFor(
+              ctx.env.DB,
+              current.article.game,
+              current.article.region,
+              parsed.data,
+            ),
           ).length > 0
         )
           invalid("proposal_json", "version_derivation_mismatch");
@@ -406,10 +416,11 @@ export function makeAdminReviewRoutes(clock: () => number = Date.now): ShellRout
           draft.updatedAt !== body.expected_draft_updated_at
         )
           throw new ApiError("conflict");
-        const versions = await loadConfirmedVersions(
+        const versions = await loadVersionsFor(
           ctx.env.DB,
           current.article.game,
           current.article.region,
+          draft.proposal,
         );
         const derivation = applyVersionDerivations(draft.proposal, versions);
         if (derivation.key !== body.expected_derivation_key) throw new ApiError("conflict");
@@ -494,7 +505,12 @@ export function makeAdminReviewRoutes(clock: () => number = Date.now): ShellRout
           action !== "retract" &&
           versionDerivationIssues(
             parsed.data,
-            await loadConfirmedVersions(ctx.env.DB, current.article.game, current.article.region),
+            await loadVersionsFor(
+              ctx.env.DB,
+              current.article.game,
+              current.article.region,
+              parsed.data,
+            ),
           ).length > 0
         )
           invalid("candidate_id", "version_derivation_mismatch");

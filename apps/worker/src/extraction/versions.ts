@@ -50,6 +50,15 @@ export async function recordVersionSuggestion(
     .run();
 }
 
+/** 候选里是否有原文整体为版本锚点的节点；没有时不必读版本时间表。 */
+export function hasVersionAnchor(proposal: CandidateProposal): boolean {
+  return proposal.events.some((event) =>
+    event.milestones.some(
+      (milestone) => parseVersionAnchor(milestone.time.raw_expression) !== null,
+    ),
+  );
+}
+
 export async function loadConfirmedVersions(
   db: D1Database,
   game: string,
@@ -82,6 +91,16 @@ export async function loadConfirmedVersions(
   );
 }
 
+/** 只在候选含版本锚点时读取版本时间表：少一次查询，也让与版本无关的审核不依赖这张表。 */
+export async function loadVersionsFor(
+  db: D1Database,
+  game: string,
+  region: string,
+  proposal: CandidateProposal,
+): Promise<Map<string, StoredVersionWindow>> {
+  return hasVersionAnchor(proposal) ? loadConfirmedVersions(db, game, region) : new Map();
+}
+
 export interface VersionDerivation {
   readonly proposal: CandidateProposal;
   readonly notes: readonly string[];
@@ -90,7 +109,10 @@ export interface VersionDerivation {
   readonly derived: number;
 }
 
-/** 只改"未定时刻"且原文整体是版本锚点的节点；其余节点原样保留。 */
+/**
+ * 只改"未定时刻"、依据为 unresolved、且原文整体是版本锚点的节点；其余节点原样保留。
+ * 官方写"预计"的锚点（official_estimate）不推导：推成确定时刻会让预计时间进入提醒（主方案 §3.3）。
+ */
 export function applyVersionDerivations(
   proposal: CandidateProposal,
   versions: ReadonlyMap<string, StoredVersionWindow>,
@@ -105,6 +127,11 @@ export function applyVersionDerivations(
       const raw = milestone.time.raw_expression;
       const anchor = parseVersionAnchor(raw);
       if (anchor === null) return milestone;
+      if (milestone.time.time_basis === "official_estimate") {
+        notes.add(`「${raw}」官方写的是预计时间，不做版本推导，保持未定时刻。`);
+        return milestone;
+      }
+      if (milestone.time.time_basis !== "unresolved") return milestone;
       const window = versions.get(anchor.version);
       used.set(anchor.version, window?.updatedAt ?? 0);
       const time = deriveVersionTime(raw, window, ANNOUNCEMENT_TIMEZONE);
@@ -160,4 +187,18 @@ export function versionDerivationIssues(
     });
   });
   return issues;
+}
+
+/** 管线重试发布已批准的人工候选前核对：版本时间表在批准后被改过或清除时，推导值已过期，不能发布。 */
+export async function staleVersionDerivation(
+  db: D1Database,
+  candidate: {
+    readonly proposal: CandidateProposal;
+    readonly game: string;
+    readonly region: string;
+  },
+): Promise<boolean> {
+  if (!hasVersionAnchor(candidate.proposal)) return false;
+  const versions = await loadConfirmedVersions(db, candidate.game, candidate.region);
+  return versionDerivationIssues(candidate.proposal, versions).length > 0;
 }

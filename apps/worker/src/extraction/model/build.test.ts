@@ -309,4 +309,27 @@ describe("A-P3-DRAFT 确定性构建", () => {
     ).toBe("版本时间摘录：版本号「七点一」无效，已忽略。");
     expect(buildDraftProposal(gacha, parseModelJson(GACHA_21876_OUTPUT)).versionWindow).toBeNull();
   });
+
+  it("ADR-0011 版本号须与公告标题一致（标题没写时看正文），安错版本号的摘录整份丢弃", () => {
+    const withWindow = (article: typeof gacha, output: string, version: string) =>
+      buildDraftProposal(article, {
+        ...JSON.parse(output),
+        version_window: {
+          version,
+          update_start: { block: 6, time_text: "2026/09/23 06:00" },
+          update_duration_text: "",
+          version_end: null,
+        },
+      });
+    // 标题"7.1版本更新维护预告"：模型写成 7.2 时整份摘录丢弃并说明。
+    const wrong = withWindow(maintenance, MAINTENANCE_21928_OUTPUT, "7.2");
+    expect(wrong.versionWindow).toBeNull();
+    expect(wrong.notes).toContain("版本时间摘录：版本号「7.2」与公告标题或正文对不上，已忽略。");
+    expect(withWindow(maintenance, MAINTENANCE_21928_OUTPUT, "7.1").versionWindow?.version).toBe(
+      "7.1",
+    );
+    // 卡池公告标题没写版本号，正文有"7.1版本更新后"：7.1 可以，6.8 不行。
+    expect(withWindow(gacha, GACHA_21876_OUTPUT, "7.1").versionWindow?.version).toBe("7.1");
+    expect(withWindow(gacha, GACHA_21876_OUTPUT, "6.8").versionWindow).toBeNull();
+  });
 });

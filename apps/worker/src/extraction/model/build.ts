@@ -296,6 +296,17 @@ function versionMoment(
   return { blockRef: `blocks/${found.index}`, quote: found.quote, utcMs: parsed.utc_ms };
 }
 
+const VERSION_MENTION = /(\d{1,2}\.\d{1,2})[」”]?版本/g;
+
+/** 标题写了版本号时必须与之一致；标题没写时，正文里须出现"X.Y版本"。防止把别的版本号安到这篇公告上。 */
+function versionMentioned(article: StoredArticleVersion, version: string): boolean {
+  const mentions = (raw: string) => [...raw.matchAll(VERSION_MENTION)].map((match) => match[1]);
+  const first = article.blocks[0];
+  const inTitle = first?.kind === "title" ? mentions(first.text) : [];
+  if (inTitle.length > 0) return inTitle.includes(version);
+  return article.blocks.some((block) => mentions(rawOf(block)).includes(version));
+}
+
 function versionWindowOf(
   article: StoredArticleVersion,
   value: unknown,
@@ -306,6 +317,10 @@ function versionWindowOf(
   const version = text(raw.version);
   if (!/^\d+\.\d+$/.test(version)) {
     notes.push(`版本时间摘录：版本号「${version}」无效，已忽略。`);
+    return null;
+  }
+  if (!versionMentioned(article, version)) {
+    notes.push(`版本时间摘录：版本号「${version}」与公告标题或正文对不上，已忽略。`);
     return null;
   }
   const updateStart = versionMoment(article, raw.update_start, notes);

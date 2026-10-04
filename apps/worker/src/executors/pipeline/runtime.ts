@@ -15,6 +15,7 @@ import {
 } from "../../calendar/public/snapshot";
 import { DRAFT_ELIGIBLE_SQL, type DraftModel, runDraftJob } from "../../extraction/model/draft";
 import { DRAFT_PROFILE_REF } from "../../extraction/model/store";
+import { staleVersionDerivation } from "../../extraction/versions";
 import { generatePublicationOccurrences } from "../../mail/occurrences/generate";
 import { publishApprovedCandidate } from "../../publishing/publish";
 import { runCleanup } from "../../scheduled/cleanup";
@@ -454,6 +455,15 @@ export class PipelineRuntime {
         this.now() + WATCHDOG_INTERVAL * 1000,
         reason,
       );
+      return;
+    }
+    // ADR-0011：批准后版本时间表被改过或清除时，候选里的推导时间已过期，不发布；管理员需重新确认或修正。
+    if (await staleVersionDerivation(this.db, result.candidate)) {
+      logEvent("error", "pipeline_job_failed", {
+        reason_code: "version_derivation_mismatch",
+        kind: job.kind,
+      });
+      await this.finish(job, "done", job.payload_json, this.now(), "version_derivation_mismatch");
       return;
     }
     const outcome = await (this.deps.publish ?? publishApprovedCandidate)(

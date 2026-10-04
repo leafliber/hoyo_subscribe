@@ -3,6 +3,7 @@ import "./test-support";
 import { env } from "cloudflare:test";
 import { beforeAll, describe, expect, it } from "vitest";
 import genshinContent from "../../../../fixtures/sources/genshin-ann/content-21928.json";
+import { PipelineRuntime, PUBLICATION_JOB } from "../executors/pipeline/runtime";
 import { runDraftJob } from "../extraction/model/draft";
 import {
   DRAFT_T0,
@@ -14,6 +15,7 @@ import {
   modelResponse,
   seedRuleCandidate,
 } from "../extraction/model/test-support";
+import { decideCandidate } from "../extraction/service";
 import { CSRF_COOKIE_NAME, CSRF_HEADER_NAME, createApiShell, mintCsrfToken } from "../shell";
 import { ADMIN_SESSION_COOKIE_NAME } from "../shell/domains";
 import { fakeExecutionContext, testKeyring } from "../shell/test-support";
@@ -200,48 +202,116 @@ describe("A-P3-VERSION 版本时间表", () => {
         detail_ref: `update_start:suggestion:${suggestion?.id}`,
       },
     ]);
-    // 下一版本未确认时不能借用；确认 7.2 的更新开始后，7.1 结束取它。
-    const early = await call("versions/confirm", {
-      ...base,
-      field: "version_end",
-      from_next_version: true,
-      expected_updated_at: row.updated_at,
-    });
-    expect(early.status).toBe(400);
-    const id72 = crypto.randomUUID();
+    // 版本结束只取紧接着的 7.2（没有 7.2 时取 8.0）：都未出现时不借用，也不跳过去取 7.3。
     const { versionId } = await seedRuleCandidate("genshin-ann", fixtureEntry(genshin, 21928), {
       nowMs: now,
     });
-    await env.DB.prepare(
-      `INSERT INTO game_version_suggestions (id, game, region, version, article_version_id, update_start_ms,
-         update_start_json, update_duration_json, version_end_ms, version_end_json, created_at)
-       VALUES (?, 'genshin', 'CN', '7.2', ?, ?, '{"block_ref":"blocks/2","quote":"合成"}', NULL, NULL, NULL, ?)`,
-    )
-      .bind(id72, versionId, Date.parse("2026-11-03T22:00:00Z"), now)
-      .run();
+    const suggest = async (version: string, ms: number, articleVersionId = versionId) => {
+      const id = crypto.randomUUID();
+      await env.DB.prepare(
+        `INSERT INTO game_version_suggestions (id, game, region, version, article_version_id, update_start_ms,
+           update_start_json, update_duration_json, version_end_ms, version_end_json, created_at)
+         VALUES (?, 'genshin', 'CN', ?, ?, ?, '{"block_ref":"blocks/2","quote":"合成"}', NULL, NULL, NULL, ?)`,
+      )
+        .bind(id, version, articleVersionId, ms, now)
+        .run();
+      return id;
+    };
+    const errorReason = async (response: Response) =>
+      ((await response.json()) as { error: { details: { fields: { reason: string }[] } } }).error
+        .details.fields[0]?.reason;
+    const start72 = Date.parse("2026-11-03T22:00:00Z");
+    const confirmEnd = (expectedNext: number) =>
+      call("versions/confirm", {
+        ...base,
+        field: "version_end",
+        from_next_version: true,
+        expected_next_update_start_ms: expectedNext,
+        expected_updated_at: row.updated_at,
+      });
+    const id73 = await suggest("7.3", Date.parse("2026-12-15T22:00:00Z"));
     expect(
       (
         await call("versions/confirm", {
           game: "genshin",
-          version: "7.2",
+          version: "7.3",
           field: "update_start",
-          suggestion_id: id72,
+          suggestion_id: id73,
           expected_updated_at: 0,
           reason: "已核对",
         })
       ).status,
     ).toBe(200);
-    const end = await call("versions/confirm", {
-      ...base,
-      field: "version_end",
-      from_next_version: true,
-      expected_updated_at: row.updated_at,
+    const unknown = await confirmEnd(Date.parse("2026-12-15T22:00:00Z"));
+    expect(unknown.status).toBe(400);
+    expect(await errorReason(unknown)).toBe("next_version_unknown");
+    const id72 = await suggest("7.2", start72);
+    const unconfirmed = await confirmEnd(start72);
+    expect(unconfirmed.status).toBe(400);
+    expect(await errorReason(unconfirmed)).toBe("next_version_unconfirmed");
+    const confirmed72 = await call("versions/confirm", {
+      game: "genshin",
+      version: "7.2",
+      field: "update_start",
+      suggestion_id: id72,
+      expected_updated_at: 0,
+      reason: "已核对",
     });
+    expect(confirmed72.status).toBe(200);
+    const row72 = ((await confirmed72.json()) as { version: { updated_at: number } }).version;
+    // 页面上看到的下一版本更新开始与当前不一致：409，不写入管理员没看过的时间。
+    expect((await confirmEnd(start72 - 3_600_000)).status).toBe(409);
+    const end = await confirmEnd(start72);
     expect(end.status).toBe(200);
-    expect(((await end.json()) as { version: Record<string, unknown> }).version).toMatchObject({
-      version_end_ms: Date.parse("2026-11-03T22:00:00Z"),
-      version_end_basis: "next_update",
+    const endRow = (
+      (await end.json()) as { version: Record<string, unknown> & { updated_at: number } }
+    ).version;
+    expect(endRow).toMatchObject({ version_end_ms: start72, version_end_basis: "next_update" });
+    // 7.2 的更新开始被 7.1 的结束引用：不能清除，也不能改成别的建议；先清除 7.1 的结束才行。
+    const clear72 = () =>
+      call("versions/clear", {
+        game: "genshin",
+        version: "7.2",
+        field: "update_start",
+        expected_updated_at: row72.updated_at,
+        reason: "核对有误",
+      });
+    const locked = await clear72();
+    expect(locked.status).toBe(400);
+    expect(await errorReason(locked)).toBe("referenced_by_previous_end");
+    // 同一篇文章同一版本只记一条建议，更正值来自另一篇公告。
+    const correction = await seedRuleCandidate("genshin-ann", fixtureEntry(genshin, 21876), {
+      nowMs: now,
     });
+    const changed = await call("versions/confirm", {
+      game: "genshin",
+      version: "7.2",
+      field: "update_start",
+      suggestion_id: await suggest("7.2", start72 + 86_400_000, correction.versionId),
+      expected_updated_at: row72.updated_at,
+      reason: "官方更正",
+    });
+    expect(changed.status).toBe(400);
+    expect(await errorReason(changed)).toBe("referenced_by_previous_end");
+    expect(
+      (
+        await call("versions/clear", {
+          ...base,
+          field: "version_end",
+          expected_updated_at: endRow.updated_at,
+        })
+      ).status,
+    ).toBe(200);
+    expect((await clear72()).status).toBe(200);
+    // 审计记下复制来的值与清除前的值，能还原每次变化。
+    const history = await env.DB.prepare(
+      "SELECT detail_ref FROM audit_log WHERE target_id = 'genshin:CN:7.1' ORDER BY created_at",
+    ).all<{ detail_ref: string }>();
+    expect(history.results.map((entry) => entry.detail_ref)).toEqual([
+      `update_start:suggestion:${suggestion?.id}`,
+      `version_end:next_update:7.2:${start72}`,
+      `version_end:cleared:${start72}:${id72}`,
+    ]);
   });
 });
 
@@ -376,5 +446,74 @@ describe("A-P3-VERSION 审核推导", () => {
         details: { fields: [{ path: "proposal_json", reason: "version_derivation_mismatch" }] },
       },
     });
+  });
+
+  it('官方写"预计"的版本锚点不推导：保持官方预计，不变成可提醒的确定时间', async () => {
+    expect((await listing()).versions.find((v) => v.version === "7.1")?.update_start_ms).toBe(
+      Date.parse("2026-09-22T22:00:00Z"),
+    );
+    const estimated = JSON.parse(GACHA_21876_OUTPUT);
+    estimated.events[0].milestones[0].estimated = true;
+    const { candidateId } = await draft(21876, JSON.stringify(estimated));
+    const current = await detail(candidateId);
+    expect(current.draft.derived_count).toBe(0);
+    expect(current.draft.proposal.events[0].milestones[0].time).toMatchObject({
+      precision: "unknown",
+      time_basis: "official_estimate",
+      raw_expression: "7.1版本更新后",
+    });
+    expect(current.draft.notes).toContain(
+      "「7.1版本更新后」官方写的是预计时间，不做版本推导，保持未定时刻。",
+    );
+  });
+
+  it("管线重试发布前同样核对：批准后版本时间被清除，不发布过期的推导时间", async () => {
+    const { candidateId, versionId } = await draft(21876, GACHA_21876_OUTPUT);
+    const current = await detail(candidateId);
+    expect(current.draft.derived_count).toBe(1);
+    const adopted = await call("review/adopt-draft", {
+      candidate_id: candidateId,
+      expected_updated_at: current.candidate.updated_at,
+      expected_draft_updated_at: current.draft.updated_at,
+      expected_derivation_key: current.draft.derivation_key,
+      reason: "已核对",
+      exclude: [],
+      confirm_ambiguities: false,
+    });
+    expect(adopted.status).toBe(200);
+    // 模拟"批准已落库、当场发布失败"：只记裁定，发布留给管线重试。
+    now += 1;
+    await decideCandidate(env.DB, candidateId, "approved", "synthetic", "合成批准", now, {
+      expectedUpdatedAt: ((await adopted.json()) as { updated_at: number }).updated_at,
+    });
+    const confirmed = (await listing()).versions.find((v) => v.version === "7.1");
+    const cleared = await call("versions/clear", {
+      game: "genshin",
+      version: "7.1",
+      field: "update_start",
+      expected_updated_at: confirmed?.updated_at,
+      reason: "核对有误，先撤下",
+    });
+    expect(cleared.status).toBe(200);
+    const events = async () =>
+      (await env.DB.prepare("SELECT COUNT(*) AS n FROM events").first<{ n: number }>())?.n;
+    const before = await events();
+    const jobId = `pipeline:publication:${versionId}`;
+    await env.DB.prepare(
+      `INSERT INTO jobs (id, kind, payload_json, due_at, status, created_at, updated_at)
+       VALUES (?, ?, ?, ?, 'pending', ?, ?)`,
+    )
+      .bind(jobId, PUBLICATION_JOB, JSON.stringify({ versionId, backfill: false }), now, now, now)
+      .run();
+    await new PipelineRuntime({
+      db: env.DB,
+      readControls: async () => ({ sources: {}, automaticPublication: false, model: false }),
+      now: () => now,
+      fetchFn: fetch,
+    }).tick();
+    expect(
+      await env.DB.prepare("SELECT status, last_error FROM jobs WHERE id = ?").bind(jobId).first(),
+    ).toEqual({ status: "done", last_error: "version_derivation_mismatch" });
+    expect(await events()).toBe(before);
   });
 });
