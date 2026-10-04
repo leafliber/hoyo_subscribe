@@ -943,6 +943,7 @@ test.describe("P3-19 管理端拆页", () => {
           version: "4.6",
           article_version_id: "v46",
           title: "4.6版本「月升之前，与兽共舞」版本更新说明",
+          official_url: "https://sr.mihoyo.com/news/46",
           update_start_ms: Date.parse("2026-09-27T22:00:00Z"),
           update_start: { block_ref: "blocks/10", quote: "2026/09/28 06:00:00" },
           update_duration: { block_ref: "blocks/10", quote: "预计5个小时完成" },
@@ -990,11 +991,11 @@ test.describe("P3-19 管理端拆页", () => {
     ).toBe(true);
   });
 
-  test("A-P3-VERSION 版本结束取自下一版本：值一致时不重复列出，下一版本改过后可重新采用", async ({
+  test("A-P3-VERSION 版本结束只取紧接着的下一版本：被引用的更新开始锁定，采用带上看到的值", async ({
     page,
   }) => {
     const state = await setup(page);
-    const start46 = Date.parse("2026-09-27T22:00:00Z");
+    const at = (iso: string) => Date.parse(iso);
     const row = (version: string, fields: Partial<VersionRecord>): VersionRecord => ({
       game: "hsr",
       version,
@@ -1006,25 +1007,69 @@ test.describe("P3-19 管理端拆页", () => {
       updated_at: 1_900_000_000_500,
       ...fields,
     });
-    const next = row("4.6", { update_start_ms: start46, update_start_source: "s46" });
+    const suggestion = (id: string, version: string, start: number) => ({
+      id,
+      game: "hsr",
+      version,
+      article_version_id: `v-${id}`,
+      title: `${version}版本更新说明`,
+      official_url: `https://sr.mihoyo.com/news/${id}`,
+      update_start_ms: start,
+      update_start: { block_ref: "blocks/3", quote: "合成时刻" },
+      update_duration: null,
+      version_end_ms: null,
+      version_end: null,
+      created_at: 1_900_000_000_000,
+    });
     state.versions = {
       versions: [
-        next,
+        row("4.8", { update_start_ms: at("2026-12-09T22:00:00Z"), update_start_source: "s48" }),
+        row("4.6", { update_start_ms: at("2026-09-27T22:00:00Z"), update_start_source: "s46" }),
         row("4.5", {
-          version_end_ms: start46,
+          update_start_ms: at("2026-08-16T22:00:00Z"),
+          update_start_source: "s45",
+          version_end_ms: at("2026-09-27T22:00:00Z"),
           version_end_source: "s46",
           version_end_basis: "next_update",
         }),
+        row("4.4", {}),
       ],
-      suggestions: [],
+      suggestions: [suggestion("s47", "4.7", at("2026-11-04T22:00:00Z"))],
       pending_references: {},
     };
     await page.goto("/admin/versions/");
-    const card = page.getByRole("article", { name: "崩坏：星穹铁道 4.5 版本" });
-    await expect(card).toContainText("（取下一版本的更新开始）");
-    await expect(card).not.toContainText("取 4.6 版本的更新开始");
-    next.update_start_ms = start46 + 3_600_000;
-    await page.getByRole("button", { name: "重新读取" }).click();
-    await expect(card).toContainText("取 4.6 版本的更新开始");
+    const card = (version: string) =>
+      page.getByRole("article", { name: `崩坏：星穹铁道 ${version} 版本` });
+    // 4.6 的更新开始被 4.5 的结束引用：只给提示，不给修改或清除。
+    await expect(card("4.6")).toContainText("已被 4.5 版本的结束引用");
+    await expect(card("4.6").getByRole("button", { name: "清除确认" })).toHaveCount(0);
+    // 4.6 的下一版本是 4.7（只有摘录、未确认）：提示先确认，不跳过去取 4.8。
+    await expect(card("4.6")).toContainText("下一版本 4.7 的更新开始尚未确认");
+    await expect(card("4.6")).not.toContainText("取 4.8 版本的更新开始");
+    // 4.5 已按 4.6 的更新开始确认且值一致：不重复列出。
+    await expect(card("4.5")).toContainText("（取下一版本的更新开始）");
+    await expect(card("4.5")).not.toContainText("取 4.6 版本的更新开始");
+    // 摘录附官方原文链接。
+    await expect(card("4.7").getByRole("link", { name: "打开官方原文" })).toHaveAttribute(
+      "href",
+      "https://sr.mihoyo.com/news/s47",
+    );
+    // 4.4 取 4.5 的更新开始：请求带上页面上看到的那个值。
+    await page.getByLabel("常用理由").selectOption({ index: 1 });
+    await card("4.4")
+      .getByRole("listitem")
+      .filter({ hasText: "取 4.5 版本的更新开始" })
+      .getByRole("button", { name: "采用" })
+      .click();
+    await expect(page.locator("#notice")).toContainText("已确认");
+    expect(state.calls.find((call) => call.path === "admin/versions/confirm")?.body).toEqual({
+      game: "hsr",
+      version: "4.4",
+      field: "version_end",
+      from_next_version: true,
+      expected_next_update_start_ms: at("2026-08-16T22:00:00Z"),
+      expected_updated_at: 1_900_000_000_500,
+      reason: "已对照版本公告原文核对",
+    });
   });
 });

@@ -551,3 +551,7 @@
 .version-field > .button {
   justify-self: start;
 }
+
+.version-source-link {
+  white-space: nowrap;
+}

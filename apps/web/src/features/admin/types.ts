@@ -59,6 +59,7 @@ export interface VersionSuggestion {
   version: string;
   article_version_id: string;
   title: string | null;
+  official_url: string | null;
   update_start_ms: number | null;
   update_start: VersionEvidence | null;
   update_duration: VersionEvidence | null;
