@@ -32,6 +32,8 @@
 | [ADR-0009](adr/0009-ai-draft-prefill.md) | AI 草稿预填、人工一键批准（所有者 2026-10-04 批准；P3-17 实施）；草稿不自动发布，P3-09 仍关闭 |
 | [ADR-0010](adr/0010-glm-draft-model-and-version-notes.md) | AI 草稿改用 glm-5.3-flash、提示词 v2、版本公告纳入、旧草稿重起草（所有者 2026-10-04 决定；P3-18 实施）；版本时间表由 ADR-0011 落实 |
 | [ADR-0011](adr/0011-version-timeline-derivation.md) | 版本时间表：管理员逐项确认版本时间，"X.Y版本更新后"推导为日期、"X.Y版本结束"推导为确认时刻（所有者 2026-10-04 批准；P3-19 实施）；管理端拆为三页 |
+| [ADR-0012](adr/0012-candidate-size-and-admin-controls.md) | 候选整体上限独立为 32 KiB，整篇版本公告的 AI 草稿一次采用、不拆分；修正长公告批准误判节点超限；运行开关改为页面内确认并说明来源能力（所有者 2026-10-05 批准；P3-20 实施） |
+| [ADR-0013](adr/0013-year-completion-and-version-phrases.md) | （提议）按公告自身的明确日期补全年份，扩充"版更后""上线起"等可推导写法；待所有者批准 |
 | [P3-17 真实调用取证](evidence/p3/ai-draft-probe.md) | 6 次真实调用的响应形状、计费口径与 `/no_think` 结论（ADR-0009 依据，不是 P0-03b 质量评估） |
 
 ## 阅读顺序
