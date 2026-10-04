@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   compareVersions,
   deriveVersionTime,
+  nextKnownVersion,
   parseVersionAnchor,
   versionDerivationBasis,
 } from "./version-time";
@@ -44,6 +45,14 @@ describe("A-P3-VERSION 版本锚点", () => {
     expect(compareVersions("7.10", "7.9")).toBeGreaterThan(0);
     expect(compareVersions("8.0", "7.9")).toBeGreaterThan(0);
     expect(compareVersions("4.6", "4.6")).toBe(0);
+  });
+
+  it("下一版本只认紧接着的版本号，不跳过未知版本", () => {
+    expect(nextKnownVersion("7.1", ["7.2", "7.3"])).toBe("7.2");
+    expect(nextKnownVersion("7.1", ["7.3", "8.1"])).toBeNull();
+    expect(nextKnownVersion("4.8", ["5.0", "5.1"])).toBe("5.0");
+    expect(nextKnownVersion("4.8", ["4.9", "5.0"])).toBe("4.9");
+    expect(nextKnownVersion("7.9", ["7.10"])).toBe("7.10");
   });
 });
 

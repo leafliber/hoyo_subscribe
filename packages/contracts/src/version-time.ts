@@ -48,11 +48,28 @@ export function versionDerivationBasis(rawExpression: string): string | null {
     : `取 ${anchor.version} 版本的结束时间，按官方版本公告核对确认。`;
 }
 
-/** 版本号按"主.次"数值比较，供"下一个版本"的判断使用。 */
+/** 版本号按"主.次"数值比较，用于排序。 */
 export function compareVersions(a: string, b: string): number {
   const [aMajor, aMinor] = a.split(".").map(Number);
   const [bMajor, bMinor] = b.split(".").map(Number);
   return aMajor === bMajor ? aMinor - bMinor : aMajor - bMajor;
+}
+
+/** 紧接在 version 之后可能的版本号：同一大版本的下一个小版本（7.1→7.2），或下一个大版本的 .0（4.8→5.0）。 */
+export function nextVersionCandidates(version: string): readonly [string, string] {
+  const [major, minor] = version.split(".").map(Number);
+  return [`${major}.${minor + 1}`, `${major + 1}.0`];
+}
+
+/**
+ * 在已知版本里取紧接着的下一个版本，小版本优先；两者都未知时为 null。
+ * 不跳过未知或未确认的版本去取更远的版本：7.2 还没出现时，7.1 的结束不能取 7.3 的更新开始。
+ */
+export function nextKnownVersion(version: string, known: Iterable<string>): string | null {
+  const set = new Set(known);
+  const [minorNext, majorNext] = nextVersionCandidates(version);
+  if (set.has(minorNext)) return minorNext;
+  return set.has(majorNext) ? majorNext : null;
 }
 
 /**
