@@ -20,6 +20,24 @@ import { readControls } from "./controls";
 import { feedbackExpiredKeys } from "./feedback";
 import { readMetric } from "./metrics";
 
+/** 投递执行器会停在 failed 的固定行；运维手册与 rearm 入口只认这份清单。 */
+export const DELIVERY_TERMINAL_JOBS = [
+  "delivery:backoff",
+  "delivery:occurrence-backoff",
+  "delivery:budget-backoff",
+  "delivery:dispatch-backoff",
+  "delivery:dispatch",
+] as const;
+interface SourceStateRow {
+  source_id: string;
+  verification_state: string | null;
+  last_success_at: number | null;
+  updated_at: number | null;
+  job_status: string | null;
+  job_last_error: string | null;
+  job_attempts: number | null;
+}
+
 async function safe<T>(read: () => Promise<T>): Promise<T | null> {
   try {
     return await read();
@@ -103,9 +121,19 @@ export async function readObservability(db: D1Database, now: number) {
       observed_at: row.updated_at,
     };
   });
+  // 含执行器核心与发生项退避：核心停下会关闭全部外发（含验证码），不能只看业务批次。
   const failedJobs = await many(
-    "SELECT id,status FROM jobs WHERE id IN ('delivery:budget-backoff','delivery:dispatch-backoff','delivery:dispatch') AND status='failed'",
+    "SELECT id,status,last_error,attempts,updated_at FROM jobs WHERE id IN (SELECT value FROM json_each(?)) AND status='failed'",
+    JSON.stringify(DELIVERY_TERMINAL_JOBS),
   );
+  // 来源维护锁与来源待办终态按当前状态持续告警（不依赖当日指标槽），只读固定注册表行。
+  const sourceStates = (await many(
+    `SELECT r.value AS source_id, s.verification_state, s.last_success_at, s.updated_at,
+       j.status AS job_status, j.last_error AS job_last_error, j.attempts AS job_attempts
+     FROM json_each(?) r LEFT JOIN sources s ON s.source_id = r.value
+     LEFT JOIN jobs j ON j.id = 'pipeline:source:' || r.value ORDER BY r.key`,
+    JSON.stringify(SOURCE_REGISTRY.map((entry) => entry.sourceId)),
+  )) as SourceStateRow[] | null;
   const retry = await safe(async () => {
     const r = await db
       .prepare("SELECT value_json FROM system_state WHERE key='mail_retry_budget_not_scheduled'")
@@ -202,6 +230,17 @@ export async function readObservability(db: D1Database, now: number) {
   );
   alert("mail_retry_budget_not_scheduled", retry === null ? null : retry.count > 0);
   alert("delivery_failed_jobs", failedJobs === null ? null : failedJobs.length > 0);
+  for (const entry of SOURCE_REGISTRY) {
+    const row = sourceStates?.find((state) => state.source_id === entry.sourceId) ?? null;
+    alert(
+      `source_maintenance:${entry.sourceId}`,
+      sourceStates === null ? null : row?.verification_state === "maintenance-required",
+    );
+    alert(
+      `source_job_failed:${entry.sourceId}`,
+      sourceStates === null ? null : row?.job_status === "failed",
+    );
+  }
   alert("unmatched_expired", feedbackGrowth?.delta == null ? null : feedbackGrowth.delta > 0);
   alert(
     "feedback_capacity",
@@ -265,6 +304,7 @@ export async function readObservability(db: D1Database, now: number) {
     },
     retry,
     failed_jobs: failedJobs,
+    source_states: sourceStates,
     pipeline,
     population,
     auth_queue: authQueue,

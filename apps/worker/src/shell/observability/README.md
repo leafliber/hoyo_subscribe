@@ -19,6 +19,8 @@
 | 邮件 unknown / 抑制 | provider_unknown 计数、mail_outbox / suppressions | 单次告警；不全局暂停 | 失败 unknown |
 | 反馈容量 / 未关联到期增长 | mail_feedback、mail_feedback:unmatched_expired:* | MAIL_FEEDBACK_MAX / MAIL_UNMATCHED_MAX；OBS_CAPACITY_WARN_RATIO（所有者批准） | unknown，不能显示零积压 |
 | 重试未安排 / 业务预算与派发失败 | mail_retry_budget_not_scheduled、固定日志与 failed jobs | 单次告警；保持认证独立 | unknown |
+| 投递终态（含执行器核心 `delivery:backoff` 与发生项退避） | `failed_jobs`（固定清单，含 last_error/attempts/updated_at） | `delivery_failed_jobs` 按当前状态持续告警，解除后清除 | unknown |
+| 来源维护锁 / 来源待办终态 | `source_states`（注册表来源 × sources × `pipeline:source:*`） | `source_maintenance:<id>`、`source_job_failed:<id>` 按当前状态持续告警 | unknown |
 | CPU / D1 读写存储 / DO / Queue / DLQ / 账单 | 所有者提供的真实平台事实 | 包含量和观测时间必须随证据；不采用本地值冒充 | unknown + 待取证，不请求平台权限 |
 | 公开来源 / 代次 / 缺口 | 沿用 P3-14 公开视图 | 沿用其保护值 | 按其逐项 unknown |
 
@@ -32,6 +34,14 @@
 - email_seats_open / email_routine_enabled / business_mail_enabled：新名额、常规层、业务邮件分别控制；关闭不修改用户同意。
 - push_enabled / model_enabled / automatic_publication_enabled：独立门；未实现的 Push/模型不得宣称已可用。
 - source:<注册表 source_id>：逐来源 boolean；仍保留访问控制维护锁，不自动解除。
+
+## 终态解除（所有者有意操作）
+
+只接受管理员会话、绑定 CSRF、闭合原因（OperationalReasonSchema）与 `expected_updated_at` 乐观并发；业务写入与审计同批，零命中返回 409。
+
+- `POST /api/v2/admin/sources/resume` `{source, expected_updated_at, reason}`：仅 `maintenance-required` 且来源待办不在租约中时，恢复注册表登记状态（米游社仍是仅列表），丢弃残留抓取页并只放回一次正常受控轮询；仍受限时同一抓取重新标维护并告警。不做周期探测，不绕过官方访问控制。
+- `POST /api/v2/admin/delivery/rearm` `{job, expected_updated_at, reason}`：只接受固定清单中的 failed 行；退避行置 done 解除，`delivery:dispatch` 回到 pending 续跑同一批。不修改 `mail_sending_available`，开启外发仍是单独一步（顺序见 `mail/outbox/README.md`）。
+- 逐封、逐发生项与发布/通知待办的 failed 不提供批量重置。
 - account_reclaim_enabled / seat_reclaim_enabled：各自的运营门；不替代 reclaim_paused 的活动可靠性门，不实现回收。
 - read_only：维护开关；只限制扩大/修改，退订、停用、撤销、删除及管理员恢复操作保留。
 - calendar_enabled：D3 日历启用事实；不影响有效个人 Feed 的读取与停用。

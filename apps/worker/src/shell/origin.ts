@@ -15,6 +15,13 @@ export function sameOriginCheck(request: Request): OriginCheckResult {
     return "origin_missing";
   }
   const url = new URL(request.url);
-  const parsed = new URL(origin);
+  let parsed: URL;
+  try {
+    parsed = new URL(origin);
+  } catch {
+    // Origin: null（沙箱 iframe、file:、跨源重定向）等不可解析值不可能同源：按跨源拒绝，
+    // 不能抛成 503 并逐请求写错误日志。
+    return "origin_mismatch";
+  }
   return parsed.origin === url.origin ? "ok" : "origin_mismatch";
 }

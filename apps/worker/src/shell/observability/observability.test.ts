@@ -313,6 +313,36 @@ it("P5 无 Queue 流量真实清理过期未关联反馈，增长基于两次采
   });
 });
 
+it("未配置密钥且无待关联反馈不记维护故障；有待关联反馈时仍如实记故障", async () => {
+  await env.DB.exec("DELETE FROM mail_feedback");
+  const keys = vi.fn(async (): Promise<never> => {
+    throw new Error("mail_keys_unconfigured");
+  });
+  await maintainFeedback(env.DB, keys, () => now);
+  expect(keys).not.toHaveBeenCalled();
+  expect(await readMetric(env.DB, "feedback_maintenance_failed", now)).toBeNull();
+  await env.DB.prepare(
+    `INSERT INTO mail_outbox(id,purpose,priority,period_key,address_version,payload_kind,status,message_id,created_at,updated_at)
+    VALUES ('synthetic-keys-outbox','existing_auth',0,'synthetic',1,'synthetic','accepted','<synthetic-keys@mail.example.com>',?,?)`,
+  )
+    .bind(now, now)
+    .run();
+  await env.DB.prepare(
+    `INSERT INTO mail_feedback(id,provider_event_id,message_id,kind,feedback_at,raw_ref,created_at)
+    VALUES ('synthetic-keys','synthetic-keys','<synthetic-keys@mail.example.com>','delivered',?,?,?)`,
+  )
+    .bind(now, JSON.stringify({ stage: "pending", leaseUntil: 0, token: null }), now)
+    .run();
+  try {
+    await maintainFeedback(env.DB, keys, () => now);
+    expect(keys).toHaveBeenCalled();
+    expect((await readMetric(env.DB, "feedback_maintenance_failed", now))?.count).toBe(1);
+  } finally {
+    await env.DB.exec("DELETE FROM mail_feedback");
+    await env.DB.prepare("DELETE FROM mail_outbox WHERE id='synthetic-keys-outbox'").run();
+  }
+});
+
 it("反馈维护一相失败不会遮蔽另一相，记录固定故障而不无限重试", async () => {
   const ring = await testKeyring;
   const prune = vi.fn().mockRejectedValue(new Error("synthetic"));
@@ -326,4 +356,171 @@ it("反馈维护一相失败不会遮蔽另一相，记录固定故障而不无�
   expect(prune).toHaveBeenCalledOnce();
   expect(reconcile).toHaveBeenCalledOnce();
   expect((await readMetric(env.DB, "feedback_maintenance_failed", now))?.count).toBe(1);
+});
+
+describe("终态可见且只能由所有者有意解除", () => {
+  const post = (path: string, headers: Record<string, string>, payload: unknown) =>
+    shell.fetch(
+      new Request(origin + path, { method: "POST", headers, body: JSON.stringify(payload) }),
+      env,
+      fakeExecutionContext,
+    );
+  const source = SOURCE_REGISTRY[0];
+  const jobId = `pipeline:source:${source.sourceId}`;
+  async function seedMaintenance() {
+    await env.DB.exec("DELETE FROM jobs; DELETE FROM sources;");
+    await env.DB.prepare(
+      `INSERT INTO sources(source_id,game,region,adapter,approved_hosts_json,verified_publishers_json,cursor_json,poll_policy_json,verification_state,last_success_at,created_at,updated_at)
+      VALUES (?,?,?,?,'[]','[]','{}','{}','maintenance-required',?,?,?)`,
+    )
+      .bind(
+        source.sourceId,
+        source.game,
+        source.region,
+        source.adapterId,
+        now - 1,
+        now - 1,
+        now - 1,
+      )
+      .run();
+    await env.DB.prepare(
+      `INSERT INTO jobs(id,kind,payload_json,due_at,status,attempts,last_error,created_at,updated_at)
+      VALUES (?,'pipeline_source',?,?,'failed',3,'source_maintenance',?,?)`,
+    )
+      .bind(
+        jobId,
+        JSON.stringify({ sourceId: source.sourceId, page: { stale: true } }),
+        now,
+        now,
+        now,
+      )
+      .run();
+  }
+  it("来源维护锁、来源待办失败与投递核心终态都持续告警，并给出解除所需的版本", async () => {
+    await seedMaintenance();
+    await env.DB.prepare(
+      `INSERT INTO jobs(id,kind,payload_json,due_at,status,attempts,last_error,created_at,updated_at)
+      VALUES ('delivery:backoff','delivery_backoff','{}',?,'failed',2,'invalid_data',?,?)`,
+    )
+      .bind(now, now, now - 1)
+      .run();
+    const v = await readObservability(env.DB, now);
+    expect(v.alerts).toContainEqual({
+      code: `source_maintenance:${source.sourceId}`,
+      state: "alert",
+    });
+    expect(v.alerts).toContainEqual({
+      code: `source_job_failed:${source.sourceId}`,
+      state: "alert",
+    });
+    expect(v.alerts).toContainEqual({
+      code: `source_maintenance:${SOURCE_REGISTRY[1].sourceId}`,
+      state: "clear",
+    });
+    expect(v.alerts).toContainEqual({ code: "delivery_failed_jobs", state: "alert" });
+    expect(v.failed_jobs).toContainEqual({
+      id: "delivery:backoff",
+      status: "failed",
+      last_error: "invalid_data",
+      attempts: 2,
+      updated_at: now - 1,
+    });
+    expect(v.source_states).toContainEqual(
+      expect.objectContaining({
+        source_id: source.sourceId,
+        verification_state: "maintenance-required",
+        updated_at: now - 1,
+        job_status: "failed",
+      }),
+    );
+  });
+  it("解除来源维护：恢复注册表状态、只放回一次轮询并审计；版本过期、非维护或租约中均冲突", async () => {
+    await seedMaintenance();
+    const a = await admin();
+    const payload = {
+      source: source.sourceId,
+      expected_updated_at: now - 1,
+      reason: "evidence_reviewed",
+    };
+    expect(
+      (await post("/api/v2/admin/sources/resume", a, { ...payload, source: "unknown" })).status,
+    ).toBe(400);
+    expect(
+      (await post("/api/v2/admin/sources/resume", a, { ...payload, reason: "free text" })).status,
+    ).toBe(400);
+    await env.DB.prepare("UPDATE jobs SET status='leased' WHERE id=?").bind(jobId).run();
+    expect((await post("/api/v2/admin/sources/resume", a, payload)).status).toBe(409);
+    await env.DB.prepare("UPDATE jobs SET status='failed' WHERE id=?").bind(jobId).run();
+    const ok = await post("/api/v2/admin/sources/resume", a, payload);
+    expect(ok.status).toBe(200);
+    expect(
+      await env.DB.prepare("SELECT verification_state,updated_at FROM sources WHERE source_id=?")
+        .bind(source.sourceId)
+        .first(),
+    ).toEqual({ verification_state: source.verificationState, updated_at: now });
+    expect(
+      await env.DB.prepare("SELECT status,payload_json,due_at,last_error FROM jobs WHERE id=?")
+        .bind(jobId)
+        .first(),
+    ).toEqual({
+      status: "pending",
+      payload_json: JSON.stringify({ sourceId: source.sourceId }),
+      due_at: now,
+      last_error: null,
+    });
+    expect(
+      await env.DB.prepare(
+        "SELECT COUNT(*) AS n FROM audit_log WHERE action='source_maintenance_release' AND target_id=?",
+      )
+        .bind(source.sourceId)
+        .first("n"),
+    ).toBe(1);
+    now++;
+    expect((await post("/api/v2/admin/sources/resume", a, payload)).status).toBe(409);
+    expect((await readObservability(env.DB, now)).alerts).toContainEqual({
+      code: `source_maintenance:${source.sourceId}`,
+      state: "clear",
+    });
+  });
+  it("解除投递终态：退避行置 done、不自动开启外发并审计；重复或非清单行拒绝", async () => {
+    await env.DB.exec("DELETE FROM jobs;");
+    await set("mail_sending_available", false);
+    await env.DB.prepare(
+      `INSERT INTO jobs(id,kind,payload_json,due_at,status,attempts,last_error,created_at,updated_at)
+      VALUES ('delivery:backoff','delivery_backoff','{}',?,'failed',2,'invalid_data',?,?)`,
+    )
+      .bind(now, now, now - 1)
+      .run();
+    const a = await admin();
+    const payload = {
+      job: "delivery:backoff",
+      expected_updated_at: now - 1,
+      reason: "maintenance",
+    };
+    expect(
+      (await post("/api/v2/admin/delivery/rearm", a, { ...payload, job: "delivery:mail:x" }))
+        .status,
+    ).toBe(400);
+    expect(
+      (await post("/api/v2/admin/delivery/rearm", a, { ...payload, expected_updated_at: now - 2 }))
+        .status,
+    ).toBe(409);
+    const ok = await post("/api/v2/admin/delivery/rearm", a, payload);
+    expect(ok.status).toBe(200);
+    expect(
+      await env.DB.prepare("SELECT status,due_at FROM jobs WHERE id='delivery:backoff'").first(),
+    ).toEqual({ status: "done", due_at: now });
+    expect((await readControl(env.DB, "mail_sending_available")).value).toBe(false);
+    expect(
+      await env.DB.prepare(
+        "SELECT COUNT(*) AS n FROM audit_log WHERE action='delivery_rearm'",
+      ).first("n"),
+    ).toBe(1);
+    now++;
+    expect((await post("/api/v2/admin/delivery/rearm", a, payload)).status).toBe(409);
+    expect((await readObservability(env.DB, now)).alerts).toContainEqual({
+      code: "delivery_failed_jobs",
+      state: "clear",
+    });
+  });
 });

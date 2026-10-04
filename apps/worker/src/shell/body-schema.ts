@@ -57,8 +57,41 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
 }
 
 /**
+ * 按实际字节流式读入请求体，累计超过 API_BODY_MAX_BYTES 立即取消读取。Content-Length 只能
+ * 提前拒绝，不能代替计数：分块请求可以不带它，也可以谎报。
+ */
+async function readCappedBytes(request: Request, tooLarge: () => never): Promise<Uint8Array> {
+  const reader = request.body?.getReader();
+  const chunks: Uint8Array[] = [];
+  let size = 0;
+  if (reader) {
+    try {
+      for (;;) {
+        const next = await reader.read();
+        if (next.done) break;
+        size += next.value.byteLength;
+        if (size > API_BODY_MAX_BYTES) {
+          await reader.cancel().catch(() => {});
+          tooLarge();
+        }
+        chunks.push(next.value);
+      }
+    } finally {
+      reader.releaseLock();
+    }
+  }
+  const bytes = new Uint8Array(size);
+  let offset = 0;
+  for (const chunk of chunks) {
+    bytes.set(chunk, offset);
+    offset += chunk.length;
+  }
+  return bytes;
+}
+
+/**
  * 读取并解析写请求体：Content-Type 必须 application/json、字节尺寸不超过
- * API_BODY_MAX_BYTES（Content-Length 与实际解码字节双重检查）、必须是合法 JSON。
+ * API_BODY_MAX_BYTES（Content-Length 提前拒绝 + 实际字节流式计数）、必须是合法 JSON。
  * 任何一步失败抛 ApiError("validation")。
  */
 export async function readJsonBody(request: Request): Promise<unknown> {
@@ -68,15 +101,14 @@ export async function readJsonBody(request: Request): Promise<unknown> {
     validationError([{ path: "", reason: "content_type_must_be_json" }]);
   }
 
+  const tooLarge = (): never => validationError([{ path: "", reason: "body_too_large" }]);
   const declaredLength = Number(request.headers.get("content-length"));
   if (Number.isInteger(declaredLength) && declaredLength > API_BODY_MAX_BYTES) {
-    validationError([{ path: "", reason: "body_too_large" }]);
+    tooLarge();
   }
 
-  const text = await request.text();
-  if (new TextEncoder().encode(text).byteLength > API_BODY_MAX_BYTES) {
-    validationError([{ path: "", reason: "body_too_large" }]);
-  }
+  // 与 request.text() 相同的 UTF-8 解码（非法序列替换、去 BOM），但先受字节上限约束。
+  const text = new TextDecoder().decode(await readCappedBytes(request, tooLarge));
 
   try {
     return JSON.parse(text) as unknown;
@@ -117,7 +149,7 @@ function checkObject(
 
   for (const [key, spec] of Object.entries(schema.fields)) {
     const path = joinPath(prefix, key);
-    if (!(key in value)) {
+    if (!Object.hasOwn(value, key)) {
       if (!spec.optional) {
         out.push({ path, reason: "missing_field" });
       }
@@ -126,9 +158,10 @@ function checkObject(
     checkField(spec, value[key], path, out);
   }
 
-  // 未知字段：schema 未声明的键（所有权字段已在上面单独点名）。
+  // 未知字段：schema 未声明的键（所有权字段已在上面单独点名）。只认自有属性，
+  // __proto__、constructor、toString 等原型链上的名字不能冒充已声明字段。
   for (const key of Object.keys(value)) {
-    if (!(key in schema.fields)) {
+    if (!Object.hasOwn(schema.fields, key)) {
       out.push({ path: joinPath(prefix, key), reason: "unknown_field" });
     }
   }
@@ -205,31 +238,7 @@ export async function readFormBody(
   const length = request.headers.get("content-length");
   if (length !== null && (!/^\d+$/.test(length) || Number(length) > API_BODY_MAX_BYTES))
     invalid("body_too_large");
-  const reader = request.body?.getReader();
-  const chunks: Uint8Array[] = [];
-  let size = 0;
-  if (reader) {
-    try {
-      for (;;) {
-        const next = await reader.read();
-        if (next.done) break;
-        size += next.value.byteLength;
-        if (size > API_BODY_MAX_BYTES) {
-          await reader.cancel().catch(() => {});
-          invalid("body_too_large");
-        }
-        chunks.push(next.value);
-      }
-    } finally {
-      reader.releaseLock();
-    }
-  }
-  const bytes = new Uint8Array(size);
-  let offset = 0;
-  for (const chunk of chunks) {
-    bytes.set(chunk, offset);
-    offset += chunk.length;
-  }
+  const bytes = await readCappedBytes(request, () => invalid("body_too_large"));
   let text: string;
   try {
     text = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(bytes);
