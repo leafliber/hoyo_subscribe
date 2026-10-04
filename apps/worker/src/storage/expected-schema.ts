@@ -1,3 +1,4 @@
+// P3-19 获准跨卡：登记 0028 版本时间建议与确认表（ADR-0011）。
 // P3-17 获准跨卡：登记 0027 AI 草稿与 Workers AI 日账本（ADR-0009）。
 // P3-10 返工获准跨卡：登记 0024 管理员审计到期部分索引。
 // P3-06 获准跨卡：仅登记 0019 的 Feed 输出事实与完整代次清单列。
@@ -134,6 +135,33 @@ export const EXPECTED_TABLES: Record<string, readonly string[]> = {
     "updated_at",
   ],
   ai_usage_days: ["day", "reserved", "settled", "calls", "updated_at"],
+  // P3-19 / ADR-0011：版本时间建议与确认值
+  game_version_suggestions: [
+    "id",
+    "game",
+    "region",
+    "version",
+    "article_version_id",
+    "update_start_ms",
+    "update_start_json",
+    "update_duration_json",
+    "version_end_ms",
+    "version_end_json",
+    "created_at",
+  ],
+  game_versions: [
+    "game",
+    "region",
+    "version",
+    "update_start_ms",
+    "update_start_source",
+    "version_end_ms",
+    "version_end_source",
+    "version_end_basis",
+    "updated_by",
+    "created_at",
+    "updated_at",
+  ],
   evidence: [
     "id",
     "candidate_id",
@@ -650,6 +678,10 @@ export const EXPECTED_INDEXES: Record<string, ExpectedIndex> = {
   idx_milestones_event: { table: "milestones", columns: ["event_id"] },
   idx_extraction_runs_article: { table: "extraction_runs", columns: ["article_version_id"] },
   idx_candidates_review_queue: { table: "candidates", columns: ["review_status", "created_at"] },
+  idx_game_version_suggestions_version: {
+    table: "game_version_suggestions",
+    columns: ["game", "region", "version", "created_at"],
+  },
   idx_evidence_candidate: { table: "evidence", columns: ["candidate_id"] },
   idx_evidence_event: { table: "evidence", columns: ["event_id"] },
   idx_evidence_article_version: { table: "evidence", columns: ["article_version_id"] },
@@ -797,6 +829,7 @@ export const EXPECTED_INDEXES: Record<string, ExpectedIndex> = {
 /** 合同级承载唯一性的 UNIQUE 约束（sqlite_autoindex_*，经 PRAGMA index_list origin='u' 校验）。 */
 export const EXPECTED_UNIQUE_CONSTRAINTS: Record<string, readonly string[][]> = {
   articles: [["source_id", "external_id"]],
+  game_version_suggestions: [["article_version_id", "version"]],
   article_versions: [
     ["article_id", "version_no"],
     ["article_id", "content_hash"],
