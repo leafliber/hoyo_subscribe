@@ -8,6 +8,7 @@ import { cleanupAdminAuditPage } from "../admin/audit";
 import { clearExpiredOtpPayloads } from "../auth/challenges/cleanup";
 import { clearExpiredAuthMaterials } from "../auth/consume/cleanup";
 import { cleanupExpiredPendingSessions } from "../auth/sessions/lifecycle";
+import { ReclaimQueryLimit } from "../executors/cron/query-budget";
 import { logEvent } from "../shell/logger";
 export const cleanupTasks = {
   registrations: async (db: D1Database, now: number) => {
@@ -55,7 +56,12 @@ export async function runCleanup(
     }
     try {
       await task(db, now);
-    } catch {
+    } catch (error) {
+      // 查询预算用尽属于有界推迟：剩余任务下一周期继续，不当作失败告警。
+      if (error instanceof ReclaimQueryLimit) {
+        logEvent("warn", "pipeline_cleanup_deferred", { reason_code: "query_budget" });
+        break;
+      }
       logEvent("error", "pipeline_cleanup_failed", { reason_code: name });
     }
   }

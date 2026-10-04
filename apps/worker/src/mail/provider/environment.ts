@@ -14,9 +14,15 @@ interface MailEnvironment {
   CRYPTO_OTP_PEPPER?: string;
   CRYPTO_UNSUBSCRIBE_KEY_ID?: string;
 }
+/** 发信绑定必须真的挂上：先开邮件开关、后绑发信服务时，不能先生成验证码、占额度再永远发不出去。 */
+function sendBindingAttached(binding: unknown): boolean {
+  return typeof (binding as { send?: unknown } | null | undefined)?.send === "function";
+}
 export function mailConfigured(env: Env & MailEnvironment): boolean {
   try {
     return (
+      sendBindingAttached(env.AUTH_MAILER) &&
+      sendBindingAttached(env.BIZ_MAILER) &&
       !!env.AUTH_MAIL_FROM &&
       !!env.BIZ_MAIL_FROM &&
       !!env.SITE_ORIGIN &&

@@ -13,6 +13,7 @@ import { pruneMailJobPage } from "../../mail/outbox/cleanup";
 import type { SendDeps } from "../../mail/outbox/send";
 import { mailAdmissionHook } from "../../mail/provider/admission";
 import { mailAvailable, requireMailAvailable } from "../../mail/provider/availability";
+import { environmentMailAvailable } from "../../mail/provider/environment";
 import { deliveryWatchdog, dispatchScheduled } from "../../scheduled";
 import type { ShellRoute } from "../../shell";
 import { seedOperationalControls } from "../../shell/observability/test-support";
@@ -210,6 +211,50 @@ describe("A-P4-OUTBOX 认证路由故障门", () => {
       url: new URL("https://synthetic.example/api/v2/status"),
     } as unknown as Parameters<ShellRoute["handler"]>[0]);
     expect(await response.json()).toMatchObject({ mail_sending_available: false });
+  });
+  it("发信绑定未挂上时开关与配置齐全也关闭：不生成 OTP，公开状态同步关闭", async () => {
+    await run(
+      "INSERT INTO system_state(key,value_json,updated_at) VALUES ('mail_sending_available','true',?)",
+      T,
+    );
+    const configured = {
+      ...env,
+      AUTH_MAIL_FROM: "auth@example.invalid",
+      BIZ_MAIL_FROM: "calendar@example.invalid",
+      SITE_ORIGIN: "https://example.invalid",
+      CRYPTO_MASTER_SECRET: "synthetic-unused",
+      CRYPTO_OTP_PEPPER: "synthetic-unused",
+      CRYPTO_UNSUBSCRIBE_KEY_ID: "synthetic-unused",
+    };
+    // 正对照：本地 send_email 绑定确实挂着时可用。
+    expect(await environmentMailAvailable(configured)).toBe(true);
+    const keys = vi.fn(async () => {
+      throw Error("must_not_generate");
+    });
+    const apply = makeChallengeRoutes({
+      keys,
+      mail: mailAdmissionHook,
+      rateGate: { check: () => ({ allowed: true as const }), recordIntent: () => {} },
+      turnstile: () => ({ verify: async () => "passed" as const }),
+    }).find((route) => route.pattern === "/api/v2/auth/challenges");
+    if (!apply) throw Error("route");
+    for (const missing of [
+      { AUTH_MAILER: undefined },
+      { BIZ_MAILER: undefined },
+      { AUTH_MAILER: {} },
+    ]) {
+      const broken = { ...configured, ...missing } as unknown as Env;
+      expect(await environmentMailAvailable(broken)).toBe(false);
+      await expect(
+        apply.handler({ env: broken, body: {} } as unknown as Parameters<ShellRoute["handler"]>[0]),
+      ).rejects.toMatchObject({ code: "temporarily_unavailable" });
+      const status = await statusRoute.handler({
+        env: broken,
+        url: new URL("https://synthetic.example/api/v2/status"),
+      } as unknown as Parameters<ShellRoute["handler"]>[0]);
+      expect(await status.json()).toMatchObject({ mail_sending_available: false });
+    }
+    expect(keys).not.toHaveBeenCalled();
   });
 });
 

@@ -4,6 +4,7 @@ import {
   EXECUTOR_BATCH_WALL_LIMIT,
   MATCH_PAGE,
   NOTIFICATION_PUBLICATION_TOPIC,
+  RECLAIM_QUERY_BUDGET,
   WATCHDOG_INTERVAL,
 } from "@hoyo/contracts";
 import {
@@ -19,6 +20,7 @@ import { readControl } from "../../shell/observability/controls";
 import { recordMetric } from "../../shell/observability/metrics";
 import { articleRowId, saveArticleVersion } from "../../sources/articles/ingest";
 import { getSourceEntry, SOURCE_REGISTRY } from "../../sources/registry";
+import { boundedDatabase, ReclaimQueryLimit } from "../cron/query-budget";
 import { type CollectedPage, collectSource } from "./collect";
 import type { PipelineControlReader } from "./controls";
 import { isCriticalPublication } from "./critical";
@@ -37,6 +39,8 @@ import {
 export const SOURCE_JOB = "pipeline_source";
 export const PUBLICATION_JOB = "pipeline_publication";
 export const NOTIFICATION_JOB = "pipeline_notification";
+/** 待人工裁定的发布待办：tick 与 nextAlarm 都不取它，只由 watchdog 在关联候选变化后放回。 */
+const AWAITING_REVIEW_STATUS = "awaiting_review";
 interface Job {
   id: string;
   kind: string;
@@ -72,6 +76,23 @@ export class PipelineRuntime {
   async watchdog(): Promise<void> {
     const now = this.now();
     const deadline = now + EXECUTOR_BATCH_WALL_LIMIT * 1000;
+    // 过期租约只有这里能修复，先做：后面的维护即使失败或用尽预算，也不拖到下一周期。
+    await this.db
+      .prepare(
+        `UPDATE jobs SET status = 'pending', lease_version = lease_version + 1, lease_owner = NULL, lease_expires_at = NULL, updated_at = ? WHERE kind IN (?, ?, ?) AND status = 'leased' AND lease_expires_at <= ?`,
+      )
+      .bind(now, SOURCE_JOB, PUBLICATION_JOB, NOTIFICATION_JOB, now)
+      .run();
+    // 关联候选出现新裁定、修订或人工候选（updated_at 晚于停放时所见）才放回重抽。
+    await this.db
+      .prepare(
+        `UPDATE jobs SET status = 'pending', due_at = ?, updated_at = ? WHERE kind = ? AND status = ?
+          AND EXISTS (SELECT 1 FROM evidence e JOIN candidates c ON c.id = e.candidate_id
+            WHERE e.article_version_id = json_extract(jobs.payload_json, '$.versionId')
+              AND c.updated_at > json_extract(jobs.payload_json, '$.seenAt'))`,
+      )
+      .bind(now, now, PUBLICATION_JOB, AWAITING_REVIEW_STATUS)
+      .run();
     // 清理先获得执行机会；旧代回收使用剩余墙钟，不因大积压饿死认证清理。
     try {
       await buildPublicSnapshot(this.db, now);
@@ -79,24 +100,22 @@ export class PipelineRuntime {
       await recordMetric(this.db, "snapshot_build_failed", this.now());
       logEvent("error", "pipeline_snapshot_failed", { reason_code: "snapshot_build" });
     }
-    await runCleanup(this.db, now, deadline, this.now);
+    // 清理与旧代回收共用回收查询硬预算；来源排程与 rearm 留在预算外，单次调用不越过 D1 上限。
+    const maintenance = boundedDatabase(this.db, RECLAIM_QUERY_BUDGET).db;
+    await runCleanup(maintenance, now, deadline, this.now);
     try {
       while (this.now() < deadline) {
         const page = await (this.deps.reclaim ?? reclaimSupersededPublicSnapshotPage)(
-          this.db,
+          maintenance,
           MATCH_PAGE,
         );
         if (page.outcome === "done") break;
       }
-    } catch {
-      logEvent("error", "pipeline_snapshot_failed", { reason_code: "snapshot_reclaim" });
+    } catch (error) {
+      if (error instanceof ReclaimQueryLimit)
+        logEvent("warn", "pipeline_snapshot_reclaim_deferred", { reason_code: "query_budget" });
+      else logEvent("error", "pipeline_snapshot_failed", { reason_code: "snapshot_reclaim" });
     }
-    await this.db
-      .prepare(
-        `UPDATE jobs SET status = 'pending', lease_version = lease_version + 1, lease_owner = NULL, lease_expires_at = NULL, updated_at = ? WHERE kind IN (?, ?, ?) AND status = 'leased' AND lease_expires_at <= ?`,
-      )
-      .bind(now, SOURCE_JOB, PUBLICATION_JOB, NOTIFICATION_JOB, now)
-      .run();
     const controls = await this.deps.readControls();
     if (controls === null) {
       logEvent("warn", "pipeline_controls_unconfigured");
@@ -144,10 +163,10 @@ export class PipelineRuntime {
       .bind(NOTIFICATION_PUBLICATION_TOPIC)
       .first();
     if (signal !== null) return this.now();
+    // 只为 tick/dispatchOne 能消费的 pending 待办排 alarm。崩溃或部署重启留下的过期租约
+    // 只有 Cron watchdog 能修复；为它排 alarm 只会让 DO 空转到下一次 Cron。
     const row = await this.db
-      .prepare(
-        `SELECT MIN(CASE WHEN status = 'leased' THEN lease_expires_at ELSE due_at END) AS due FROM jobs WHERE kind IN (?,?,?) AND status IN ('pending','leased')`,
-      )
+      .prepare(`SELECT MIN(due_at) AS due FROM jobs WHERE kind IN (?,?,?) AND status = 'pending'`)
       .bind(SOURCE_JOB, PUBLICATION_JOB, NOTIFICATION_JOB)
       .first<{ due: number | null }>();
     return row?.due === null || row?.due === undefined ? null : Math.max(this.now(), row.due);
@@ -382,6 +401,17 @@ export class PipelineRuntime {
     )
       reason = "noncritical_publication_paused";
     if (this.now() >= deadline) reason = "wall_limit";
+    // 人工裁定前重抽只会得到同一结果：停放而不是每个周期重排，避免待审积压持续消耗 DO 请求与 D1 查询。
+    if (reason === "awaiting_review") {
+      await this.finish(
+        job,
+        AWAITING_REVIEW_STATUS,
+        JSON.stringify({ ...data, seenAt: result.candidate.updatedAtMs }),
+        this.now(),
+        reason,
+      );
+      return;
+    }
     if (reason !== null) {
       await this.finish(
         job,
