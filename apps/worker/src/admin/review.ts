@@ -1,5 +1,9 @@
-import { API_BODY_MAX_BYTES, MATCH_PAGE } from "@hoyo/contracts";
+import { AI_SOFT_DAY, API_BODY_MAX_BYTES, MATCH_PAGE } from "@hoyo/contracts";
 import { loadStoredArticleVersion, validateCandidateAgainstArticle } from "../extraction/article";
+import { readUsageDay } from "../extraction/model/ledger";
+import { readableBlockText } from "../extraction/model/readable";
+import { DRAFT_PROFILE_REF, readDraft } from "../extraction/model/store";
+import type { CandidateProposal } from "../extraction/schema";
 import {
   CandidateConflictError,
   CandidateValidationError,
@@ -108,11 +112,19 @@ export function makeAdminReviewRoutes(clock: () => number = Date.now): ShellRout
             invalid("cursor");
           }
         }
+        // P3-17：一次查询带回标题、来源与草稿状态，审核页不再逐条读详情（原 N+1）。
         const rows = (
-          await ctx.env.DB.prepare(`SELECT id, created_at, updated_at, run_id,
-          (SELECT article_version_id FROM evidence e WHERE e.candidate_id=c.id LIMIT 1) AS article_version_id
-          FROM candidates c WHERE review_status='pending'
-          AND (created_at > ? OR (created_at = ? AND id > ?)) ORDER BY created_at,id LIMIT ?`)
+          await ctx.env.DB.prepare(`SELECT c.id, c.created_at, c.updated_at, c.run_id,
+          av.id AS article_version_id, a.source_id, a.external_id, s.game,
+          json_extract(av.body_blocks_json, '$[0].text') AS title, d.status AS draft_status
+          FROM candidates c
+          LEFT JOIN article_versions av ON av.id =
+            (SELECT e.article_version_id FROM evidence e WHERE e.candidate_id = c.id LIMIT 1)
+          LEFT JOIN articles a ON a.id = av.article_id
+          LEFT JOIN sources s ON s.source_id = a.source_id
+          LEFT JOIN ai_drafts d ON d.candidate_id = c.id
+          WHERE c.review_status='pending'
+          AND (c.created_at > ? OR (c.created_at = ? AND c.id > ?)) ORDER BY c.created_at,c.id LIMIT ?`)
             .bind(after?.createdAt ?? -1, after?.createdAt ?? -1, after?.id ?? "", MATCH_PAGE + 1)
             .all<{
               id: string;
@@ -120,12 +132,24 @@ export function makeAdminReviewRoutes(clock: () => number = Date.now): ShellRout
               updated_at: number;
               run_id: string | null;
               article_version_id: string | null;
+              source_id: string | null;
+              external_id: string | null;
+              game: string | null;
+              title: string | null;
+              draft_status: string | null;
             }>()
         ).results;
         const page = rows.slice(0, MATCH_PAGE);
         const last = page.at(-1);
+        const usage = await readUsageDay(ctx.env.DB, clock());
         return noStore({
           candidates: page,
+          ai_usage: {
+            day: usage.day,
+            settled: usage.settled,
+            reserved: usage.reserved,
+            cap: AI_SOFT_DAY,
+          },
           next_cursor:
             rows.length > MATCH_PAGE && last
               ? toBase64Url(utf8Encode(JSON.stringify({ createdAt: last.created_at, id: last.id })))
@@ -150,6 +174,7 @@ export function makeAdminReviewRoutes(clock: () => number = Date.now): ShellRout
             .bind(id)
             .all()
         ).results;
+        const draft = await readDraft(ctx.env.DB, id);
         return noStore({
           ...record,
           candidate: {
@@ -157,6 +182,22 @@ export function makeAdminReviewRoutes(clock: () => number = Date.now): ShellRout
             proposal_json: JSON.parse(record.candidate.proposal_json),
           },
           evidence,
+          // P3-17：可读文本只用于展示，证据校验仍以 article.blocks 原文为准。
+          readable_blocks: record.article.blocks.map(readableBlockText),
+          media_count: record.article.mediaRefs.length,
+          draft:
+            draft === null
+              ? null
+              : {
+                  status: draft.status,
+                  profile_ref: draft.profileRef,
+                  article_version_id: draft.articleVersionId,
+                  proposal: draft.proposal,
+                  notes: draft.notes,
+                  reason_code: draft.reasonCode,
+                  usage: draft.usage,
+                  updated_at: draft.updatedAt,
+                },
         });
       },
     },
@@ -287,6 +328,84 @@ export function makeAdminReviewRoutes(clock: () => number = Date.now): ShellRout
           },
         );
         return noStore({ candidate });
+      },
+    },
+    {
+      // P3-17（ADR-0009）：采用 AI 草稿 = 一次带理由、带审计的人工修正。只从库里取草稿，
+      // 客户端只能排除事件或节点、确认歧义，不能提交任意候选内容；批准仍走 approve。
+      method: "POST",
+      pattern: "/api/v2/admin/review/adopt-draft",
+      domain: "admin",
+      write: true,
+      csrfBinding: adminCsrfBinding,
+      bodySchema: {
+        fields: {
+          ...writeFields,
+          exclude: { type: "array", items: { type: "string", minLength: 1, maxLength: 32 } },
+          confirm_ambiguities: { type: "boolean" },
+        },
+      },
+      handler: async (ctx) => {
+        const body = ctx.body ?? {};
+        const admin = requireAdmin(ctx.auth);
+        const now = clock();
+        const id = String(body.candidate_id);
+        const reason = reasonOf(body.reason);
+        const expected = expectedOf(body.expected_updated_at);
+        const exclude = new Set(
+          (body.exclude as string[]).map((path) => {
+            if (!/^e\d+(?:\.m\d+)?$/.test(path)) invalid("exclude");
+            return path;
+          }),
+        );
+        const current = await detail(ctx.env.DB, id);
+        if (
+          current.candidate.updated_at !== expected ||
+          current.candidate.review_status !== "pending" ||
+          now <= expected
+        )
+          throw new ApiError("conflict");
+        const draft = await readDraft(ctx.env.DB, id);
+        if (draft === null || draft.proposal === null) invalid("candidate_id", "draft_missing");
+        // 文章出了新版本时草稿已过期，不能拿旧正文的引文去修正。
+        if (draft.articleVersionId !== current.article.articleVersionId)
+          throw new ApiError("conflict");
+        const events = draft.proposal.events.flatMap((event, eventIndex) => {
+          if (exclude.has(`e${eventIndex}`)) return [];
+          const milestones = event.milestones.filter(
+            (_, milestoneIndex) => !exclude.has(`e${eventIndex}.m${milestoneIndex}`),
+          );
+          return milestones.length === 0 ? [] : [{ ...event, milestones }];
+        });
+        let proposal: CandidateProposal;
+        if (draft.proposal.classification === "no_event") {
+          proposal = { classification: "no_event", events: [], ambiguities: [] };
+        } else {
+          if (events.length === 0) invalid("exclude", "nothing_left");
+          if (draft.proposal.classification === "uncertain" && body.confirm_ambiguities !== true)
+            invalid("confirm_ambiguities", "required");
+          proposal = { classification: "events", events, ambiguities: [] };
+        }
+        const parsed = validateCandidateAgainstArticle(proposal, current.article);
+        if (!parsed.success) invalid("exclude", "candidate_validation_failed");
+        checkCandidateText(parsed.data);
+        const candidate = await reviseCandidate(ctx.env.DB, id, parsed.data, now, {
+          expectedUpdatedAt: expected,
+          auditEffect: auditEffect({
+            actorId: admin.adminId,
+            action: "candidate_adopt_draft",
+            targetType: "candidate",
+            targetId: id,
+            reason,
+            createdAt: now,
+            detailRef: `ai_draft:${DRAFT_PROFILE_REF};excluded=${exclude.size};confirmed=${body.confirm_ambiguities === true}`,
+          }),
+        });
+        return noStore({
+          candidate_id: id,
+          review_status: candidate.reviewStatus,
+          updated_at: candidate.updatedAtMs,
+        });
       },
     },
   ];

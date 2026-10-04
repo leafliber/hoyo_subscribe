@@ -1,4 +1,5 @@
 import {
+  CANDIDATE_TEXT_FIELD_BYTES,
   decideCalendarPatch,
   PUBLIC_READ_LIMITS,
   type PublicCalendarProjection,
@@ -15,10 +16,10 @@ function invalid(path: string): never {
   });
 }
 
-/** 一个节点有双份投影和最多三份更正时间；给字段分配 nodeBytes 的 1/32，
+/** 一个节点有双份投影和最多三份更正时间；给字段分配 nodeBytes 的 1/32（CANDIDATE_TEXT_FIELD_BYTES），
  * 剩余空间留给固定结构、身份、转义与历史更正。最终仍核验实际完整节点。 */
 export function checkCandidateText(proposal: CandidateProposal): void {
-  const fieldBytes = Math.floor(PUBLIC_READ_LIMITS.nodeBytes / 32);
+  const fieldBytes = CANDIDATE_TEXT_FIELD_BYTES;
   for (const event of proposal.events) {
     for (const value of [event.title, event.summary, event.event_key]) {
       if (bytes(value) > fieldBytes) invalid("proposal_json");
