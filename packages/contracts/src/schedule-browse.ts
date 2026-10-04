@@ -17,8 +17,9 @@ export type BrowseRange = (typeof BROWSE_RANGES)[number]["id"];
 export const BROWSE_DEFAULT_RANGE: BrowseRange = "3d";
 export const BROWSE_TIMEZONE = "北京时间 UTC+8";
 // 单位换算，非预算、配额或 Feed 参数。
-const DAY = 86_400_000;
-const UTC8 = 8 * 3_600_000;
+const HOUR = 3_600_000;
+const DAY = 24 * HOUR;
+const UTC8 = 8 * HOUR;
 export function browseDate(ms: number): string {
   return new Date(ms + UTC8).toISOString().slice(0, 10);
 }
@@ -128,10 +129,23 @@ export function nodeAction(node: Pick<ScheduleNode, "nodeType" | "eventType">): 
     return {
       livestream: "前瞻结束",
       maintenance: "维护结束",
-      limited_event: "玩法结束",
+      // ADR-0015：界面统一叫"活动"；与"奖励领取截止"仍是两个节点。
+      limited_event: "活动结束",
       gacha: "卡池结束",
     }[node.eventType];
   return NODE_NAMES[node.nodeType];
+}
+/** 截止紧迫度的分档（小时；ADR-0015，所有者 2026-10-05：24 小时内即为高危）。 */
+export const DEADLINE_URGENCY_HOURS = { critical: 24, soon: 72 } as const;
+export type DeadlineUrgency = "critical" | "soon" | "later";
+/** 距截止不足 critical 小时为高危，不足 soon 小时为临近，其余一般；已过时间按高危处理（调用方通常已移出）。 */
+export function deadlineUrgency(target: number, now: number): DeadlineUrgency {
+  const left = target - now;
+  return left < DEADLINE_URGENCY_HOURS.critical * HOUR
+    ? "critical"
+    : left < DEADLINE_URGENCY_HOURS.soon * HOUR
+      ? "soon"
+      : "later";
 }
 export function nodeStatus(
   node: Pick<ScheduleNode, "status" | "time" | "nodeType">,

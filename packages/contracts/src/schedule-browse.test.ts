@@ -285,3 +285,29 @@ it("U03 公共节点六档沿用精度、稳定排序、动作与状态规则", 
     }
   }
 });
+
+describe("A-F1-POLISH 统一叫活动；截止 24 小时内为高危（ADR-0015）", () => {
+  it("限时活动的结束节点叫活动结束，仍与奖励领取截止分开", async () => {
+    const { nodeAction } = await import("./schedule-browse");
+    expect(nodeAction({ nodeType: "end", eventType: "limited_event" })).toBe("活动结束");
+    expect(nodeAction({ nodeType: "start", eventType: "limited_event" })).toBe("活动开始");
+    expect(nodeAction({ nodeType: "reward_deadline", eventType: "limited_event" })).toBe(
+      "奖励领取截止",
+    );
+    for (const eventType of ["livestream", "maintenance", "limited_event", "gacha"] as const)
+      for (const nodeType of ["start", "end", "reward_deadline", "phase_unlock"] as const)
+        expect(nodeAction({ nodeType, eventType })).not.toContain("玩法");
+  });
+
+  it("不足 24 小时为高危，不足 72 小时为临近，边界按严格小于", async () => {
+    const { deadlineUrgency, DEADLINE_URGENCY_HOURS } = await import("./schedule-browse");
+    const hour = 3_600_000;
+    expect(DEADLINE_URGENCY_HOURS).toEqual({ critical: 24, soon: 72 });
+    expect(deadlineUrgency(now + 30 * 60_000, now)).toBe("critical");
+    expect(deadlineUrgency(now + 5.5 * hour, now)).toBe("critical");
+    expect(deadlineUrgency(now + 24 * hour - 1, now)).toBe("critical");
+    expect(deadlineUrgency(now + 24 * hour, now)).toBe("soon");
+    expect(deadlineUrgency(now + 72 * hour - 1, now)).toBe("soon");
+    expect(deadlineUrgency(now + 72 * hour, now)).toBe("later");
+  });
+});
