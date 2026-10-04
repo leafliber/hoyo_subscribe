@@ -120,8 +120,8 @@ P0 待定项（`MODEL_MAX_INPUT`、`MODEL_MAX_BILLED_OUTPUT`）未填写前，�
 | KEY_EVENT_RECALL | 0.95 | 比例（原文 ≥95%） | 关键事件召回门槛 | 基线 |
 | AUTO_PUBLISH_TIME_ERRORS | 0 | 个 | 自动发布保留集已知时间错误为 0（有限样本门槛） | 基线 |
 | AI_INCLUDED_DAY | 10,000 | Neurons/日 | Workers AI 每日免费额度；账户内所有应用共用 | 实测引用；官方价目页与 platform-facts.md；其他应用占用须由所有者控制 |
-| AI_DRAFT_PROFILE | {"model":"@cf/qwen/qwen3-30b-a3b-fp8","inputNeuronsPerMillion":4625,"outputNeuronsPerMillion":30475,"maxInputBytes":24000,"templateOverheadTokens":64,"maxOutputTokens":3000,"temperature":0.2} | 模型 / Neurons 每百万 token / 字节 / token | AI 草稿 profile：模型、单价、输入字节上限、模板开销、max_tokens、temperature | ADR-0009 已批准；只预填待审草稿，发布须人工批准；不翻转 AI_BILLING_PROFILE_CONFIGURED |
-| AI_DRAFT_RESERVATION | 203 | Neurons/次 | AI 草稿单次最大预占，由 AI_DRAFT_PROFILE 推出 | ADR-0009 已批准；失败与超时按整笔结算；草稿日累计不超过 AI_SOFT_DAY |
+| AI_DRAFT_PROFILE | {"model":"@cf/zai-org/glm-5.3-flash","inputNeuronsPerMillion":13636,"outputNeuronsPerMillion":45455,"maxInputBytes":64000,"templateOverheadTokens":64,"maxOutputTokens":8000,"temperature":0.3,"reasoningEffort":"low"} | 模型 / Neurons 每百万 token / 字节 / token / 档位 | AI 草稿 profile：模型、单价、输入字节上限、模板开销、max_completion_tokens、temperature、推理档位 | ADR-0009 已批准；ADR-0010 改为 glm-5.3-flash、推理 low；只预填待审草稿，发布须人工批准；不翻转 AI_BILLING_PROFILE_CONFIGURED |
+| AI_DRAFT_RESERVATION | 1,238 | Neurons/次 | AI 草稿单次最大预占（输入取上限），由 AI_DRAFT_PROFILE 推出；每次调用按实际输入字节预占 | ADR-0009 已批准；失败与超时按整笔结算；草稿日累计不超过 AI_SOFT_DAY |
 
 ### A.4 邮件与 Push（按 ADR-0003 纯日额度模型）
 
@@ -238,7 +238,7 @@ P0 待定项（`MODEL_MAX_INPUT`、`MODEL_MAX_BILLED_OUTPUT`）未填写前，�
 | push-test-day-within-send-day | 预留与容量包含 | PUSH_TEST_DAY <= PUSH_SEND_DAY（测试日量仍计入总发送） | PUSH_TEST_DAY(200) <= PUSH_SEND_DAY(5000) |
 | ai-soft-below-hard | usage 单位一致 | AI_SOFT_DAY < AI_HARD_DAY（同为 Neurons/日，软线严于硬线） | AI_SOFT_DAY(6000) < AI_HARD_DAY(8000) |
 | ai-hard-within-included | usage 单位一致 | AI_HARD_DAY < AI_INCLUDED_DAY（硬线守住即不产生 Workers AI 额外费用；额度为账户共用） | AI_HARD_DAY(8000) < AI_INCLUDED_DAY(10000) |
-| ai-draft-reservation-within-soft | usage 单位一致 | AI_DRAFT_RESERVATION = ⌈((maxInputBytes + templateOverheadTokens) × 输入单价 + maxOutputTokens × 输出单价) / 10⁶⌉ <= AI_SOFT_DAY；profile 各数值为正安全整数（temperature ∈ [0, 1]） | AI_DRAFT_RESERVATION(203) = aiDraftReservation(203) <= AI_SOFT_DAY(6000) |
+| ai-draft-reservation-within-soft | usage 单位一致 | AI_DRAFT_RESERVATION = ⌈((maxInputBytes + templateOverheadTokens) × 输入单价 + maxOutputTokens × 输出单价) / 10⁶⌉ <= AI_SOFT_DAY；profile 各数值为正安全整数、推理档位合法（temperature ∈ [0, 1]） | AI_DRAFT_RESERVATION(1238) = aiDraftReservation(1238) <= AI_SOFT_DAY(6000) |
 | source-response-caps-within-ceiling | 来源上限 | SOURCE_LIMIT_PROFILE 每来源响应上限 > 0 且 <= responseCapCeilingBytes | max(SOURCE_LIMIT_PROFILE.responseCapsBytes)(524288) <= responseCapCeilingBytes(524288) |
 | public-read-bounds | 公共读保护 | 公共读上限均为正整数；recentChanges <= scanPage <= detailNodes；nodeBytes × (recentChanges + 1) < responseBytes <= FEED_RESPONSE_MAX_BYTES；queryBytes <= nodeBytes | PUBLIC_READ_LIMITS({"scanPage":100,"recentChanges":20,"detailNodes":1000,"sourcesPerGame":16,"pendingCandidates":1000,"nodeBytes":8192,"responseBytes":524288,"queryBytes":4096}) <= FEED_RESPONSE_MAX_BYTES(2097152) |
 

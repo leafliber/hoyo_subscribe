@@ -10,7 +10,7 @@
 //   单列为 SEMANTIC_INVARIANTS，由调度实现（P4-02）以测试保证。
 
 import type { ParamValues } from "./registry";
-import { aiDraftReservation, PARAMS } from "./registry";
+import { AI_DRAFT_REASONING_EFFORTS, aiDraftReservation, PARAMS } from "./registry";
 
 /**
  * 数值参数宽化为 number 的快照类型：等式校验与反向验证测试需要注入"人为破坏值"，
@@ -380,7 +380,7 @@ export const PARAM_EQUATIONS: readonly EquationDefinition[] = [
   eq(
     "ai-draft-reservation-within-soft",
     "usage 单位一致",
-    "AI_DRAFT_RESERVATION = ⌈((maxInputBytes + templateOverheadTokens) × 输入单价 + maxOutputTokens × 输出单价) / 10⁶⌉ <= AI_SOFT_DAY；profile 各数值为正安全整数（temperature ∈ [0, 1]）",
+    "AI_DRAFT_RESERVATION = ⌈((maxInputBytes + templateOverheadTokens) × 输入单价 + maxOutputTokens × 输出单价) / 10⁶⌉ <= AI_SOFT_DAY；profile 各数值为正安全整数、推理档位合法（temperature ∈ [0, 1]）",
     (v) =>
       `AI_DRAFT_RESERVATION(${v.AI_DRAFT_RESERVATION}) = aiDraftReservation(${aiDraftReservation(v.AI_DRAFT_PROFILE)}) <= AI_SOFT_DAY(${v.AI_SOFT_DAY})`,
     (v) =>
@@ -391,6 +391,9 @@ export const PARAM_EQUATIONS: readonly EquationDefinition[] = [
         v.AI_DRAFT_PROFILE.templateOverheadTokens,
         v.AI_DRAFT_PROFILE.maxOutputTokens,
       ].every((n) => Number.isSafeInteger(n) && n > 0) &&
+      (AI_DRAFT_REASONING_EFFORTS as readonly string[]).includes(
+        v.AI_DRAFT_PROFILE.reasoningEffort,
+      ) &&
       v.AI_DRAFT_PROFILE.temperature >= 0 &&
       v.AI_DRAFT_PROFILE.temperature <= 1 &&
       v.AI_DRAFT_RESERVATION === aiDraftReservation(v.AI_DRAFT_PROFILE) &&
