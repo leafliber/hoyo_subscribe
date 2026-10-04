@@ -28,7 +28,8 @@ export const PUBLIC_PENDING_SQL = `SELECT COALESCE((SELECT s.game FROM extractio
 )) AS game FROM candidates c WHERE c.review_status = 'pending' ORDER BY c.created_at LIMIT ?`;
 // 补官方发布时间与已批准证据片段；证据必须已发布、在本代发布之前，且匹配该公开投影。
 // 无法证明绑定时返回 null；不读取正文块，候选载荷只在内部作逐字段核对，不进入公共响应。
-export const PUBLIC_NOTICE_SQL = `SELECT json_extract(j.value, '$.id') AS id, av.official_published_at,
+// P3-22：同一绑定顺带给出文章版本 ID，原文接口只读这些版本（ID 本身不进公共响应）。
+export const PUBLIC_NOTICE_SQL = `SELECT json_extract(j.value, '$.id') AS id, av.official_published_at, av.id AS article_version_id,
     CASE WHEN p.milestone_id IS NOT NULL AND length(CAST(c.proposal_json AS BLOB)) <= ? THEN c.proposal_json ELSE NULL END AS proposal_json
   FROM json_each(?) j
   LEFT JOIN evidence e ON e.id = (
@@ -44,3 +45,13 @@ export const PUBLIC_NOTICE_SQL = `SELECT json_extract(j.value, '$.id') AS id, av
     AND p.projection_json = json_extract(j.value, '$.projection')
   LEFT JOIN candidates c ON c.id = COALESCE(ee.candidate_id, e.candidate_id) AND c.review_status = 'approved'
   LEFT JOIN article_versions av ON av.id = COALESCE(ee.article_version_id, e.article_version_id) AND p.milestone_id IS NOT NULL AND c.id IS NOT NULL`;
+// P3-22（ADR-0014）：按上面绑定出的版本 ID 读正文。按抓取时间新到旧累计正文字节，
+// 超过公共响应上限的行返回 NULL 正文，调用方明确报不可用，不把截断的原文当完整结果。
+export const PUBLIC_ARTICLES_SQL = `SELECT av.id, av.version_no, av.completeness, av.official_published_at, av.fetched_at,
+    a.official_url,
+    CASE WHEN SUM(length(CAST(av.body_blocks_json AS BLOB))) OVER (ORDER BY av.fetched_at DESC, av.id) <= ?
+      THEN av.body_blocks_json ELSE NULL END AS body_blocks_json
+  FROM json_each(?) j
+  JOIN article_versions av ON av.id = j.value
+  JOIN articles a ON a.id = av.article_id
+  ORDER BY av.fetched_at DESC, av.id`;

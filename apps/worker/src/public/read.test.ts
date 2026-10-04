@@ -4,6 +4,7 @@ import {
   browseWindow,
   PUBLIC_READ_LIMITS as LIMITS,
   PUBLIC_CACHE_FRESH,
+  PublicEventArticlesResponseSchema,
   PublicEventDetailResponseSchema,
   PublicEventsResponseSchema,
   type PublicSnapshotNode,
@@ -21,7 +22,13 @@ import {
   PUBLIC_PENDING_SQL,
   PUBLIC_SOURCES_SQL,
 } from "./queries";
-import { readCatalog, readEventDetail, readEvents, readPublicStatus } from "./read";
+import {
+  readCatalog,
+  readEventArticles,
+  readEventDetail,
+  readEvents,
+  readPublicStatus,
+} from "./read";
 import { makeNode, migratePublicTest, NOW, resetPublicTest, seedNodes } from "./test-support";
 
 function must<T>(value: T | null | undefined): T {
@@ -727,5 +734,219 @@ describe("A-P3-PUBLIC 真实本地 D1 公共闭环", () => {
       await writeRegistrationOpen(env.DB, false, NOW);
       await env.DB.prepare("DELETE FROM system_state WHERE key='mail_sending_available'").run();
     }
+  });
+});
+
+// P3-22（ADR-0014）：活动依据的官方公告原文。绑定条件与公告发布时间相同，正文块原样返回。
+const ARTICLE_URL = "https://example.invalid/official";
+const ARTICLE_BLOCKS = [
+  { kind: "title", text: "合成公告：城市探索挑战" },
+  {
+    kind: "html",
+    html: '<p style="white-space: pre-wrap;">活动时间：<span>&lt;t class="t_gl"&gt;2026/10/01 10:00&lt;/t&gt;</span> 起</p>',
+  },
+  { kind: "text", text: "顶层残片" },
+];
+async function seedArticleSource() {
+  await env.DB.prepare(
+    "INSERT INTO sources VALUES ('source','genshin','cn','synthetic','[]','[]','{}','{}','verified-working',?,?,?)",
+  )
+    .bind(NOW, NOW, NOW)
+    .run();
+  await env.DB.prepare("INSERT INTO articles VALUES ('article','source','ext',?,?,?,?,?)")
+    .bind(ARTICLE_URL, NOW, NOW, NOW, NOW)
+    .run();
+}
+async function seedVersion(
+  id: string,
+  versionNo: number,
+  fetchedAt: number,
+  blocks: unknown[] = ARTICLE_BLOCKS,
+) {
+  await env.DB.prepare(
+    "INSERT INTO article_versions VALUES (?,'article',?,?,?,'[]','complete',NULL,?,?)",
+  )
+    .bind(id, versionNo, `hash-${id}`, JSON.stringify(blocks), fetchedAt, fetchedAt)
+    .run();
+}
+/** 本代发布的节点，日历投影与快照一致（绑定的前提）。 */
+async function seedPublishedNodes(ids: string[]) {
+  const nodes = ids.map((id) => {
+    const n = makeNode(id);
+    return { ...n, source_projection_json: JSON.stringify(n.projection) };
+  });
+  await seedNodes(nodes);
+  for (const n of nodes)
+    await env.DB.prepare("INSERT INTO calendar_projections VALUES (?,?,1,?,?)")
+      .bind(n.projection.milestone_id, n.projection.event_id, n.source_projection_json, NOW)
+      .run();
+  return nodes;
+}
+/** 一个已批准候选覆盖给定节点，证据指向 version；createdAt 晚于代次发布即"尚未发布"。 */
+async function seedApproval(
+  candidate: string,
+  nodes: readonly PublicSnapshotNode[],
+  version: string,
+  createdAt = NOW,
+) {
+  const event = must(nodes[0]).projection.event;
+  await env.DB.prepare(
+    "INSERT INTO candidates(id,proposal_json,review_status,created_at,updated_at) VALUES (?,?,'approved',?,?)",
+  )
+    .bind(
+      candidate,
+      JSON.stringify({
+        events: [
+          {
+            title: event.title,
+            event_type: event.event_type,
+            status: event.status,
+            status_evidence: null,
+            milestones: nodes.map((n) => ({
+              ...n.projection.milestone,
+              time_evidence: { quote: `${n.projection.milestone_id} 的证据片段` },
+            })),
+          },
+        ],
+      }),
+      createdAt,
+      createdAt,
+    )
+    .run();
+  for (const n of nodes)
+    await env.DB.prepare(
+      "INSERT INTO evidence(id,candidate_id,event_id,milestone_id,article_version_id,block_ref,created_at) VALUES (?,?,?,?,?,'blocks/1',?)",
+    )
+      .bind(
+        `${candidate}-${n.projection.milestone_id}`,
+        candidate,
+        n.projection.event_id,
+        n.projection.milestone_id,
+        version,
+        createdAt,
+      )
+      .run();
+}
+const readArticles = async (id = "event") =>
+  PublicEventArticlesResponseSchema.parse(
+    await (await readEventArticles(env.DB, url(`events/${id}/articles`), id, NOW)).json(),
+  );
+
+describe("A-P3-ARTICLE-VIEW 公开原文只读本代已发布事实绑定的文章版本", () => {
+  it("正文块原样返回，带抓取时间与官方数据源；不泄漏版本 ID、候选与证据内部字段", async () => {
+    await seedArticleSource();
+    await seedVersion("version-internal-id", 3, NOW - 500);
+    await seedApproval(
+      "candidate-internal-id",
+      await seedPublishedNodes(["node"]),
+      "version-internal-id",
+    );
+    const response = await readEventArticles(env.DB, url("events/event/articles"), "event", NOW);
+    expect(response.headers.get("cache-control")).toBe(`public, max-age=${PUBLIC_CACHE_FRESH}`);
+    const text = await response.text();
+    for (const secret of [
+      "version-internal-id",
+      "candidate-internal-id",
+      "proposal",
+      "article_version_id",
+      "body_blocks_json",
+      "human_locked",
+    ])
+      expect(text).not.toContain(secret);
+    const body = PublicEventArticlesResponseSchema.parse(JSON.parse(text));
+    expect(body.eventId).toBe("event");
+    expect(body.publication).toEqual({ generation: 1, publishedAt: NOW });
+    expect(body.articles).toEqual([
+      {
+        officialUrl: ARTICLE_URL,
+        versionNo: 3,
+        fetchedAt: NOW - 500,
+        publishedAt: null,
+        completeness: "complete",
+        blocks: ARTICLE_BLOCKS,
+      },
+    ]);
+  });
+
+  it("证据晚于本代发布、候选字段不匹配、投影不一致或候选未批准时不给原文（空数组）", async () => {
+    await seedArticleSource();
+    await seedVersion("v1", 1, NOW - 500);
+    const nodes = await seedPublishedNodes(["node"]);
+    const title = must(nodes[0]).projection.event.title;
+    await seedApproval("approved", nodes, "v1", NOW + 1);
+    expect((await readArticles()).articles).toEqual([]);
+    await env.DB.prepare("DELETE FROM evidence").run();
+    await env.DB.prepare("DELETE FROM candidates").run();
+    await seedApproval("approved", nodes, "v1");
+    expect((await readArticles()).articles).toHaveLength(1);
+    await env.DB.prepare(
+      "UPDATE candidates SET proposal_json = json_set(proposal_json, '$.events[0].title', '不同标题')",
+    ).run();
+    expect((await readArticles()).articles).toEqual([]);
+    await env.DB.prepare(
+      "UPDATE candidates SET proposal_json = json_set(proposal_json, '$.events[0].title', ?)",
+    )
+      .bind(title)
+      .run();
+    await env.DB.prepare("UPDATE calendar_projections SET projection_json = '{}'").run();
+    expect((await readArticles()).articles).toEqual([]);
+    await env.DB.prepare("UPDATE calendar_projections SET projection_json = ?")
+      .bind(must(nodes[0]).source_projection_json)
+      .run();
+    expect((await readArticles()).articles).toHaveLength(1);
+    await env.DB.prepare("UPDATE candidates SET review_status = 'pending'").run();
+    expect((await readArticles()).articles).toEqual([]);
+  });
+
+  it("多个节点同一版本只给一份；最新事件证据未发布时按各节点已发布证据去重，新抓取在前", async () => {
+    await seedArticleSource();
+    await seedVersion("v1", 1, NOW - 2000);
+    await seedVersion("v2", 2, NOW - 1000);
+    await seedVersion("v3-unpublished", 3, NOW - 10);
+    const [a, b] = await seedPublishedNodes(["node-a", "node-b"]);
+    await seedApproval("both", [must(a), must(b)], "v1", NOW - 20);
+    expect((await readArticles()).articles.map((x) => x.versionNo)).toEqual([1]);
+    await seedApproval("only-b", [must(b)], "v2", NOW - 10);
+    // 最新事件证据（only-b）已发布但不覆盖 node-a：与公告发布时间相同，node-a 不能证明绑定。
+    expect((await readArticles()).articles.map((x) => x.versionNo)).toEqual([2]);
+    await seedApproval("newer", [must(a), must(b)], "v3-unpublished", NOW + 1);
+    // 最新事件证据晚于本代发布：各节点回落到自己已发布的证据。
+    expect((await readArticles()).articles.map((x) => x.versionNo)).toEqual([2, 1]);
+  });
+
+  it("正文累计超过公共响应上限明确不可用，不返回截断的原文", async () => {
+    await seedArticleSource();
+    const big = (chars: number) => [
+      { kind: "title", text: "长公告" },
+      { kind: "html", html: `<p>${"长".repeat(chars)}</p>` },
+    ];
+    // 每篇约 0.6 倍上限（"长"占 3 字节）：新抓取的那篇先计入，旧的那篇累计超限被置空 → 整体不可用。
+    await seedVersion("v1", 1, NOW - 2000, big(LIMITS.responseBytes / 5));
+    await seedVersion("v2", 2, NOW - 1000, big(LIMITS.responseBytes / 5));
+    const [a, b] = await seedPublishedNodes(["node-a", "node-b"]);
+    await seedApproval("only-a", [must(a)], "v1", NOW - 20);
+    await seedApproval("only-b", [must(b)], "v2", NOW - 10);
+    await seedApproval("newer", [must(a), must(b)], "v1", NOW + 1);
+    await expect(
+      readEventArticles(env.DB, url("events/event/articles"), "event", NOW),
+    ).rejects.toMatchObject({ code: "temporarily_unavailable" });
+    await env.DB.prepare("DELETE FROM evidence WHERE candidate_id = 'only-a'").run();
+    expect((await readArticles()).articles.map((x) => x.versionNo)).toEqual([2]);
+  });
+
+  it("路由：原文子资源 200 且可缓存；无发布代次 503、没有此事件 404、多余路径或参数 400", async () => {
+    expect((await request("events/event/articles")).status).toBe(503);
+    await seedArticleSource();
+    await seedVersion("v1", 1, NOW - 500);
+    await seedApproval("approved", await seedPublishedNodes(["node"]), "v1");
+    const ok = await request("events/event/articles");
+    expect(ok.status).toBe(200);
+    expect(ok.headers.get("cache-control")).toBe(`public, max-age=${PUBLIC_CACHE_FRESH}`);
+    expect(PublicEventArticlesResponseSchema.parse(await ok.json()).articles).toHaveLength(1);
+    expect((await request("events/no-such-event/articles")).status).toBe(404);
+    expect((await request("events/event/articles?cursor=x")).status).toBe(400);
+    expect((await request("events/event/articles/extra")).status).toBe(400);
+    expect((await request("events/event/other")).status).toBe(400);
+    expect((await request("events/event")).status).toBe(200);
   });
 });
