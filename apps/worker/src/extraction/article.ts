@@ -32,6 +32,8 @@ export interface StoredArticleVersion {
   readonly completeness: ArticleCompleteness;
   readonly blocks: readonly ArticleBodyBlock[];
   readonly mediaRefs: readonly ArticleMediaRef[];
+  /** 来源载荷里的真实发布时间（目前只有米游社有）；ADR-0013 补年份的最后一级参照。 */
+  readonly officialPublishedAtMs?: number | null;
 }
 
 interface ArticleRow {
@@ -46,6 +48,7 @@ interface ArticleRow {
   completeness: string;
   body_blocks_json: string;
   media_refs_json: string;
+  official_published_at: number | null;
 }
 
 function parseBlocks(json: string): readonly ArticleBodyBlock[] {
@@ -90,7 +93,7 @@ export async function loadStoredArticleVersion(
     .prepare(
       `SELECT av.id AS version_id, a.id AS article_id, a.source_id, a.external_id,
               a.official_url, s.game, s.region, s.verification_state,
-              av.completeness, av.body_blocks_json, av.media_refs_json
+              av.completeness, av.body_blocks_json, av.media_refs_json, av.official_published_at
          FROM article_versions av
          JOIN articles a ON a.id = av.article_id
          JOIN sources s ON s.source_id = a.source_id
@@ -119,6 +122,7 @@ export async function loadStoredArticleVersion(
     completeness: row.completeness as ArticleCompleteness,
     blocks: parseBlocks(row.body_blocks_json),
     mediaRefs: parseMediaRefs(row.media_refs_json),
+    officialPublishedAtMs: row.official_published_at,
   };
 }
 

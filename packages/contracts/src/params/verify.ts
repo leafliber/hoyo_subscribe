@@ -412,6 +412,18 @@ export const PARAM_EQUATIONS: readonly EquationDefinition[] = [
       v.CANDIDATE_MAX_BYTES < v.PUBLIC_SNAPSHOT_WRITE_PROFILE.chunkBytes / 2,
     { CANDIDATE_MAX_BYTES: 4096 },
   ),
+  eq(
+    "year-completion-window-single-year",
+    "时间推导",
+    "YEAR_COMPLETION_WINDOW.beforeDays、afterDays 为正安全整数，且 beforeDays + afterDays < 365（窗口短于一年，至多一个年份符合）",
+    (v) =>
+      `beforeDays(${v.YEAR_COMPLETION_WINDOW.beforeDays}) + afterDays(${v.YEAR_COMPLETION_WINDOW.afterDays}) < 365`,
+    (v) =>
+      [v.YEAR_COMPLETION_WINDOW.beforeDays, v.YEAR_COMPLETION_WINDOW.afterDays].every(
+        (days) => Number.isSafeInteger(days) && days > 0,
+      ) && v.YEAR_COMPLETION_WINDOW.beforeDays + v.YEAR_COMPLETION_WINDOW.afterDays < 365,
+    { YEAR_COMPLETION_WINDOW: { beforeDays: 30, afterDays: 335 } },
+  ),
   // —— SOURCE_LIMIT_PROFILE 工程依赖（P3-08；§3.1 大小限制、附录 A.1）——
   eq(
     "source-response-caps-within-ceiling",

@@ -249,6 +249,31 @@ test("U04 确定性推导在时间依据里写明推导依据（ADR-0011 版本�
   await expect(page.locator(".evidence-box", { hasText: "推导依据" })).toHaveCount(1);
 });
 
+test("U04 补全年份的节点写明年份是补出来的（ADR-0013）", async ({ page }) => {
+  let nodeId = "";
+  await page.route("**/api/v2/events/evt_morning", (route) => {
+    const data = detailFixture("evt_morning");
+    if (!data) throw new Error("fixture missing");
+    const node = data.event.milestones[0];
+    nodeId = node.id;
+    node.time = {
+      precision: "date",
+      date: "2026-10-01",
+      source_timezone: "UTC+08:00",
+      raw_expression: "10月1日",
+      time_basis: "deterministic_derived",
+    } as typeof node.time;
+    return route.fulfill({ json: data });
+  });
+  await page.goto("/events/evt_morning");
+  const milestone = page.locator(`[data-milestone="${nodeId}"]`);
+  await expect(milestone.locator(".milestone-status")).toContainText("按公告推算");
+  await expect(milestone.locator(".evidence-box")).toContainText("原始时间表述：10月1日");
+  await expect(milestone.locator(".evidence-box")).toContainText(
+    "推导依据：原文未写年份，按同一公告里写明的日期（或所属版本已确认的更新时间）补全为 2026 年；年份不是官方直接写出的。",
+  );
+});
+
 test("U05 详情失败保留副本；离线注明缓存时间；404 不显示旧事实", async ({ page, context }) => {
   await page.goto("/events/evt_morning");
   await expect(page.locator(".event-detail")).toBeVisible();

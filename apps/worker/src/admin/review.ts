@@ -14,7 +14,7 @@ import {
 } from "../extraction/service";
 import {
   applyVersionDerivations,
-  loadVersionsFor,
+  loadDerivationContext,
   versionDerivationIssues,
 } from "../extraction/versions";
 import {
@@ -180,18 +180,13 @@ export function makeAdminReviewRoutes(clock: () => number = Date.now): ShellRout
             .all()
         ).results;
         const draft = await readDraft(ctx.env.DB, id);
-        // ADR-0011：按当前确认的版本时间表推导"X.Y版本更新后/版本结束"，草稿本身不改写。
+        // ADR-0011/0013：按当前确认的版本时间表推导"X.Y版本更新后/版本结束"、按参照日期补全年份，草稿本身不改写。
         const derivation =
           draft?.proposal == null
             ? null
             : applyVersionDerivations(
                 draft.proposal,
-                await loadVersionsFor(
-                  ctx.env.DB,
-                  record.article.game,
-                  record.article.region,
-                  draft.proposal,
-                ),
+                await loadDerivationContext(ctx.env.DB, record.article, draft.proposal),
               );
         return noStore({
           ...record,
@@ -247,7 +242,7 @@ export function makeAdminReviewRoutes(clock: () => number = Date.now): ShellRout
         if (
           versionDerivationIssues(
             parsed.data,
-            await loadVersionsFor(ctx.env.DB, article.game, article.region, parsed.data),
+            await loadDerivationContext(ctx.env.DB, article, parsed.data),
           ).length > 0
         )
           invalid("proposal_json", "version_derivation_mismatch");
@@ -302,12 +297,7 @@ export function makeAdminReviewRoutes(clock: () => number = Date.now): ShellRout
         if (
           versionDerivationIssues(
             parsed.data,
-            await loadVersionsFor(
-              ctx.env.DB,
-              current.article.game,
-              current.article.region,
-              parsed.data,
-            ),
+            await loadDerivationContext(ctx.env.DB, current.article, parsed.data),
           ).length > 0
         )
           invalid("proposal_json", "version_derivation_mismatch");
@@ -416,13 +406,8 @@ export function makeAdminReviewRoutes(clock: () => number = Date.now): ShellRout
           draft.updatedAt !== body.expected_draft_updated_at
         )
           throw new ApiError("conflict");
-        const versions = await loadVersionsFor(
-          ctx.env.DB,
-          current.article.game,
-          current.article.region,
-          draft.proposal,
-        );
-        const derivation = applyVersionDerivations(draft.proposal, versions);
+        const context = await loadDerivationContext(ctx.env.DB, current.article, draft.proposal);
+        const derivation = applyVersionDerivations(draft.proposal, context);
         if (derivation.key !== body.expected_derivation_key) throw new ApiError("conflict");
         const events = derivation.proposal.events.flatMap((event, eventIndex) => {
           if (exclude.has(`e${eventIndex}`)) return [];
@@ -442,7 +427,7 @@ export function makeAdminReviewRoutes(clock: () => number = Date.now): ShellRout
         }
         const parsed = validateCandidateAgainstArticle(proposal, current.article);
         if (!parsed.success) invalid("exclude", "candidate_validation_failed");
-        if (versionDerivationIssues(parsed.data, versions).length > 0)
+        if (versionDerivationIssues(parsed.data, context).length > 0)
           invalid("exclude", "version_derivation_mismatch");
         checkCandidateText(parsed.data);
         const candidate = await reviseCandidate(ctx.env.DB, id, parsed.data, now, {
@@ -505,12 +490,7 @@ export function makeAdminReviewRoutes(clock: () => number = Date.now): ShellRout
           action !== "retract" &&
           versionDerivationIssues(
             parsed.data,
-            await loadVersionsFor(
-              ctx.env.DB,
-              current.article.game,
-              current.article.region,
-              parsed.data,
-            ),
+            await loadDerivationContext(ctx.env.DB, current.article, parsed.data),
           ).length > 0
         )
           invalid("candidate_id", "version_derivation_mismatch");

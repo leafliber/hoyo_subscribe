@@ -7,6 +7,7 @@ import {
   GAME_NAMES,
   type GameId,
   NODE_NAMES,
+  parseYearlessDate,
   type TimeValue,
 } from "@hoyo/contracts";
 import { el } from "../../lib/dom";
@@ -33,14 +34,16 @@ export function gameName(game: string | null | undefined): string {
   return game && game in GAME_NAMES ? GAME_NAMES[game as GameId] : (game ?? "未知游戏");
 }
 
-/** 精确时刻固定按北京时间显示；纯日期不补时刻；其余保留官方原文。版本时间表推导的值标明推导与原文。 */
+/** 精确时刻固定按北京时间显示；纯日期不补时刻；其余保留官方原文。推导的值标明推导方式与原文。 */
 export function formatDraftTime(time: TimeValue): string {
   const derived = time.time_basis === "deterministic_derived";
+  // ADR-0013：原文没写年份的是补全年份，其余推导来自版本时间表（ADR-0011）。
+  const how = parseYearlessDate(time.raw_expression) !== null ? "补全年份" : "按版本时间表推导";
   if (time.precision === "datetime")
-    return `${browseTimestamp(time.utc_ms)}（${BROWSE_TIMEZONE}${time.time_basis === "official_estimate" ? "，预计" : ""}${derived ? `，由「${time.raw_expression}」按版本时间表推导` : ""}）`;
+    return `${browseTimestamp(time.utc_ms)}（${BROWSE_TIMEZONE}${time.time_basis === "official_estimate" ? "，预计" : ""}${derived ? `，由「${time.raw_expression}」${how}` : ""}）`;
   if (time.precision === "date")
     return derived
-      ? `${time.date}（仅日期，由「${time.raw_expression}」按版本时间表推导）`
+      ? `${time.date}（仅日期，由「${time.raw_expression}」${how}）`
       : `${time.date}（仅日期）`;
   return `${time.raw_expression}（原文，未定时刻）`;
 }

@@ -431,6 +431,13 @@ export const CANDIDATE_TEXT_FIELD_BYTES = Math.floor(PUBLIC_READ_LIMITS.nodeByte
  */
 export const CANDIDATE_MAX_BYTES = 32_768 as const;
 
+/**
+ * 补全年份的参照窗口（ADR-0013）：没写年份的日期取让它落在参照日期前 beforeDays 天到后 afterDays 天之内的那一年。
+ * 窗口短于一年，至多一个年份符合；都不符合时保持"未定时刻"。参照日期按"正文里最早的四位年份日期 >
+ * 所属版本已确认的更新开始 > 公告发布日期"取。
+ */
+export const YEAR_COMPLETION_WINDOW = { beforeDays: 30, afterDays: 330 } as const;
+
 // ---------------------------------------------------------------------------
 // A.4 邮件与 Push（主方案 §9.1—§9.5；**邮件值按 ADR-0003 纯日额度模型**）
 // ---------------------------------------------------------------------------
@@ -701,6 +708,7 @@ export const PARAMS = {
   AI_DRAFT_PROFILE,
   AI_DRAFT_RESERVATION,
   CANDIDATE_MAX_BYTES,
+  YEAR_COMPLETION_WINDOW,
   // A.4（ADR-0003 纯日额度模型；月度参数已废止，不得出现）
   MAIL_SEATS_MAX,
   MAIL_ROUTINE_SEATS_MAX,
@@ -771,6 +779,7 @@ export type ParamStatus =
   | "adr-0007"
   | "adr-0009"
   | "adr-0012"
+  | "adr-0013"
   | "p5-02-approved"
   | "measured"
   | "measured-ref"
@@ -1347,6 +1356,13 @@ export const PARAM_META: Readonly<Record<keyof ParamValues, ParamMeta>> = {
     description: "单个候选 JSON 上限（32 KiB）；采用 AI 草稿的整篇版本公告可一次存下",
     status: "adr-0012",
     note: "人工新建/修正受 API_BODY_MAX_BYTES 约束；单个公共节点仍不超过 nodeBytes",
+  },
+  YEAR_COMPLETION_WINDOW: {
+    section: "A.3",
+    unit: "天",
+    description: "补全年份的参照窗口：日期须落在参照日期前 30 天到后 330 天之内",
+    status: "adr-0013",
+    note: "窗口短于一年，至多一个年份符合；不符合时保持未定时刻",
   },
   // A.4
   MAIL_SEATS_MAX: {

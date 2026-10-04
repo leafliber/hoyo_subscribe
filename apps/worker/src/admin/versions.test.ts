@@ -517,3 +517,310 @@ describe("A-P3-VERSION 审核推导", () => {
     expect(await events()).toBe(before);
   });
 });
+
+/** 合成公告的模型输出：块号给 -1，由构建按"全文恰好一处"定位原文（ADR-0009 规则）。 */
+function yearOutput(events: { title: string; milestones: [string, string][] }[]): string {
+  return JSON.stringify({
+    classification: "events",
+    ambiguities: [],
+    version_window: null,
+    events: events.map((event) => ({
+      event_type: "limited_event",
+      status: "scheduled",
+      title: event.title,
+      type_quote: null,
+      status_quote: null,
+      milestones: event.milestones.map(([node_type, time_text]) => ({
+        node_type,
+        label: "",
+        block: -1,
+        time_text,
+        estimated: false,
+      })),
+    })),
+  });
+}
+async function draftSynthetic(
+  entry: { ann_id: number; title: string; content: string },
+  output: string,
+  publishedAt: number | null = null,
+) {
+  now += 1;
+  // 游戏内公告的载荷没有发布时间（只有米游社有），合成样本默认按真实情况置空。
+  const seeded = await seedRuleCandidate("genshin-ann", entry, {
+    nowMs: now,
+    publishedAtMs: publishedAt,
+  });
+  await runDraftJob({
+    db: env.DB,
+    ai: fakeAi(modelResponse(output)),
+    candidateId: seeded.candidateId,
+    modelEnabled: true,
+    deadline: now + 120_000,
+    now: () => now,
+  });
+  return seeded;
+}
+async function confirm71(): Promise<void> {
+  await env.DB.prepare(
+    "DELETE FROM game_versions WHERE game = 'genshin' AND version = '7.1'",
+  ).run();
+  const suggestion = (await listing()).suggestions.find((row) => row.version === "7.1");
+  const response = await call("versions/confirm", {
+    game: "genshin",
+    version: "7.1",
+    field: "update_start",
+    suggestion_id: suggestion?.id,
+    expected_updated_at: 0,
+    reason: "已核对",
+  });
+  expect(response.status).toBe(200);
+}
+
+describe("A-P3-YEAR 补全年份与扩充的版本写法（ADR-0013）", () => {
+  it("正文里有写明年份的日期时以它为参照：只写日期的补成日期，写了时刻的按北京时间补成时刻", async () => {
+    const { candidateId } = await draftSynthetic(
+      {
+        ann_id: 99_101,
+        title: "「合成」版本更新说明",
+        content:
+          "<p>2026/09/23 06:00开始，预计5个小时完成。</p><p>第一期幻想真境剧诗将于10月1日更新。</p><p>网页活动时间：9月28日-10月10日 23:59 (UTC+8)</p>",
+      },
+      yearOutput([
+        { title: "幻想真境剧诗", milestones: [["start", "10月1日"]] },
+        {
+          title: "网页活动",
+          milestones: [
+            ["start", "9月28日"],
+            ["end", "10月10日 23:59 (UTC+8)"],
+          ],
+        },
+      ]),
+    );
+    const current = await detail(candidateId);
+    expect(current.draft.derived_count).toBe(3);
+    const times = current.draft.proposal.events.flatMap((event) =>
+      event.milestones.map((milestone) => milestone.time),
+    );
+    expect(times).toEqual([
+      {
+        precision: "date",
+        date: "2026-10-01",
+        source_timezone: "UTC+08:00",
+        raw_expression: "10月1日",
+        time_basis: "deterministic_derived",
+      },
+      {
+        precision: "date",
+        date: "2026-09-28",
+        source_timezone: "UTC+08:00",
+        raw_expression: "9月28日",
+        time_basis: "deterministic_derived",
+      },
+      {
+        precision: "datetime",
+        utc_ms: Date.parse("2026-10-10T15:59:00Z"),
+        source_timezone: "UTC+08:00",
+        raw_expression: "10月10日 23:59 (UTC+8)",
+        time_basis: "deterministic_derived",
+      },
+    ]);
+    expect(current.draft.notes).toContain(
+      "「10月1日」未写年份，按公告里最早写明的日期（2026-09-23）补全为 2026-10-01。",
+    );
+    // 参照来自公告自身，不读版本时间表，推导版本与未推导时相同。
+    expect(current.draft.derivation_key).toBe("[]");
+    const adopted = await call("review/adopt-draft", {
+      candidate_id: candidateId,
+      expected_updated_at: current.candidate.updated_at,
+      expected_draft_updated_at: current.draft.updated_at,
+      expected_derivation_key: current.draft.derivation_key,
+      reason: "已核对",
+      exclude: [],
+      confirm_ambiguities: false,
+    });
+    expect(adopted.status).toBe(200);
+    const approved = await call("review/approve", {
+      candidate_id: candidateId,
+      expected_updated_at: ((await adopted.json()) as { updated_at: number }).updated_at,
+      reason: "已核对",
+    });
+    expect(await approved.json()).toMatchObject({ publication: { outcome: "published" } });
+  });
+
+  it("正文没写年份时按所属版本已确认的更新开始补全；版本时间改过时采用 409，手填别的年份 400", async () => {
+    await env.DB.prepare(
+      "DELETE FROM game_versions WHERE game = 'genshin' AND version = '7.1'",
+    ).run();
+    const { candidateId } = await draftSynthetic(
+      {
+        ann_id: 99_102,
+        title: "7.1版本「合成」活动说明",
+        content: "<p>自7.1版本上线起可参与，第二阶段将于10月16日开启。</p>",
+      },
+      yearOutput([
+        {
+          title: "合成活动",
+          milestones: [
+            ["start", "自7.1版本上线起"],
+            ["phase_unlock", "10月16日"],
+          ],
+        },
+      ]),
+    );
+    const before = await detail(candidateId);
+    expect(before.draft.derived_count).toBe(0);
+    expect(before.draft.notes).toContain(
+      "「10月16日」未写年份，公告里没有写明年份的日期，也没有已确认的所属版本更新时间，保持未定时刻。",
+    );
+    await confirm71();
+    const after = await detail(candidateId);
+    expect(after.draft.derived_count).toBe(2);
+    expect(after.draft.proposal.events[0].milestones.map((m) => m.time)).toEqual([
+      {
+        precision: "date",
+        date: "2026-09-23",
+        source_timezone: "UTC+08:00",
+        raw_expression: "自7.1版本上线起",
+        time_basis: "deterministic_derived",
+      },
+      {
+        precision: "date",
+        date: "2026-10-16",
+        source_timezone: "UTC+08:00",
+        raw_expression: "10月16日",
+        time_basis: "deterministic_derived",
+      },
+    ]);
+    expect(after.draft.notes).toContain(
+      "「10月16日」未写年份，按已确认的 7.1 版本更新开始（2026-09-23）补全为 2026-10-16。",
+    );
+    expect(after.draft.derivation_key).toContain('"7.1"');
+    // 人工修正把年份改成别的：与当前推导不一致即 400。
+    const proposal = structuredClone(after.draft.proposal) as unknown as {
+      classification: string;
+      ambiguities: string[];
+      events: { milestones: { time: Record<string, unknown> }[] }[];
+    };
+    proposal.classification = "events";
+    proposal.ambiguities = [];
+    proposal.events[0].milestones[1].time = {
+      ...proposal.events[0].milestones[1].time,
+      date: "2027-10-16",
+    };
+    const revised = await call("review/revise", {
+      candidate_id: candidateId,
+      expected_updated_at: after.candidate.updated_at,
+      reason: "人工修正",
+      proposal_json: JSON.stringify(proposal),
+    });
+    expect(revised.status).toBe(400);
+    expect(await revised.json()).toMatchObject({
+      error: {
+        details: { fields: [{ path: "proposal_json", reason: "version_derivation_mismatch" }] },
+      },
+    });
+    // 版本时间被清除后：审核员手里的推导版本过期，采用 409；详情回到未定。
+    const confirmed = (await listing()).versions.find((v) => v.version === "7.1");
+    await call("versions/clear", {
+      game: "genshin",
+      version: "7.1",
+      field: "update_start",
+      expected_updated_at: confirmed?.updated_at,
+      reason: "核对有误，先撤下",
+    });
+    const stale = await call("review/adopt-draft", {
+      candidate_id: candidateId,
+      expected_updated_at: after.candidate.updated_at,
+      expected_draft_updated_at: after.draft.updated_at,
+      expected_derivation_key: after.draft.derivation_key,
+      reason: "已核对",
+      exclude: [],
+      confirm_ambiguities: false,
+    });
+    expect(stale.status).toBe(409);
+    expect((await detail(candidateId)).draft.derived_count).toBe(0);
+  });
+
+  it("正文和版本都给不出参照时，用公告发布日期；都没有时保持未定", async () => {
+    const entry = (annId: number) => ({
+      ann_id: annId,
+      title: "「合成」网页活动",
+      content: "<p>活动将于2月1日开启。</p>",
+    });
+    const output = yearOutput([{ title: "合成网页活动", milestones: [["start", "2月1日"]] }]);
+    const published = await draftSynthetic(
+      entry(99_104),
+      output,
+      Date.parse("2027-01-15T08:00:00Z"),
+    );
+    const withDate = await detail(published.candidateId);
+    expect(withDate.draft.proposal.events[0].milestones[0].time).toMatchObject({
+      precision: "date",
+      date: "2027-02-01",
+      time_basis: "deterministic_derived",
+    });
+    expect(withDate.draft.notes).toContain(
+      "「2月1日」未写年份，按公告发布日期（2027-01-15）补全为 2027-02-01。",
+    );
+    const bare = await draftSynthetic(entry(99_105), output);
+    const without = await detail(bare.candidateId);
+    expect(without.draft.derived_count).toBe(0);
+    expect(without.draft.proposal.events[0].milestones[0].time).toMatchObject({
+      precision: "unknown",
+      time_basis: "unresolved",
+    });
+  });
+
+  it("管线重试发布前核对补出的年份：所属版本的更新开始被清除后不发布", async () => {
+    await confirm71();
+    const { candidateId, versionId } = await draftSynthetic(
+      {
+        ann_id: 99_103,
+        title: "7.1版本「合成」挑战说明",
+        content: "<p>新一期挑战将于10月16日开启。</p>",
+      },
+      yearOutput([{ title: "合成挑战", milestones: [["start", "10月16日"]] }]),
+    );
+    const current = await detail(candidateId);
+    expect(current.draft.derived_count).toBe(1);
+    const adopted = await call("review/adopt-draft", {
+      candidate_id: candidateId,
+      expected_updated_at: current.candidate.updated_at,
+      expected_draft_updated_at: current.draft.updated_at,
+      expected_derivation_key: current.draft.derivation_key,
+      reason: "已核对",
+      exclude: [],
+      confirm_ambiguities: false,
+    });
+    expect(adopted.status).toBe(200);
+    now += 1;
+    await decideCandidate(env.DB, candidateId, "approved", "synthetic", "合成批准", now, {
+      expectedUpdatedAt: ((await adopted.json()) as { updated_at: number }).updated_at,
+    });
+    const confirmed = (await listing()).versions.find((v) => v.version === "7.1");
+    await call("versions/clear", {
+      game: "genshin",
+      version: "7.1",
+      field: "update_start",
+      expected_updated_at: confirmed?.updated_at,
+      reason: "核对有误，先撤下",
+    });
+    const jobId = `pipeline:publication:${versionId}`;
+    await env.DB.prepare(
+      `INSERT INTO jobs (id, kind, payload_json, due_at, status, created_at, updated_at)
+       VALUES (?, ?, ?, ?, 'pending', ?, ?)`,
+    )
+      .bind(jobId, PUBLICATION_JOB, JSON.stringify({ versionId, backfill: false }), now, now, now)
+      .run();
+    await new PipelineRuntime({
+      db: env.DB,
+      readControls: async () => ({ sources: {}, automaticPublication: false, model: false }),
+      now: () => now,
+      fetchFn: fetch,
+    }).tick();
+    expect(
+      await env.DB.prepare("SELECT status, last_error FROM jobs WHERE id = ?").bind(jobId).first(),
+    ).toEqual({ status: "done", last_error: "version_derivation_mismatch" });
+  });
+});

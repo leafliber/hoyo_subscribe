@@ -343,6 +343,8 @@ P3-06 工程等式 `public-snapshot-chunk-within-d1`：`API_BODY_MAX_BYTES < PUB
 
 P3-20 / ADR-0012 工程等式 `candidate-bytes-within-d1`：`API_BODY_MAX_BYTES <= CANDIDATE_MAX_BYTES < PUBLIC_SNAPSHOT_WRITE_PROFILE.chunkBytes / 2`，`CANDIDATE_MAX_BYTES` 为安全整数。人工新建、修正的候选总能存下；采用 AI 草稿生成的大候选仍在 D1 分块写入的安全界内。单个公共节点仍受 `PUBLIC_READ_LIMITS.nodeBytes` 约束。
 
+P3-21 / ADR-0013 等式 `year-completion-window-single-year`：`YEAR_COMPLETION_WINDOW` 的 `beforeDays`、`afterDays` 为正安全整数，且 `beforeDays + afterDays < 365`。窗口短于一年，没写年份的日期至多一个年份落在窗口内；没有符合的年份时保持未定时刻。
+
 > 邮件部分按 **ADR-0003** 改写；其余不变。
 
 ```text
