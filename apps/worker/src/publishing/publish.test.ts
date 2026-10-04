@@ -2,7 +2,7 @@
 // P4-01 获准跨卡改动：仅验证同一发布事务追加通知 outbox 的用例。
 
 import { env } from "cloudflare:test";
-import { API_BODY_MAX_BYTES, NOTIFICATION_PUBLICATION_TOPIC } from "@hoyo/contracts";
+import { CANDIDATE_MAX_BYTES, NOTIFICATION_PUBLICATION_TOPIC } from "@hoyo/contracts";
 import { beforeAll, describe, expect, it } from "vitest";
 import { eventIdentity, milestoneIdentity } from "../extraction/identity";
 import { parseAnnouncementExactTime } from "../extraction/time";
@@ -257,9 +257,12 @@ describe("A-P3-PUBLISH 原子发布、身份与版本", () => {
     expect(await count("outbox", "dedupe_key = ?", `notification:${eventId}:1`)).toBe(1);
   });
 
+  // ADR-0012：采用整篇版本公告的大候选（至多 CANDIDATE_MAX_BYTES）仍在一次批量提交内完成。
   it.each([
     { eventCount: 12, nodeCount: 1 },
     { eventCount: 4, nodeCount: 4 },
+    { eventCount: 40, nodeCount: 1 },
+    { eventCount: 14, nodeCount: 4 },
   ])("$eventCount 个事件各 $nodeCount 个节点的更新重发", async ({ eventCount, nodeCount }) => {
     const external = id("external");
     const first = await seedArticle(external);
@@ -276,7 +279,7 @@ describe("A-P3-PUBLISH 原子发布、身份与版本", () => {
       })),
     }));
     expect(new TextEncoder().encode(JSON.stringify(data)).byteLength).toBeLessThanOrEqual(
-      API_BODY_MAX_BYTES,
+      CANDIDATE_MAX_BYTES,
     );
     const initial = await publishApprovedCandidate(
       env.DB,
@@ -287,7 +290,7 @@ describe("A-P3-PUBLISH 原子发布、身份与版本", () => {
     const second = await seedArticle(external, 2, first.articleId);
     data.events = data.events.map((item) => ({ ...item, title: "更正标题" }));
     expect(new TextEncoder().encode(JSON.stringify(data)).byteLength).toBeLessThanOrEqual(
-      API_BODY_MAX_BYTES,
+      CANDIDATE_MAX_BYTES,
     );
     const candidate = await seedCandidate(second.versionId, data);
     const guardBindings: number[] = [];

@@ -2,6 +2,7 @@
 // 业务枚举与 TimeValue 直接消费 @hoyo/contracts；来源身份不属于输入形状。
 import {
   API_BODY_MAX_BYTES,
+  CANDIDATE_MAX_BYTES,
   type EventStatus,
   EventStatusSchema,
   type EventType,
@@ -263,11 +264,12 @@ export function parseCandidateProposal(input: unknown): CandidateParseResult {
   } catch {
     return { success: false, issues: [{ path: "$", message: "不是可序列化 JSON" }] };
   }
+  // ADR-0012：候选整体上限独立于请求体上限；人工新建与修正另受请求体约束。
   if (
     typeof serialized !== "string" ||
-    new TextEncoder().encode(serialized).byteLength > API_BODY_MAX_BYTES
+    new TextEncoder().encode(serialized).byteLength > CANDIDATE_MAX_BYTES
   ) {
-    issues.push({ path: "$", message: "候选超过 API_BODY_MAX_BYTES" });
+    issues.push({ path: "$", message: "候选超过 CANDIDATE_MAX_BYTES" });
   }
   const obj = objectAt(input, "$", ["classification", "events", "ambiguities"], issues);
   if (obj === null) return { success: false, issues };

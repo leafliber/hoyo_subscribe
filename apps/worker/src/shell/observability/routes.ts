@@ -10,7 +10,7 @@ import { adminCsrfBinding, requireAdmin } from "../../admin/session-routes";
 import { ApiError, jsonResponse, type ShellRoute } from "../../shell";
 import { SOURCE_REGISTRY } from "../../sources/registry";
 import { controlKey, readControl } from "./controls";
-import { DELIVERY_TERMINAL_JOBS, readObservability } from "./views";
+import { DELIVERY_TERMINAL_JOBS, readObservability, readSourceStates } from "./views";
 
 const text = { type: "string", minLength: 1, maxLength: API_BODY_MAX_BYTES } as const;
 /** 终态解除只接受闭合原因与早于当前时刻的乐观并发版本；原因不接受自由文本。 */
@@ -64,12 +64,32 @@ export function makeObservabilityRoutes(clock: () => number = Date.now): ShellRo
             ...(await readControl(ctx.env.DB, control)),
           })),
         );
+        const states = await readSourceStates(ctx.env.DB);
         const sources = await Promise.all(
-          SOURCE_REGISTRY.map(async (entry) => ({
-            control: "source_enabled",
-            source: entry.sourceId,
-            ...(await readControl(ctx.env.DB, "source_enabled", entry.sourceId)),
-          })),
+          SOURCE_REGISTRY.map(async (entry) => {
+            const state = states?.find((row) => row.source_id === entry.sourceId);
+            return {
+              control: "source_enabled",
+              source: entry.sourceId,
+              ...(await readControl(ctx.env.DB, "source_enabled", entry.sourceId)),
+              // 开关旁说明这个来源能抓什么、最近抓取得怎样：能力取自注册表，状态取自 sources/jobs 行。
+              info: {
+                game: entry.game,
+                adapter: entry.adapterKind,
+                list_only: entry.contentChannelDisabled,
+                state:
+                  state === undefined || state.verification_state === null
+                    ? null
+                    : {
+                        verification_state: state.verification_state,
+                        last_success_at: state.last_success_at,
+                        updated_at: state.updated_at,
+                        job_status: state.job_status,
+                        job_last_error: state.job_last_error,
+                      },
+              },
+            };
+          }),
         );
         return noStore({ server_time: clock(), controls: [...controls, ...sources] });
       },

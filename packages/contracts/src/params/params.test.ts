@@ -70,8 +70,8 @@ describe("A-P1-PARAM 附录 A.5 启动等式", () => {
     expect(results.every((r) => r.ok)).toBe(true);
   });
 
-  it("覆盖 §11、P3 工程依赖、ADR-0006、ADR-0009 与 P5-01/P5-02（34 条），另有 1 条语义条款", () => {
-    expect(PARAM_EQUATIONS).toHaveLength(34);
+  it("覆盖 §11、P3 工程依赖、ADR-0006、ADR-0009、ADR-0012 与 P5-01/P5-02（35 条），另有 1 条语义条款", () => {
+    expect(PARAM_EQUATIONS).toHaveLength(35);
     expect(SEMANTIC_INVARIANTS.map((s) => s.id)).toEqual(["mail-digest-window-forward-only"]);
   });
 
@@ -132,6 +132,21 @@ describe("A-P1-PARAM 附录 A.5 启动等式", () => {
     expect(() => verifyParams(override({ AI_HARD_DAY: PARAMS.AI_INCLUDED_DAY }))).toThrow(
       "ai-hard-within-included",
     );
+  });
+
+  it("A-P3-CANDIDATE-SIZE 候选上限不小于请求体上限，且留在 D1 分块写入的安全界内（ADR-0012）", () => {
+    expect(PARAMS.CANDIDATE_MAX_BYTES).toBeGreaterThanOrEqual(PARAMS.API_BODY_MAX_BYTES);
+    expect(PARAMS.CANDIDATE_MAX_BYTES).toBeLessThan(
+      PARAMS.PUBLIC_SNAPSHOT_WRITE_PROFILE.chunkBytes / 2,
+    );
+    for (const CANDIDATE_MAX_BYTES of [
+      PARAMS.API_BODY_MAX_BYTES - 1,
+      PARAMS.PUBLIC_SNAPSHOT_WRITE_PROFILE.chunkBytes / 2,
+      1.5 + PARAMS.API_BODY_MAX_BYTES,
+    ])
+      expect(() => verifyParams(override({ CANDIDATE_MAX_BYTES }))).toThrow(
+        "candidate-bytes-within-d1",
+      );
   });
 
   // 反向验证：逐条破坏，校验必须准确指出被破坏的那一条。

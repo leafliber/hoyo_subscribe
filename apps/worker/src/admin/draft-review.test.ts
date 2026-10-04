@@ -1,9 +1,15 @@
 // A-P3-DRAFT · 审核 API：队列一次带回标题与草稿状态、详情带可读正文与草稿、采用草稿 + 批准的闭环。
 import "./test-support";
 import { env } from "cloudflare:test";
-import { AI_SOFT_DAY } from "@hoyo/contracts";
+import {
+  AI_SOFT_DAY,
+  API_BODY_MAX_BYTES,
+  CANDIDATE_MAX_BYTES,
+  PUBLIC_READ_LIMITS,
+} from "@hoyo/contracts";
 import { beforeAll, describe, expect, it } from "vitest";
 import genshinContent from "../../../../fixtures/sources/genshin-ann/content-21928.json";
+import zzzContent from "../../../../fixtures/sources/zzz-ann/content-1296.json";
 import { runDraftJob } from "../extraction/model/draft";
 import { DRAFT_PROFILE_REF } from "../extraction/model/store";
 import {
@@ -15,6 +21,7 @@ import {
   MAINTENANCE_21928_OUTPUT,
   modelResponse,
   seedRuleCandidate,
+  versionNoteOutput,
 } from "../extraction/model/test-support";
 import { CSRF_COOKIE_NAME, CSRF_HEADER_NAME, createApiShell, mintCsrfToken } from "../shell";
 import { ADMIN_SESSION_COOKIE_NAME } from "../shell/domains";
@@ -26,6 +33,7 @@ import { combinedAuthenticator, issueAdminSession } from "./session";
 const genshin = genshinContent as unknown as FixtureBody;
 const gachaEntry = fixtureEntry(genshin, 21876);
 const maintenanceEntry = fixtureEntry(genshin, 21928);
+const versionNoteEntry = fixtureEntry(zzzContent as unknown as FixtureBody, 1296);
 let now = DRAFT_T0;
 let headers: Record<string, string>;
 const site = "https://app.test";
@@ -266,5 +274,59 @@ describe("A-P3-DRAFT 采用草稿", () => {
     expect(row?.updated_at).toBe(updatedAt);
     expect(row?.run_id).not.toBeNull();
     expect((await adopt(candidateId, updatedAt)).status).toBe(200);
+  });
+});
+
+describe("A-P3-CANDIDATE-SIZE 整篇版本公告的大候选（ADR-0012）", () => {
+  it("超过请求体上限的草稿仍可用；采用并批准后一次发布，长正文不再被误判节点超限", async () => {
+    now += 1;
+    const seeded = await seedRuleCandidate("zzz-ann", versionNoteEntry, { nowMs: now });
+    const output = versionNoteOutput(seeded.article);
+    const eventCount = (JSON.parse(output) as { events: unknown[] }).events.length;
+    expect(eventCount).toBeGreaterThanOrEqual(10);
+    await runDraftJob({
+      db: env.DB,
+      ai: fakeAi(modelResponse(output)),
+      candidateId: seeded.candidateId,
+      modelEnabled: true,
+      deadline: now + 120_000,
+      now: () => now,
+    });
+    const draft = await env.DB.prepare(
+      "SELECT status, proposal_json FROM ai_drafts WHERE candidate_id = ?",
+    )
+      .bind(seeded.candidateId)
+      .first<{ status: string; proposal_json: string }>();
+    expect(draft?.status).toBe("ready");
+    const size = new TextEncoder().encode(draft?.proposal_json ?? "").byteLength;
+    expect(size).toBeGreaterThan(API_BODY_MAX_BYTES);
+    expect(size).toBeLessThanOrEqual(CANDIDATE_MAX_BYTES);
+    expect(JSON.parse(draft?.proposal_json ?? "{}").events).toHaveLength(eventCount);
+    // 正文本身远超单个公共节点上限：旧实现把整篇文章并进节点估算，长公告批准一律 validation_failed。
+    expect(
+      new TextEncoder().encode(JSON.stringify(seeded.article.blocks)).byteLength,
+    ).toBeGreaterThan(PUBLIC_READ_LIMITS.nodeBytes);
+    const detail = (await (await call(`candidates/${seeded.candidateId}`)).json()) as {
+      candidate: { updated_at: number };
+    };
+    const adopted = await adopt(seeded.candidateId, detail.candidate.updated_at);
+    expect(adopted.status).toBe(200);
+    const body = (await adopted.json()) as { updated_at: number };
+    const approved = await call("approve", {
+      candidate_id: seeded.candidateId,
+      expected_updated_at: body.updated_at,
+      reason: "已对照官方原文核对草稿",
+    });
+    expect(approved.status).toBe(200);
+    expect(await approved.json()).toMatchObject({
+      review_status: "approved",
+      publication: { outcome: "published" },
+    });
+    const published = await env.DB.prepare(
+      "SELECT COUNT(DISTINCT event_id) AS n FROM evidence WHERE candidate_id = ? AND event_id IS NOT NULL",
+    )
+      .bind(seeded.candidateId)
+      .first<{ n: number }>();
+    expect(published?.n).toBe(eventCount);
   });
 });

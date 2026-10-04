@@ -341,6 +341,8 @@ P5-02 / ADR-0007：`SYSTEM_AUDIT_TTL` 为独立正安全整数，乘 1000 后仍
 
 P3-06 工程等式 `public-snapshot-chunk-within-d1`：`API_BODY_MAX_BYTES < PUBLIC_SNAPSHOT_WRITE_PROFILE.chunkBytes / 2`，`2 < chunkBytes <= singleValueBytes / 2`，`queryLimit > 18`，分块字节数和查询上限为安全整数。只约束 D1 集合写入，不改变日历业务语义（ENGINEERING §5.4）。
 
+P3-20 / ADR-0012 工程等式 `candidate-bytes-within-d1`：`API_BODY_MAX_BYTES <= CANDIDATE_MAX_BYTES < PUBLIC_SNAPSHOT_WRITE_PROFILE.chunkBytes / 2`，`CANDIDATE_MAX_BYTES` 为安全整数。人工新建、修正的候选总能存下；采用 AI 草稿生成的大候选仍在 D1 分块写入的安全界内。单个公共节点仍受 `PUBLIC_READ_LIMITS.nodeBytes` 约束。
+
 > 邮件部分按 **ADR-0003** 改写；其余不变。
 
 ```text

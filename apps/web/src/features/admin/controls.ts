@@ -1,17 +1,36 @@
 /**
  * 管理端「运行开关」：读取 GET /api/v2/admin/controls，按 CAS 版本逐项 PUT。
  * 每次写入都要求选择理由（服务端写审计）；写入后重新读取核实实际值，409 时重新读取，不盲目覆盖。
+ * P3-20：二次确认在页面内完成，不用 window.confirm——内嵌浏览器会直接吞掉确认框、视为取消，
+ * 点击后毫无反应。来源行另外说明它能抓什么、最近抓取状态，维护中可在此解除。
  */
 import { el } from "../../lib/dom";
 import { stamp } from "../../lib/format";
 import { AdminRequestError, request } from "./api";
+import { gameName } from "./draft";
 
+type SourceState = {
+  verification_state: string;
+  last_success_at: number | null;
+  updated_at: number | null;
+  job_status: string | null;
+  job_last_error: string | null;
+};
+type SourceInfo = {
+  game: string;
+  adapter: string;
+  list_only: boolean;
+  state: SourceState | null;
+};
 type ControlRow = {
   control: string;
   source?: string;
   value: boolean | "unknown";
   updated_at: number;
+  info?: SourceInfo;
 };
+/** 等待页面内确认的一次修改；同一时间只有一项。 */
+type Pending = { kind: "toggle"; key: string; enabled: boolean } | { kind: "resume"; key: string };
 
 const LABELS: Record<string, { name: string; desc: string; danger?: boolean }> = {
   read_only: {
@@ -38,6 +57,10 @@ const LABELS: Record<string, { name: string; desc: string; danger?: boolean }> =
   account_reclaim_enabled: { name: "账号回收", desc: "允许回收长期不活跃的账号。" },
   seat_reclaim_enabled: { name: "邮件席位回收", desc: "允许回收不活跃账号的邮件席位。" },
   source_enabled: { name: "来源抓取", desc: "允许抓取该官方来源。" },
+};
+const ADAPTERS: Record<string, string> = {
+  "announcement-webview": "游戏内公告",
+  "miyoushe-painter-news": "米游社官方资讯",
 };
 const REASONS: [string, string][] = [
   ["initial_deployment", "首次部署"],
@@ -79,9 +102,159 @@ const refreshButton = document.getElementById("controls-refresh");
 const workspace = document.getElementById("workspace");
 let rows: ControlRow[] = [];
 let busy = false;
+let pending: Pending | null = null;
 
 function key(row: ControlRow): string {
   return row.source ? `source:${row.source}` : row.control;
+}
+
+function displayName(row: ControlRow): string {
+  const meta = LABELS[row.control] ?? { name: row.control };
+  if (!row.source) return meta.name;
+  if (!row.info) return `${meta.name} · ${row.source}`;
+  return `${meta.name} · ${gameName(row.info.game)}${ADAPTERS[row.info.adapter] ?? row.source}`;
+}
+
+/** 来源能抓什么：能力来自注册表（list_only），这里只负责写成人话。 */
+function sourceDescription(info: SourceInfo): string {
+  return info.list_only
+    ? "仅列表：只有标题和封面。正文接口受源站访问控制，按规则不接入，因此开启后产生的条目正文不完整、不能批准，首次开启还会逐页补抓历史帖子。版本公告与活动正文已由游戏内公告覆盖，通常不需要开启。"
+    : "抓取公告列表与完整正文，版本公告、活动、卡池都从这里来。";
+}
+
+/** 最近一次抓取得怎样；维护中给出解除入口说明。 */
+function sourceState(row: ControlRow): HTMLElement {
+  const state = row.info?.state ?? null;
+  if (state === null)
+    return el(
+      "p",
+      { class: "control-desc" },
+      "抓取状态：尚未建立（开关开启后的第一次轮询时建立）。",
+    );
+  if (state.verification_state === "maintenance-required")
+    return el(
+      "p",
+      { class: "control-desc" },
+      el("span", { class: "badge badge--warning" }, "需维护"),
+      " 源站拒绝访问，抓取已暂停；确认对方恢复正常后再解除维护，仍受限时会自动重新进入维护。",
+    );
+  const success =
+    state.last_success_at === null
+      ? "尚未成功抓取"
+      : `最近成功抓取：${stamp(state.last_success_at)}`;
+  const job =
+    state.job_last_error === "source_switch_unavailable_or_disabled"
+      ? "；开关关闭或外发未开，抓取任务暂停中"
+      : state.job_status === "failed"
+        ? `；抓取任务已停止（${state.job_last_error ?? "原因未知"}）`
+        : "";
+  return el("p", { class: "control-desc" }, `抓取状态：${success}${job}。`);
+}
+
+/** 行内二次确认：说明后果，确认才提交；取消也给出提示。 */
+function confirmBox(text: string, confirmLabel: string, onConfirm: () => void): HTMLElement {
+  const yes = el("button", { type: "button", class: "button button--sm" }, confirmLabel);
+  const no = el("button", { type: "button", class: "button button--secondary button--sm" }, "取消");
+  yes.disabled = busy;
+  no.disabled = busy;
+  yes.addEventListener("click", onConfirm);
+  no.addEventListener("click", () => {
+    pending = null;
+    if (status) status.textContent = "已取消，没有修改。";
+    render();
+  });
+  return el(
+    "div",
+    { class: "control-confirm", role: "group", "aria-label": confirmLabel },
+    el("p", {}, text),
+    el("div", { class: "control-confirm-actions" }, yes, no),
+  );
+}
+
+/** 先确认理由已选，再进入页面内确认。 */
+function ask(next: Pending): void {
+  if (busy || !status) return;
+  if (!reasonSelect?.value) {
+    status.textContent = "请先在上方选择修改理由。";
+    reasonSelect?.focus();
+    return;
+  }
+  pending = next;
+  status.textContent = "请在该项下方确认这次修改。";
+  render();
+}
+
+function controlRow(row: ControlRow): HTMLElement {
+  const meta = LABELS[row.control] ?? { name: row.control, desc: "" };
+  const on = row.value === true;
+  const unknown = row.value === "unknown";
+  const name = displayName(row);
+  const toggle = el(
+    "button",
+    {
+      type: "button",
+      class: on ? "button button--secondary button--sm" : "button button--sm",
+      "data-control": key(row),
+    },
+    on ? "关闭" : "开启",
+  );
+  toggle.disabled = busy || unknown || pending?.key === key(row);
+  toggle.addEventListener("click", () => ask({ kind: "toggle", key: key(row), enabled: !on }));
+  const actions = el("div", { class: "control-actions" }, toggle);
+  if (row.info?.state?.verification_state === "maintenance-required") {
+    const release = el(
+      "button",
+      { type: "button", class: "button button--secondary button--sm" },
+      "解除维护",
+    );
+    release.disabled = busy || pending?.key === key(row);
+    release.addEventListener("click", () => ask({ kind: "resume", key: key(row) }));
+    actions.append(release);
+  }
+  const text = el(
+    "div",
+    { class: "control-text" },
+    el(
+      "p",
+      { class: "control-name" },
+      name,
+      el(
+        "span",
+        {
+          class: `badge ${unknown ? "badge--warning" : on ? (meta.danger ? "badge--warning" : "badge--success") : ""}`,
+        },
+        unknown ? "未知" : on ? "开" : "关",
+      ),
+    ),
+    el("p", { class: "control-desc" }, row.info ? sourceDescription(row.info) : meta.desc),
+    row.info ? sourceState(row) : null,
+    el(
+      "p",
+      { class: "control-key" },
+      `${key(row)} · 更新于 ${row.updated_at ? stamp(row.updated_at) : "从未"}`,
+    ),
+  );
+  let confirm: HTMLElement | null = null;
+  if (pending?.key === key(row) && pending.kind === "toggle") {
+    const enabled = pending.enabled;
+    confirm = confirmBox(
+      `确认${enabled ? "开启" : "关闭"}「${name}」？这会立即影响线上服务，并写入审计记录。`,
+      `确认${enabled ? "开启" : "关闭"}`,
+      () => void write(row, enabled),
+    );
+  } else if (pending?.key === key(row) && pending.kind === "resume") {
+    confirm = confirmBox(
+      `确认解除「${name}」的维护？会放回一次正常抓取；源站仍受限时会重新进入维护。`,
+      "确认解除维护",
+      () => void resume(row),
+    );
+  }
+  return el(
+    "div",
+    { class: "control-row" },
+    el("div", { class: "control-main" }, text, actions),
+    confirm,
+  );
 }
 
 function render(): void {
@@ -127,53 +300,7 @@ function render(): void {
   ];
   for (const [title, items] of groups) {
     if (!items.length) continue;
-    const group = el("div", { class: "control-group" }, el("h3", {}, title));
-    for (const row of items) {
-      const meta = LABELS[row.control] ?? { name: row.control, desc: "" };
-      const on = row.value === true;
-      const unknown = row.value === "unknown";
-      const toggle = el(
-        "button",
-        {
-          type: "button",
-          class: on ? "button button--secondary button--sm" : "button button--sm",
-          "data-control": key(row),
-        },
-        on ? "关闭" : "开启",
-      );
-      toggle.disabled = busy || unknown;
-      toggle.addEventListener("click", () => void write(row, !on));
-      group.append(
-        el(
-          "div",
-          { class: "control-row" },
-          el(
-            "div",
-            { class: "control-text" },
-            el(
-              "p",
-              { class: "control-name" },
-              row.source ? `${meta.name} · ${row.source}` : meta.name,
-              el(
-                "span",
-                {
-                  class: `badge ${unknown ? "badge--warning" : on ? (meta.danger ? "badge--warning" : "badge--success") : ""}`,
-                },
-                unknown ? "未知" : on ? "开" : "关",
-              ),
-            ),
-            el("p", { class: "control-desc" }, meta.desc),
-            el(
-              "p",
-              { class: "control-key" },
-              `${key(row)} · 更新于 ${row.updated_at ? stamp(row.updated_at) : "从未"}`,
-            ),
-          ),
-          toggle,
-        ),
-      );
-    }
-    list.append(group);
+    list.append(el("div", { class: "control-group" }, el("h3", {}, title), items.map(controlRow)));
   }
 }
 
@@ -196,19 +323,9 @@ async function load(): Promise<void> {
 async function write(row: ControlRow, enabled: boolean): Promise<void> {
   if (busy || !status) return;
   const reason = reasonSelect?.value ?? "";
-  if (!reason) {
-    status.textContent = "请先在上方选择修改理由。";
-    reasonSelect?.focus();
-    return;
-  }
-  const meta = LABELS[row.control] ?? { name: row.control };
-  if (
-    !window.confirm(
-      `${enabled ? "开启" : "关闭"}「${row.source ? `${meta.name} · ${row.source}` : meta.name}」？这会立即影响线上服务，并写入审计记录。`,
-    )
-  )
-    return;
+  const name = displayName(row);
   busy = true;
+  pending = null;
   render();
   status.textContent = "正在提交…";
   try {
@@ -224,7 +341,7 @@ async function write(row: ControlRow, enabled: boolean): Promise<void> {
     const latest = rows.find((item) => key(item) === key(row));
     status.textContent =
       latest?.value === enabled
-        ? `已${enabled ? "开启" : "关闭"}「${meta.name}」，已重新读取核实。`
+        ? `已${enabled ? "开启" : "关闭"}「${name}」，已重新读取核实。`
         : "提交已返回，但重新读取的值不一致，请再次核对。";
   } catch (error) {
     busy = false;
@@ -238,13 +355,46 @@ async function write(row: ControlRow, enabled: boolean): Promise<void> {
   }
 }
 
+/** 解除来源维护：绑定页面上看到的来源行版本，状态已变化时 409 重新读取。 */
+async function resume(row: ControlRow): Promise<void> {
+  const updatedAt = row.info?.state?.updated_at;
+  if (busy || !status || !row.source || typeof updatedAt !== "number") return;
+  const name = displayName(row);
+  busy = true;
+  pending = null;
+  render();
+  status.textContent = "正在解除维护…";
+  try {
+    await request("admin/sources/resume", {
+      source: row.source,
+      expected_updated_at: updatedAt,
+      reason: reasonSelect?.value ?? "",
+    });
+    busy = false;
+    await load();
+    status.textContent = `已解除「${name}」的维护，下一次轮询会重新抓取。`;
+  } catch (error) {
+    busy = false;
+    await load();
+    status.textContent =
+      error instanceof AdminRequestError && error.status === 409
+        ? "来源状态已在别处变化，已重新读取，请核对后再操作。"
+        : error instanceof AdminRequestError && error.status === 401
+          ? "管理端登录已失效，请重新登录。"
+          : "解除维护未确认，已重新读取当前状态；没有自动重试。";
+  }
+}
+
 if (root && list && status && workspace) {
   if (reasonSelect)
     reasonSelect.append(
       el("option", { value: "" }, "选择修改理由…"),
       ...REASONS.map(([value, label]) => el("option", { value }, label)),
     );
-  refreshButton?.addEventListener("click", () => void load());
+  refreshButton?.addEventListener("click", () => {
+    pending = null;
+    void load();
+  });
   // 工作区出现（已登录）时读取一次；不在后台轮询。
   let loaded = false;
   const observe = () => {
@@ -255,6 +405,7 @@ if (root && list && status && workspace) {
     if (workspace.hidden) {
       loaded = false;
       rows = [];
+      pending = null;
       render();
     }
   };

@@ -155,10 +155,53 @@ async function openDraft(page: Page) {
   await expect(page.locator("#candidate-meta")).toContainText("已读版本");
 }
 // 运行开关面板（features/admin/controls.ts）在工作区出现时读取一次；形状同 Worker 的 GET /api/v2/admin/controls。
+// P3-20：来源行带注册表能力与抓取状态（info）。
 const controlRows = [
   { control: "read_only", value: false, updated_at: 1_900_000_000_000 },
   { control: "registration_open", value: true, updated_at: 1_900_000_000_000 },
-  { control: "source_enabled", source: "genshin-ann", value: true, updated_at: 1_900_000_000_000 },
+  {
+    control: "source_enabled",
+    source: "genshin-ann",
+    value: true,
+    updated_at: 1_900_000_000_000,
+    info: {
+      game: "genshin",
+      adapter: "announcement-webview",
+      list_only: false,
+      state: {
+        verification_state: "verified-working",
+        last_success_at: 1_900_000_000_000,
+        updated_at: 1_900_000_000_000,
+        job_status: "pending",
+        job_last_error: null,
+      },
+    },
+  },
+  {
+    control: "source_enabled",
+    source: "hsr-ann",
+    value: true,
+    updated_at: 1_900_000_000_000,
+    info: {
+      game: "hsr",
+      adapter: "announcement-webview",
+      list_only: false,
+      state: {
+        verification_state: "maintenance-required",
+        last_success_at: 1_899_000_000_000,
+        updated_at: 1_899_500_000_000,
+        job_status: "failed",
+        job_last_error: "source_maintenance",
+      },
+    },
+  },
+  {
+    control: "source_enabled",
+    source: "miyoushe-news",
+    value: false,
+    updated_at: 1_900_000_000_000,
+    info: { game: "genshin", adapter: "miyoushe-painter-news", list_only: true, state: null },
+  },
 ];
 const controlsRead = `已读取 ${controlRows.length} 个开关。每次修改都会写入审计记录。`;
 type Call = {
@@ -186,6 +229,7 @@ async function setup(page: Page, options: { loggedIn?: boolean; pages?: QueuePag
     write: null as ((route: Route, call: Call) => Promise<void>) | null,
     pages: [] as QueuePage[],
     versions: { versions: [], suggestions: [], pending_references: {} } as VersionListing,
+    controls: structuredClone(controlRows) as Record<string, unknown>[],
   };
   state.pages = options.pages ?? [
     {
@@ -232,7 +276,22 @@ async function setup(page: Page, options: { loggedIn?: boolean; pages?: QueuePag
     if (!state.loggedIn)
       return route.fulfill({ status: 401, json: buildApiErrorBody("unauthorized") });
     if (path === "admin/controls" && req.method() === "GET")
-      return route.fulfill({ json: { server_time: 1_900_000_000_000, controls: controlRows } });
+      return route.fulfill({ json: { server_time: 1_900_000_000_000, controls: state.controls } });
+    if (path === "admin/controls" && req.method() === "PUT") {
+      state.writes++;
+      const row = state.controls.find(
+        (item) => item.control === call.body.control && item.source === call.body.source,
+      );
+      if (row) Object.assign(row, { value: call.body.enabled, updated_at: 1_900_000_000_100 });
+      return route.fulfill({ json: { ...call.body, value: call.body.enabled } });
+    }
+    if (path === "admin/sources/resume" && req.method() === "POST") {
+      state.writes++;
+      const row = state.controls.find((item) => item.source === call.body.source);
+      const info = row?.info as { state: Record<string, unknown> } | undefined;
+      if (info?.state) Object.assign(info.state, { verification_state: "verified-working" });
+      return route.fulfill({ json: { resumed: true, source: call.body.source } });
+    }
     if (path === "admin/session/logout") {
       await state.logoutWait;
       if (state.logoutNetworkFailure) return route.abort("failed");
@@ -1071,5 +1130,81 @@ test.describe("P3-19 管理端拆页", () => {
       expected_updated_at: 1_900_000_000_500,
       reason: "已对照版本公告原文核对",
     });
+  });
+});
+
+test.describe("P3-20 运行开关", () => {
+  test("页面内二次确认：不弹浏览器确认框；未选理由、取消都不发请求，确认后写入并重新读取", async ({
+    page,
+  }) => {
+    const state = await setup(page);
+    let dialogs = 0;
+    page.on("dialog", (dialog) => {
+      dialogs++;
+      void dialog.dismiss();
+    });
+    await page.goto("/admin/settings/");
+    await expect(page.locator("#controls-status")).toHaveText(controlsRead);
+    const row = page.locator(".control-row").filter({ hasText: "只读模式" });
+    await row.getByRole("button", { name: "开启", exact: true }).click();
+    await expect(page.locator("#controls-status")).toHaveText("请先在上方选择修改理由。");
+    await page.getByLabel("修改理由（每次修改都会记录）").selectOption("maintenance");
+    await row.getByRole("button", { name: "开启", exact: true }).click();
+    const confirm = row.getByRole("group", { name: "确认开启" });
+    await expect(confirm).toContainText(
+      "确认开启「只读模式」？这会立即影响线上服务，并写入审计记录。",
+    );
+    await confirm.getByRole("button", { name: "取消", exact: true }).click();
+    await expect(page.locator("#controls-status")).toHaveText("已取消，没有修改。");
+    await expect(confirm).toHaveCount(0);
+    expect(state.calls.filter((call) => call.method === "PUT")).toEqual([]);
+    await row.getByRole("button", { name: "开启", exact: true }).click();
+    await row.getByRole("button", { name: "确认开启", exact: true }).click();
+    await expect(page.locator("#controls-status")).toHaveText(
+      "已开启「只读模式」，已重新读取核实。",
+    );
+    const writes = state.calls.filter((call) => call.method === "PUT");
+    expect(writes.map((call) => call.body)).toEqual([
+      {
+        control: "read_only",
+        enabled: true,
+        expected_updated_at: 1_900_000_000_000,
+        reason: "maintenance",
+      },
+    ]);
+    await expect(row.getByRole("button", { name: "关闭", exact: true })).toBeVisible();
+    expect(dialogs).toBe(0);
+  });
+
+  test("来源行写明能抓什么与抓取状态：米游社标明仅列表，维护中的来源可在行内确认后解除", async ({
+    page,
+  }) => {
+    const state = await setup(page);
+    await page.goto("/admin/settings/");
+    await expect(page.locator("#controls-status")).toHaveText(controlsRead);
+    const genshin = page.locator(".control-row").filter({ hasText: "原神游戏内公告" });
+    await expect(genshin).toContainText("抓取公告列表与完整正文");
+    await expect(genshin).toContainText("最近成功抓取：");
+    const miyoushe = page.locator(".control-row").filter({ hasText: "米游社官方资讯" });
+    await expect(miyoushe).toContainText("仅列表：只有标题和封面");
+    await expect(miyoushe).toContainText("不能批准");
+    await expect(miyoushe).toContainText("抓取状态：尚未建立");
+    const hsr = page.locator(".control-row").filter({ hasText: "崩坏：星穹铁道游戏内公告" });
+    await expect(hsr).toContainText("需维护");
+    await page.getByLabel("修改理由（每次修改都会记录）").selectOption("evidence_reviewed");
+    await hsr.getByRole("button", { name: "解除维护", exact: true }).click();
+    await expect(hsr.getByRole("group", { name: "确认解除维护" })).toContainText(
+      "源站仍受限时会重新进入维护",
+    );
+    await hsr.getByRole("button", { name: "确认解除维护", exact: true }).click();
+    await expect(page.locator("#controls-status")).toHaveText(
+      "已解除「来源抓取 · 崩坏：星穹铁道游戏内公告」的维护，下一次轮询会重新抓取。",
+    );
+    expect(
+      state.calls.filter((call) => call.path === "admin/sources/resume").map((call) => call.body),
+    ).toEqual([
+      { source: "hsr-ann", expected_updated_at: 1_899_500_000_000, reason: "evidence_reviewed" },
+    ]);
+    await expect(hsr.getByRole("button", { name: "解除维护", exact: true })).toHaveCount(0);
   });
 });

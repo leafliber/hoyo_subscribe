@@ -59,8 +59,10 @@ export async function checkPublishedNodeBytes(
       old !== null && old.source_projection_json !== source
         ? (decideCalendarPatch(old.projection, projection, prior, now, old.tombstone) ?? prior)
         : prior;
+    // 与快照节点同形：只取游戏与区服，不展开调用方对象的其他字段。
     const node = {
-      ...scope,
+      game: scope.game,
+      region: scope.region,
       public_changed_at: Number.MAX_SAFE_INTEGER,
       projection,
       public_ical_revision: Number.MAX_SAFE_INTEGER,
