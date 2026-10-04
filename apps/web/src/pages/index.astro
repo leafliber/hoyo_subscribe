@@ -1,7 +1,6 @@
 ---
 import "../styles/base.css";
 import {
-  BROWSE_RANGES,
   defaultBrowseFilters,
   EVENT_NAMES,
   EVENT_TYPES,
@@ -10,7 +9,10 @@ import {
   NODE_TYPES,
   SUPPORTED_SCOPE_GAMES,
 } from "@hoyo/contracts";
+import GameIcon from "../components/GameIcon.astro";
 import Icon from "../components/Icon.astro";
+import { HOME_RANGES } from "../features/schedule/ranges";
+import { GAME_SHORT_NAMES } from "../lib/game-icons";
 import Layout from "./_Layout.astro";
 import "../features/schedule/schedule.css";
 
@@ -18,35 +20,29 @@ const filters = defaultBrowseFilters();
 ---
 <Layout title="活动日程" activeNav="schedule">
   <div class="schedule-page">
-    <header class="page-header schedule-header">
-      <div>
-        <p class="eyebrow"><Icon name="clock" />北京时间 UTC+8 · 国服</p>
-        <h1>活动日程</h1>
-        <p class="lead">原神、崩坏：星穹铁道、绝区零的官方活动时间，一眼看清什么时候开始、什么时候截止。</p>
-      </div>
-      <div class="page-header-actions">
-        <a class="button" href="/subscription"><Icon name="calendar-check" />订阅到我的日历</a>
-      </div>
-    </header>
+    <h1 class="sr-only">活动日程</h1>
 
     <form id="browse-filters" class="filter-bar" aria-label="筛选日程">
-      <div class="filter-row">
+      <div class="filter-scroller">
         <fieldset class="filter-group">
-          <legend class="filter-label">游戏</legend>
-          <div class="chip-group game-options">
+          <legend class="sr-only">游戏</legend>
+          <div class="game-options">
             {SUPPORTED_SCOPE_GAMES.map((game) => (
               <label class="chip game-option" data-game={game}>
                 <input type="checkbox" name="games" value={game} checked />
-                <span class="dot" aria-hidden="true"></span>
-                <span>{GAME_NAMES[game]}</span>
+                <GameIcon game={game} class="game-icon game-icon--md" />
+                <span class="game-name">{GAME_NAMES[game]}</span>
+                <span class="game-name-short" aria-hidden="true">{GAME_SHORT_NAMES[game]}</span>
               </label>
             ))}
           </div>
         </fieldset>
+        <span class="filter-divider" aria-hidden="true"></span>
         <fieldset class="filter-group">
-          <legend class="filter-label">时间范围</legend>
+          <legend class="sr-only">时间范围</legend>
           <div class="segmented range-options">
-            {BROWSE_RANGES.map((range) => (
+            <span class="segmented-thumb" aria-hidden="true"></span>
+            {HOME_RANGES.map((range) => (
               <label class="range-option">
                 <input type="radio" name="range" value={range.id} checked={range.id === filters.range} />
                 <span>{range.label}</span>
@@ -54,50 +50,82 @@ const filters = defaultBrowseFilters();
             ))}
           </div>
         </fieldset>
-      </div>
-      <div class="filter-row filter-row--tools">
+        <span class="filter-divider" aria-hidden="true"></span>
         <label class="chip deadline-filter">
           <input type="checkbox" name="ending" value="1" />
-          <Icon name="hourglass" class="icon" />
+          <Icon name="hourglass" />
           <span>只看截止</span>
         </label>
-        <details class="more-filters" id="more-filters">
-          <summary class="chip more-toggle">
-            <Icon name="sliders" />
-            <span>更多筛选</span>
-            <span id="more-summary" class="more-summary"></span>
-          </summary>
-          <div class="more-content">
-            <fieldset>
-              <legend class="filter-label">活动类型</legend>
-              <div class="chip-group">
-                {EVENT_TYPES.map((type) => (
-                  <label class="chip">
-                    <input type="checkbox" name="events" value={type} />
-                    <Icon name="check" class="chip-check" />
-                    <span>{EVENT_NAMES[type]}</span>
-                  </label>
-                ))}
-              </div>
-            </fieldset>
-            <fieldset>
-              <legend class="filter-label">节点类型</legend>
-              <div class="chip-group">
-                {NODE_TYPES.map((type) => (
-                  <label class="chip">
-                    <input type="checkbox" name="nodes" value={type} />
-                    <Icon name="check" class="chip-check" />
-                    <span>{NODE_NAMES[type]}</span>
-                  </label>
-                ))}
-              </div>
-            </fieldset>
-          </div>
-        </details>
-        <p id="browse-summary" class="filter-summary-text" aria-live="polite"></p>
-        <button id="reset-filters" type="button" class="link-button reset-filters">清除筛选</button>
+        <button id="reset-filters" type="button" class="link-button reset-filters" hidden>清除筛选</button>
       </div>
+      <div class="filter-pinned">
+        <button
+          id="more-filters-toggle"
+          type="button"
+          class="chip more-toggle"
+          popovertarget="more-filters"
+          aria-haspopup="dialog"
+          aria-controls="more-filters"
+          aria-expanded="false"
+        >
+          <Icon name="sliders" />
+          <span class="more-label">更多筛选</span>
+          <span id="more-summary" class="more-summary" hidden></span>
+        </button>
+      </div>
+      <div id="more-filters" class="more-popover" popover role="dialog" aria-labelledby="more-filters-title">
+        <div class="more-head">
+          <h2 id="more-filters-title">更多筛选</h2>
+          <button type="button" class="more-close" popovertarget="more-filters" popovertargetaction="hide" aria-label="关闭更多筛选">
+            <Icon name="x" />
+          </button>
+        </div>
+        <fieldset class="more-group">
+          <legend class="filter-label">活动类型</legend>
+          <div class="chip-group">
+            {EVENT_TYPES.map((type) => (
+              <label class="chip">
+                <input type="checkbox" name="events" value={type} />
+                <Icon name="check" class="chip-check" />
+                <span>{EVENT_NAMES[type]}</span>
+              </label>
+            ))}
+          </div>
+        </fieldset>
+        <fieldset class="more-group">
+          <legend class="filter-label">节点类型</legend>
+          <div class="chip-group">
+            {NODE_TYPES.map((type) => (
+              <label class="chip">
+                <input type="checkbox" name="nodes" value={type} />
+                <Icon name="check" class="chip-check" />
+                <span>{NODE_NAMES[type]}</span>
+              </label>
+            ))}
+          </div>
+        </fieldset>
+        <div class="more-foot">
+          <button id="more-clear" type="button" class="link-button">清除这些条件</button>
+          <button type="button" class="button button--sm" popovertarget="more-filters" popovertargetaction="hide">完成</button>
+        </div>
+      </div>
+      <p id="browse-summary" class="sr-only" aria-live="polite"></p>
     </form>
+
+    <section id="ending-soon" class="ending-soon" aria-labelledby="ending-soon-title" aria-busy="true">
+      <div class="ending-head">
+        <h2 id="ending-soon-title" class="ending-heading">
+          <span class="ending-pulse" aria-hidden="true"></span>即将截止
+        </h2>
+      </div>
+      <div class="ending-cards" role="status">
+        <span class="sr-only">正在加载即将截止的活动…</span>
+        <div class="ending-card skeleton-card"><div class="skeleton skeleton-line"></div><div class="skeleton skeleton-block"></div></div>
+        <div class="ending-card skeleton-card"><div class="skeleton skeleton-line"></div><div class="skeleton skeleton-block"></div></div>
+        <div class="ending-card skeleton-card"><div class="skeleton skeleton-line"></div><div class="skeleton skeleton-block"></div></div>
+        <div class="ending-card skeleton-card"><div class="skeleton skeleton-line"></div><div class="skeleton skeleton-block"></div></div>
+      </div>
+    </section>
 
     <div class="schedule-layout">
       <div id="schedule-results" class="schedule-results" aria-busy="true">

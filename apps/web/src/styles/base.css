@@ -205,30 +205,6 @@ hr {
   height: 22px;
 }
 
-.dot {
-  display: inline-block;
-  flex: none;
-  width: 8px;
-  height: 8px;
-  border-radius: var(--radius-pill);
-  background: var(--color-text-aux);
-}
-
-[data-game="genshin"] > .dot,
-.dot[data-game="genshin"] {
-  background: var(--color-game-genshin);
-}
-
-[data-game="hsr"] > .dot,
-.dot[data-game="hsr"] {
-  background: var(--color-game-hsr);
-}
-
-[data-game="zzz"] > .dot,
-.dot[data-game="zzz"] {
-  background: var(--color-game-zzz);
-}
-
 .game-tag {
   display: inline-flex;
   align-items: center;
@@ -237,6 +213,59 @@ hr {
   font-size: var(--font-size-small);
   font-weight: 550;
   white-space: nowrap;
+}
+
+/* 游戏标识：游戏色渐变圆角块 + 白色原创图形（GameIcon.astro / lib/game-icons.ts） */
+.game-icon {
+  --game-base: var(--color-text-aux);
+  --game-light: var(--color-text-aux);
+  display: inline-grid;
+  place-items: center;
+  flex: none;
+  width: 18px;
+  height: 18px;
+  border-radius: 5px;
+  background: linear-gradient(140deg, var(--game-light), var(--game-base));
+  color: var(--color-on-accent);
+  line-height: 0;
+}
+
+.game-icon > svg {
+  width: 74%;
+  height: 74%;
+}
+
+.game-icon[data-game="genshin"] {
+  --game-base: var(--color-game-genshin);
+  --game-light: var(--color-game-genshin-light);
+}
+
+.game-icon[data-game="hsr"] {
+  --game-base: var(--color-game-hsr);
+  --game-light: var(--color-game-hsr-light);
+}
+
+.game-icon[data-game="zzz"] {
+  --game-base: var(--color-game-zzz);
+  --game-light: var(--color-game-zzz-light);
+}
+
+.game-icon--md {
+  width: 24px;
+  height: 24px;
+  border-radius: 7px;
+}
+
+.game-icon--lg {
+  width: 32px;
+  height: 32px;
+  border-radius: 9px;
+}
+
+.game-icon--xl {
+  width: 44px;
+  height: 44px;
+  border-radius: 12px;
 }
 
 /* ===================================================================== 外壳 */
@@ -1354,6 +1383,34 @@ summary::-webkit-details-marker {
   from {
     opacity: 0;
     transform: translateY(8px) scale(0.98);
+  }
+}
+
+/* 列表与卡片入场：轻微上浮淡入（减少动效偏好下整体停用） */
+@keyframes rise-in {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+}
+
+/* 呼吸光环：用于「即将截止」与「现在」标记 */
+@keyframes pulse-ring {
+  0% {
+    box-shadow: 0 0 0 0 var(--color-pulse-danger);
+  }
+  70% {
+    box-shadow: 0 0 0 7px var(--color-pulse-danger-end);
+  }
+  100% {
+    box-shadow: 0 0 0 0 var(--color-pulse-danger-end);
+  }
+}
+
+/* 选中时图标轻弹 */
+@keyframes pop {
+  40% {
+    transform: scale(1.16);
   }
 }
 

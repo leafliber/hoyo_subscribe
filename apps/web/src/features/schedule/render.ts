@@ -15,16 +15,20 @@ import { type BadgeKind, badge, callout, el, emptyState, icon } from "../../lib/
 import { feedbackForFailure } from "../../lib/errors/feedback";
 import {
   clock,
+  countdownParts,
   dateOnlyLabel,
   dateTime,
   dayLabel,
+  monthDay,
   relative,
   remaining,
   stamp,
 } from "../../lib/format";
+import { gameIcon } from "../../lib/game-icons";
 import { PublicReadError } from "../../lib/public-api/client";
 import { cacheNotice, timeNode } from "./dom";
 import type { ScheduleLoadState } from "./load";
+import { widerRange } from "./ranges";
 import { sourceFeedback } from "./source-status";
 
 export const changeLabels: Record<NonNullable<PublicScheduleNode["change"]>["kind"], string> = {
@@ -106,11 +110,11 @@ export function statusBadges(node: PublicScheduleNode, now: number): HTMLElement
   });
 }
 
-export function gameTag(game: PublicScheduleNode["game"]): HTMLElement {
+export function gameTag(game: PublicScheduleNode["game"], size?: "md" | "lg"): HTMLElement {
   return el(
     "span",
     { class: "game-tag", "data-game": game },
-    el("span", { class: "dot", "aria-hidden": "true" }),
+    gameIcon(game, size ? `game-icon game-icon--${size}` : "game-icon"),
     GAME_NAMES[game],
   );
 }
@@ -160,6 +164,7 @@ export function renderNode(node: PublicScheduleNode, now: number) {
       class: `schedule-node kind-${nodeKind(node)}${exact && node.time.precision === "datetime" && node.time.utc_ms <= now ? " is-past" : ""}`,
       "data-node": node.id,
       "data-precision": node.time.precision,
+      "data-time": node.time.precision === "datetime" ? node.time.utc_ms : null,
     },
     el(
       "div",
@@ -174,6 +179,7 @@ export function renderNode(node: PublicScheduleNode, now: number) {
           ),
       estimate ? el("span", { class: "sr-only" }, "预计") : null,
     ),
+    el("span", { class: "node-rail", "aria-hidden": "true" }),
     el(
       "div",
       { class: "node-content" },
@@ -190,9 +196,27 @@ export function renderNode(node: PublicScheduleNode, now: number) {
   );
 }
 
+/** 「现在」标记：只在今天的精确时间列表里，放在第一条未到时间的条目之前；读屏忽略。 */
+export function nowMarker(now: number): HTMLElement {
+  return el(
+    "li",
+    { class: "now-marker", "aria-hidden": "true" },
+    el("span", { class: "now-time" }, "现在 ", el("span", { "data-now-clock": "" }, clock(now))),
+    el("span", { class: "now-dot" }),
+    el("span", { class: "now-line" }),
+  );
+}
+
 function renderDay(day: ScheduleDay<PublicScheduleNode>, today: string, now: number) {
   const label = dayLabel(day.date, today);
   const total = day.timed.length + day.dateOnly.length;
+  const rows: HTMLElement[] = day.timed.map((node) => renderNode(node, now));
+  if (day.date === today && rows.length) {
+    const next = day.timed.findIndex(
+      (node) => node.time.precision === "datetime" && node.time.utc_ms > now,
+    );
+    rows.splice(next === -1 ? rows.length : next, 0, nowMarker(now));
+  }
   return el(
     "section",
     { class: "schedule-day", "data-date": day.date },
@@ -205,9 +229,7 @@ function renderDay(day: ScheduleDay<PublicScheduleNode>, today: string, now: num
       " ",
       el("span", { class: "day-count" }, `${total} 项`),
     ),
-    day.timed.length
-      ? el("ul", { class: "timed-list" }, ...day.timed.map((node) => renderNode(node, now)))
-      : null,
+    day.timed.length ? el("ul", { class: "timed-list" }, ...rows) : null,
     day.dateOnly.length > 0
       ? el(
           "div",
@@ -414,7 +436,7 @@ export function renderResults(state: ScheduleLoadState, filters: BrowseFilters) 
     ),
   );
   if (state.phase === "ready" && view.empty) {
-    const next = BROWSE_RANGES[BROWSE_RANGES.findIndex((item) => item.id === filters.range) + 1];
+    const next = widerRange(filters.range);
     const copy: Record<string, [string, string]> = {
       range: ["当前范围没有已发布日程", "这段时间里没有已发布的活动安排。"],
       filtered: ["筛选没有匹配项", "换个筛选条件试试，或者清除全部筛选。"],
@@ -529,77 +551,187 @@ function loadRow(state: ScheduleLoadState) {
   return row;
 }
 
-/** 侧栏：即将截止 + 数据状态。只使用已加载的公开数据。 */
-export function renderAside(state: ScheduleLoadState, filters: BrowseFilters) {
-  const root = document.createDocumentFragment();
-  const now = Date.now();
-  const nodes = state.pages
+const ENDING_LIMIT = 4;
+const HOUR = 3_600_000;
+
+/** 即将截止的候选：已加载的公开节点里尚未到时间的截止类节点，按时间先后；遵从全部浏览筛选。 */
+export function endingSoonNodes(state: ScheduleLoadState, filters: BrowseFilters, now: number) {
+  const seen = new Set<string>();
+  return state.pages
     .flatMap((page) => page.nodes)
-    .filter(
-      (node) =>
+    .filter((node) => {
+      if (seen.has(node.id)) return false;
+      seen.add(node.id);
+      return (
         filters.games.includes(node.game) &&
+        (!filters.events.length || filters.events.includes(node.eventType)) &&
+        (!filters.nodes.length || filters.nodes.includes(node.nodeType)) &&
         node.status !== "cancelled" &&
         node.status !== "retracted" &&
         isDeadline(node) &&
         node.time.precision === "datetime" &&
-        node.time.utc_ms > now,
-    )
+        node.time.utc_ms > now
+      );
+    })
     .sort(
       (a, b) =>
         (a.time.precision === "datetime" ? a.time.utc_ms : 0) -
-        (b.time.precision === "datetime" ? b.time.utc_ms : 0),
-    )
-    .slice(0, 5);
-  if (nodes.length)
-    root.append(
+          (b.time.precision === "datetime" ? b.time.utc_ms : 0) ||
+        (a.id < b.id ? -1 : a.id > b.id ? 1 : 0),
+    );
+}
+
+/** 倒计时数字：按秒更新的只有数字本身，不做读屏播报。 */
+export function countdownValue(target: number, now: number): HTMLElement[] {
+  return countdownParts(target, now).flatMap(([value, unit]) => [
+    el("span", { class: "cd-num" }, String(value)),
+    el("span", { class: "cd-unit" }, unit),
+  ]);
+}
+
+export function urgency(target: number, now: number): "critical" | "urgent" | "soon" | "later" {
+  const left = target - now;
+  return left < HOUR
+    ? "critical"
+    : left < 24 * HOUR
+      ? "urgent"
+      : left < 72 * HOUR
+        ? "soon"
+        : "later";
+}
+
+function endingCard(node: PublicScheduleNode, today: string, now: number, index: number) {
+  if (node.time.precision !== "datetime") throw new Error("截止卡片只接受精确时间");
+  const target = node.time.utc_ms;
+  const day = dayLabel(browseDate(target), today);
+  return el(
+    "li",
+    {
+      class: `ending-card is-${urgency(target, now)}`,
+      "data-ending": node.id,
+      style: `--i: ${index}`,
+    },
+    el(
+      "div",
+      { class: "ending-card-top" },
+      gameTag(node.game, "md"),
+      el("span", { class: "ending-action" }, nodeAction(node)),
+    ),
+    el(
+      "a",
+      { class: "ending-title", href: `/events/${encodeURIComponent(node.eventId)}` },
+      node.title,
+    ),
+    el(
+      "div",
+      { class: "ending-countdown" },
+      el("span", { class: "cd-label" }, "剩余"),
       el(
-        "section",
-        { class: "card aside-card", "aria-labelledby": "ending-soon-title" },
-        el(
-          "div",
-          { class: "card-header" },
+        "span",
+        { class: "cd-value", "data-countdown-to": target },
+        ...countdownValue(target, now),
+      ),
+    ),
+    el(
+      "p",
+      { class: "ending-when" },
+      el(
+        "time",
+        { datetime: new Date(target).toISOString() },
+        `${day.relative ?? monthDay(target)} ${clock(target)}`,
+      ),
+      " 截止",
+    ),
+  );
+}
+
+/**
+ * 首屏「即将截止」：只用已加载的公开数据。返回 null 表示整块隐藏
+ * （尚无数据且不在加载、未发布、筛选排除了截止类节点）。
+ */
+export function renderEndingSoon(
+  state: ScheduleLoadState,
+  filters: BrowseFilters,
+): HTMLElement[] | null {
+  const now = Date.now();
+  const head = (count: HTMLElement | null) =>
+    el(
+      "div",
+      { class: "ending-head" },
+      el(
+        "h2",
+        { id: "ending-soon-title", class: "ending-heading" },
+        el("span", { class: "ending-pulse", "aria-hidden": "true" }),
+        "即将截止",
+      ),
+      count,
+      el("a", { class: "ending-remind", href: "/subscription" }, icon("bell"), "截止前提醒我"),
+    );
+  const first = state.pages[0];
+  if (!first) {
+    if (state.phase !== "loading" || !filters.games.length) return null;
+    return [
+      head(null),
+      el(
+        "div",
+        { class: "ending-cards", role: "status" },
+        el("span", { class: "sr-only" }, "正在加载即将截止的活动…"),
+        ...Array.from({ length: ENDING_LIMIT }, () =>
           el(
-            "h2",
-            { id: "ending-soon-title", class: "aside-title" },
-            icon("hourglass"),
-            "即将截止",
-          ),
-        ),
-        el(
-          "ul",
-          { class: "list-plain ending-list" },
-          ...nodes.map((node) =>
-            el(
-              "li",
-              { "data-ending": node.id },
-              el(
-                "a",
-                { href: `/events/${encodeURIComponent(node.eventId)}`, class: "ending-link" },
-                el("span", { class: "ending-title" }, node.title),
-                el(
-                  "span",
-                  { class: "ending-meta" },
-                  gameTag(node.game),
-                  el("span", { class: "ending-action" }, nodeAction(node)),
-                ),
-              ),
-              node.time.precision === "datetime"
-                ? el(
-                    "span",
-                    {
-                      class: `ending-remaining${node.time.utc_ms - now < 86_400_000 ? " is-soon" : ""}`,
-                      "data-relative-to": node.time.utc_ms,
-                      "data-relative-mode": "remaining",
-                    },
-                    remaining(node.time.utc_ms, now) ?? "",
-                  )
-                : null,
-            ),
+            "div",
+            { class: "ending-card skeleton-card" },
+            el("div", { class: "skeleton skeleton-line" }),
+            el("div", { class: "skeleton skeleton-block" }),
           ),
         ),
       ),
+    ];
+  }
+  const excludesDeadlines =
+    !filters.games.length ||
+    (filters.nodes.length > 0 &&
+      !filters.nodes.some((type) => type === "end" || type === "reward_deadline"));
+  if (excludesDeadlines) return null;
+  const nodes = endingSoonNodes(state, filters, now);
+  const range = BROWSE_RANGES.find((item) => item.id === filters.range);
+  const scope = range?.id === "all" ? "已发布日程中" : `${range?.label ?? ""}内`;
+  if (!nodes.length) {
+    if (filters.events.length || filters.nodes.length) return null;
+    return [
+      head(null),
+      el(
+        "p",
+        { class: "ending-none" },
+        icon("check-circle"),
+        state.phase === "loading" ? "正在读取截止安排…" : `${scope}没有即将截止的活动。`,
+      ),
+    ];
+  }
+  const today = browseDate(first.window.start);
+  const shown = nodes.slice(0, ENDING_LIMIT);
+  const parts: HTMLElement[] = [
+    head(el("p", { class: "ending-sub" }, `${scope} · 共 ${nodes.length} 项`)),
+    el(
+      "ol",
+      { class: "ending-cards" },
+      ...shown.map((node, index) => endingCard(node, today, now, index)),
+    ),
+  ];
+  if (nodes.length > shown.length)
+    parts.push(
+      el(
+        "button",
+        { type: "button", class: "ending-more", "data-action": "ending-all" },
+        `查看全部 ${nodes.length} 项截止安排`,
+        icon("arrow-right"),
+      ),
     );
+  return parts;
+}
 
+/** 侧栏：数据状态。只使用已加载的公开数据。 */
+export function renderAside(state: ScheduleLoadState, filters: BrowseFilters) {
+  const root = document.createDocumentFragment();
   const status = state.status;
   const sources = status?.sources ?? null;
   const visibleSources = sources?.filter((source) => filters.games.includes(source.game)) ?? null;

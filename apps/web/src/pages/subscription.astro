@@ -16,6 +16,7 @@ import {
   SUBSCRIPTION_RULE_COPY,
   SUPPORTED_SCOPE_GAMES,
 } from "@hoyo/contracts";
+import GameIcon from "../components/GameIcon.astro";
 import Icon from "../components/Icon.astro";
 import Layout from "./_Layout.astro";
 import "../features/subscription/subscription.css";
@@ -102,7 +103,7 @@ const changes = [...SUBSCRIPTION_CHANGE_COPY].sort(
               {SUPPORTED_SCOPE_GAMES.map((game) => (
                 <label class="game-card" data-game={game}>
                   <input type="checkbox" name="games" value={game} checked={DEFAULT_SCOPE_GAMES.includes(game)} />
-                  <span class="dot" aria-hidden="true"></span>
+                  <GameIcon game={game} class="game-icon game-icon--lg" />
                   <span class="game-card-name">{SUBSCRIPTION_GAME_LABELS[game]}</span>
                   <Icon name="check" class="game-card-check" />
                 </label>

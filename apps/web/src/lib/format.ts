@@ -98,6 +98,32 @@ export function remaining(ms: number, now: number): string | null {
   return days < 3 && hours ? `还剩 ${days} 天 ${hours} 小时` : `还剩 ${days} 天`;
 }
 
+/**
+ * 倒计时分段（取整向下，不会提前显示归零）：
+ * ≥1 天 → [天, 小时]；≥1 小时 → [小时, 分]；不足 1 小时 → [分, 秒]。
+ */
+export function countdownParts(ms: number, now: number): [number, string][] {
+  const diff = Math.max(0, ms - now);
+  const days = Math.floor(diff / DAY);
+  const hours = Math.floor((diff % DAY) / HOUR);
+  const minutes = Math.floor((diff % HOUR) / MINUTE);
+  const seconds = Math.floor((diff % MINUTE) / 1000);
+  if (days >= 1)
+    return [
+      [days, "天"],
+      [hours, "小时"],
+    ];
+  if (hours >= 1)
+    return [
+      [hours, "小时"],
+      [minutes, "分"],
+    ];
+  return [
+    [minutes, "分"],
+    [seconds, "秒"],
+  ];
+}
+
 /** 数值时间戳 → 北京时间完整文本；null 显示为「未知」。 */
 export function stamp(ms: number | null | undefined): string {
   return ms === null || ms === undefined ? "未知" : fullDateTime(ms);

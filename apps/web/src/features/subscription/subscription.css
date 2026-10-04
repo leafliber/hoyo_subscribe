@@ -216,9 +216,30 @@
   outline-offset: 2px;
 }
 
-.game-card .dot {
-  width: 10px;
-  height: 10px;
+.game-card .game-icon {
+  transition:
+    filter var(--duration-base) var(--ease-standard),
+    opacity var(--duration-base) var(--ease-standard);
+}
+
+.game-card:not(:has(input:checked)) .game-icon {
+  filter: grayscale(1);
+  opacity: 0.5;
+}
+
+/* 三列时图标在上、名称在下，长名称不会被挤成两行；单列（窄屏）恢复横排 */
+.game-picker .game-card {
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-2);
+  min-height: 92px;
+}
+
+.game-picker .game-card-check {
+  position: absolute;
+  top: var(--space-3);
+  right: var(--space-3);
+  margin: 0;
 }
 
 .game-card-name {
@@ -1139,6 +1160,18 @@
   .type-grid,
   .rule-groups {
     grid-template-columns: minmax(0, 1fr);
+  }
+
+  .game-picker .game-card {
+    flex-direction: row;
+    align-items: center;
+    gap: var(--space-3);
+    min-height: 56px;
+  }
+
+  .game-picker .game-card-check {
+    position: static;
+    margin-left: auto;
   }
 
   .sub-state {

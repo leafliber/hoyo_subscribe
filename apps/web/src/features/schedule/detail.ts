@@ -112,7 +112,7 @@ export function renderEventDetail(response: PublicEventDetailResponse) {
       el(
         "div",
         { class: "detail-tags" },
-        gameTag(event.game),
+        gameTag(event.game, "md"),
         badge(EVENT_NAMES[event.eventType]),
         phase ? statusPill(phase.text, phase.kind) : null,
       ),

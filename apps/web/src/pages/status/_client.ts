@@ -2,6 +2,7 @@ import { GAME_NAMES } from "@hoyo/contracts";
 import { sourceFeedback } from "../../features/schedule/source-status";
 import { type BadgeKind, badge, el, icon } from "../../lib/dom";
 import { stamp } from "../../lib/format";
+import { gameIcon } from "../../lib/game-icons";
 import { PublicApiClient } from "../../lib/public-api/client";
 
 const api = new PublicApiClient();
@@ -113,7 +114,7 @@ async function refresh() {
               el(
                 "span",
                 { class: "game-tag", "data-game": source.game },
-                el("span", { class: "dot" }),
+                gameIcon(source.game),
                 GAME_NAMES[source.game],
               ),
               el("span", { class: "source-id" }, source.sourceId),

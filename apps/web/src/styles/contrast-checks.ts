@@ -300,6 +300,33 @@ export const CONTRAST_CHECKS: readonly ContrastCheck[] = [
     text: { color: "--color-warning" },
     ...onPage,
   },
+  // —— 游戏标识：白色图形叠在游戏色渐变块上（图形，按 3:1）；两个渐变端点都要达标 ——
+  ...(["genshin", "hsr", "zzz"] as const).flatMap((game) => [
+    {
+      use: `游戏标识图形（${game} 基色）`,
+      min: CONTRAST_UI_COMPONENT,
+      text: { color: "--color-on-accent" },
+      background: { base: `--color-game-${game}` },
+    },
+    {
+      use: `游戏标识图形（${game} 浅色端）`,
+      min: CONTRAST_UI_COMPONENT,
+      text: { color: "--color-on-accent" },
+      background: { base: `--color-game-${game}-light` },
+    },
+    {
+      use: `已选游戏胶囊文字（${game} 浅底）`,
+      min: CONTRAST_NORMAL_TEXT,
+      text: { color: "--color-text-primary" },
+      background: { base: `--color-game-${game}-soft` },
+    },
+    {
+      use: `已选游戏胶囊次要文字（${game} 浅底）`,
+      min: CONTRAST_NORMAL_TEXT,
+      text: { color: "--color-text-secondary" },
+      background: { base: `--color-game-${game}-soft` },
+    },
+  ]),
   // —— 半透明降权文字：对合成后的实际颜色测 ——
   {
     use: "降权文字（合成，surface 上）",

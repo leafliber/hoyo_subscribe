@@ -13,6 +13,7 @@ import {
 } from "@hoyo/contracts";
 import { badge, el, icon } from "../../../lib/dom";
 import { clock, dateOnlyLabel, dateTime } from "../../../lib/format";
+import { gameIcon } from "../../../lib/game-icons";
 import type { Draft, Snapshot } from "../save/machine";
 import { sampleNodes } from "./sample";
 
@@ -101,7 +102,7 @@ function renderItem(item: CalendarPreviewItem): HTMLElement {
         el(
           "span",
           { class: "game-tag", "data-game": item.game },
-          el("span", { class: "dot" }),
+          gameIcon(item.game),
           SUBSCRIPTION_GAME_LABELS[item.game],
         ),
         ...tags,
