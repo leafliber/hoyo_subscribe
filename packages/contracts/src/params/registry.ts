@@ -373,6 +373,46 @@ export const AUTO_PUBLISH_TIME_ERRORS = 0 as const;
 export const AI_BILLING_PROFILE_CONFIGURED =
   MODEL_MAX_INPUT !== null && MODEL_MAX_BILLED_OUTPUT !== null;
 
+/** Workers AI 每日免费额度（Neurons）：Free/Paid 相同，账户内所有应用共用，00:00 UTC 重置。ADR-0009；platform-facts.md 与官方价目页（R07，2026-10-01）。 */
+export const AI_INCLUDED_DAY = 10_000 as const;
+
+/**
+ * ADR-0009 AI 草稿 profile：只给待审候选预填草稿，发布仍须人工批准，**不翻转** AI_BILLING_PROFILE_CONFIGURED。
+ * 单价为官方价目页 Neurons/百万 token（2026-10-01）。maxInputBytes 是提示词 UTF-8 字节上限：字节级 BPE
+ * 每个 token 至少 1 字节，故输入 token ≤ 字节数 + templateOverheadTokens；maxOutputTokens 作为 max_tokens
+ * 下发，封住含思考在内的全部计费输出。两者都是请求本身强制的上界，不是猜测的实测值。
+ */
+export const AI_DRAFT_PROFILE = {
+  model: "@cf/qwen/qwen3-30b-a3b-fp8",
+  inputNeuronsPerMillion: 4625,
+  outputNeuronsPerMillion: 30475,
+  maxInputBytes: 24_000,
+  templateOverheadTokens: 64,
+  maxOutputTokens: 3000,
+  temperature: 0.2,
+} as const;
+
+/** 由 profile 推出的单次最大预占（Neurons，向上取整）；等式 ai-draft-reservation-within-soft 校验与 profile 一致。 */
+export function aiDraftReservation(profile: {
+  readonly inputNeuronsPerMillion: number;
+  readonly outputNeuronsPerMillion: number;
+  readonly maxInputBytes: number;
+  readonly templateOverheadTokens: number;
+  readonly maxOutputTokens: number;
+}): number {
+  return Math.ceil(
+    ((profile.maxInputBytes + profile.templateOverheadTokens) * profile.inputNeuronsPerMillion +
+      profile.maxOutputTokens * profile.outputNeuronsPerMillion) /
+      1_000_000,
+  );
+}
+
+/** AI 草稿单次调用的预占额（Neurons）= aiDraftReservation(AI_DRAFT_PROFILE)。ADR-0009。 */
+export const AI_DRAFT_RESERVATION = aiDraftReservation(AI_DRAFT_PROFILE);
+
+/** 候选文本字段（标题、摘要、键、原始时间表达）的 JSON 字节预算：公共节点上限的 1/32，其余留给结构与更正历史。P3-10/P3-14 交接；ADR-0009 草稿截断共用。 */
+export const CANDIDATE_TEXT_FIELD_BYTES = Math.floor(PUBLIC_READ_LIMITS.nodeBytes / 32);
+
 // ---------------------------------------------------------------------------
 // A.4 邮件与 Push（主方案 §9.1—§9.5；**邮件值按 ADR-0003 纯日额度模型**）
 // ---------------------------------------------------------------------------
@@ -639,6 +679,9 @@ export const PARAMS = {
   EXTRACTION_EVAL_MIN,
   KEY_EVENT_RECALL,
   AUTO_PUBLISH_TIME_ERRORS,
+  AI_INCLUDED_DAY,
+  AI_DRAFT_PROFILE,
+  AI_DRAFT_RESERVATION,
   // A.4（ADR-0003 纯日额度模型；月度参数已废止，不得出现）
   MAIL_SEATS_MAX,
   MAIL_ROUTINE_SEATS_MAX,
@@ -707,6 +750,7 @@ export type ParamStatus =
   | "adr-0003"
   | "adr-0005"
   | "adr-0007"
+  | "adr-0009"
   | "p5-02-approved"
   | "measured"
   | "measured-ref"
@@ -1253,6 +1297,27 @@ export const PARAM_META: Readonly<Record<keyof ParamValues, ParamMeta>> = {
     unit: "个",
     description: "自动发布保留集已知时间错误为 0（有限样本门槛）",
     status: "baseline",
+  },
+  AI_INCLUDED_DAY: {
+    section: "A.3",
+    unit: "Neurons/日",
+    description: "Workers AI 每日免费额度；账户内所有应用共用",
+    status: "measured-ref",
+    note: "官方价目页与 platform-facts.md；其他应用占用须由所有者控制",
+  },
+  AI_DRAFT_PROFILE: {
+    section: "A.3",
+    unit: "模型 / Neurons 每百万 token / 字节 / token",
+    description: "AI 草稿 profile：模型、单价、输入字节上限、模板开销、max_tokens、temperature",
+    status: "adr-0009",
+    note: "只预填待审草稿，发布须人工批准；不翻转 AI_BILLING_PROFILE_CONFIGURED",
+  },
+  AI_DRAFT_RESERVATION: {
+    section: "A.3",
+    unit: "Neurons/次",
+    description: "AI 草稿单次最大预占，由 AI_DRAFT_PROFILE 推出",
+    status: "adr-0009",
+    note: "失败与超时按整笔结算；草稿日累计不超过 AI_SOFT_DAY",
   },
   // A.4
   MAIL_SEATS_MAX: {

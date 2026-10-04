@@ -7,6 +7,8 @@ export interface AdminAudit {
   readonly targetId: string;
   readonly reason: string;
   readonly createdAt: number;
+  /** 可选的对象引用（如采用的 AI 草稿 profile）；不放正文、凭证或请求内容。 */
+  readonly detailRef?: string;
 }
 
 /** 只存动作及对象引用；不记录请求、Cookie、凭证或 Access 邮箱。 */
@@ -14,7 +16,7 @@ export function auditStatement(db: D1Database, audit: AdminAudit): D1PreparedSta
   return db
     .prepare(`INSERT INTO audit_log
     (id, actor_type, actor_id, action, target_type, target_id, reason, detail_ref, created_at, expires_at)
-    VALUES (?, 'admin', ?, ?, ?, ?, ?, NULL, ?, ?)`)
+    VALUES (?, 'admin', ?, ?, ?, ?, ?, ?, ?, ?)`)
     .bind(
       crypto.randomUUID(),
       audit.actorId,
@@ -22,6 +24,7 @@ export function auditStatement(db: D1Database, audit: AdminAudit): D1PreparedSta
       audit.targetType,
       audit.targetId,
       audit.reason,
+      audit.detailRef ?? null,
       audit.createdAt,
       audit.createdAt + ADMIN_AUDIT_TTL * 1_000,
     );
@@ -67,7 +70,7 @@ export function auditEffect(
         audit.targetType,
         audit.targetId,
         audit.reason,
-        null,
+        audit.detailRef ?? null,
         audit.createdAt,
         audit.createdAt + ADMIN_AUDIT_TTL * 1_000,
       ],

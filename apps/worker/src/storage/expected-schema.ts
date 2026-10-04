@@ -1,3 +1,4 @@
+// P3-17 获准跨卡：登记 0027 AI 草稿与 Workers AI 日账本（ADR-0009）。
 // P3-10 返工获准跨卡：登记 0024 管理员审计到期部分索引。
 // P3-06 获准跨卡：仅登记 0019 的 Feed 输出事实与完整代次清单列。
 // P2-07 获准跨卡改动：登记 0017 最近认证表及账号终止触发器。
@@ -18,6 +19,7 @@ import {
   TIME_BASES,
   TIME_PRECISIONS,
 } from "../../../../packages/contracts/src/enums";
+import { AI_DRAFT_STATUSES } from "../extraction/model/store";
 
 /** 各表列全集（与 CREATE TABLE 逐列一致；不含系统 rowid）。 */
 export const EXPECTED_TABLES: Record<string, readonly string[]> = {
@@ -117,6 +119,21 @@ export const EXPECTED_TABLES: Record<string, readonly string[]> = {
     "created_at",
     "updated_at",
   ],
+  // P3-17 / ADR-0009：AI 草稿与 Workers AI 日账本
+  ai_drafts: [
+    "candidate_id",
+    "article_version_id",
+    "profile_ref",
+    "status",
+    "attempts",
+    "proposal_json",
+    "notes_json",
+    "reason_code",
+    "usage_json",
+    "created_at",
+    "updated_at",
+  ],
+  ai_usage_days: ["day", "reserved", "settled", "calls", "updated_at"],
   evidence: [
     "id",
     "candidate_id",
@@ -843,6 +860,7 @@ export const EXPECTED_ENUM_CHECKS: Record<string, EnumCheckSource> = {
   "milestones.time_basis": { values: TIME_BASES, source: "contracts:TIME_BASES" },
   "milestones.time_precision": { values: TIME_PRECISIONS, source: "contracts:TIME_PRECISIONS" },
   "candidates.review_status": { values: REVIEW_STATUSES, source: "contracts:REVIEW_STATUSES" },
+  "ai_drafts.status": { values: AI_DRAFT_STATUSES, source: "worker:AI_DRAFT_STATUSES（ADR-0009）" },
   "sessions.state": { values: SESSION_STATUSES, source: "contracts:SESSION_STATUSES" },
   "user_subscriptions.state": {
     values: SUBSCRIPTION_STATES,

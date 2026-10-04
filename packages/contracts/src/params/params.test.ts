@@ -10,6 +10,7 @@ import { SUPPORTED_SCOPE_GAMES, SUPPORTED_SCOPE_REGIONS } from "../enums";
 import { buildAppendixMarkdown } from "./docs";
 import {
   AI_BILLING_PROFILE_CONFIGURED,
+  aiDraftReservation,
   MODEL_MAX_BILLED_OUTPUT,
   MODEL_MAX_INPUT,
   PARAM_META,
@@ -69,8 +70,8 @@ describe("A-P1-PARAM 附录 A.5 启动等式", () => {
     expect(results.every((r) => r.ok)).toBe(true);
   });
 
-  it("覆盖 §11、P3 工程依赖、ADR-0006 与 P5-01/P5-02（32 条），另有 1 条语义条款", () => {
-    expect(PARAM_EQUATIONS).toHaveLength(32);
+  it("覆盖 §11、P3 工程依赖、ADR-0006、ADR-0009 与 P5-01/P5-02（34 条），另有 1 条语义条款", () => {
+    expect(PARAM_EQUATIONS).toHaveLength(34);
     expect(SEMANTIC_INVARIANTS.map((s) => s.id)).toEqual(["mail-digest-window-forward-only"]);
   });
 
@@ -99,6 +100,26 @@ describe("A-P1-PARAM 附录 A.5 启动等式", () => {
     expect(() =>
       verifyParams(override({ CALENDAR_PREVIEW_RATE_WINDOW: PARAMS.PUBLIC_CACHE_FRESH - 1 })),
     ).not.toThrow();
+  });
+
+  it("A-P3-DRAFT 单次预占由 profile 推出且不超过软线；改单价不同步预占即失败", () => {
+    expect(PARAMS.AI_DRAFT_RESERVATION).toBe(203);
+    expect(PARAMS.AI_DRAFT_RESERVATION).toBe(aiDraftReservation(PARAMS.AI_DRAFT_PROFILE));
+    expect(PARAMS.AI_DRAFT_RESERVATION).toBeLessThanOrEqual(PARAMS.AI_SOFT_DAY);
+    expect(() =>
+      verifyParams(
+        override({
+          AI_DRAFT_PROFILE: { ...PARAMS.AI_DRAFT_PROFILE, outputNeuronsPerMillion: 60000 },
+        }),
+      ),
+    ).toThrow("ai-draft-reservation-within-soft");
+    for (const temperature of [-0.1, 1.5])
+      expect(() =>
+        verifyParams(override({ AI_DRAFT_PROFILE: { ...PARAMS.AI_DRAFT_PROFILE, temperature } })),
+      ).toThrow("ai-draft-reservation-within-soft");
+    expect(() => verifyParams(override({ AI_HARD_DAY: PARAMS.AI_INCLUDED_DAY }))).toThrow(
+      "ai-hard-within-included",
+    );
   });
 
   // 反向验证：逐条破坏，校验必须准确指出被破坏的那一条。

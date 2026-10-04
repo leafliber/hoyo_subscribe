@@ -41,6 +41,10 @@
   },
   "migrations": [{ "tag": "v1", "new_sqlite_classes": ["PipelineDO", "DeliveryDO"] }],
 
+  // P3-17（ADR-0009）：Workers AI 绑定 AI 只写进源码外的正式部署配置："ai": { "binding": "AI" }。
+  // 本文件同时是 vitest 的绑定来源；声明 AI 会让测试启动远程代理会话、要求平台登录，
+  // 违反"测试不连远端、不烧额度"（ENGINEERING.md §4.1 规则 3）。缺绑定时草稿任务明确停在未配置。
+
   // Queue：仅承接邮件反馈，不保存数月后的提醒（主方案 §2.1）。这里只声明配置，不操作远端资源。
   "queues": {
     // P4-07：FEEDBACK_BATCH / FEEDBACK_MAX_RETRIES 的声明式投影，feedback 配置测试防漂移。

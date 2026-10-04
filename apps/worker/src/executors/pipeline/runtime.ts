@@ -3,6 +3,7 @@
 import {
   EXECUTOR_BATCH_WALL_LIMIT,
   MATCH_PAGE,
+  MODEL_NETWORK_RETRIES,
   NOTIFICATION_PUBLICATION_TOPIC,
   RECLAIM_QUERY_BUDGET,
   WATCHDOG_INTERVAL,
@@ -12,6 +13,7 @@ import {
   readNoncriticalPublicationPause,
   reclaimSupersededPublicSnapshotPage,
 } from "../../calendar/public/snapshot";
+import { DRAFT_ELIGIBLE_SQL, type DraftModel, runDraftJob } from "../../extraction/model/draft";
 import { generatePublicationOccurrences } from "../../mail/occurrences/generate";
 import { publishApprovedCandidate } from "../../publishing/publish";
 import { runCleanup } from "../../scheduled/cleanup";
@@ -39,6 +41,8 @@ import {
 export const SOURCE_JOB = "pipeline_source";
 export const PUBLICATION_JOB = "pipeline_publication";
 export const NOTIFICATION_JOB = "pipeline_notification";
+/** ADR-0009：为待审 uncertain 候选生成 AI 草稿；每个 alarm 只调用一次模型。 */
+export const DRAFT_JOB = "pipeline_draft";
 /** 待人工裁定的发布待办：tick 与 nextAlarm 都不取它，只由 watchdog 在关联候选变化后放回。 */
 const AWAITING_REVIEW_STATUS = "awaiting_review";
 interface Job {
@@ -64,6 +68,9 @@ export interface PipelineDeps {
   publish?: typeof publishApprovedCandidate;
   notify?: typeof generatePublicationOccurrences;
   reclaim?: typeof reclaimSupersededPublicSnapshotPage;
+  /** Workers AI 绑定；未配置时不起草。测试注入固定响应替身。 */
+  ai?: DraftModel;
+  draft?: typeof runDraftJob;
 }
 export class PipelineRuntime {
   private readonly now: () => number;
@@ -79,9 +86,9 @@ export class PipelineRuntime {
     // 过期租约只有这里能修复，先做：后面的维护即使失败或用尽预算，也不拖到下一周期。
     await this.db
       .prepare(
-        `UPDATE jobs SET status = 'pending', lease_version = lease_version + 1, lease_owner = NULL, lease_expires_at = NULL, updated_at = ? WHERE kind IN (?, ?, ?) AND status = 'leased' AND lease_expires_at <= ?`,
+        `UPDATE jobs SET status = 'pending', lease_version = lease_version + 1, lease_owner = NULL, lease_expires_at = NULL, updated_at = ? WHERE kind IN (?, ?, ?, ?) AND status = 'leased' AND lease_expires_at <= ?`,
       )
-      .bind(now, SOURCE_JOB, PUBLICATION_JOB, NOTIFICATION_JOB, now)
+      .bind(now, SOURCE_JOB, PUBLICATION_JOB, NOTIFICATION_JOB, DRAFT_JOB, now)
       .run();
     // 关联候选出现新裁定、修订或人工候选（updated_at 晚于停放时所见）才放回重抽。
     await this.db
@@ -155,6 +162,30 @@ export class PipelineRuntime {
         )
         .run();
     }
+    if (controls.model && this.deps.ai !== undefined) await this.enqueueDrafts(now);
+  }
+  /**
+   * 每个周期最多补排 MATCH_PAGE 个草稿待办，新公告优先；已有确定结果（ready/invalid/skipped）或
+   * 失败次数用尽的候选不再排。已完成的待办（如当时开关关着）在仍缺草稿时复活。
+   */
+  private async enqueueDrafts(now: number): Promise<void> {
+    await this.db
+      .prepare(
+        `INSERT INTO jobs (id,kind,payload_json,due_at,status,created_at,updated_at)
+         SELECT 'pipeline:draft:' || c.id, ?, json_object('candidateId', c.id), ?, 'pending', ?, ?
+           FROM candidates c
+          WHERE ${DRAFT_ELIGIBLE_SQL}
+            AND NOT EXISTS (SELECT 1 FROM ai_drafts d WHERE d.candidate_id = c.id
+                             AND (d.status <> 'failed' OR d.attempts > ?))
+            AND NOT EXISTS (SELECT 1 FROM jobs j WHERE j.id = 'pipeline:draft:' || c.id AND j.status <> 'done')
+          ORDER BY c.created_at DESC, c.id
+          LIMIT ?
+         ON CONFLICT(id) DO UPDATE SET status = 'pending', due_at = excluded.due_at,
+           updated_at = excluded.updated_at, last_error = NULL
+          WHERE jobs.status = 'done'`,
+      )
+      .bind(DRAFT_JOB, now, now, now, MODEL_NETWORK_RETRIES, MATCH_PAGE)
+      .run();
   }
   async nextAlarm(): Promise<number | null> {
     const signal = await this.db
@@ -166,8 +197,8 @@ export class PipelineRuntime {
     // 只为 tick/dispatchOne 能消费的 pending 待办排 alarm。崩溃或部署重启留下的过期租约
     // 只有 Cron watchdog 能修复；为它排 alarm 只会让 DO 空转到下一次 Cron。
     const row = await this.db
-      .prepare(`SELECT MIN(due_at) AS due FROM jobs WHERE kind IN (?,?,?) AND status = 'pending'`)
-      .bind(SOURCE_JOB, PUBLICATION_JOB, NOTIFICATION_JOB)
+      .prepare(`SELECT MIN(due_at) AS due FROM jobs WHERE kind IN (?,?,?,?) AND status = 'pending'`)
+      .bind(SOURCE_JOB, PUBLICATION_JOB, NOTIFICATION_JOB, DRAFT_JOB)
       .first<{ due: number | null }>();
     return row?.due === null || row?.due === undefined ? null : Math.max(this.now(), row.due);
   }
@@ -176,9 +207,9 @@ export class PipelineRuntime {
     const deadline = now + EXECUTOR_BATCH_WALL_LIMIT * 1000;
     const row = await this.db
       .prepare(
-        `UPDATE jobs SET status = 'leased', lease_version = lease_version + 1, lease_owner = 'PipelineDO/main', lease_expires_at = ?, attempts = attempts + 1, updated_at = ? WHERE id = (SELECT id FROM jobs WHERE kind IN (?,?) AND status = 'pending' AND due_at <= ? ORDER BY due_at,id LIMIT 1) AND status = 'pending' RETURNING id,kind,payload_json,lease_version,attempts`,
+        `UPDATE jobs SET status = 'leased', lease_version = lease_version + 1, lease_owner = 'PipelineDO/main', lease_expires_at = ?, attempts = attempts + 1, updated_at = ? WHERE id = (SELECT id FROM jobs WHERE kind IN (?,?,?) AND status = 'pending' AND due_at <= ? ORDER BY due_at, kind = ?, id LIMIT 1) AND status = 'pending' RETURNING id,kind,payload_json,lease_version,attempts`,
       )
-      .bind(deadline, now, SOURCE_JOB, PUBLICATION_JOB, now)
+      .bind(deadline, now, SOURCE_JOB, PUBLICATION_JOB, DRAFT_JOB, now, DRAFT_JOB)
       .first<Job>();
     if (row === null) {
       await this.dispatchOne(deadline);
@@ -186,6 +217,7 @@ export class PipelineRuntime {
     }
     try {
       if (row.kind === SOURCE_JOB) await this.source(row, deadline);
+      else if (row.kind === DRAFT_JOB) await this.draft(row, deadline);
       else await this.publication(row, deadline);
     } catch (error) {
       await this.recordFailure(row, error);
@@ -437,6 +469,23 @@ export class PipelineRuntime {
       this.now() + WATCHDOG_INTERVAL * 1000,
       outcome.outcome,
     );
+  }
+  private async draft(job: Job, deadline: number): Promise<void> {
+    const object = parseJobObject(job.payload_json);
+    if (typeof object.candidateId !== "string" || object.candidateId.length === 0)
+      throw new PipelineDataError("draft_job_shape");
+    const controls = await this.deps.readControls();
+    const outcome = await (this.deps.draft ?? runDraftJob)({
+      db: this.db,
+      ai: this.deps.ai,
+      candidateId: object.candidateId,
+      modelEnabled: controls?.model === true,
+      deadline,
+      now: this.now,
+    });
+    if (outcome.kind === "done")
+      await this.finish(job, "done", job.payload_json, this.now(), outcome.reason);
+    else await this.finish(job, "pending", job.payload_json, outcome.dueAt, outcome.reason);
   }
   private async dispatchOne(deadline: number): Promise<void> {
     if (this.now() >= deadline) return;

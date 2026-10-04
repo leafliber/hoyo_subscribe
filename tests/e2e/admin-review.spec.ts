@@ -40,6 +40,113 @@ function detail(id = "synthetic-candidate"): CandidateDetail {
     ],
   };
 }
+// P3-17 合成 AI 草稿详情：可读正文、图片提示、草稿事件与说明；标题里混入注入字符串验证只按文本渲染。
+const draftTitle = "「合成」祈愿：合成角色概率UP！";
+function draftDetail(
+  classification: "events" | "uncertain" | "no_event" = "events",
+): CandidateDetail {
+  const base = detail();
+  const events =
+    classification === "no_event"
+      ? []
+      : [
+          {
+            event_key: "primary",
+            event_type: "gacha",
+            status: "scheduled",
+            title: `「合成」祈愿${injection}`,
+            type_evidence: { block_ref: "blocks/0", quote: "「合成」祈愿", tag: null },
+            status_evidence: null,
+            milestones: [
+              {
+                milestone_key: "start",
+                node_type: "start",
+                title: "「合成」祈愿开始",
+                time: {
+                  precision: "unknown",
+                  source_timezone: "UTC+08:00",
+                  raw_expression: "7.1版本更新后",
+                  time_basis: "unresolved",
+                },
+                time_evidence: { block_ref: "blocks/1", quote: "7.1版本更新后", tag: null },
+              },
+              {
+                milestone_key: "end",
+                node_type: "end",
+                title: "「合成」祈愿结束",
+                time: {
+                  precision: "datetime",
+                  utc_ms: Date.parse("2026-10-13T09:59:00Z"),
+                  source_timezone: "UTC+08:00",
+                  raw_expression: "2026/10/13 17:59",
+                  time_basis: "official_explicit",
+                },
+                time_evidence: { block_ref: "blocks/1", quote: "2026/10/13 17:59", tag: "t_lc" },
+              },
+            ],
+          },
+        ];
+  return {
+    ...base,
+    candidate: {
+      ...base.candidate,
+      proposal_json: {
+        classification: "uncertain",
+        events: [],
+        ambiguities: ["未命中已核验规则模板"],
+      },
+    },
+    article: {
+      ...base.article,
+      blocks: [
+        { kind: "title", text: draftTitle },
+        {
+          kind: "html",
+          html: '<p>7.1版本更新后 ~ &lt;t class="t_lc"&gt;2026/10/13 17:59&lt;/t&gt;</p>',
+        },
+      ],
+    },
+    readable_blocks: [draftTitle, "7.1版本更新后 ~ 2026/10/13 17:59"],
+    media_count: 1,
+    draft: {
+      status: "ready",
+      profile_ref: "@cf/qwen/qwen3-30b-a3b-fp8/draft-prompt-v1/candidate-schema-v1",
+      article_version_id: "synthetic-version",
+      proposal: {
+        classification,
+        events,
+        ambiguities: classification === "uncertain" ? ["合成疑点：卡池时间与另一篇公告不同"] : [],
+      },
+      notes: ["事件 1：原文中找不到「2026/09/23 11:00」，已丢弃这个结束节点。"],
+      reason_code: null,
+      usage: { neurons: 13, prompt_tokens: 1219, completion_tokens: 221 },
+      updated_at: 1_900_000_000_000,
+    },
+  } as unknown as CandidateDetail;
+}
+const draftPages: QueuePage[] = [
+  {
+    candidates: [
+      {
+        id: "synthetic-candidate",
+        created_at: 1_900_000_000_000,
+        updated_at: 1_900_000_000_000,
+        source_id: "genshin-ann",
+        external_id: "synthetic-announcement",
+        game: "genshin",
+        title: draftTitle,
+        draft_status: "ready",
+      },
+    ],
+    next_cursor: null,
+    ai_usage: { day: "2026-10-04", settled: 13, reserved: 0, cap: 6000 },
+  },
+];
+async function openDraft(page: Page) {
+  await page.goto("/admin/");
+  await page.getByRole("button", { name: `查看候选 ${draftTitle}`, exact: true }).click();
+  await expect(page.locator("#candidate-meta")).toContainText("已读版本");
+}
 // 运行开关面板（features/admin/controls.ts）在工作区出现时读取一次；形状同 Worker 的 GET /api/v2/admin/controls。
 const controlRows = [
   { control: "read_only", value: false, updated_at: 1_900_000_000_000 },
@@ -161,14 +268,32 @@ async function setup(page: Page, options: { loggedIn?: boolean; pages?: QueuePag
           },
         });
       }
+      if (path.endsWith("adopt-draft")) {
+        // P3-17：服务端从已保存草稿生成候选；合成响应只模拟版本递增与内容替换。
+        const draft = state.current.draft?.proposal;
+        state.current.candidate.proposal_json =
+          draft?.classification === "no_event"
+            ? { classification: "no_event", events: [], ambiguities: [] }
+            : { classification: "events", events: draft?.events ?? [], ambiguities: [] };
+        return route.fulfill({
+          json: {
+            candidate_id: state.current.candidate.id,
+            review_status: "pending",
+            updated_at: state.current.candidate.updated_at,
+          },
+        });
+      }
       if (path.endsWith("reject")) state.current.candidate.review_status = "rejected";
       else state.current.candidate.review_status = "approved";
+      const noEvent =
+        (state.current.candidate.proposal_json as { classification?: string }).classification ===
+        "no_event";
       return route.fulfill({
         json: {
           candidate_id: state.current.candidate.id,
           review_status: state.current.candidate.review_status,
           updated_at: state.current.candidate.updated_at,
-          publication: { outcome: "published" },
+          publication: { outcome: noEvent ? "unchanged" : "published" },
         },
       });
     }
@@ -270,10 +395,16 @@ test.describe("A-F6-REVIEW", () => {
     }
   });
   test("队列穿过空页直到最后，显示来源和文章；正文证据标签只作文本", async ({ page }, testInfo) => {
+    // P3-17：队列一页直接带来源与文章，不再逐条读详情；没有标题时读屏名退回候选 ID。
     const row = (id: string) => ({
       id,
       created_at: 1_900_000_000_000,
       updated_at: 1_900_000_000_000,
+      source_id: "genshin-ann",
+      external_id: "synthetic-announcement",
+      game: "genshin",
+      title: null,
+      draft_status: null,
     });
     const state = await setup(page, {
       pages: [
@@ -571,5 +702,114 @@ test.describe("A-F6-REVIEW", () => {
     );
     await expect(page.getByText(/建议用单独的浏览器配置文件/)).toBeVisible();
     await expect(page.locator("nav")).toHaveCount(0);
+  });
+});
+
+test.describe("A-P3-DRAFT", () => {
+  test("队列一页显示标题与草稿状态；详情左原文右草稿，一键批准带排除路径与同一理由", async ({
+    page,
+  }, testInfo) => {
+    // 走一遍真实登录，写请求才会带上 bootstrap 下发的管理员 CSRF。
+    const state = await setup(page, { loggedIn: false, pages: draftPages });
+    state.current = draftDetail();
+    await page.goto("/admin/");
+    await page.getByLabel("引导秘密").fill(syntheticSecret);
+    await page.getByRole("button", { name: "登录管理端", exact: true }).click();
+    await expect(page.locator("#queue")).toContainText(draftTitle);
+    await expect(page.locator("#queue")).toContainText("原神");
+    await expect(page.locator("#queue")).toContainText("AI 草稿就绪");
+    await expect(page.locator("#ai-usage")).toHaveText(
+      "今日 AI 草稿用量 13 / 6000 Neurons（UTC 2026-10-04）",
+    );
+    expect(state.reads).toBe(0);
+    await page.getByRole("button", { name: `查看候选 ${draftTitle}`, exact: true }).click();
+    await expect(page.locator("#detail-title")).toHaveText(draftTitle);
+    await expect(page.locator("#readable-blocks")).toContainText(
+      "7.1版本更新后 ~ 2026/10/13 17:59",
+    );
+    await expect(page.locator("#media-warning")).toBeVisible();
+    await expect(page.locator("#draft-panel")).toContainText(
+      "结束：2026-10-13 17:59（北京时间 UTC+8）",
+    );
+    await expect(page.locator("#draft-panel")).toContainText(
+      "开始：7.1版本更新后（原文，未定时刻）",
+    );
+    await expect(page.locator("#draft-panel")).toContainText("已丢弃这个结束节点");
+    await expect(page.locator("#draft-panel")).toContainText("<img src=x");
+    await expect(page.locator("#review img")).toHaveCount(0);
+    expect(await page.evaluate(() => "adminInjection" in window)).toBe(false);
+    await expect(page.locator("#advanced")).not.toHaveAttribute("open", "");
+    await page.screenshot({ path: testInfo.outputPath("admin-draft.png"), fullPage: true });
+    await page.getByLabel("保留节点：开始 7.1版本更新后（原文，未定时刻）").uncheck();
+    await page.getByLabel("常用理由").selectOption({ index: 1 });
+    const reason = await page.getByLabel("操作理由", { exact: true }).inputValue();
+    expect(reason).toBe("已对照官方原文核对，保留的时间与证据一致");
+    await page.getByRole("button", { name: "采用草稿并批准", exact: true }).click();
+    await expect(page.locator("#publication")).toContainText("已批准、已发布");
+    const writes = state.calls.filter(
+      (call) => call.method === "POST" && call.path.startsWith("admin/review/"),
+    );
+    expect(writes.map((call) => call.path)).toEqual([
+      "admin/review/adopt-draft",
+      "admin/review/approve",
+    ]);
+    expect(writes[0].body).toEqual({
+      candidate_id: "synthetic-candidate",
+      expected_updated_at: 1_900_000_000_000,
+      reason,
+      exclude: ["e0.m0"],
+      confirm_ambiguities: false,
+    });
+    expect(writes[1].body).toEqual({
+      candidate_id: "synthetic-candidate",
+      expected_updated_at: 1_900_000_000_001,
+      reason,
+    });
+    expect(writes.every((call) => call.csrf === "synthetic-admin")).toBe(true);
+  });
+
+  test("有疑点的草稿必须勾选确认后才能一键批准", async ({ page }) => {
+    const state = await setup(page, { pages: draftPages });
+    state.current = draftDetail("uncertain");
+    await openDraft(page);
+    await expect(page.locator("#draft-panel")).toContainText("合成疑点");
+    await page.getByLabel("操作理由", { exact: true }).fill("合成人工核对理由");
+    const adopt = page.getByRole("button", { name: "采用草稿并批准", exact: true });
+    await expect(adopt).toBeDisabled();
+    await page.getByLabel("我已对照原文核对，以上疑点不影响下面保留的日程").check();
+    await expect(adopt).toBeEnabled();
+    await adopt.click();
+    await expect(page.locator("#publication")).toContainText("已批准、已发布");
+    const adoptCall = state.calls.find((call) => call.path === "admin/review/adopt-draft");
+    expect(adoptCall?.body.confirm_ambiguities).toBe(true);
+  });
+
+  test("AI 判断无日程时只显示确认无日程，结果如实显示未发生新发布", async ({ page }) => {
+    const state = await setup(page, { pages: draftPages });
+    state.current = draftDetail("no_event");
+    await openDraft(page);
+    await expect(page.getByRole("button", { name: "采用草稿并批准", exact: true })).toBeHidden();
+    await page.getByLabel("常用理由").selectOption({ index: 2 });
+    await page.getByRole("button", { name: "确认无日程", exact: true }).click();
+    await expect(page.locator("#publication")).toContainText("已批准，本次未发生新发布");
+    expect(state.calls.filter((call) => call.method === "POST").map((call) => call.path)).toEqual([
+      "admin/review/adopt-draft",
+      "admin/review/approve",
+    ]);
+  });
+
+  test("没填理由不发请求；采用遇到 409 时不提交批准并重新读取", async ({ page }) => {
+    const state = await setup(page, { pages: draftPages });
+    state.current = draftDetail();
+    await openDraft(page);
+    await page.getByRole("button", { name: "采用草稿并批准", exact: true }).click();
+    await expect(page.locator("#reason-error")).toHaveText("请填写操作理由。");
+    expect(state.writes).toBe(0);
+    state.write = async (route) =>
+      route.fulfill({ status: 409, json: buildApiErrorBody("conflict") });
+    await page.getByLabel("操作理由", { exact: true }).fill("合成人工核对理由");
+    await page.getByRole("button", { name: "采用草稿并批准", exact: true }).click();
+    await expect(page.locator("#notice")).toContainText("已在别处改过。已重新读取");
+    expect(state.calls.filter((call) => call.path === "admin/review/approve")).toEqual([]);
   });
 });
