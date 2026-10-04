@@ -68,14 +68,6 @@ function ensureDialog(): HTMLElement {
   return root;
 }
 
-function sourceNote() {
-  return el(
-    "p",
-    { class: "article-source-note" },
-    "这是本站采集时保存的官方公告正文，已整理成便于阅读的文字；图片和外部链接请点开查看。官方之后若有改动，以官方为准。",
-  );
-}
-
 function renderArticle(article: Article, heading: "h3" | "summary") {
   const title = articleTitle(article.blocks) ?? "（公告没有标题）";
   const source = safeExternalUrl(article.officialUrl);
@@ -134,7 +126,6 @@ function renderLoaded(response: PublicEventArticlesResponse, officialUrl: string
   // 多份原文时，最新抓取的一份展开，其余折叠，免得一屏塞满重复内容。
   const [first, ...rest] = response.articles;
   body.replaceChildren(
-    sourceNote(),
     renderArticle(first, rest.length ? "summary" : "h3"),
     ...rest.map((article) => renderArticle(article, "summary")),
   );

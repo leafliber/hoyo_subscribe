@@ -68,12 +68,6 @@
   font-size: var(--font-size-title);
 }
 
-.section-note {
-  margin: var(--space-4) 0 0;
-  color: var(--color-text-aux);
-  font-size: var(--font-size-small);
-}
-
 /* 关键节点 */
 .important-section {
   border-color: var(--color-accent-border);
@@ -366,12 +360,6 @@ button.official-link:hover {
 .article-dialog-close .icon {
   width: 20px;
   height: 20px;
-}
-
-.article-source-note {
-  margin: 0 0 var(--space-4);
-  color: var(--color-text-aux);
-  font-size: var(--font-size-small);
 }
 
 .article-doc + .article-doc {

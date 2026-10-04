@@ -1,5 +1,5 @@
 import type { PublicCache, PublicScheduleNode, TimeValue } from "@hoyo/contracts";
-import { callout, el } from "../../lib/dom";
+import { callout, el, icon } from "../../lib/dom";
 import { clock, dateOnlyLabel, monthDay, stamp, weekday } from "../../lib/format";
 
 export { el };
@@ -21,14 +21,29 @@ export function timeNode(time: TimeValue, status: PublicScheduleNode["status"] =
     : el("span", {}, label);
 }
 
-/** 离线或副本过期时如实标注实际读取时间。 */
-export function cacheNotice(cache: PublicCache, label = "日程") {
+/**
+ * 离线或副本超过新鲜期（PUBLIC_CACHE_FRESH，ADR-0015 为 1 小时）时，标出信息获取时间并给刷新按钮。
+ * 按钮沿用页面已有的 data-action="refresh"，由所在页面重新读取（跳过浏览器缓存）。
+ */
+export function cacheNotice(cache: PublicCache) {
   const offline = !navigator.onLine;
   const stale = Date.now() > cache.freshUntil;
   if (!offline && !stale) return null;
   return callout(
     "warning",
-    `${label}${offline ? " · 离线" : ""}${stale ? " · 陈旧缓存" : ""}：正在显示已读取的公共副本，实际缓存时间 ${stamp(cache.generatedAt)}。`,
-    { className: "data-warning", role: "status" },
+    [
+      el(
+        "p",
+        { class: "cache-notice-text" },
+        `${offline ? "当前离线" : "内容可能已过时"}，信息获取时间 ${stamp(cache.generatedAt)}`,
+      ),
+      el(
+        "button",
+        { type: "button", class: "button button--secondary button--sm", "data-action": "refresh" },
+        icon("refresh"),
+        "刷新",
+      ),
+    ],
+    { className: "data-warning cache-notice", role: "status" },
   );
 }

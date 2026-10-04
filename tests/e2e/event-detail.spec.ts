@@ -7,7 +7,7 @@ test.beforeEach(async ({ page }) => {
   await mockPublicApi(page);
 });
 
-test("U02 玩法结束与奖励领取截止在实际节点时间线中分别出现", async ({ page }) => {
+test("U02 活动结束与奖励领取截止在实际节点时间线中分别出现", async ({ page }) => {
   await page.goto("/events/evt_morning");
   await expect(page.locator(".event-detail")).toBeVisible();
   expect(
@@ -17,9 +17,9 @@ test("U02 玩法结束与奖励领取截止在实际节点时间线中分别出�
   ).toEqual(["important", "timeline", "change", "official"]);
   const timeline = page.locator('[data-section="timeline"]');
   await expect(timeline.locator("[data-milestone]")).toHaveCount(3);
-  await expect(timeline.locator('[data-milestone="morning-end"]')).toContainText("玩法结束");
+  await expect(timeline.locator('[data-milestone="morning-end"]')).toContainText("活动结束");
   await expect(timeline.locator('[data-milestone="morning-reward"]')).toContainText("奖励领取截止");
-  await expect(page.locator('[data-section="important"]')).toContainText("玩法结束");
+  await expect(page.locator('[data-section="important"]')).toContainText("活动结束");
 });
 
 test("U02 从日程条目进入对应事件详情", async ({ page }) => {
@@ -29,12 +29,12 @@ test("U02 从日程条目进入对应事件详情", async ({ page }) => {
   await expect(page.locator("h1")).toHaveText("巡游拾光 · 城市探索挑战");
 });
 
-test("U02 只有奖励截止时不补玩法结束", async ({ page }) => {
+test("U02 只有奖励截止时不补活动结束", async ({ page }) => {
   await page.goto("/events/evt_reward");
   const timeline = page.locator('[data-section="timeline"]');
   await expect(timeline.locator("[data-milestone]")).toHaveCount(1);
   await expect(timeline).toContainText("奖励领取截止");
-  await expect(timeline).not.toContainText("玩法结束");
+  await expect(timeline).not.toContainText("活动结束");
 });
 
 test("U02 纯日期与未知精度只展示已知信息，不猜午夜或时刻", async ({ page }) => {
@@ -113,7 +113,10 @@ test("U04 官方依据逐级展开，三项主要操作可用且设置订阅只�
     "href",
     "https://example.com/",
   );
-  await expect(official).toContainText("适合核对，不适合直接阅读");
+  await expect(official.getByRole("link", { name: "官方数据源", exact: true })).toHaveAttribute(
+    "title",
+    "官方接口返回的原始数据，适合核对",
+  );
   await official.locator("details > summary").first().click();
   await expect(official.locator(".notice-text")).toContainText("synthetic 公告原文样例");
   await official.locator("details details > summary").click();

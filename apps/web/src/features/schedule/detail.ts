@@ -132,6 +132,7 @@ export function renderEventDetail(response: PublicEventDetailResponse) {
   const currentInvalid = event.status === "cancelled" || event.status === "retracted";
   const phase = eventPhase(event, now);
   const officialSource = officialLink(event.official.url, "官方数据源", "official-source-link");
+  officialSource?.setAttribute("title", "官方接口返回的原始数据，适合核对");
   const article = el(
     "article",
     { class: "event-detail", "data-event": event.id },
@@ -154,7 +155,7 @@ export function renderEventDetail(response: PublicEventDetailResponse) {
       ),
     ),
   );
-  const notice = cacheNotice(response.cache, "活动详情");
+  const notice = cacheNotice(response.cache);
   if (notice) article.append(notice);
 
   const importantTime = exactTime(important);
@@ -203,11 +204,6 @@ export function renderEventDetail(response: PublicEventDetailResponse) {
             { class: "detail-timeline" },
             ...event.milestones.map((node) => timelineNode(node, now, node.id === important?.id)),
           ),
-          el(
-            "p",
-            { class: "section-note" },
-            "只列出官方公告中实际出现的节点，按原有时间精度展示。",
-          ),
         ),
         el(
           "section",
@@ -219,11 +215,6 @@ export function renderEventDetail(response: PublicEventDetailResponse) {
           !event.changes.length
             ? el("p", { class: "text-secondary" }, "目前没有已发布的变更。")
             : null,
-          el(
-            "p",
-            { class: "section-note" },
-            "这里总是显示最新事实；之前收到的邮件或已同步到日历的旧内容可能还未更新。",
-          ),
         ),
       ),
       el(
@@ -247,13 +238,6 @@ export function renderEventDetail(response: PublicEventDetailResponse) {
             readArticleButton("阅读公告原文", "official-link", "official"),
             officialSource,
           ),
-          officialSource
-            ? el(
-                "p",
-                { class: "data-note" },
-                "官方数据源是官方接口返回的原始数据，适合核对，不适合直接阅读。",
-              )
-            : null,
           el(
             "details",
             { class: "official-details disclosure" },
