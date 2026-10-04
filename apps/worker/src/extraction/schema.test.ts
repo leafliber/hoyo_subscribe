@@ -1,4 +1,9 @@
-import { DateOnlySchema, ExactTimeSchema } from "@hoyo/contracts";
+import {
+  API_BODY_MAX_BYTES,
+  CANDIDATE_MAX_BYTES,
+  DateOnlySchema,
+  ExactTimeSchema,
+} from "@hoyo/contracts";
 import { describe, expect, it } from "vitest";
 import { type StoredArticleVersion, validateCandidateAgainstArticle } from "./article";
 import { eventIdentity, milestoneIdentity } from "./identity";
@@ -120,6 +125,29 @@ describe("A-P3-EXTRACT 候选 Schema 与证据纯函数", () => {
       { ...valid, ambiguities: ["x".repeat(9000)] },
     ])
       expect(parseCandidateProposal(modified).success).toBe(false);
+  });
+
+  it("A-P3-CANDIDATE-SIZE 候选整体上限是 CANDIDATE_MAX_BYTES：超过请求体上限的多事件候选可用，超过候选上限失败", () => {
+    const valid = validProposal();
+    const event = valid.events[0];
+    const key = (index: number) =>
+      `event_${String.fromCharCode(97 + (index % 26))}${String.fromCharCode(97 + Math.floor(index / 26))}`;
+    const many = (count: number): CandidateProposal => ({
+      ...valid,
+      events: Array.from({ length: count }, (_, index) => ({ ...event, event_key: key(index) })),
+    });
+    const bytes = (value: unknown) => new TextEncoder().encode(JSON.stringify(value)).byteLength;
+    let count = 1;
+    while (bytes(many(count)) <= API_BODY_MAX_BYTES) count++;
+    expect(parseCandidateProposal(many(count)).success).toBe(true);
+    while (bytes(many(count + 1)) <= CANDIDATE_MAX_BYTES) count++;
+    expect(parseCandidateProposal(many(count)).success).toBe(true);
+    const over = parseCandidateProposal(many(count + 1));
+    expect(over.success).toBe(false);
+    expect(over.success ? [] : over.issues).toContainEqual({
+      path: "$",
+      message: "候选超过 CANDIDATE_MAX_BYTES",
+    });
   });
 
   it("日期精度保留 date 载荷；奖励截止与玩法结束可以分开且键不含日期", () => {

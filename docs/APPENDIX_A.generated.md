@@ -122,6 +122,7 @@ P0 待定项（`MODEL_MAX_INPUT`、`MODEL_MAX_BILLED_OUTPUT`）未填写前，�
 | AI_INCLUDED_DAY | 10,000 | Neurons/日 | Workers AI 每日免费额度；账户内所有应用共用 | 实测引用；官方价目页与 platform-facts.md；其他应用占用须由所有者控制 |
 | AI_DRAFT_PROFILE | {"model":"@cf/zai-org/glm-5.3-flash","inputNeuronsPerMillion":13636,"outputNeuronsPerMillion":45455,"maxInputBytes":64000,"templateOverheadTokens":64,"maxOutputTokens":8000,"temperature":0.3,"reasoningEffort":"low"} | 模型 / Neurons 每百万 token / 字节 / token / 档位 | AI 草稿 profile：模型、单价、输入字节上限、模板开销、max_completion_tokens、temperature、推理档位 | ADR-0009 已批准；ADR-0010 改为 glm-5.3-flash、推理 low；只预填待审草稿，发布须人工批准；不翻转 AI_BILLING_PROFILE_CONFIGURED |
 | AI_DRAFT_RESERVATION | 1,238 | Neurons/次 | AI 草稿单次最大预占（输入取上限），由 AI_DRAFT_PROFILE 推出；每次调用按实际输入字节预占 | ADR-0009 已批准；失败与超时按整笔结算；草稿日累计不超过 AI_SOFT_DAY |
+| CANDIDATE_MAX_BYTES | 32,768 | 字节 | 单个候选 JSON 上限（32 KiB）；采用 AI 草稿的整篇版本公告可一次存下 | ADR-0012 已批准；人工新建/修正受 API_BODY_MAX_BYTES 约束；单个公共节点仍不超过 nodeBytes |
 
 ### A.4 邮件与 Push（按 ADR-0003 纯日额度模型）
 
@@ -239,6 +240,7 @@ P0 待定项（`MODEL_MAX_INPUT`、`MODEL_MAX_BILLED_OUTPUT`）未填写前，�
 | ai-soft-below-hard | usage 单位一致 | AI_SOFT_DAY < AI_HARD_DAY（同为 Neurons/日，软线严于硬线） | AI_SOFT_DAY(6000) < AI_HARD_DAY(8000) |
 | ai-hard-within-included | usage 单位一致 | AI_HARD_DAY < AI_INCLUDED_DAY（硬线守住即不产生 Workers AI 额外费用；额度为账户共用） | AI_HARD_DAY(8000) < AI_INCLUDED_DAY(10000) |
 | ai-draft-reservation-within-soft | usage 单位一致 | AI_DRAFT_RESERVATION = ⌈((maxInputBytes + templateOverheadTokens) × 输入单价 + maxOutputTokens × 输出单价) / 10⁶⌉ <= AI_SOFT_DAY；profile 各数值为正安全整数、推理档位合法（temperature ∈ [0, 1]） | AI_DRAFT_RESERVATION(1238) = aiDraftReservation(1238) <= AI_SOFT_DAY(6000) |
+| candidate-bytes-within-d1 | D1 工程上限 | API_BODY_MAX_BYTES <= CANDIDATE_MAX_BYTES < PUBLIC_SNAPSHOT_WRITE_PROFILE.chunkBytes / 2（人工候选总能存下；采用草稿的大候选仍在 D1 分块写入的安全界内） | API_BODY_MAX_BYTES(8192) <= CANDIDATE_MAX_BYTES(32768) < chunkBytes(262144) / 2 |
 | source-response-caps-within-ceiling | 来源上限 | SOURCE_LIMIT_PROFILE 每来源响应上限 > 0 且 <= responseCapCeilingBytes | max(SOURCE_LIMIT_PROFILE.responseCapsBytes)(524288) <= responseCapCeilingBytes(524288) |
 | public-read-bounds | 公共读保护 | 公共读上限均为正整数；recentChanges <= scanPage <= detailNodes；nodeBytes × (recentChanges + 1) < responseBytes <= FEED_RESPONSE_MAX_BYTES；queryBytes <= nodeBytes | PUBLIC_READ_LIMITS({"scanPage":100,"recentChanges":20,"detailNodes":1000,"sourcesPerGame":16,"pendingCandidates":1000,"nodeBytes":8192,"responseBytes":524288,"queryBytes":4096}) <= FEED_RESPONSE_MAX_BYTES(2097152) |
 
@@ -248,5 +250,5 @@ P0 待定项（`MODEL_MAX_INPUT`、`MODEL_MAX_BILLED_OUTPUT`）未填写前，�
 
 ### 等式数量核对
 
-数值等式 34 条、语义条款 1 条。
+数值等式 35 条、语义条款 1 条。
 `pnpm params:verify` 与 Worker 启动路径逐条校验数值等式，任一不成立即拒绝并指明该条。

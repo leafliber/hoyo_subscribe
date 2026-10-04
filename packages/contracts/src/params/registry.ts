@@ -424,6 +424,13 @@ export const AI_DRAFT_RESERVATION = aiDraftReservation(AI_DRAFT_PROFILE);
 /** 候选文本字段（标题、摘要、键、原始时间表达）的 JSON 字节预算：公共节点上限的 1/32，其余留给结构与更正历史。P3-10/P3-14 交接；ADR-0009 草稿截断共用。 */
 export const CANDIDATE_TEXT_FIELD_BYTES = Math.floor(PUBLIC_READ_LIMITS.nodeBytes / 32);
 
+/**
+ * 单个候选 JSON 的 UTF-8 字节上限（ADR-0012）。版本更新说明一篇列十几个活动，按请求体上限
+ * 存不下；采用 AI 草稿时内容来自服务端草稿，不经请求体，故单独放宽。人工新建、修正仍走请求体，
+ * 实际受 API_BODY_MAX_BYTES 约束。每个事件仍拆成独立公共节点，单节点上限不变。
+ */
+export const CANDIDATE_MAX_BYTES = 32_768 as const;
+
 // ---------------------------------------------------------------------------
 // A.4 邮件与 Push（主方案 §9.1—§9.5；**邮件值按 ADR-0003 纯日额度模型**）
 // ---------------------------------------------------------------------------
@@ -693,6 +700,7 @@ export const PARAMS = {
   AI_INCLUDED_DAY,
   AI_DRAFT_PROFILE,
   AI_DRAFT_RESERVATION,
+  CANDIDATE_MAX_BYTES,
   // A.4（ADR-0003 纯日额度模型；月度参数已废止，不得出现）
   MAIL_SEATS_MAX,
   MAIL_ROUTINE_SEATS_MAX,
@@ -762,6 +770,7 @@ export type ParamStatus =
   | "adr-0005"
   | "adr-0007"
   | "adr-0009"
+  | "adr-0012"
   | "p5-02-approved"
   | "measured"
   | "measured-ref"
@@ -1331,6 +1340,13 @@ export const PARAM_META: Readonly<Record<keyof ParamValues, ParamMeta>> = {
       "AI 草稿单次最大预占（输入取上限），由 AI_DRAFT_PROFILE 推出；每次调用按实际输入字节预占",
     status: "adr-0009",
     note: "失败与超时按整笔结算；草稿日累计不超过 AI_SOFT_DAY",
+  },
+  CANDIDATE_MAX_BYTES: {
+    section: "A.3",
+    unit: "字节",
+    description: "单个候选 JSON 上限（32 KiB）；采用 AI 草稿的整篇版本公告可一次存下",
+    status: "adr-0012",
+    note: "人工新建/修正受 API_BODY_MAX_BYTES 约束；单个公共节点仍不超过 nodeBytes",
   },
   // A.4
   MAIL_SEATS_MAX: {

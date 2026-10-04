@@ -400,6 +400,18 @@ export const PARAM_EQUATIONS: readonly EquationDefinition[] = [
       v.AI_DRAFT_RESERVATION <= v.AI_SOFT_DAY,
     { AI_DRAFT_PROFILE: { ...PARAMS.AI_DRAFT_PROFILE, maxOutputTokens: 300_000 } },
   ),
+  eq(
+    "candidate-bytes-within-d1",
+    "D1 工程上限",
+    "API_BODY_MAX_BYTES <= CANDIDATE_MAX_BYTES < PUBLIC_SNAPSHOT_WRITE_PROFILE.chunkBytes / 2（人工候选总能存下；采用草稿的大候选仍在 D1 分块写入的安全界内）",
+    (v) =>
+      `API_BODY_MAX_BYTES(${v.API_BODY_MAX_BYTES}) <= CANDIDATE_MAX_BYTES(${v.CANDIDATE_MAX_BYTES}) < chunkBytes(${v.PUBLIC_SNAPSHOT_WRITE_PROFILE.chunkBytes}) / 2`,
+    (v) =>
+      Number.isSafeInteger(v.CANDIDATE_MAX_BYTES) &&
+      v.API_BODY_MAX_BYTES <= v.CANDIDATE_MAX_BYTES &&
+      v.CANDIDATE_MAX_BYTES < v.PUBLIC_SNAPSHOT_WRITE_PROFILE.chunkBytes / 2,
+    { CANDIDATE_MAX_BYTES: 4096 },
+  ),
   // —— SOURCE_LIMIT_PROFILE 工程依赖（P3-08；§3.1 大小限制、附录 A.1）——
   eq(
     "source-response-caps-within-ceiling",
