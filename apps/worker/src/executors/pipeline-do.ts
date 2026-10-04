@@ -1,7 +1,14 @@
 // P3-11：唯一 PipelineDO/main；D1 持久待办 + alarm，Cron 修复唤醒。
 
+import type { DraftModel } from "../extraction/model/draft";
 import { readPipelineControls } from "./pipeline/controls";
 import { PipelineRuntime } from "./pipeline/runtime";
+
+/** ADR-0009：AI 绑定只在源码外的正式部署配置里声明（见 wrangler.jsonc 注释）；缺失时不起草。 */
+interface PipelineAiEnv {
+  readonly AI?: DraftModel;
+}
+
 export class PipelineDO {
   private readonly runtime: PipelineRuntime;
   private tail: Promise<unknown> = Promise.resolve();
@@ -12,6 +19,7 @@ export class PipelineDO {
     this.runtime = new PipelineRuntime({
       db: env.DB,
       readControls: () => readPipelineControls(env.DB),
+      ai: (env as Env & PipelineAiEnv).AI,
     });
   }
   // 包含网络 await 的整个工作单元串行化，避免 alarm 与 watchdog 在 await 处交错窃取租约。

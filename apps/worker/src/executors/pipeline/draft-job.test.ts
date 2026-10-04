@@ -1,0 +1,140 @@
+// A-P3-DRAFT · PipelineDO 草稿待办：watchdog 补排、alarm 串行处理、开关与绑定缺失（本地 D1；固定响应替身）。
+import "../../admin/test-support";
+import { env } from "cloudflare:test";
+import { MATCH_PAGE, utcDayPeriod } from "@hoyo/contracts";
+import { beforeEach, describe, expect, it } from "vitest";
+import genshinContent from "../../../../../fixtures/sources/genshin-ann/content-21928.json";
+import { readDraft } from "../../extraction/model/store";
+import {
+  DRAFT_T0,
+  type FixtureBody,
+  fakeAi,
+  fixtureEntry,
+  GACHA_21876_OUTPUT,
+  modelResponse,
+  seedRuleCandidate,
+} from "../../extraction/model/test-support";
+import type { PipelineControls } from "./controls";
+import { DRAFT_JOB, PipelineRuntime, PUBLICATION_JOB } from "./runtime";
+
+const gachaEntry = fixtureEntry(genshinContent as unknown as FixtureBody, 21876);
+let now = DRAFT_T0;
+let controls: PipelineControls;
+
+function runtime(extra: Partial<ConstructorParameters<typeof PipelineRuntime>[0]> = {}) {
+  return new PipelineRuntime({
+    db: env.DB,
+    readControls: async () => controls,
+    now: () => now,
+    ...extra,
+  });
+}
+async function draftJobs() {
+  return (
+    await env.DB.prepare(
+      "SELECT id, status, due_at, last_error FROM jobs WHERE kind = ? ORDER BY id",
+    )
+      .bind(DRAFT_JOB)
+      .all<{ id: string; status: string; due_at: number; last_error: string | null }>()
+  ).results;
+}
+
+beforeEach(async () => {
+  await env.DB.batch([
+    env.DB.prepare("DELETE FROM jobs"),
+    env.DB.prepare("DELETE FROM ai_drafts"),
+    env.DB.prepare(
+      "UPDATE candidates SET review_status = 'rejected', reviewer = 'test', decided_at = 1",
+    ),
+  ]);
+  now += 86_400_000;
+  controls = { sources: {}, automaticPublication: false, model: true };
+});
+
+describe("A-P3-DRAFT 管线草稿待办", () => {
+  it("开关关闭或未配置 AI 绑定时 watchdog 不排草稿；打开后只排规则入队的 uncertain 候选", async () => {
+    const { candidateId } = await seedRuleCandidate("genshin-ann", gachaEntry, { nowMs: now });
+    controls = { ...controls, model: false };
+    await runtime({ ai: fakeAi(modelResponse(GACHA_21876_OUTPUT)) }).watchdog();
+    expect(await draftJobs()).toEqual([]);
+    controls = { ...controls, model: true };
+    await runtime().watchdog();
+    expect(await draftJobs()).toEqual([]);
+    await runtime({ ai: fakeAi(modelResponse(GACHA_21876_OUTPUT)) }).watchdog();
+    expect(await draftJobs()).toEqual([
+      { id: `pipeline:draft:${candidateId}`, status: "pending", due_at: now, last_error: null },
+    ]);
+  });
+
+  it("每个周期最多补排 MATCH_PAGE 个，新公告优先", async () => {
+    const ids: string[] = [];
+    for (let i = 0; i <= MATCH_PAGE; i++)
+      ids.push(
+        (await seedRuleCandidate("genshin-ann", gachaEntry, { nowMs: now + i })).candidateId,
+      );
+    await runtime({ ai: fakeAi(modelResponse(GACHA_21876_OUTPUT)) }).watchdog();
+    const queued = (await draftJobs()).map((row) => row.id.slice("pipeline:draft:".length));
+    expect(queued).toHaveLength(MATCH_PAGE);
+    expect(queued).not.toContain(ids[0]);
+  });
+
+  it("alarm 处理草稿待办后完成；已起草的候选不再补排；关着开关完成的待办在打开后复活", async () => {
+    const { candidateId } = await seedRuleCandidate("genshin-ann", gachaEntry, { nowMs: now });
+    const ai = fakeAi(modelResponse(GACHA_21876_OUTPUT));
+    await runtime({ ai }).watchdog();
+    controls = { ...controls, model: false };
+    await runtime({ ai }).tick();
+    expect(await draftJobs()).toMatchObject([{ status: "done", last_error: "model_disabled" }]);
+    expect(ai.calls).toHaveLength(0);
+    controls = { ...controls, model: true };
+    now += 1;
+    await runtime({ ai }).watchdog();
+    expect(await draftJobs()).toMatchObject([{ status: "pending", last_error: null }]);
+    await runtime({ ai }).tick();
+    expect(ai.calls).toHaveLength(1);
+    expect(await draftJobs()).toMatchObject([{ status: "done", last_error: null }]);
+    expect((await readDraft(env.DB, candidateId))?.status).toBe("ready");
+    now += 1;
+    await runtime({ ai }).watchdog();
+    expect(await draftJobs()).toMatchObject([{ status: "done" }]);
+  });
+
+  it("同一时刻到期时先处理来源与发布待办，草稿排在后面", async () => {
+    await seedRuleCandidate("genshin-ann", gachaEntry, { nowMs: now });
+    await runtime({ ai: fakeAi(modelResponse(GACHA_21876_OUTPUT)) }).watchdog();
+    await env.DB.prepare(
+      `INSERT INTO jobs (id,kind,payload_json,due_at,status,created_at,updated_at)
+       VALUES ('pipeline:publication:x', ?, '{"versionId":"missing","backfill":false}', ?, 'pending', ?, ?)`,
+    )
+      .bind(PUBLICATION_JOB, now, now, now)
+      .run();
+    const seen: string[] = [];
+    await runtime({
+      ai: fakeAi(modelResponse(GACHA_21876_OUTPUT)),
+      draft: async (input) => {
+        seen.push(input.candidateId);
+        return { kind: "done", reason: null };
+      },
+    }).tick();
+    expect(seen).toEqual([]);
+    const publication = await env.DB.prepare(
+      "SELECT attempts FROM jobs WHERE id = 'pipeline:publication:x'",
+    ).first<{ attempts: number }>();
+    expect(publication?.attempts).toBe(1);
+  });
+
+  it("预算用尽的草稿待办停到下一个 UTC 日，alarm 按到期时间排", async () => {
+    await seedRuleCandidate("genshin-ann", gachaEntry, { nowMs: now });
+    const ai = fakeAi(modelResponse(GACHA_21876_OUTPUT));
+    await runtime({ ai }).watchdog();
+    const nextDay = utcDayPeriod(now).endMsExclusive;
+    await runtime({
+      ai,
+      draft: async () => ({ kind: "later", reason: "ai_budget_exhausted", dueAt: nextDay }),
+    }).tick();
+    expect(await draftJobs()).toMatchObject([
+      { status: "pending", due_at: nextDay, last_error: "ai_budget_exhausted" },
+    ]);
+    expect(await runtime({ ai }).nextAlarm()).toBe(nextDay);
+  });
+});
