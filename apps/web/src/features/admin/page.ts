@@ -378,6 +378,8 @@ async function adoptAndApprove(): Promise<void> {
     await request<AdoptReply>("admin/review/adopt-draft", {
       candidate_id: id,
       expected_updated_at: current.candidate.updated_at,
+      // 后台可能已按新模型重新起草：绑定页面上显示的这一版草稿，变了就 409 重新读取。
+      expected_draft_updated_at: current.draft?.updated_at,
       reason: reason.value,
       exclude: selection.exclude(),
       confirm_ambiguities: selection.confirmed(),

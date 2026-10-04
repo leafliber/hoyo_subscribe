@@ -377,37 +377,48 @@ export const AI_BILLING_PROFILE_CONFIGURED =
 export const AI_INCLUDED_DAY = 10_000 as const;
 
 /**
- * ADR-0009 AI 草稿 profile：只给待审候选预填草稿，发布仍须人工批准，**不翻转** AI_BILLING_PROFILE_CONFIGURED。
- * 单价为官方价目页 Neurons/百万 token（2026-10-01）。maxInputBytes 是提示词 UTF-8 字节上限：字节级 BPE
- * 每个 token 至少 1 字节，故输入 token ≤ 字节数 + templateOverheadTokens；maxOutputTokens 作为 max_tokens
- * 下发，封住含思考在内的全部计费输出。两者都是请求本身强制的上界，不是猜测的实测值。
+ * AI 草稿 profile（ADR-0009；模型与推理档位按 ADR-0010 改为 glm-5.3-flash / low）：只给待审候选预填草稿，
+ * 发布仍须人工批准，**不翻转** AI_BILLING_PROFILE_CONFIGURED。单价为官方价目页 Neurons/百万 token（2026-10-01）。
+ * maxInputBytes 是提示词 UTF-8 字节上限：字节级 BPE 每个 token 至少 1 字节，故输入 token ≤ 字节数 +
+ * templateOverheadTokens；maxOutputTokens 作为 max_completion_tokens 下发，封住含思考在内的全部计费输出
+ * （该模型的思考不能关闭，reasoningEffort 取最低档）。两者都是请求本身强制的上界，不是猜测的实测值。
  */
 export const AI_DRAFT_PROFILE = {
-  model: "@cf/qwen/qwen3-30b-a3b-fp8",
-  inputNeuronsPerMillion: 4625,
-  outputNeuronsPerMillion: 30475,
-  maxInputBytes: 24_000,
+  model: "@cf/zai-org/glm-5.3-flash",
+  inputNeuronsPerMillion: 13636,
+  outputNeuronsPerMillion: 45455,
+  maxInputBytes: 64_000,
   templateOverheadTokens: 64,
-  maxOutputTokens: 3000,
-  temperature: 0.2,
+  maxOutputTokens: 8000,
+  temperature: 0.3,
+  reasoningEffort: "low",
 } as const;
 
-/** 由 profile 推出的单次最大预占（Neurons，向上取整）；等式 ai-draft-reservation-within-soft 校验与 profile 一致。 */
-export function aiDraftReservation(profile: {
-  readonly inputNeuronsPerMillion: number;
-  readonly outputNeuronsPerMillion: number;
-  readonly maxInputBytes: number;
-  readonly templateOverheadTokens: number;
-  readonly maxOutputTokens: number;
-}): number {
+/** 草稿模型支持的推理档位（官方模型页：思考不能关闭，只有这三档）。 */
+export const AI_DRAFT_REASONING_EFFORTS = ["low", "high", "max"] as const;
+
+/**
+ * 单次调用的预占（Neurons，向上取整）：按本次提示词的实际字节数计输入上界，输出按 max_completion_tokens。
+ * 不传 inputBytes 时取 profile 的输入上限，即任何一次调用的最大预占；等式 ai-draft-reservation-within-soft 校验后者。
+ */
+export function aiDraftReservation(
+  profile: {
+    readonly inputNeuronsPerMillion: number;
+    readonly outputNeuronsPerMillion: number;
+    readonly maxInputBytes: number;
+    readonly templateOverheadTokens: number;
+    readonly maxOutputTokens: number;
+  },
+  inputBytes: number = profile.maxInputBytes,
+): number {
   return Math.ceil(
-    ((profile.maxInputBytes + profile.templateOverheadTokens) * profile.inputNeuronsPerMillion +
+    ((inputBytes + profile.templateOverheadTokens) * profile.inputNeuronsPerMillion +
       profile.maxOutputTokens * profile.outputNeuronsPerMillion) /
       1_000_000,
   );
 }
 
-/** AI 草稿单次调用的预占额（Neurons）= aiDraftReservation(AI_DRAFT_PROFILE)。ADR-0009。 */
+/** AI 草稿单次调用的最大预占（Neurons）= aiDraftReservation(AI_DRAFT_PROFILE)。ADR-0009 / ADR-0010。 */
 export const AI_DRAFT_RESERVATION = aiDraftReservation(AI_DRAFT_PROFILE);
 
 /** 候选文本字段（标题、摘要、键、原始时间表达）的 JSON 字节预算：公共节点上限的 1/32，其余留给结构与更正历史。P3-10/P3-14 交接；ADR-0009 草稿截断共用。 */
@@ -1307,15 +1318,17 @@ export const PARAM_META: Readonly<Record<keyof ParamValues, ParamMeta>> = {
   },
   AI_DRAFT_PROFILE: {
     section: "A.3",
-    unit: "模型 / Neurons 每百万 token / 字节 / token",
-    description: "AI 草稿 profile：模型、单价、输入字节上限、模板开销、max_tokens、temperature",
+    unit: "模型 / Neurons 每百万 token / 字节 / token / 档位",
+    description:
+      "AI 草稿 profile：模型、单价、输入字节上限、模板开销、max_completion_tokens、temperature、推理档位",
     status: "adr-0009",
-    note: "只预填待审草稿，发布须人工批准；不翻转 AI_BILLING_PROFILE_CONFIGURED",
+    note: "ADR-0010 改为 glm-5.3-flash、推理 low；只预填待审草稿，发布须人工批准；不翻转 AI_BILLING_PROFILE_CONFIGURED",
   },
   AI_DRAFT_RESERVATION: {
     section: "A.3",
     unit: "Neurons/次",
-    description: "AI 草稿单次最大预占，由 AI_DRAFT_PROFILE 推出",
+    description:
+      "AI 草稿单次最大预占（输入取上限），由 AI_DRAFT_PROFILE 推出；每次调用按实际输入字节预占",
     status: "adr-0009",
     note: "失败与超时按整笔结算；草稿日累计不超过 AI_SOFT_DAY",
   },

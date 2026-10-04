@@ -77,18 +77,24 @@ async function drafted(entry = gachaEntry, output = GACHA_21876_OUTPUT) {
   };
   return { ...seeded, updatedAt: detail.candidate.updated_at };
 }
-const adopt = (
+/** 默认绑定库里当前这一版草稿（审核员看到的版本）；用例可以传入过期版本。 */
+async function adopt(
   candidateId: string,
   expected: number,
-  extra: { exclude?: string[]; confirm_ambiguities?: boolean } = {},
-) =>
-  call("adopt-draft", {
+  extra: { exclude?: string[]; confirm_ambiguities?: boolean; draftUpdatedAt?: number } = {},
+) {
+  const draft = await env.DB.prepare("SELECT updated_at FROM ai_drafts WHERE candidate_id = ?")
+    .bind(candidateId)
+    .first<{ updated_at: number }>();
+  return call("adopt-draft", {
     candidate_id: candidateId,
     expected_updated_at: expected,
+    expected_draft_updated_at: extra.draftUpdatedAt ?? draft?.updated_at ?? 0,
     reason: "已对照官方原文核对草稿",
     exclude: extra.exclude ?? [],
     confirm_ambiguities: extra.confirm_ambiguities ?? false,
   });
+}
 
 describe("A-P3-DRAFT 审核队列与详情", () => {
   it("队列一页带回标题、游戏、来源与草稿状态，并附今日 AI 用量；详情带可读正文、图片数与草稿", async () => {
@@ -219,6 +225,7 @@ describe("A-P3-DRAFT 采用草稿", () => {
       {
         candidate_id: candidateId,
         expected_updated_at: updatedAt,
+        expected_draft_updated_at: 0,
         reason: "x",
         exclude: [],
         confirm_ambiguities: false,
@@ -229,10 +236,29 @@ describe("A-P3-DRAFT 采用草稿", () => {
     const noReason = await call("adopt-draft", {
       candidate_id: candidateId,
       expected_updated_at: updatedAt,
+      expected_draft_updated_at: 0,
       reason: " ",
       exclude: [],
       confirm_ambiguities: false,
     });
     expect(noReason.status).toBe(400);
+  });
+
+  it("ADR-0010 草稿在后台被重新起草后，按旧版本采用返回 409 且不写候选", async () => {
+    const { candidateId, updatedAt } = await drafted();
+    const seen = await env.DB.prepare("SELECT updated_at FROM ai_drafts WHERE candidate_id = ?")
+      .bind(candidateId)
+      .first<{ updated_at: number }>();
+    await env.DB.prepare("UPDATE ai_drafts SET updated_at = updated_at + 5 WHERE candidate_id = ?")
+      .bind(candidateId)
+      .run();
+    const stale = await adopt(candidateId, updatedAt, { draftUpdatedAt: seen?.updated_at });
+    expect(stale.status).toBe(409);
+    const row = await env.DB.prepare("SELECT updated_at, run_id FROM candidates WHERE id = ?")
+      .bind(candidateId)
+      .first<{ updated_at: number; run_id: string | null }>();
+    expect(row?.updated_at).toBe(updatedAt);
+    expect(row?.run_id).not.toBeNull();
+    expect((await adopt(candidateId, updatedAt)).status).toBe(200);
   });
 });

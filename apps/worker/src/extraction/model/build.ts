@@ -2,6 +2,7 @@
 // 模型输出一律按不可信数据处理：时间只认所引块里逐字存在的文本，键与 TimeValue 由服务端生成，
 // 不带跨公告关系（change_relation）也不产出本站撤回（retracted）。本模块不调用模型、不写库。
 import {
+  browseTimestamp,
   CANDIDATE_TEXT_FIELD_BYTES,
   DateOnlySchema,
   EVENT_TYPES,
@@ -19,8 +20,23 @@ import { ANNOUNCEMENT_TIMEZONE, parseAnnouncementExactTime } from "../time";
 export interface DraftBuildResult {
   readonly status: "ready" | "invalid";
   readonly proposal: CandidateProposal;
-  /** 给审核员看的说明：丢弃项、按原文更正的块号、需要留意的时间关系。 */
+  /** 给审核员看的说明：版本时间摘录、丢弃项、按原文更正的块号、需要留意的时间关系。 */
   readonly notes: readonly string[];
+  /** ADR-0010：版本公告里逐字核对通过的版本时间；不是候选内容，不进入发布。 */
+  readonly versionWindow: DraftVersionWindow | null;
+}
+
+export interface DraftVersionMoment {
+  readonly blockRef: string;
+  readonly quote: string;
+  readonly utcMs: number;
+}
+
+export interface DraftVersionWindow {
+  readonly version: string;
+  readonly updateStart: DraftVersionMoment | null;
+  readonly updateDuration: { readonly blockRef: string; readonly quote: string } | null;
+  readonly versionEnd: DraftVersionMoment | null;
 }
 
 const MODEL_STATUSES = ["scheduled", "postponed", "cancelled"] as const;
@@ -261,6 +277,58 @@ function timingNotes(event: EventProposal, label: string, notes: string[]): void
     notes.push(`${label}：结束时间不晚于开始时间，请核对。`);
 }
 
+/** 版本时间只认逐字存在、且恰好含一个完整时刻的原文。 */
+function versionMoment(
+  article: StoredArticleVersion,
+  value: unknown,
+  notes: string[],
+): DraftVersionMoment | null {
+  const raw = record(value);
+  if (raw === null) return null;
+  const timeText = text(raw.time_text);
+  const found = locate(article, blockIndex(raw.block), timeText);
+  const exact = found === null ? [] : [...found.quote.matchAll(DATE_TIME)].map((m) => m[0]);
+  const parsed = exact.length === 1 ? parseAnnouncementExactTime(exact[0]) : null;
+  if (found === null || parsed === null) {
+    notes.push(`版本时间摘录：「${timeText}」在原文中核对不到完整时刻，已忽略。`);
+    return null;
+  }
+  return { blockRef: `blocks/${found.index}`, quote: found.quote, utcMs: parsed.utc_ms };
+}
+
+function versionWindowOf(
+  article: StoredArticleVersion,
+  value: unknown,
+  notes: string[],
+): DraftVersionWindow | null {
+  const raw = record(value);
+  if (raw === null) return null;
+  const version = text(raw.version);
+  if (!/^\d+\.\d+$/.test(version)) {
+    notes.push(`版本时间摘录：版本号「${version}」无效，已忽略。`);
+    return null;
+  }
+  const updateStart = versionMoment(article, raw.update_start, notes);
+  const versionEnd =
+    raw.version_end === null ? null : versionMoment(article, raw.version_end, notes);
+  const durationText = text(raw.update_duration_text);
+  const duration = durationText.length === 0 ? null : locate(article, -1, durationText);
+  if (durationText.length > 0 && duration === null)
+    notes.push(`版本时间摘录：「${durationText}」在原文中核对不到，已忽略。`);
+  const when = (moment: DraftVersionMoment | null) =>
+    moment === null ? "正文未写" : `${browseTimestamp(moment.utcMs)}（北京时间）`;
+  notes.unshift(
+    `版本时间（逐字核对）：${version} 版本更新开始 ${when(updateStart)}${duration === null ? "" : `，${duration.quote}`}；版本结束 ${when(versionEnd)}。`,
+  );
+  return {
+    version,
+    updateStart,
+    updateDuration:
+      duration === null ? null : { blockRef: `blocks/${duration.index}`, quote: duration.quote },
+    versionEnd,
+  };
+}
+
 /** 确定性构建：模型给什么都不会让未核对的时间或跨公告关系进入草稿。 */
 export function buildDraftProposal(
   article: StoredArticleVersion,
@@ -269,6 +337,8 @@ export function buildDraftProposal(
   const notes: string[] = [];
   const root = record(output) ?? {};
   const classification = text(root.classification);
+  const versionNotes: string[] = [];
+  const versionWindow = versionWindowOf(article, root.version_window, versionNotes);
   const ambiguities = list(root.ambiguities)
     .map((item) => clampText(text(item)))
     .filter((item) => item.length > 0);
@@ -347,11 +417,19 @@ export function buildDraftProposal(
     ambiguities: finalAmbiguities,
   };
   const checked = validateCandidateAgainstArticle(proposal, article);
-  if (checked.success) return { status: "ready", proposal: checked.data, notes };
+  if (checked.success)
+    return {
+      status: "ready",
+      proposal: checked.data,
+      notes: [...versionNotes, ...notes],
+      versionWindow,
+    };
   return {
     status: "invalid",
     proposal,
+    versionWindow,
     notes: [
+      ...versionNotes,
       ...notes,
       ...checked.issues.map((issue) => `校验未通过：${issue.path} ${issue.message}`),
     ],

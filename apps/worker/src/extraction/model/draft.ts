@@ -2,8 +2,8 @@
 // 草稿只写 ai_drafts；候选、事件与公共快照只有管理员显式采用并批准后才会变化。
 import {
   AI_DRAFT_PROFILE,
-  AI_DRAFT_RESERVATION,
   AI_SOFT_DAY,
+  aiDraftReservation,
   MODEL_NETWORK_RETRIES,
   utcDayPeriod,
   WATCHDOG_INTERVAL,
@@ -12,8 +12,8 @@ import { logEvent } from "../../shell/logger";
 import { loadStoredArticleVersion } from "../article";
 import { buildDraftProposal, parseModelJson } from "./build";
 import { reserveNeurons, settleNeurons } from "./ledger";
-import { draftMessages } from "./prompt";
-import { type AiDraftUsage, readDraft, writeDraft } from "./store";
+import { draftInputBytes, draftMessages } from "./prompt";
+import { type AiDraftUsage, DRAFT_PROFILE_REF, readDraft, writeDraft } from "./store";
 
 /** Workers AI 绑定的最小形状；测试注入固定响应替身，不发真实推理请求。 */
 export interface DraftModel {
@@ -109,7 +109,9 @@ export async function runDraftJob(input: DraftJobInput): Promise<DraftJobOutcome
     .first<CandidateRow>();
   if (candidate === null || candidate.article_version_id === null)
     return { kind: "done", reason: "not_eligible" };
-  const existing = await readDraft(db, candidateId);
+  // 只有当前 profile（模型 + 提示词 + Schema）的结果算数；换了 profile 的旧草稿按新组合重新起草。
+  const stored = await readDraft(db, candidateId);
+  const existing = stored?.profileRef === DRAFT_PROFILE_REF ? stored : null;
   if (existing !== null && existing.status !== "failed")
     return { kind: "done", reason: "already_drafted" };
   if (existing !== null && existing.attempts > MODEL_NETWORK_RETRIES)
@@ -133,12 +135,18 @@ export async function runDraftJob(input: DraftJobInput): Promise<DraftJobOutcome
   if (article.completeness !== "complete")
     return skip("article_incomplete", "公告正文不完整，不能批准，未生成草稿。");
   const messages = draftMessages(article);
-  const inputBytes = new TextEncoder().encode(messages.map((m) => m.content).join("")).byteLength;
+  const inputBytes = draftInputBytes(messages);
   if (inputBytes > AI_DRAFT_PROFILE.maxInputBytes)
     return skip("input_too_large", "公告正文超过草稿输入上限，未生成草稿，请人工处理。");
   const remaining = input.deadline - input.now();
   if (remaining <= 0) return { kind: "later", reason: "wall_limit", dueAt: input.now() };
-  const reservation = await reserveNeurons(db, input.now(), AI_DRAFT_RESERVATION, AI_SOFT_DAY);
+  // 按本次实际输入字节预占：短公告不必按长公告的上限占住当日额度。
+  const reservation = await reserveNeurons(
+    db,
+    input.now(),
+    aiDraftReservation(AI_DRAFT_PROFILE, inputBytes),
+    AI_SOFT_DAY,
+  );
   if (reservation === null) {
     logEvent("warn", "ai_draft_budget_exhausted", { reason_code: "soft_day" });
     return {
@@ -154,8 +162,9 @@ export async function runDraftJob(input: DraftJobInput): Promise<DraftJobOutcome
       AI_DRAFT_PROFILE.model,
       {
         messages,
-        max_tokens: AI_DRAFT_PROFILE.maxOutputTokens,
+        max_completion_tokens: AI_DRAFT_PROFILE.maxOutputTokens,
         temperature: AI_DRAFT_PROFILE.temperature,
+        reasoning_effort: AI_DRAFT_PROFILE.reasoningEffort,
       },
       { signal: AbortSignal.timeout(remaining) },
     );
@@ -202,7 +211,7 @@ export async function runDraftJob(input: DraftJobInput): Promise<DraftJobOutcome
       proposal: null,
       notes: [
         usage.finish_reason === "length"
-          ? "模型输出被 max_tokens 截断，无法解析为 JSON，请人工处理。"
+          ? "模型输出被 max_completion_tokens 截断，无法解析为 JSON，请人工处理。"
           : "模型输出无法解析为 JSON，请人工处理。",
       ],
       reasonCode: "unparseable",

@@ -377,8 +377,9 @@ P3-14 工程依赖：`PUBLIC_READ_LIMITS` 所有值为正整数；`recentChanges
 近期重要变更期限取当前共享更正的 `retain_until`，条数取 `recentChanges`。详情/单节点超限明确不可用，状态聚合超限为未知，不静默截断。
 
 ADR-0009（P3-17）AI 草稿：`AI_HARD_DAY < AI_INCLUDED_DAY`（10,000，账户共用的每日免费额度）；
-`AI_DRAFT_RESERVATION = ⌈((maxInputBytes + templateOverheadTokens) × 输入单价 + maxOutputTokens × 输出单价) / 10⁶⌉ <= AI_SOFT_DAY`（现为 203），
-profile 各数值为正安全整数、temperature ∈ [0, 1]。草稿日累计以 `AI_SOFT_DAY` 为上限；`AI_BILLING_PROFILE_CONFIGURED` 仍为 false。
+`AI_DRAFT_RESERVATION = ⌈((maxInputBytes + templateOverheadTokens) × 输入单价 + maxOutputTokens × 输出单价) / 10⁶⌉ <= AI_SOFT_DAY`
+（ADR-0010 后为 1,238，是单次最大预占；每次调用按本篇提示词实际字节代入同一公式），
+profile 各数值为正安全整数、推理档位 ∈ {low, high, max}、temperature ∈ [0, 1]。草稿日累计以 `AI_SOFT_DAY` 为上限；`AI_BILLING_PROFILE_CONFIGURED` 仍为 false。
 
 P5-01 所有者 2026-10-02 批准的观测依赖：`0 < OBS_CAPACITY_WARN_RATIO < 1`；
 `FEEDBACK_MAINTENANCE_ROUNDS` 为正整数，且 `FEEDBACK_MAINTENANCE_ROUNDS × FEEDBACK_BATCH <= MAIL_FEEDBACK_MAX`。

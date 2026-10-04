@@ -103,13 +103,25 @@ describe("A-P1-PARAM 附录 A.5 启动等式", () => {
   });
 
   it("A-P3-DRAFT 单次预占由 profile 推出且不超过软线；改单价不同步预占即失败", () => {
-    expect(PARAMS.AI_DRAFT_RESERVATION).toBe(203);
+    expect(PARAMS.AI_DRAFT_RESERVATION).toBe(1238);
+    // 按实际输入字节预占：短公告远小于上限，长公告不超过上限。
+    expect(aiDraftReservation(PARAMS.AI_DRAFT_PROFILE, 4_500)).toBe(426);
+    expect(aiDraftReservation(PARAMS.AI_DRAFT_PROFILE, 4_500)).toBeLessThan(
+      PARAMS.AI_DRAFT_RESERVATION,
+    );
     expect(PARAMS.AI_DRAFT_RESERVATION).toBe(aiDraftReservation(PARAMS.AI_DRAFT_PROFILE));
     expect(PARAMS.AI_DRAFT_RESERVATION).toBeLessThanOrEqual(PARAMS.AI_SOFT_DAY);
     expect(() =>
       verifyParams(
         override({
           AI_DRAFT_PROFILE: { ...PARAMS.AI_DRAFT_PROFILE, outputNeuronsPerMillion: 60000 },
+        }),
+      ),
+    ).toThrow("ai-draft-reservation-within-soft");
+    expect(() =>
+      verifyParams(
+        override({
+          AI_DRAFT_PROFILE: { ...PARAMS.AI_DRAFT_PROFILE, reasoningEffort: "none" as "low" },
         }),
       ),
     ).toThrow("ai-draft-reservation-within-soft");

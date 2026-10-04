@@ -30,6 +30,7 @@
 | [ADR-0007](adr/0007-system-audit-retention.md) | 系统审计保留 180 天的已批准参数；P5-02 负责注册、期限校正与清理 |
 | [ADR-0008](adr/0008-blocked-preview-pagination-limit.md) | 极大 blocked 私人预览取不全的已接受限制；F3-04 如实处理，P5-04 公开 |
 | [ADR-0009](adr/0009-ai-draft-prefill.md) | AI 草稿预填、人工一键批准（所有者 2026-10-04 批准；P3-17 实施）；草稿不自动发布，P3-09 仍关闭 |
+| [ADR-0010](adr/0010-glm-draft-model-and-version-notes.md) | AI 草稿改用 glm-5.3-flash、提示词 v2、版本公告纳入、旧草稿重起草（所有者 2026-10-04 决定；P3-18 实施）；下一步版本时间表待批准 |
 | [P3-17 真实调用取证](evidence/p3/ai-draft-probe.md) | 6 次真实调用的响应形状、计费口径与 `/no_think` 结论（ADR-0009 依据，不是 P0-03b 质量评估） |
 
 ## 阅读顺序

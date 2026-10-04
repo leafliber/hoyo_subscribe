@@ -14,6 +14,7 @@ import {
   reclaimSupersededPublicSnapshotPage,
 } from "../../calendar/public/snapshot";
 import { DRAFT_ELIGIBLE_SQL, type DraftModel, runDraftJob } from "../../extraction/model/draft";
+import { DRAFT_PROFILE_REF } from "../../extraction/model/store";
 import { generatePublicationOccurrences } from "../../mail/occurrences/generate";
 import { publishApprovedCandidate } from "../../publishing/publish";
 import { runCleanup } from "../../scheduled/cleanup";
@@ -165,8 +166,9 @@ export class PipelineRuntime {
     if (controls.model && this.deps.ai !== undefined) await this.enqueueDrafts(now);
   }
   /**
-   * 每个周期最多补排 MATCH_PAGE 个草稿待办，新公告优先；已有确定结果（ready/invalid/skipped）或
-   * 失败次数用尽的候选不再排。已完成的待办（如当时开关关着）在仍缺草稿时复活。
+   * 每个周期最多补排 MATCH_PAGE 个草稿待办，新公告优先；当前 profile 已有确定结果（ready/invalid/skipped）
+   * 或失败次数用尽的候选不再排，旧 profile 的草稿按新组合重新起草（ADR-0010）。
+   * 已完成的待办（如当时开关关着）在仍缺草稿时复活。
    */
   private async enqueueDrafts(now: number): Promise<void> {
     await this.db
@@ -175,7 +177,7 @@ export class PipelineRuntime {
          SELECT 'pipeline:draft:' || c.id, ?, json_object('candidateId', c.id), ?, 'pending', ?, ?
            FROM candidates c
           WHERE ${DRAFT_ELIGIBLE_SQL}
-            AND NOT EXISTS (SELECT 1 FROM ai_drafts d WHERE d.candidate_id = c.id
+            AND NOT EXISTS (SELECT 1 FROM ai_drafts d WHERE d.candidate_id = c.id AND d.profile_ref = ?
                              AND (d.status <> 'failed' OR d.attempts > ?))
             AND NOT EXISTS (SELECT 1 FROM jobs j WHERE j.id = 'pipeline:draft:' || c.id AND j.status <> 'done')
           ORDER BY c.created_at DESC, c.id
@@ -184,7 +186,7 @@ export class PipelineRuntime {
            updated_at = excluded.updated_at, last_error = NULL
           WHERE jobs.status = 'done'`,
       )
-      .bind(DRAFT_JOB, now, now, now, MODEL_NETWORK_RETRIES, MATCH_PAGE)
+      .bind(DRAFT_JOB, now, now, now, DRAFT_PROFILE_REF, MODEL_NETWORK_RETRIES, MATCH_PAGE)
       .run();
   }
   async nextAlarm(): Promise<number | null> {

@@ -30,4 +30,5 @@
 | [0006](0006-private-calendar-preview-rate-limit.md) | 私人日历预览每会话每 isolate 60 秒最多 30 次，含续页 | 已接受并实施（#68；极大 blocked 分页限制见 ADR-0008） |
 | [0007](0007-system-audit-retention.md) | 系统审计记录保留 180 天，新增独立参数 SYSTEM_AUDIT_TTL | 已接受（所有者 2026-10-02 批准；P5-02 待实现） |
 | [0008](0008-blocked-preview-pagination-limit.md) | 极大 blocked 私人预览可能无法在一次有效期内取全 | 已接受（#68 报告记载所有者决定；验收方已独立复现） |
-| [0009](0009-ai-draft-prefill.md) | 审核队列引入 AI 草稿预填，模型只写草稿，发布仍由人工批准 | 已接受（所有者 2026-10-04 批准；P3-17 实施） |
+| [0009](0009-ai-draft-prefill.md) | 审核队列引入 AI 草稿预填，模型只写草稿，发布仍由人工批准 | 已接受（所有者 2026-10-04 批准；P3-17 实施）；模型与预占两项被 0010 取代 |
+| [0010](0010-glm-draft-model-and-version-notes.md) | AI 草稿改用 glm-5.3-flash，版本公告纳入起草，旧草稿按新组合重起草 | 已接受（所有者 2026-10-04 决定；P3-18 实施） |
