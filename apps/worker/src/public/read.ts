@@ -5,7 +5,6 @@ import {
   type GameId,
   PUBLIC_READ_LIMITS as LIMITS,
   NODE_TYPES,
-  PUBLIC_CACHE_FRESH,
   type PublicCache,
   PublicCatalogResponseSchema,
   PublicEventArticlesResponseSchema,
@@ -68,8 +67,9 @@ export function publicResponse(body: { cache: PublicCache }): Response {
   const encoded = JSON.stringify(body);
   if (bytes(encoded) > LIMITS.responseBytes) throw unavailable();
   const response = jsonResponse(body);
-  // PUBLIC_CACHE_FRESH 描述本次响应副本；数据水位由 publication/sources 单独提供。
-  response.headers.set("cache-control", `public, max-age=${PUBLIC_CACHE_FRESH}`);
+  // ADR-0015：浏览器每次打开都向源站取最新；副本新鲜期（cache.freshUntil，PUBLIC_CACHE_FRESH）
+  // 只用于页面标注"可能已过时"。数据水位由 publication/sources 单独提供。
+  response.headers.set("cache-control", "no-cache");
   return response;
 }
 

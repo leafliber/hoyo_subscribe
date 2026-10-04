@@ -37,7 +37,7 @@
 
 ## 缓存、失败和读量
 
-公共副本 `freshUntil = generatedAt + PUBLIC_CACHE_FRESH`（秒转毫秒）；源站实时响应 `stale=false`，HTTP 为 `public, max-age=PUBLIC_CACHE_FRESH`，不加 stale-while-revalidate。前端使用已过 freshUntil 的缓存副本时标陈旧并显示 generatedAt；publication.publishedAt 与每来源 verifiedAt 单独展示数据水位。此模块没有源站旧副本兜底，不供私人 Feed 使用。
+公共副本 `freshUntil = generatedAt + PUBLIC_CACHE_FRESH`（秒转毫秒；ADR-0015 起为 1 小时）；源站实时响应 `stale=false`。HTTP 为 `no-cache`（ADR-0015）：浏览器每次打开都向源站取最新，不复用旧响应；freshUntil 只用于页面开着太久时标注"可能已过时"并给出刷新按钮。前端使用已过 freshUntil 的副本时标注并显示 generatedAt；publication.publishedAt 与每来源 verifiedAt 单独展示数据水位。此模块没有源站旧副本兜底，不供私人 Feed 使用。
 
 没有完整代次：catalog/status 的 `publication=null`；events/detail 返回 503。events/detail 查询失败、行超字节保护、详情超节点/字节保护明确不可用。
 

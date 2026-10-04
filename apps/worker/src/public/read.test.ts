@@ -433,7 +433,7 @@ describe("A-P3-PUBLIC 真实本地 D1 公共闭环", () => {
   it("旧代次实时响应仍有完整副本新鲜期；私人参数/任意窗口拒绝", async () => {
     await seedNodes([makeNode()]);
     const fresh = await readEvents(env.DB, url(), NOW);
-    expect(fresh.headers.get("cache-control")).toContain(`max-age=${PUBLIC_CACHE_FRESH}`);
+    expect(fresh.headers.get("cache-control")).toBe("no-cache");
     const stale = await readEvents(env.DB, url(), NOW + PUBLIC_CACHE_FRESH * 1000);
     const body = PublicEventsResponseSchema.parse(await stale.json());
     expect(body.cache).toEqual({
@@ -442,7 +442,7 @@ describe("A-P3-PUBLIC 真实本地 D1 公共闭环", () => {
       stale: false,
     });
     expect(body.publication.publishedAt).toBe(NOW);
-    expect(stale.headers.get("cache-control")).toBe(`public, max-age=${PUBLIC_CACHE_FRESH}`);
+    expect(stale.headers.get("cache-control")).toBe("no-cache");
     const nextDay = PublicEventsResponseSchema.parse(
       await (await readEvents(env.DB, url(), NOW + 86400000)).json(),
     );
@@ -842,7 +842,7 @@ describe("A-P3-ARTICLE-VIEW 公开原文只读本代已发布事实绑定的文�
       "version-internal-id",
     );
     const response = await readEventArticles(env.DB, url("events/event/articles"), "event", NOW);
-    expect(response.headers.get("cache-control")).toBe(`public, max-age=${PUBLIC_CACHE_FRESH}`);
+    expect(response.headers.get("cache-control")).toBe("no-cache");
     const text = await response.text();
     for (const secret of [
       "version-internal-id",
@@ -941,7 +941,7 @@ describe("A-P3-ARTICLE-VIEW 公开原文只读本代已发布事实绑定的文�
     await seedApproval("approved", await seedPublishedNodes(["node"]), "v1");
     const ok = await request("events/event/articles");
     expect(ok.status).toBe(200);
-    expect(ok.headers.get("cache-control")).toBe(`public, max-age=${PUBLIC_CACHE_FRESH}`);
+    expect(ok.headers.get("cache-control")).toBe("no-cache");
     expect(PublicEventArticlesResponseSchema.parse(await ok.json()).articles).toHaveLength(1);
     expect((await request("events/no-such-event/articles")).status).toBe(404);
     expect((await request("events/event/articles?cursor=x")).status).toBe(400);

@@ -1,4 +1,3 @@
-import { PUBLIC_CACHE_FRESH } from "@hoyo/contracts";
 import { ApiError, errorResponse } from "../../shell/errors";
 import type { ShellRoute } from "../../shell/router";
 import { FeedPublicCache } from "../feed/public-read";
@@ -22,9 +21,10 @@ export function makeCalendarPreviewRoutes(
           ? errorResponse(error.code, error.details)
           : snapshotUnavailable();
     }
+    // ADR-0015：公开预览与公开日程一致，浏览器每次都向源站取最新。
     response.headers.set(
       "cache-control",
-      !privateRead && response.ok ? `public, max-age=${PUBLIC_CACHE_FRESH}` : "private, no-store",
+      !privateRead && response.ok ? "no-cache" : "private, no-store",
     );
     return response;
   }

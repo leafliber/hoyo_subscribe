@@ -1,6 +1,11 @@
 // 所有数据均为本地 synthetic 样本；不访问来源或邮件服务。
 import { env } from "cloudflare:test";
-import { type PublicSnapshotNode, type SubscriptionConfig, TimeValueSchema } from "@hoyo/contracts";
+import {
+  type PublicSnapshotNode,
+  SESSION_IDLE_TTL,
+  type SubscriptionConfig,
+  TimeValueSchema,
+} from "@hoyo/contracts";
 import { makePendingSession } from "../../auth/consume/session";
 import { generateSecretToken } from "../../storage/crypto/random";
 import { hashFeedToken } from "../feed/store";
@@ -80,7 +85,8 @@ export async function seed(initialized = true) {
     session.tokenHash,
     T,
     session.absoluteExpiresAt,
-    session.expiresAt,
+    // 活跃会话按闲置期限过期（不是待激活的短期限），否则拨动时钟超过新鲜期时会话先失效。
+    T + SESSION_IDLE_TTL * 1000,
     T,
     T,
     T,
