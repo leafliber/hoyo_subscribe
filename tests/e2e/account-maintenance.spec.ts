@@ -2,12 +2,14 @@ import { mkdir } from "node:fs/promises";
 import { expect, type Page, test } from "@playwright/test";
 import {
   type AccountSummary,
+  AUTH_COMPLETION_TTL,
   buildApiErrorBody,
   OTP_DIGITS,
   RECENT_AUTH_TTL,
   recentAuthTurnstileAction,
   SESSION_ABSOLUTE_TTL,
   SESSION_IDLE_TTL,
+  SESSION_PENDING_TTL,
 } from "../../packages/contracts/src/index";
 import { manualTurnstile, widgetState } from "./turnstile-support";
 
@@ -212,6 +214,12 @@ test("U29 双 OTP 绑定同一目标与两种角色，先清身份再换邮箱�
   await page.locator("#email-confirm").click();
   await expect(page.locator("#email-change-result")).toContainText("邮箱已更换");
   await expect(page.locator("#email-change-result")).toContainText("新邮箱的邮件通知需要重新开启");
+  // F4-05: this browser holds a pending session to confirm, not a forced re-login.
+  await expect(page.locator("#email-change-result")).toContainText(
+    `待确认的新会话，请在约 ${Math.min(AUTH_COMPLETION_TTL, SESSION_PENDING_TTL) / 60} 分钟内`,
+  );
+  await expect(page.locator("#email-change-result")).not.toContainText("重新登录");
+  await expect(page.locator("#email-activate")).toHaveText("继续激活新会话");
   await expect(page.locator("#email-activate")).toHaveAttribute(
     "href",
     "/login?returnTo=%2Faccount",
@@ -531,7 +539,7 @@ test("U29 换邮箱成功页面证据只含合成脱敏数据", async ({ page },
   await open(page);
   await both(page);
   await page.locator("#email-confirm").click();
-  await expect(page.locator("#email-change-result")).toContainText("所有设备都已退出登录");
+  await expect(page.locator("#email-change-result")).toContainText("待确认的新会话");
   const dir =
     process.env.HOYO_E2E_WRITE_EVIDENCE === "1"
       ? "tests/e2e/evidence/f4-04"
@@ -578,12 +586,66 @@ test("U29 换邮箱后沿用真实登录页显式激活新会话，仍不写订�
   });
   await page.locator("#email-activate").click();
   await expect(page).toHaveURL(/\/login\?returnTo=%2Faccount$/);
+  await expect(page.locator("#auth-result")).toContainText("未完成的登录");
   await expect(page.locator("#activate")).toBeEnabled();
   expect(activated).toBe(false);
   await page.locator("#activate").click();
   // With returnTo the login page reports success and goes straight back to /account.
   await expect(page).toHaveURL(/\/account$/);
   expect(activated).toBe(true);
+  // Confirming the delivered session never asks for another code.
+  expect(state.writes.some((w) => w.path.startsWith("auth/challenges"))).toBe(false);
+  expect(state.writes.some((w) => /subscription|email-channel|calendar|push/.test(w.path))).toBe(
+    false,
+  );
+});
+
+test("U29 新会话确认超时（session_expired）时登录页说明已失效并给出换邮箱登录入口，不显示登录完成", async ({
+  page,
+}) => {
+  const state = await setup(page);
+  await open(page);
+  await both(page);
+  await page.locator("#email-confirm").click();
+  await expect(page.locator("#email-activate")).toBeVisible();
+  await page.route("**/api/v2/me/sessions", (route) =>
+    route.fulfill({
+      headers: {
+        "set-cookie": "__Host-hoyo_csrf=synthetic-pending-csrf; Secure; SameSite=Lax; Path=/",
+      },
+      json: {
+        current_session_state: "pending",
+        csrf_token: "synthetic-pending-csrf",
+        sessions: [
+          {
+            id: "synthetic-new-session",
+            label: "合成新设备",
+            is_current: true,
+            state: "pending",
+            created_at: time,
+            renewed_at: time,
+          },
+        ],
+      },
+    }),
+  );
+  await page.route("**/api/v2/auth/activate", (route) =>
+    route.fulfill({
+      status: 401,
+      json: buildApiErrorBody("unauthorized", { code: "unauthorized", reason: "session_expired" }),
+    }),
+  );
+  await page.locator("#email-activate").click();
+  await expect(page).toHaveURL(/\/login\?returnTo=%2Faccount$/);
+  await page.locator("#activate").click();
+  await expect(page.locator("#auth-result")).toHaveText("登录已过期，请点「重新开始」再登录一次。");
+  await expect(page.locator("#login-done")).toBeHidden();
+  await expect(page.locator("#activate")).toBeDisabled();
+  await expect(page).toHaveURL(/\/login\?returnTo=%2Faccount$/);
+  // Only a fresh login with the new address continues, starting from the email step.
+  await expect(page.locator("#restart-auth")).toHaveText("重新开始 / 更换邮箱");
+  await page.locator("#restart-auth").click();
+  await expect(page.locator("#email-form")).toBeVisible();
   expect(state.writes.some((w) => /subscription|email-channel|calendar|push/.test(w.path))).toBe(
     false,
   );
