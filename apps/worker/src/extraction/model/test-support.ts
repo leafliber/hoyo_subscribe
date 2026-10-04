@@ -12,6 +12,7 @@ import type { ArticleCompleteness } from "../../sources/articles/completeness";
 import { getSourceEntry } from "../../sources/registry";
 import { loadStoredArticleVersion, type StoredArticleVersion } from "../article";
 import type { DraftModel } from "./draft";
+import { readableBlockText } from "./readable";
 
 export const DRAFT_T0 = 1_800_000_000_000;
 
@@ -221,3 +222,46 @@ export const MAINTENANCE_21928_OUTPUT = JSON.stringify({
     },
   ],
 });
+
+/**
+ * 整篇版本公告的模型输出替身（ADR-0012）：正文里每条"活动时间：起 ~ 止"各出一个事件，
+ * 块号取真实块号；版本更新说明一篇十几个活动，整份候选超过请求体上限。
+ */
+export function versionNoteOutput(article: StoredArticleVersion): string {
+  const point = (raw: string) => /\d{4}\/\d{2}\/\d{2} \d{2}:\d{2}/.exec(raw)?.[0] ?? raw.trim();
+  const events = article.blocks.flatMap((block, index) => {
+    const match = /活动时间：(.+?) ~ (.+)$/.exec(readableBlockText(block));
+    if (match === null) return [];
+    return [
+      {
+        event_type: "limited_event",
+        status: "scheduled",
+        title: `合成版本活动 ${index}`,
+        type_quote: null,
+        status_quote: null,
+        milestones: [
+          {
+            node_type: "start",
+            label: "",
+            block: index,
+            time_text: point(match[1]),
+            estimated: false,
+          },
+          {
+            node_type: "end",
+            label: "",
+            block: index,
+            time_text: point(match[2]),
+            estimated: false,
+          },
+        ],
+      },
+    ];
+  });
+  return JSON.stringify({
+    classification: "events",
+    ambiguities: [],
+    version_window: null,
+    events,
+  });
+}

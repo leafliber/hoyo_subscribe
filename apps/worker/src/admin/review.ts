@@ -577,7 +577,11 @@ export function makeAdminReviewRoutes(clock: () => number = Date.now): ShellRout
           publication = await publish(ctx.env.DB, action, id, reason, target, now, {
             expectedUpdatedAt: revision,
             prepareEffects: async (projections) => {
-              await checkPublishedNodeBytes(ctx.env.DB, projections, now, current.article);
+              // 只传节点真正携带的游戏与区服；传整篇文章会把正文算进节点，长公告一律误判超限。
+              await checkPublishedNodeBytes(ctx.env.DB, projections, now, {
+                game: current.article.game,
+                region: current.article.region,
+              });
               return [effect];
             },
           });
