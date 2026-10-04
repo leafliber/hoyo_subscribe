@@ -1,6 +1,7 @@
 # 依赖与构建产物
 node_modules/
 dist/
+dist-*/
 coverage/
 
 # Wrangler 本地状态与本地秘密（秘密一律经 Wrangler secret 注入，不入仓库）
@@ -21,6 +22,7 @@ Thumbs.db
 
 # Playwright 产物（截图证据单独复制到 docs/evidence/ 提交）
 test-results/
+test-results-*/
 playwright-report/
 
 # Astro 生成的本地类型与缓存（build/dev 时重建）

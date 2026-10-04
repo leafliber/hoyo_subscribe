@@ -1,6 +1,8 @@
 import { GAME_NAMES } from "@hoyo/contracts";
-import { el, timestamp } from "../../features/schedule/dom";
 import { sourceFeedback } from "../../features/schedule/source-status";
+import { type BadgeKind, badge, el, icon } from "../../lib/dom";
+import { stamp } from "../../lib/format";
+import { gameIcon } from "../../lib/game-icons";
 import { PublicApiClient } from "../../lib/public-api/client";
 
 const api = new PublicApiClient();
@@ -8,79 +10,137 @@ const message = document.getElementById("release-status-message");
 const facts = document.getElementById("release-status-facts");
 const retry = document.getElementById("release-status-retry");
 const capability = { open: "已开放", closed: "已关闭", unknown: "未知" } as const;
+const kindOf = (text: string): BadgeKind =>
+  text === "已开放" ? "success" : text === "已关闭" ? "neutral" : "warning";
 let busy = false;
 let expiry: ReturnType<typeof setTimeout> | undefined;
+
+function setMessage(text: string, kind: "info" | "success" | "warning") {
+  if (!message) return;
+  message.textContent = text;
+  message.className = `status-banner callout callout--${kind}`;
+}
+
+function capabilityTile(label: string, desc: string, value: string, stale: boolean) {
+  const shown = stale ? "未知（副本过期）" : value;
+  return el(
+    "li",
+    { class: "status-tile", "data-capability": label },
+    el(
+      "div",
+      {},
+      el("p", { class: "status-tile-title" }, label),
+      el("p", { class: "status-tile-desc" }, desc),
+    ),
+    el("span", { class: "status-tile-value" }, badge(shown, stale ? "warning" : kindOf(value))),
+    el("span", { class: "sr-only" }, `${label}：${shown}`),
+  );
+}
+
 async function refresh() {
   if (busy || !message || !facts) return;
   busy = true;
   clearTimeout(expiry);
   if (retry instanceof HTMLButtonElement) retry.disabled = true;
-  message.textContent = "正在读取公开状态…";
+  setMessage("正在读取公开状态…", "info");
   facts.replaceChildren();
   try {
     const status = await api.status(undefined, true);
     const stale = status.cache.stale || Date.now() > status.cache.freshUntil;
-    message.textContent = stale
-      ? "公开状态副本已过期，当前能力未知，请稍后刷新。"
-      : "已读取公开状态；不代表提醒已送达。";
-    const list = el("ul");
-    for (const [label, value] of [
-      ["注册", status.registration_open ? "已开放" : "已关闭"],
-      ["邮件发送", status.mail_sending_available ? "已开放" : "已关闭"],
-      ["日历", capability[status.capabilities.calendar]],
-      ["邮件新席位", capability[status.capabilities.email_seats]],
-      ["常规邮件", capability[status.capabilities.routine_email]],
-      ["浏览器推送", capability[status.capabilities.push]],
-    ])
-      list.append(el("li", {}, `${label}：${stale ? "未知（副本过期）" : value}`));
-    facts.append(el("h2", {}, "能力开放状态"), list);
+    setMessage(
+      stale
+        ? "公开状态副本已过期，当前能力未知，请稍后刷新。"
+        : "已读取公开状态（不代表提醒已送达）。",
+      stale ? "warning" : "success",
+    );
+    const tiles: [string, string, string][] = [
+      ["注册", "新用户注册", status.registration_open ? "已开放" : "已关闭"],
+      ["邮件发送", "验证码与通知邮件", status.mail_sending_available ? "已开放" : "已关闭"],
+      ["日历", "启用个人日历订阅", capability[status.capabilities.calendar]],
+      ["邮件新席位", "开启邮件通知", capability[status.capabilities.email_seats]],
+      ["常规邮件", "常规提醒与新活动邮件", capability[status.capabilities.routine_email]],
+      ["浏览器推送", "首版未开放", capability[status.capabilities.push]],
+    ];
+    const list = el(
+      "ul",
+      { class: "status-tiles list-plain" },
+      ...tiles.map(([label, desc, value]) => capabilityTile(label, desc, value, stale)),
+    );
+    facts.append(
+      el(
+        "section",
+        { class: "card info-section", "aria-labelledby": "capability-heading" },
+        el("h2", { id: "capability-heading" }, "能力开放状态"),
+        list,
+      ),
+    );
     if (!stale)
       expiry = setTimeout(
         () => {
-          message.textContent = "公开状态副本已过期，当前能力未知，请稍后刷新。";
-          for (const item of list.children)
-            item.textContent = `${item.textContent?.split("：")[0]}：未知（副本过期）`;
+          setMessage("公开状态副本已过期，当前能力未知，请稍后刷新。", "warning");
+          list.replaceChildren(
+            ...tiles.map(([label, desc, value]) => capabilityTile(label, desc, value, true)),
+          );
         },
         Math.max(0, status.cache.freshUntil - Date.now() + 1),
       );
-    facts.append(
-      el("h2", {}, "公开数据"),
+
+    const data = el(
+      "section",
+      { class: "card info-section", "aria-labelledby": "data-heading" },
+      el("h2", { id: "data-heading" }, "公开数据"),
       el(
         "p",
-        {},
+        { class: "status-publication" },
+        icon("calendar"),
         status.publication
-          ? `发布代次：${status.publication.generation}`
-          : "发布代次未知，不能视为没有活动。",
+          ? `日程第 ${status.publication.generation} 版，发布于 ${stamp(status.publication.publishedAt)}`
+          : "尚无已发布的日程（发布代次未知，不能视为没有活动）。",
       ),
     );
-    const sources = el("ul");
-    for (const source of status.sources ?? [])
-      sources.append(
+    if (status.sources === null) data.append(el("p", {}, "来源状态未知。"));
+    else if (status.sources.length === 0)
+      data.append(el("p", { class: "text-secondary" }, "接口未登记来源，不能视为全部正常。"));
+    else
+      data.append(
         el(
-          "li",
-          {},
-          `${GAME_NAMES[source.game]} / ${source.sourceId}：${sourceFeedback(source).label}；最近成功：${timestamp(source.verifiedAt)}`,
+          "ul",
+          { class: "list-plain source-rows" },
+          ...status.sources.map((source) => {
+            const feedback = sourceFeedback(source);
+            return el(
+              "li",
+              { "data-source": source.sourceId },
+              el(
+                "span",
+                { class: "game-tag", "data-game": source.game },
+                gameIcon(source.game),
+                GAME_NAMES[source.game],
+              ),
+              el("span", { class: "source-id" }, source.sourceId),
+              badge(feedback.label, feedback.affected ? "warning" : "success"),
+              el("span", { class: "source-time" }, `最近成功：${stamp(source.verifiedAt)}`),
+            );
+          }),
         ),
       );
-    facts.append(
-      status.sources === null
-        ? el("p", {}, "来源状态未知。")
-        : status.sources.length === 0
-          ? el("p", {}, "接口未登记来源，不能视为全部正常。")
-          : sources,
+    data.append(
+      el(
+        "ul",
+        { class: "list-plain gap-rows" },
+        ...status.reviewGaps.map((gap) =>
+          el(
+            "li",
+            {},
+            `${GAME_NAMES[gap.game]} 待审核缺口：${gap.count === null ? "未知" : gap.count}`,
+          ),
+        ),
+      ),
+      el("p", { class: "text-aux" }, `公开副本有效至：${stamp(status.cache.freshUntil)}`),
     );
-    const gaps = el("ul");
-    for (const gap of status.reviewGaps)
-      gaps.append(
-        el(
-          "li",
-          {},
-          `${GAME_NAMES[gap.game]} 待审核缺口：${gap.count === null ? "未知" : gap.count}`,
-        ),
-      );
-    facts.append(gaps, el("p", {}, `公开副本有效至：${timestamp(status.cache.freshUntil)}`));
+    facts.append(data);
   } catch {
-    message.textContent = "公开状态读取失败，当前状态未知。请稍后刷新，或查看帮助中的限制说明。";
+    setMessage("公开状态读取失败，当前状态未知。请稍后刷新，或查看帮助中的限制说明。", "warning");
   } finally {
     busy = false;
     if (retry instanceof HTMLButtonElement) retry.disabled = false;

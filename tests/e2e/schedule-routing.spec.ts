@@ -42,6 +42,8 @@ test("U02 本地服务读取同份规则；不支持的写法在监听端口前�
       writeFileSync(join(root, "apps/web/dist/_redirects"), rule);
       const result = spawnSync(process.execPath, [join(root, "scripts/e2e/serve.mjs")], {
         encoding: "utf8",
+        // 复制的脚本必须读取临时目录里的 dist，不能继承本机为隔离构建设置的 E2E_DIST。
+        env: Object.fromEntries(Object.entries(process.env).filter(([key]) => key !== "E2E_DIST")),
       });
       expect(result.status).toBe(1);
       expect(result.stderr).toContain("仅支持站内 200 + 尾部通配改写");

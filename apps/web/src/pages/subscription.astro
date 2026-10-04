@@ -1,5 +1,5 @@
 ---
-// F2-03 获准跨卡改动：只挂保存状态机的比较区、核对入口与已保存摘要。
+import "../styles/base.css";
 import {
   CALENDAR_ALARMS_DEFAULT,
   CHANGE_DEFAULTS,
@@ -9,188 +9,251 @@ import {
   DEFAULT_SCOPE_GAMES,
   EVENT_TYPES,
   NODE_TYPES,
+  REMINDER_RULES,
   SUBSCRIPTION_CHANGE_COPY,
-  SUBSCRIPTION_EVENT_TYPE_LABELS,
   SUBSCRIPTION_GAME_LABELS,
   SUBSCRIPTION_NODE_TYPE_LABELS,
   SUBSCRIPTION_RULE_COPY,
   SUPPORTED_SCOPE_GAMES,
 } from "@hoyo/contracts";
+import GameIcon from "../components/GameIcon.astro";
+import Icon from "../components/Icon.astro";
 import Layout from "./_Layout.astro";
 import "../features/subscription/subscription.css";
 
-const recommendedIds = new Set<string>(DEFAULT_RULE_IDS);
-const recommendedRules = SUBSCRIPTION_RULE_COPY.filter((rule) => recommendedIds.has(rule.rule_id));
-const moreRules = SUBSCRIPTION_RULE_COPY.filter((rule) => !recommendedIds.has(rule.rule_id));
+const recommended = new Set<string>(DEFAULT_RULE_IDS);
+const eventMeta = {
+  livestream: { label: "前瞻直播", desc: "版本前瞻特别节目", icon: "tv" },
+  maintenance: { label: "版本维护", desc: "停服维护与更新", icon: "wrench" },
+  limited_event: { label: "限时活动", desc: "活动开放、阶段与奖励截止", icon: "flag" },
+  gacha: { label: "卡池", desc: "限定卡池开启与结束", icon: "sparkles" },
+} as const;
+const ruleGroups = EVENT_TYPES.map((type) => ({
+  type,
+  label: eventMeta[type].label,
+  rules: REMINDER_RULES.filter((rule) => rule.event_type === type).map((rule) => ({
+    id: rule.rule_id,
+    label:
+      SUBSCRIPTION_RULE_COPY.find((copy) => copy.rule_id === rule.rule_id)?.label ?? rule.rule_id,
+  })),
+})).filter((group) => group.rules.length > 0);
+const changeMeta: Record<string, string> = {
+  cancelled_or_retracted: "活动被官方取消，或本站撤回错误收录",
+  important_change: "开始/结束时间改动等重要更正",
+  late_discovery: "较晚才收录、来不及按原计划提醒的活动",
+  new_event: "有新的活动或卡池公布",
+};
+const changeOrder = ["cancelled_or_retracted", "important_change", "late_discovery", "new_event"];
+const changes = [...SUBSCRIPTION_CHANGE_COPY].sort(
+  (a, b) => changeOrder.indexOf(a.key) - changeOrder.indexOf(b.key),
+);
 ---
 
 <Layout title="我的订阅" activeNav="subscription">
   <div class="subscription-page">
-    <header class="subscription-intro">
-      <h1>我的订阅</h1>
-      <p id="cloud-state">尚无已保存订阅</p>
-      <p id="draft-state" role="status">本机预选 · 尚未保存</p>
-      <p class="subscription-hint">下方修改是待保存草稿；接收方式需要分别开通。</p>
-      <p id="cloud-flow-status" role="status">先登录并保存一次订阅内容，再保存恢复码和选择接收方式。</p>
-      <a id="subscription-login" href="/login?returnTo=%2Fsubscription">登录后继续处理草稿</a>
-      <a id="save-recovery-link" href="/recover#save" hidden>保存并确认恢复码</a>
+    <header class="page-header">
+      <div>
+        <h1>我的订阅</h1>
+        <p class="lead">选好关注的游戏和提醒方式，生成一个会自动更新的私人日历。</p>
+      </div>
+      <div class="sub-state" aria-live="polite">
+        <span id="cloud-state" class="status-pill">正在读取…</span>
+        <span id="draft-state" class="sub-state-detail"></span>
+      </div>
     </header>
 
-    <form id="subscription-form" novalidate>
-      <section class="subscription-step" aria-labelledby="games-heading">
-        <h2 id="games-heading">1. 关注的游戏</h2>
-        <p class="subscription-hint">所选游戏同时约束日历与变更消息。</p>
-        <fieldset class="choice-fieldset" aria-describedby="game-error">
-          <legend class="visually-hidden">关注的游戏</legend>
-          <div class="choice-grid">
-            {SUPPORTED_SCOPE_GAMES.map((game) => (
-              <label class="subscription-choice">
-                <input type="checkbox" name="games" value={game} checked={DEFAULT_SCOPE_GAMES.includes(game)} />
-                <span>{SUBSCRIPTION_GAME_LABELS[game]}</span>
-              </label>
-            ))}
-          </div>
-        </fieldset>
-        <p id="game-error" class="field-error" role="alert" tabindex="-1" hidden>至少选择一个关注的游戏。</p>
-      </section>
+    <section id="setup-progress" class="card setup-card" aria-labelledby="setup-title">
+      <div class="card-body">
+        <div class="setup-head">
+          <h2 id="setup-title">三步完成订阅</h2>
+          <p id="cloud-flow-status" class="setup-status" role="status">先选择订阅内容，登录后保存。</p>
+        </div>
+        <ol class="setup-steps" id="setup-steps">
+          <li data-step="save" data-state="current">
+            <span class="step-index" aria-hidden="true">1</span>
+            <div><p class="step-title">选择内容并保存</p><p class="step-desc">登录后保存到云端，任何设备都能修改。</p></div>
+          </li>
+          <li data-step="recovery" data-state="todo">
+            <span class="step-index" aria-hidden="true">2</span>
+            <div><p class="step-title">保存恢复码</p><p class="step-desc">邮箱无法使用时，用它找回账号。</p></div>
+          </li>
+          <li data-step="calendar" data-state="todo">
+            <span class="step-index" aria-hidden="true">3</span>
+            <div><p class="step-title">添加到日历</p><p class="step-desc">生成私人链接，添加到手机或电脑日历。</p></div>
+          </li>
+        </ol>
+        <div class="setup-actions">
+          <a id="subscription-login" class="button" href="/login?returnTo=%2Fsubscription"><Icon name="user" />登录后保存</a>
+          <a id="save-recovery-link" class="button" href="/recover#save" hidden><Icon name="key" />保存恢复码</a>
+          <a id="setup-calendar-link" class="button" href="#calendar-channel" hidden><Icon name="calendar-check" />去添加到日历</a>
+        </div>
+      </div>
+    </section>
 
-      <section class="subscription-step" aria-labelledby="rules-heading">
-        <h2 id="rules-heading">2. 提前提醒</h2>
-        <p class="subscription-hint">固定规则适用于所有关注的游戏；可以一条都不选。</p>
-        <fieldset id="recommended-rules" class="choice-fieldset">
-          <legend>推荐提醒</legend>
-          <div class="choice-grid">
-            {recommendedRules.map((rule) => (
-              <label class="subscription-choice">
-                <input type="checkbox" name="rule_ids" value={rule.rule_id} checked={true} />
-                <span>{rule.label}</span>
-              </label>
-            ))}
+    <div class="sub-layout">
+      <form id="subscription-form" class="sub-form" novalidate>
+        <section class="card sub-section" aria-labelledby="games-heading">
+          <div class="sub-section-head">
+            <h2 id="games-heading">关注的游戏</h2>
+            <p>日历和通知只包含这些游戏。</p>
           </div>
-        </fieldset>
-        <details id="more-rules" class="subscription-details">
-          <summary>更多提醒</summary>
-          <fieldset class="choice-fieldset details-fieldset">
-            <legend class="visually-hidden">更多提醒</legend>
-            <div class="choice-grid">
-              {moreRules.map((rule) => (
-                <label class="subscription-choice">
-                  <input type="checkbox" name="rule_ids" value={rule.rule_id} />
-                  <span>{rule.label}</span>
+          <fieldset aria-describedby="game-error">
+            <legend class="visually-hidden">关注的游戏</legend>
+            <div class="game-picker">
+              {SUPPORTED_SCOPE_GAMES.map((game) => (
+                <label class="game-card" data-game={game}>
+                  <input type="checkbox" name="games" value={game} checked={DEFAULT_SCOPE_GAMES.includes(game)} />
+                  <GameIcon game={game} class="game-icon game-icon--lg" />
+                  <span class="game-card-name">{SUBSCRIPTION_GAME_LABELS[game]}</span>
+                  <Icon name="check" class="game-card-check" />
                 </label>
               ))}
             </div>
           </fieldset>
-        </details>
-        <p id="rule-empty-note" class="subscription-note" role="status" hidden>将不再收到提前提醒，变更消息仍按所选游戏与日历显示范围发送。</p>
-      </section>
+          <p id="game-error" class="field-error" role="alert" tabindex="-1" hidden>至少选择一个关注的游戏。</p>
+        </section>
 
-      <section class="subscription-step" aria-labelledby="calendar-heading">
-        <h2 id="calendar-heading">3. 日历显示</h2>
-        <details id="calendar-settings" class="subscription-details">
-          <summary>调整显示内容 <span id="calendar-summary" class="details-summary">当前选择摘要</span></summary>
-          <div class="details-content">
-            <fieldset class="choice-fieldset" aria-describedby="event-type-error">
-              <legend>显示的事件类型</legend>
-              <div class="choice-grid">
-                {EVENT_TYPES.map((type) => (
-                  <label class="subscription-choice">
-                    <input type="checkbox" name="event_types" value={type} checked={DEFAULT_CALENDAR_EVENT_TYPES.includes(type)} />
-                    <span>{SUBSCRIPTION_EVENT_TYPE_LABELS[type]}</span>
-                  </label>
-                ))}
-              </div>
-            </fieldset>
-            <p id="event-type-error" class="field-error" role="alert" tabindex="-1" hidden>至少选择一种日历事件类型。</p>
-            <fieldset class="choice-fieldset">
-              <legend>基础显示的节点</legend>
-              <div class="choice-grid">
+        <section class="card sub-section" aria-labelledby="calendar-heading">
+          <div class="sub-section-head">
+            <h2 id="calendar-heading">日历里显示什么</h2>
+            <p>选择要放进日历的活动类型。</p>
+          </div>
+          <fieldset aria-describedby="event-type-error">
+            <legend class="visually-hidden">显示的活动类型</legend>
+            <div class="type-grid">
+              {EVENT_TYPES.map((type) => (
+                <label class="type-card">
+                  <input type="checkbox" name="event_types" value={type} checked={DEFAULT_CALENDAR_EVENT_TYPES.includes(type)} />
+                  <span class="type-icon" aria-hidden="true"><Icon name={eventMeta[type].icon} /></span>
+                  <span class="type-text"><span class="type-name">{eventMeta[type].label}</span><span class="type-desc">{eventMeta[type].desc}</span></span>
+                  <Icon name="check" class="type-check" />
+                </label>
+              ))}
+            </div>
+          </fieldset>
+          <p id="event-type-error" class="field-error" role="alert" tabindex="-1" hidden>至少选择一种日历活动类型。</p>
+          <details id="calendar-settings" class="disclosure sub-advanced">
+            <summary>显示哪些时间节点 <span id="calendar-summary" class="summary-hint"></span></summary>
+            <fieldset class="sub-advanced-body">
+              <legend class="visually-hidden">基础显示的节点</legend>
+              <p class="field-hint">一个活动通常有开始、结束等多个节点。取消勾选的节点不会单独出现在日历里，但开启了相应提醒时仍会保留。</p>
+              <div class="chip-group">
                 {NODE_TYPES.map((type) => (
-                  <label class="subscription-choice">
+                  <label class="chip">
                     <input type="checkbox" name="node_types" value={type} checked={DEFAULT_CALENDAR_NODE_TYPES.includes(type)} />
+                    <Icon name="check" class="chip-check" />
                     <span>{SUBSCRIPTION_NODE_TYPE_LABELS[type]}</span>
                   </label>
                 ))}
               </div>
             </fieldset>
-            <label class="subscription-choice alarm-choice">
-              <input type="checkbox" name="alarms_enabled" checked={CALENDAR_ALARMS_DEFAULT} />
-              <span>日历提醒</span>
-            </label>
-            <p id="alarm-status" class="subscription-hint" role="status"></p>
-            <p class="subscription-hint">关闭后只影响日历闹钟和提醒关联节点；提前提醒规则仍保留，邮件与浏览器通知分别管理。</p>
-          </div>
-        </details>
-      </section>
+          </details>
+        </section>
 
-      <section class="subscription-step" aria-labelledby="change-heading">
-        <h2 id="change-heading">4. 变更消息</h2>
-        <p>日历里看得见的、或设了提醒的事件，出了变化就会通知。</p>
-        <p id="change-scope" class="subscription-hint"></p>
-        <details id="change-settings" class="subscription-details">
-          <summary>调整变更消息 <span id="change-summary" class="details-summary">当前选择摘要</span></summary>
-          <div class="details-content">
-            <fieldset class="choice-fieldset">
-              <legend class="visually-hidden">变更消息类型</legend>
-              <div class="choice-grid">
-                {SUBSCRIPTION_CHANGE_COPY.map((item) => (
-                  <label class="subscription-choice">
-                    <input type="checkbox" name={item.key} checked={CHANGE_DEFAULTS[item.key]} />
-                    <span>{item.label}</span>
+        <section class="card sub-section" aria-labelledby="rules-heading">
+          <div class="sub-section-head">
+            <h2 id="rules-heading">提前提醒</h2>
+            <p>在开始或截止前提醒你。可以一条都不选。</p>
+          </div>
+          <label class="switch alarm-switch">
+            <input type="checkbox" name="alarms_enabled" checked={CALENDAR_ALARMS_DEFAULT} aria-describedby="alarm-status" />
+            <span class="switch-text"><span class="check-title">在日历中提醒我</span><span id="alarm-status" class="check-desc"></span></span>
+          </label>
+          <div id="recommended-rules" class="rule-groups">
+            {ruleGroups.map((group) => (
+              <fieldset class="rule-group">
+                <legend class="rule-group-title">{group.label}</legend>
+                {group.rules.map((rule) => (
+                  <label class="check">
+                    <input type="checkbox" name="rule_ids" value={rule.id} checked={recommended.has(rule.id)} />
+                    <span class="check-text"><span class="check-title rule-title">{rule.label}{recommended.has(rule.id) && <span class="badge badge--accent">推荐</span>}</span></span>
                   </label>
                 ))}
-              </div>
-            </fieldset>
-            <p class="subscription-hint">晚收录补充提醒只在本站较晚收录或确认、常规提前点已过且仍符合条件时尝试；不会补发所有历史消息。</p>
-            <p class="subscription-hint">这里的选项只定义消息内容，不授予发送权限；接收状态请查看下方接收方式。</p>
+              </fieldset>
+            ))}
           </div>
-        </details>
-      </section>
+          <p id="rule-empty-note" class="callout callout--info rule-note" role="status" hidden>不会收到提前提醒；活动取消或改期的通知仍会按下方设置发送。</p>
+        </section>
 
-      <section id="actual-preview" class="subscription-step" aria-labelledby="preview-heading">
-        <h2 id="preview-heading">5. 实际日历预览</h2>
-        <div id="calendar-preview-content"><p>正在准备日历预览；尚未取得完整公开数据。</p></div>
-      </section>
+        <section class="card sub-section" aria-labelledby="change-heading">
+          <div class="sub-section-head">
+            <h2 id="change-heading">变化通知</h2>
+            <p>活动有变化时通知你（开启邮件通知后生效）。</p>
+          </div>
+          <fieldset>
+            <legend class="visually-hidden">变化通知类型</legend>
+            <div class="check-list">
+              {changes.map((item) => (
+                <label class="check">
+                  <input type="checkbox" name={item.key} checked={CHANGE_DEFAULTS[item.key]} />
+                  <span class="check-text"><span class="check-title">{item.label}</span><span class="check-desc">{changeMeta[item.key]}</span></span>
+                </label>
+              ))}
+            </div>
+          </fieldset>
+          <p id="change-scope" class="field-hint change-scope"></p>
+        </section>
 
-      <div class="subscription-save-bar">
-        <p id="save-result" role="status">当前选择尚未保存。</p>
-        <div class="save-actions">
-          <button id="recheck-save" class="secondary-button" type="button" hidden>重新读取云端</button>
-          <button id="discard-changes" class="secondary-button" type="button">放弃修改</button>
-          <button id="save-subscription" class="button" type="submit">保存订阅</button>
+        <div id="save-bar" class="save-bar" data-phase="guest">
+          <div class="save-bar-inner">
+            <p id="save-result" class="save-message" role="status">当前选择尚未保存。</p>
+            <div class="save-actions">
+              <button id="recheck-save" class="button button--ghost" type="button" hidden>重新读取</button>
+              <button id="discard-changes" class="button button--secondary" type="button">放弃修改</button>
+              <button id="save-subscription" class="button" type="submit">保存订阅</button>
+            </div>
+          </div>
+        </div>
+
+        <section id="save-comparison" class="card comparison" aria-labelledby="save-comparison-heading" hidden>
+          <div class="card-body">
+            <h2 id="save-comparison-heading"><Icon name="alert-triangle" />请选择要保留的设置</h2>
+            <p id="save-comparison-message">云端设置和本机修改不一致，可能是在另一台设备上改过。不会自动覆盖，请选择保留哪一份。</p>
+            <div id="save-differences" class="diff-table"></div>
+            <div class="button-row">
+              <button id="keep-draft" class="button" type="button">保留我的修改</button>
+              <button id="adopt-cloud" class="button button--secondary" type="button">使用云端设置</button>
+            </div>
+          </div>
+        </section>
+        <div id="local-preferences-slot"></div>
+      </form>
+
+      <aside class="sub-preview" aria-labelledby="preview-heading">
+        <section id="actual-preview" class="card preview-card">
+          <div class="card-header">
+            <h2 id="preview-heading"><Icon name="calendar" />日历预览</h2>
+          </div>
+          <div id="calendar-preview-content" class="preview-body">
+            <p class="text-aux">正在准备预览…</p>
+          </div>
+        </section>
+      </aside>
+    </div>
+
+    <section class="section receive-section" aria-labelledby="receive-heading">
+      <div class="section-header">
+        <div>
+          <h2 id="receive-heading">接收方式</h2>
+          <p id="channel-saved-summary">日历和邮件会使用你已保存的设置。</p>
         </div>
       </div>
-      <section id="save-comparison" class="subscription-step" aria-labelledby="save-comparison-heading" hidden>
-        <h2 id="save-comparison-heading">比较云端与本机草稿</h2>
-        <p>请逐组核对云端与本机草稿的差异；这里不会自动合并或覆盖。</p>
-        <div id="save-differences"></div>
-        <div class="save-actions">
-          <button id="adopt-cloud" class="secondary-button" type="button">采用云端设置</button>
-          <button id="keep-draft" class="secondary-button" type="button">保留草稿，返回编辑</button>
-        </div>
-      </section>
-    </form>
-
-    <section class="receive-section" aria-labelledby="receive-heading">
-      <h2 id="receive-heading">接收方式</h2>
-      <p class="subscription-hint">接收方式与上方内容设置分别管理。</p>
-      <p id="channel-saved-summary" class="subscription-hint">尚无已保存配置可用于开通接收方式。</p>
-      <p id="calendar-first-save" class="subscription-hint">日历订阅：先保存一次订阅内容</p>
+      <p id="calendar-first-save" class="callout callout--info" hidden>保存一次订阅后，就可以启用日历订阅和邮件通知。</p>
       <div class="receive-grid">
-        <section id="calendar-channel" class="receive-item" aria-labelledby="calendar-channel-heading">
-          <h3 id="calendar-channel-heading">日历订阅</h3>
-          <p>身份与已保存订阅待确认；日历状态尚未读取。</p>
+        <section id="calendar-channel" class="card channel-card" aria-labelledby="calendar-channel-heading">
+          <div class="card-body">
+            <h3 id="calendar-channel-heading" class="channel-title"><Icon name="calendar" />日历订阅</h3>
+            <p class="text-secondary">正在确认账号和已保存的订阅…</p>
+          </div>
         </section>
-        <section id="mail-channel" class="receive-item" aria-labelledby="mail-channel-heading">
-          <h3 id="mail-channel-heading">邮件提醒</h3>
-          <p>身份与已保存订阅待确认；邮件状态尚未读取。</p>
-        </section>
-        <section id="push-channel" class="receive-item" aria-labelledby="push-channel-heading">
-          <h3 id="push-channel-heading">本浏览器通知</h3>
-          <p id="push-first-save">先保存一次订阅内容</p>
-          <p>当前尚未开放。开放后需在本浏览器单独启用。</p>
+        <section id="mail-channel" class="card channel-card" aria-labelledby="mail-channel-heading">
+          <div class="card-body">
+            <h3 id="mail-channel-heading" class="channel-title"><Icon name="mail" />邮件通知</h3>
+            <p class="text-secondary">正在确认账号和已保存的订阅…</p>
+          </div>
         </section>
       </div>
+      <p id="push-first-save" hidden></p>
     </section>
   </div>
   <script>

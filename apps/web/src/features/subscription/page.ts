@@ -1,5 +1,3 @@
-// F2-04 获准跨卡：只挂草稿读写、导入入口与身份清理，不改变表单业务语义。
-// F2-03 获准跨卡改动：只连接 F2-01 表单与保存状态机，不改变四类设置语义。
 import {
   changeNotificationScope,
   type EventType,
@@ -12,12 +10,14 @@ import {
   SUBSCRIPTION_RULE_COPY,
   SUPPORTED_SCOPE_REGIONS,
 } from "@hoyo/contracts";
+import { el } from "../../lib/dom";
 import { CalendarChannelLifecycle } from "../channels/calendar/lifecycle";
 import { EmailChannelLifecycle } from "../channels/email/lifecycle";
 import { SubscriptionCloudFlow } from "./cloud-flow";
 import { SubscriptionDraftController } from "./draft/controller";
 import { CalendarPreview } from "./preview/controller";
 import {
+  csrfToken,
   type Draft,
   makeDraft,
   type Phase,
@@ -27,20 +27,29 @@ import {
 
 const form = document.getElementById("subscription-form");
 
+const PHASE_LABEL: Record<Phase, { text: string; kind: string }> = {
+  guest: { text: "未登录 · 设置仅保存在本机", kind: "" },
+  loading: { text: "正在读取云端设置…", kind: "" },
+  saved: { text: "已保存到云端", kind: "success" },
+  dirty: { text: "有未保存的修改", kind: "warning" },
+  saving: { text: "正在保存…", kind: "accent" },
+  conflict: { text: "需要处理冲突", kind: "danger" },
+  uncertain: { text: "保存结果待确认", kind: "warning" },
+};
+
 if (form instanceof HTMLFormElement) {
   const choices = [...form.querySelectorAll<HTMLInputElement>('input[type="checkbox"]')];
   const initialChoice = new Map(choices.map((choice) => [choice, choice.checked]));
   const cloudState = document.getElementById("cloud-state");
   const draftState = document.getElementById("draft-state");
   const calendarSummary = document.getElementById("calendar-summary");
-  const changeSummary = document.getElementById("change-summary");
   const changeScopeText = document.getElementById("change-scope");
   const alarmStatus = document.getElementById("alarm-status");
   const emptyRuleNote = document.getElementById("rule-empty-note");
   const saveResult = document.getElementById("save-result");
+  const saveBar = document.getElementById("save-bar");
   const gameError = document.getElementById("game-error");
   const eventTypeError = document.getElementById("event-type-error");
-  const calendarDetails = document.getElementById("calendar-settings");
   const comparison = document.getElementById("save-comparison");
   const differences = document.getElementById("save-differences");
   const recheck = document.getElementById("recheck-save");
@@ -78,16 +87,15 @@ if (form instanceof HTMLFormElement) {
     if (emptyRuleNote) emptyRuleNote.hidden = ruleIds.length !== 0;
     if (alarmStatus) {
       alarmStatus.textContent = alarm
-        ? "已选择日历提醒；请在接收方式核对地址与客户端状态。"
-        : "已关闭日历提醒；只影响日历闹钟与提醒关联节点。";
+        ? "日历会按下方规则提前提醒你（需要日历客户端支持提醒）。"
+        : "已关闭：日历只显示活动，不会弹出提醒。下方规则仍保留，可用于邮件通知。";
     }
-    if (calendarSummary) {
-      const eventNames = eventTypes.map((type) => SUBSCRIPTION_EVENT_TYPE_LABELS[type]);
-      const nodeNames = nodeTypes.map((type) => SUBSCRIPTION_NODE_TYPE_LABELS[type]);
-      calendarSummary.textContent = `事件：${eventNames.join("、") || "未选择"}；节点：${nodeNames.join("、") || "未选择"}；日历提醒${alarm ? "已选" : "关闭"}`;
-    }
+    for (const rule of form?.querySelectorAll<HTMLElement>(".rule-groups") ?? [])
+      rule.classList.toggle("is-muted", !alarm);
+    if (calendarSummary)
+      calendarSummary.textContent = `已选 ${nodeTypes.length} / ${Object.keys(SUBSCRIPTION_NODE_TYPE_LABELS).length}`;
 
-    // 与 Worker 共用 §5.3 的并集求解；页面只把求解结果转为显示文案。
+    // 与 Worker 共用并集求解；页面只把结果转为显示文案。
     const scope = changeNotificationScope({
       scope: { games, regions: SUPPORTED_SCOPE_REGIONS },
       calendar: { event_types: eventTypes },
@@ -96,15 +104,10 @@ if (form instanceof HTMLFormElement) {
     if (changeScopeText) {
       const gameNames = [...scope.games].map((game) => SUBSCRIPTION_GAME_LABELS[game]);
       const typeNames = [...scope.event_types].map((type) => SUBSCRIPTION_EVENT_TYPE_LABELS[type]);
-      changeScopeText.textContent = `当前范围：${gameNames.join("、") || "未选游戏"} · ${typeNames.join("、") || "未选事件类型"}。`;
-    }
-    if (changeSummary) {
-      const active = SUBSCRIPTION_CHANGE_COPY.filter((item) =>
-        choices.some((choice) => choice.name === item.key && choice.checked),
-      );
-      changeSummary.textContent = active.length
-        ? `本机已选：${active.map((item) => item.label).join("、")}；接收状态请查看下方接收方式`
-        : "本机已关闭全部变更消息";
+      changeScopeText.textContent =
+        gameNames.length && typeNames.length
+          ? `适用范围：${gameNames.join("、")} 的 ${typeNames.join("、")}（日历里显示或设了提醒的活动）。`
+          : "选择游戏和活动类型后，这里会显示通知的适用范围。";
     }
   }
 
@@ -145,14 +148,8 @@ if (form instanceof HTMLFormElement) {
   }
 
   function groupText(config: Draft | null): Record<string, string> {
-    if (!config)
-      return {
-        游戏: "暂无",
-        提醒: "暂无",
-        日历显示: "暂无",
-        变更消息: "暂无",
-      };
-    // Compare normalized sets, not the checkbox/response array display order.
+    if (!config) return { 游戏: "暂无", 提醒: "暂无", 日历显示: "暂无", 变化通知: "暂无" };
+    // 比较规范化集合，而不是复选框或响应数组的显示顺序。
     const normalized = parseSubscriptionConfig("uninitialized", { ...config, revision: 1 });
     if (normalized.success) config = normalized.data;
     const gameNames = config.scope.games.map((game) => SUBSCRIPTION_GAME_LABELS[game]);
@@ -166,9 +163,9 @@ if (form instanceof HTMLFormElement) {
     const changes = SUBSCRIPTION_CHANGE_COPY.filter((item) => config.notifications[item.key]);
     return {
       游戏: gameNames.join("、") || "未选择",
-      提醒: ruleNames.join("、") || "未选择提前提醒",
-      日历显示: `事件 ${eventNames.join("、") || "未选择"}；节点 ${nodeNames.join("、") || "未选择"}；日历提醒${config.calendar.alarms_enabled ? "开启" : "关闭"}`,
-      变更消息: changes.map((item) => item.label).join("、") || "全部关闭",
+      提醒: `${config.calendar.alarms_enabled ? "日历提醒开启" : "日历提醒关闭"}；${ruleNames.join("、") || "未选择提前提醒"}`,
+      日历显示: `${eventNames.join("、") || "未选择"}；节点：${nodeNames.join("、") || "未选择"}`,
+      变化通知: changes.map((item) => item.label).join("、") || "全部关闭",
     };
   }
 
@@ -178,11 +175,76 @@ if (form instanceof HTMLFormElement) {
   let calendar: CalendarChannelLifecycle | undefined;
   let calendarEnabled = false;
   let savePhase: Phase = "guest";
+
+  let lastSnapshot: Snapshot | null = null;
+  /** 游客 = 没有登录凭据，或服务端已答复未登录；身份待确认时不引导去登录。 */
+  function guest(): boolean {
+    return (drafts?.identityStatus() ?? (csrfToken() ? "unknown" : "guest")) === "guest";
+  }
+  function paintStatePill(): void {
+    if (!cloudState) return;
+    const signedIn = flow?.signedIn() ?? false;
+    const isGuest = guest();
+    // 身份确认前（首屏或身份重置后、尚未读到云端）不沿用游客文案或原账号状态，
+    // 避免把已登录的人说成未登录；云端读写已有进展时照常显示保存阶段。
+    const pending = !signedIn && !isGuest && savePhase === "guest";
+    const label =
+      isGuest && savePhase !== "conflict"
+        ? PHASE_LABEL.guest
+        : pending
+          ? { text: "登录状态待确认", kind: "" }
+          : savePhase === "guest"
+            ? { text: "尚未保存到云端", kind: "warning" }
+            : PHASE_LABEL[savePhase];
+    cloudState.textContent = label.text;
+    cloudState.className = `status-pill${label.kind ? ` status-pill--${label.kind}` : ""}`;
+    if (draftState)
+      draftState.textContent = isGuest
+        ? "登录后可保存到云端"
+        : lastSnapshot?.config
+          ? `云端版本 ${lastSnapshot.revision}`
+          : pending || savePhase === "loading"
+            ? ""
+            : "保存后即可开启日历订阅";
+  }
+
   function updateSaveGate(): void {
-    if (saveButton instanceof HTMLButtonElement)
+    paintStatePill();
+    if (saveButton instanceof HTMLButtonElement) {
       saveButton.disabled =
         ["saving", "loading", "conflict"].includes(savePhase) || (flow?.saveBlocked() ?? false);
+      saveButton.textContent = guest()
+        ? "登录并保存"
+        : savePhase === "saving"
+          ? "正在保存…"
+          : "保存订阅";
+    }
   }
+
+  function renderSaveBar(phase: Phase, message: string, snapshot: Snapshot | null): void {
+    if (saveBar) {
+      saveBar.dataset.phase = phase;
+      saveBar.classList.toggle(
+        "is-attention",
+        ["dirty", "conflict", "uncertain", "guest"].includes(phase),
+      );
+    }
+    const isGuest = guest();
+    if (saveResult)
+      saveResult.textContent =
+        isGuest && ["guest", "dirty"].includes(phase)
+          ? "未登录时设置只保存在这台设备上，登录后即可保存到云端。"
+          : message + (phase === "saved" && calendarEnabled ? " 日历链接保持不变。" : "");
+    if (discardButton instanceof HTMLButtonElement) {
+      discardButton.disabled = phase === "saving";
+      discardButton.hidden = !["dirty", "uncertain"].includes(phase) || !snapshot?.config;
+    }
+    // 游客没有云端可重新读取。
+    if (recheck instanceof HTMLButtonElement)
+      recheck.hidden = isGuest || !["uncertain", "dirty", "conflict"].includes(phase);
+    updateSaveGate();
+  }
+
   function createMachine(): SubscriptionSaveMachine {
     return new SubscriptionSaveMachine(
       {
@@ -195,34 +257,16 @@ if (form instanceof HTMLFormElement) {
           email?.update(phase, snapshot);
           calendar?.update(phase, snapshot);
           const saved = snapshot?.config;
-          if (cloudState)
-            cloudState.textContent = saved
-              ? `云端已保存 · 版本 ${snapshot.revision}`
-              : "尚无已保存订阅";
-          if (draftState)
-            draftState.textContent = (
-              {
-                guest: "本机预选 · 尚未保存",
-                loading: "正在读取云端设置",
-                saved: "当前选择与云端一致",
-                dirty: "本机未保存修改",
-                saving: "正在保存",
-                conflict: "云端与本机草稿待比较",
-                uncertain: "云端结果尚未确认",
-              } satisfies Record<Phase, string>
-            )[phase];
-          if (saveResult)
-            saveResult.textContent =
-              message + (phase === "saved" && calendarEnabled ? " 地址保持不变。" : "");
-          updateSaveGate();
-          if (discardButton instanceof HTMLButtonElement)
-            discardButton.disabled = phase === "saving";
-          if (recheck instanceof HTMLButtonElement)
-            recheck.hidden = phase === "guest" || phase === "saving" || phase === "loading";
+          lastSnapshot = snapshot;
+          const comparisonMessage = document.getElementById("save-comparison-message");
+          if (comparisonMessage && phase === "conflict") comparisonMessage.textContent = message;
+          renderSaveBar(phase, message, snapshot);
           if (channelSummary)
             channelSummary.textContent = saved
-              ? `接收方式将使用已保存的配置：游戏 ${groupText(saved).游戏}；提醒 ${groupText(saved).提醒}；日历显示 ${groupText(saved).日历显示}；变更消息 ${groupText(saved).变更消息}。版本 ${snapshot.revision}。`
-              : "尚无已保存配置可用于开通接收方式。";
+              ? phase === "dirty"
+                ? `日历和邮件使用已保存的第 ${snapshot.revision} 版设置；你有未保存的修改，保存后才会同步。`
+                : `日历和邮件使用已保存的第 ${snapshot.revision} 版设置。修改后需要保存才会同步到日历。`
+              : "日历和邮件会使用你保存到云端的设置。";
           if (previewRoot) {
             preview ??= new CalendarPreview(previewRoot, () => drafts?.current() ?? false);
             preview.update({
@@ -242,25 +286,41 @@ if (form instanceof HTMLFormElement) {
           if (!visible) return;
           const cloudGroups = groupText(cloud?.config ?? null);
           const draftGroups = groupText(draft);
-          for (const group of ["游戏", "提醒", "日历显示", "变更消息"] as const) {
-            const section = document.createElement("section");
-            const heading = document.createElement("h3");
-            heading.textContent = `${group}${cloudGroups[group] === draftGroups[group] ? " · 相同" : " · 不同"}`;
-            const cloudLine = document.createElement("p");
-            cloudLine.textContent = `云端：${cloudGroups[group]}`;
-            const draftLine = document.createElement("p");
-            draftLine.textContent = `本机草稿：${draftGroups[group]}`;
-            section.append(heading, cloudLine, draftLine);
-            differences.append(section);
+          const table = el(
+            "table",
+            { class: "diff" },
+            el(
+              "thead",
+              {},
+              el(
+                "tr",
+                {},
+                el("th", { scope: "col" }, "项目"),
+                el("th", { scope: "col" }, "云端"),
+                el("th", { scope: "col" }, "本机修改"),
+              ),
+            ),
+          );
+          const body = el("tbody");
+          for (const group of ["游戏", "提醒", "日历显示", "变化通知"] as const) {
+            const same = cloudGroups[group] === draftGroups[group];
+            body.append(
+              el(
+                "tr",
+                { class: same ? "is-same" : "is-different" },
+                el("th", { scope: "row" }, el("h3", {}, `${group}${same ? " · 相同" : " · 不同"}`)),
+                el("td", {}, el("p", {}, `云端：${cloudGroups[group]}`)),
+                el("td", {}, el("p", {}, `本机草稿：${draftGroups[group]}`)),
+              ),
+            );
           }
+          table.append(body);
+          differences.append(table);
         },
         validation(path) {
           if (path?.includes("scope.games")) showError(gameError);
-          else if (path?.includes("calendar.event_types")) {
-            if (calendarDetails instanceof HTMLDetailsElement) calendarDetails.open = true;
-            showError(eventTypeError);
-          }
-          if (saveResult) saveResult.textContent = "请检查所选内容；草稿未写入云端。";
+          else if (path?.includes("calendar.event_types")) showError(eventTypeError);
+          if (saveResult) saveResult.textContent = "请检查标出的选项；修改还没有保存到云端。";
         },
       },
       () => drafts?.current() ?? true,
@@ -285,26 +345,32 @@ if (form instanceof HTMLFormElement) {
       sync();
       machine = createMachine();
       // 身份控制器决定何时重新读取；原账号的提示与比较立即清空。
-      if (cloudState) cloudState.textContent = "身份待确认";
-      if (channelSummary) channelSummary.textContent = "身份待确认，未展示已保存配置。";
-      if (draftState) draftState.textContent = "本机预选 · 尚未保存";
+      lastSnapshot = null;
+      if (channelSummary) channelSummary.textContent = "日历和邮件会使用你保存到云端的设置。";
       if (saveResult) saveResult.textContent = "";
       if (comparison) comparison.hidden = true;
       differences?.replaceChildren();
-      if (previewRoot) previewRoot.textContent = "身份待确认，已清除原预览。";
+      if (previewRoot) previewRoot.textContent = "登录状态待确认，已清除原账号的预览。";
+      paintStatePill();
       if (saveButton instanceof HTMLButtonElement) saveButton.disabled = false;
       if (discardButton instanceof HTMLButtonElement) discardButton.disabled = false;
       return machine;
     },
   });
 
-  form.addEventListener("change", () => {
+  form.addEventListener("change", (event) => {
+    // 导入/导出区位于表单内；选择文件不是订阅选项的修改，不能打断导入。
+    if (event.target instanceof Element && event.target.closest(".local-preferences")) return;
     if (!drafts?.current()) return;
     hideErrors();
     sync();
     machine.edited();
     drafts.edited();
   });
+
+  async function goLogin(): Promise<void> {
+    if (await drafts?.prepareLogin()) window.location.assign("/login?returnTo=%2Fsubscription");
+  }
 
   form.addEventListener("submit", async (event) => {
     event.preventDefault();
@@ -317,9 +383,12 @@ if (form instanceof HTMLFormElement) {
       return;
     }
     if (selected("event_types").length === 0) {
-      if (calendarDetails instanceof HTMLDetailsElement) calendarDetails.open = true;
-      if (saveResult) saveResult.textContent = "请先选择至少一种日历事件类型。";
+      if (saveResult) saveResult.textContent = "请先选择至少一种日历活动类型。";
       showError(eventTypeError);
+      return;
+    }
+    if (guest()) {
+      await goLogin();
       return;
     }
     await drafts?.save();
@@ -339,7 +408,7 @@ if (form instanceof HTMLFormElement) {
 
   document.getElementById("adopt-cloud")?.addEventListener("click", () => {
     if (!drafts?.current()) return;
-    if (window.confirm("采用云端设置会丢弃本机草稿。确定继续吗？")) {
+    if (window.confirm("使用云端设置会丢弃本机的修改。确定继续吗？")) {
       if (!machine.getSnapshot()?.config) {
         for (const choice of choices) choice.checked = initialChoice.get(choice) ?? false;
         sync();
@@ -355,7 +424,7 @@ if (form instanceof HTMLFormElement) {
   });
   document.getElementById("subscription-login")?.addEventListener("click", async (event) => {
     event.preventDefault();
-    if (await drafts?.prepareLogin()) window.location.assign("/login?returnTo=%2Fsubscription");
+    await goLogin();
   });
   document.addEventListener("visibilitychange", () => {
     if (document.visibilityState === "visible") void drafts?.refresh();
@@ -376,6 +445,7 @@ if (form instanceof HTMLFormElement) {
       current: () => drafts?.current() ?? false,
       addressChanged: (enabled) => {
         calendarEnabled = enabled;
+        flow?.setCalendarEnabled(enabled);
       },
       disableAlarms: async () => {
         if (flow?.saveBlocked()) return;

@@ -1,8 +1,5 @@
-// F2-04 获准跨卡：仅将证据截图写入改为显式环境变量启用。
 // P2-07 获准跨卡接缝：最近认证原因的文案覆盖换邮箱、轮换和删除。
 // P2-05 合并接缝：F1-04 的穷尽期望同步恢复码保存与最近认证两个原因。
-import { mkdirSync } from "node:fs";
-import { resolve } from "node:path";
 import { expect, test } from "@playwright/test";
 import type { ErrorFeedback } from "../../apps/web/src/lib/errors/feedback";
 import {
@@ -132,87 +129,5 @@ test("U27 额度用尽仍保留停用入口，关闭失败与未知结果均不�
   expect(unknown.nextStep).toContain("重新读取");
 });
 
-test("U27 全站横幅不遮挡恢复、停用、退订、登出、紧急停用入口", async ({ page }, info) => {
-  await page.goto("/account");
-  await page.evaluate(() => {
-    const main = document.getElementById("main");
-    if (!main) throw new Error("main missing");
-    const fixture = document.createElement("nav");
-    fixture.setAttribute("aria-label", "synthetic 终止入口夹具");
-    const note = document.createElement("p");
-    note.textContent = "synthetic 终止入口夹具：以下按钮仅用于遮挡测试";
-    fixture.append(note);
-    for (const name of ["恢复", "停用", "退订", "登出", "紧急停用"]) {
-      const button = document.createElement("button");
-      button.type = "button";
-      button.textContent = name;
-      button.addEventListener("click", () => {
-        button.dataset.clicked = "true";
-      });
-      fixture.append(button);
-    }
-    main.prepend(fixture);
-    document.dispatchEvent(
-      new CustomEvent("hoyo:service-fault", {
-        detail: {
-          failure: { error: { code: "quota_paused", message: "synthetic" } },
-          context: { affectedOperation: "修改订阅" },
-        },
-      }),
-    );
-  });
-  const banner = page.locator("#service-fault-banner");
-  await expect(banner).toBeVisible();
-  await expect(banner).toContainText("停用服务的入口仍应保留");
-  await expect(banner.getByRole("link", { name: "账号恢复与紧急停用入口" })).toBeVisible();
-  for (const name of ["恢复", "停用", "退订", "登出", "紧急停用"]) {
-    const button = page.getByRole("button", { name, exact: true });
-    await button.scrollIntoViewIfNeeded();
-    const uncovered = await button.evaluate((element) => {
-      const box = element.getBoundingClientRect();
-      return (
-        document.elementFromPoint(box.left + box.width / 2, box.top + box.height / 2) === element
-      );
-    });
-    expect(uncovered, `${name} 被横幅遮挡`).toBe(true);
-    await button.click();
-    await expect(button).toHaveAttribute("data-clicked", "true");
-  }
-  const folder = resolve(
-    process.env.HOYO_E2E_WRITE_EVIDENCE === "1"
-      ? "tests/e2e/evidence/f1-04"
-      : "tests/e2e/test-results/f1-04",
-  );
-  mkdirSync(folder, { recursive: true });
-  const viewport = info.project.name.startsWith("mobile") ? "mobile" : "desktop";
-  await page.screenshot({ path: `${folder}/${viewport}-fault-banner.png`, fullPage: true });
-});
-
-test("U27 复制失败提供可选文本且不显示复制成功", async ({ page }) => {
-  await page.goto("/account");
-  await page.evaluate(() => {
-    Object.defineProperty(navigator, "clipboard", {
-      configurable: true,
-      value: { writeText: async () => Promise.reject(new Error("synthetic copy failure")) },
-    });
-    const host = document.createElement("div");
-    host.id = "synthetic-copy-feedback";
-    document.getElementById("main")?.append(host);
-    host.dispatchEvent(
-      new CustomEvent("hoyo:copy-request", {
-        bubbles: true,
-        detail: { text: "synthetic-manual-copy" },
-      }),
-    );
-  });
-  const host = page.locator("#synthetic-copy-feedback");
-  await expect(host).toContainText("复制失败");
-  await expect(host).not.toContainText("已复制");
-  await expect(host).toHaveAttribute("data-copy-state", "manual");
-  const field = host.getByRole("textbox", { name: "可手动复制的文本" });
-  await expect(field).toHaveValue("synthetic-manual-copy");
-  await expect(field).toBeFocused();
-  expect(await field.evaluate((element) => (element as HTMLTextAreaElement).selectionEnd)).toBe(
-    "synthetic-manual-copy".length,
-  );
-});
+// 重设计删除了全站故障横幅（#service-fault-banner）与 hoyo:copy-request 复制兜底组件：应用内没有
+// 任何调用方（死代码）。原先只驱动这两个组件的两条 DOM 用例随之删除；U27 的反馈语义仍由上面的单元断言覆盖。

@@ -1,0 +1,12 @@
+---
+import type { GameId } from "@hoyo/contracts";
+import { GAME_GLYPHS } from "../lib/game-icons";
+
+interface Props {
+  game: GameId;
+  class?: string;
+}
+
+const { game, class: className = "game-icon" } = Astro.props;
+---
+<span class={className} data-game={game} aria-hidden="true"><svg viewBox="0 0 24 24" focusable="false" set:html={GAME_GLYPHS[game]} /></span>

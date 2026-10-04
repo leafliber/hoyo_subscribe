@@ -11,6 +11,7 @@ import { buildApiErrorBody, CalendarPreviewResponseSchema } from "../../packages
 
 test.use({ trace: "off" }); // Never retain private API response URLs in traces.
 const part = (page: Page, name: string) => page.locator(`[data-calendar="${name}"]`);
+const channel = (page: Page) => page.locator("#calendar-channel");
 async function open(
   page: Page,
   options: {
@@ -86,8 +87,10 @@ async function open(
     });
   });
   await page.goto("/subscription");
-  await part(page, "refresh").click();
-  await expect(part(page, "message")).toContainText("已读取当前日历事实");
+  // 面板挂载即只读读取 /me、/me/calendar（及公开 /status），不再需要先点刷新；
+  // 链接状态只会在读取成功、忙碌结束后从「未知」变为具体状态。
+  await expect(part(page, "address")).toHaveText(/^(未启用|有效|已停用)/);
+  await expect(channel(page)).toHaveAttribute("aria-busy", "false");
   return {
     view,
     writes,
@@ -98,8 +101,27 @@ async function open(
   };
 }
 async function confirm(page: Page) {
-  await part(page, "consent").check();
+  // 同意勾选框已移除：完整服务端预览后出现的「确认启用」，必须由用户显式点击。
+  await expect(part(page, "confirm")).toBeVisible();
   await part(page, "confirm").click();
+}
+async function openManage(page: Page) {
+  await part(page, "manage").locator("summary").click();
+  await expect(part(page, "manage")).toHaveAttribute("open", "");
+}
+/** 身份失效后整个面板卸载：不再有任何日历钩子（预览、确认、地址事实）。 */
+async function expectPanelCleared(page: Page) {
+  await expect(channel(page).locator("[data-calendar]")).toHaveCount(0);
+  await expect(channel(page)).not.toContainText("合成活动");
+}
+/** 让迟到响应的后续 Promise 与渲染跑完，再做否定断言。 */
+async function settle(page: Page) {
+  await page.evaluate(
+    () =>
+      new Promise<void>((resolve) =>
+        requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
+      ),
+  );
 }
 async function evidence(page: Page, name: string) {
   const target =
@@ -128,8 +150,11 @@ test("U20 首次完整服务端预览、关联节点、三个版本与显式续�
     publication_generation: 31,
   });
   await expect.poll(run.renewals).toBe(1);
-  for (const label of ["地址状态", "配置状态", "输出状态", "客户端情况"])
-    await expect(page.getByRole("region", { name: label, exact: true })).toBeVisible();
+  // 原四个状态分区改为一组事实（dl）；启用成功也不冒充日历应用已拉取。
+  const facts = channel(page).locator("dl");
+  for (const label of ["链接状态", "使用的设置", "内容输出", "日历应用拉取"])
+    await expect(facts.getByText(label, { exact: true })).toBeVisible();
+  await expect(part(page, "polling")).toHaveText("还没有日历应用拉取过");
   await evidence(page, "enabled-states");
 });
 for (const save of [false, true])
@@ -140,7 +165,7 @@ for (const save of [false, true])
     await expect(part(page, "draft")).toBeVisible();
     expect(run.previews()).toBe(0);
     await part(page, save ? "save" : "saved").click();
-    await expect(part(page, "preview")).toContainText(`版本 ${save ? 5 : 4}`);
+    await expect(part(page, "preview")).toContainText(`已保存的第 ${save ? 5 : 4} 版设置`);
     await expect.poll(run.renewals).toBe(save ? 1 : 0);
     await confirm(page);
     await expect(part(page, "address")).toContainText("有效");
@@ -183,6 +208,7 @@ test("U20 续页先429后恢复，取全之前不允许启用", async ({ page })
   await part(page, "begin").click();
   await expect(part(page, "message")).toContainText("请求频率受限");
   await expect(part(page, "confirmation")).toBeHidden();
+  await expect(part(page, "confirm")).toBeHidden();
   expect(run.writes).toHaveLength(0);
   release?.();
   await expect(part(page, "preview")).toContainText("完整预览");
@@ -201,8 +227,11 @@ test("U20 preview_outdated 丢弃整轮且再次确认，不自动启用", async
   await part(page, "begin").click();
   await confirm(page);
   await expect.poll(run.previews).toBe(2);
-  await expect(part(page, "consent")).not.toBeChecked();
-  await expect(part(page, "confirm")).toBeDisabled();
+  // 没有同意勾选框可清空：整轮重新预览后只回到「待用户再次点击确认」，不自动启用。
+  await expect(part(page, "preview")).toContainText("完整预览");
+  await expect(channel(page)).toHaveAttribute("aria-busy", "false");
+  await expect(part(page, "message")).toContainText("请确认下面的日历内容");
+  await expect(part(page, "confirm")).toBeVisible();
   expect(run.writes).toHaveLength(1);
 });
 test("U20 ADR-0008 巨大blocked重复过期停止自动刷新并提示缩小范围", async ({ page }) => {
@@ -227,9 +256,10 @@ test("U20 ADR-0008 巨大blocked重复过期停止自动刷新并提示缩小范
   });
   await part(page, "begin").click();
   await expect(part(page, "message")).toContainText("已停止自动重取");
-  await expect(part(page, "message")).toContainText("缩小已保存范围");
+  await expect(part(page, "message")).toContainText("缩小范围");
   expect(run.previews()).toBe(4);
   await expect(part(page, "confirmation")).toBeHidden();
+  await expect(part(page, "confirm")).toBeHidden();
   await expect(part(page, "preview")).not.toContainText("完整预览");
 });
 for (const shape of ["blocked", "missing", "empty_cursor"] as const)
@@ -249,6 +279,7 @@ for (const shape of ["blocked", "missing", "empty_cursor"] as const)
     await part(page, "begin").click();
     await expect(page.locator("#calendar-channel")).toHaveAttribute("aria-busy", "false");
     await expect(part(page, "confirmation")).toBeHidden();
+    await expect(part(page, "confirm")).toBeHidden();
     await expect(part(page, "confirm")).toBeDisabled();
   });
 test("U21a 守卫拦截保留地址，显示上次成功输出及联系重试", async ({ page }) => {
@@ -266,9 +297,13 @@ test("U21a 守卫拦截保留地址，显示上次成功输出及联系重试", 
   await expect(part(page, "output")).toContainText("已暂停更新以保护你现有的日历内容");
   await expect(part(page, "last-output")).toContainText("48");
   await expect(part(page, "address")).toContainText("有效");
-  await expect(page.getByRole("link", { name: "联系维护者", exact: false })).toBeVisible();
+  await expect(part(page, "guard")).toBeVisible();
+  await expect(part(page, "guard")).toContainText("不要重置链接或重新订阅");
+  await expect(
+    part(page, "guard").getByRole("link", { name: "反馈问题", exact: false }),
+  ).toBeVisible();
   await part(page, "refresh").click();
-  await expect(part(page, "message")).toContainText("已读取当前日历事实");
+  await expect(part(page, "message")).toContainText("已刷新日历状态");
   expect(run.writes).toHaveLength(0);
   expect(run.renewals()).toBe(0);
   await evidence(page, "integrity-blocked");
@@ -289,12 +324,12 @@ test("U20 重置响应丢失保留原键与代次，不生成第二次重置", a
     },
   });
   page.on("dialog", (dialog) => dialog.accept());
-  await page.getByText("管理日历地址", { exact: true }).click();
+  await openManage(page);
   await part(page, "reset").click();
-  await expect(part(page, "message")).toContainText("操作结果未知");
+  await expect(part(page, "message")).toContainText("操作结果暂时不确定");
   await expect(part(page, "reset")).toBeDisabled();
   await part(page, "retry").click();
-  await expect(part(page, "message")).toContainText("日历订阅地址已创建");
+  await expect(part(page, "message")).toContainText("已生成新的订阅链接");
   expect(run.writes[0]).toEqual(run.writes[1]);
   expect(view.token_generation).toBe(8);
   await expect.poll(run.renewals).toBe(1);
@@ -305,7 +340,7 @@ test("U20 停用不受草稿阻挡，再启用必须重新预览", async ({ page
   const run = await open(page, { view });
   await page.locator('input[name="games"][value="hsr"]').check();
   page.on("dialog", (dialog) => dialog.accept());
-  await page.getByText("管理日历地址", { exact: true }).click();
+  await openManage(page);
   await part(page, "disable").click();
   await expect(part(page, "address")).toContainText("已停用");
   expect(run.saves()).toBe(0);
@@ -331,10 +366,11 @@ test("U20 身份失效清除预览并丢弃迟到响应", async ({ page }) => {
   const wait = new Promise<void>((resolve) => {
     release = resolve;
   });
+  let responded: Promise<void> | undefined;
   const run = await open(page, {
-    preview: async (route) => {
-      await wait;
-      await route.fulfill({ json: syntheticPreview() }).catch(() => {});
+    preview: (route) => {
+      responded = wait.then(() => route.fulfill({ json: syntheticPreview() }).catch(() => {}));
+      return responded;
     },
   });
   await part(page, "begin").click();
@@ -344,27 +380,34 @@ test("U20 身份失效清除预览并丢弃迟到响应", async ({ page }) => {
       new CustomEvent("hoyo:draft-identity", { detail: { status: "unknown" } }),
     ),
   );
+  await expectPanelCleared(page);
   release?.();
-  await expect(page.locator("#calendar-channel")).toContainText("身份待确认");
-  await expect(part(page, "consent")).toHaveCount(0);
+  await responded;
+  await settle(page);
+  // 迟到的预览响应不能把已卸载的面板、预览或确认按钮恢复出来。
+  await expectPanelCleared(page);
   expect(run.renewals()).toBe(0);
+  expect(run.writes).toHaveLength(0);
 });
 test("U20 关闭日历提醒走保存状态机，地址不变且不清规则", async ({ page }) => {
   const view = syntheticView();
   view.address_state = "enabled";
   const run = await open(page, { view });
   page.on("dialog", (dialog) => dialog.accept());
-  await page.getByText("管理日历地址", { exact: true }).click();
+  await openManage(page);
   await part(page, "alarms").click();
-  await expect(part(page, "config")).toContainText("日历提醒关闭");
-  await expect(page.locator("#save-result")).toContainText("地址保持不变");
+  await expect(part(page, "config")).toContainText("日历提醒已关闭");
+  await expect(page.locator("#save-result")).toContainText("链接保持不变");
   await expect(page.locator('input[name="rule_ids"][value="limited_end_1d"]')).toBeChecked();
   expect(run.writes).toHaveLength(0);
   expect(run.saves()).toBe(1);
   await expect.poll(run.renewals).toBe(1);
   await part(page, "refresh").click();
-  await expect(part(page, "message")).toContainText("没有提交变更");
+  // 刷新文案不再写「没有提交变更」；改由网络计数证明刷新只读。
+  await expect(part(page, "message")).toContainText("已刷新日历状态");
   expect(run.renewals()).toBe(1);
+  expect(run.saves()).toBe(1);
+  expect(run.writes).toHaveLength(0);
 });
 
 test("U20 按需复制地址，不入页面和偏好、不续期、不冒充客户端已添加", async ({ page }) => {
@@ -379,14 +422,66 @@ test("U20 按需复制地址，不入页面和偏好、不续期、不冒充客�
     });
   });
   await part(page, "copy").click();
-  await expect(part(page, "message")).toContainText("地址已复制");
-  await expect(part(page, "message")).toContainText("不等于外部客户端已添加");
+  await expect(part(page, "message")).toContainText("链接已复制");
+  // 新文案不再附「不等于外部客户端已添加」；改为确认复制不改写客户端拉取事实、也不声称已添加。
+  await expect(part(page, "message")).not.toContainText("已添加");
+  await expect(part(page, "polling")).toHaveText("还没有日历应用拉取过");
+  // 复制成功时手动复制框保持隐藏且为空，地址不落入页面。
+  await expect(part(page, "manual")).toBeHidden();
+  await expect(part(page, "manual-input")).toHaveValue("");
   expect(await page.evaluate(() => document.body.innerHTML.includes("/feeds/u/"))).toBe(false);
   expect(
     await page.evaluate(() => JSON.stringify([localStorage, sessionStorage]).includes("/feeds/u/")),
   ).toBe(false);
   expect(run.renewals()).toBe(0);
   expect(run.writes).toHaveLength(0);
+});
+
+test("U20 剪贴板不可用时给出手动复制框：点击后才填入、聚焦全选，不入存储、身份失效即清除", async ({
+  page,
+}) => {
+  const view = syntheticView();
+  view.address_state = "enabled";
+  view.url = `https://example.invalid/feeds/u/${crypto.randomUUID()}.ics`;
+  const run = await open(page, { view });
+  await page.evaluate(() => {
+    Object.defineProperty(navigator, "clipboard", {
+      value: { writeText: async () => Promise.reject(new Error("synthetic clipboard denied")) },
+      configurable: true,
+    });
+  });
+  await expect(part(page, "manual")).toBeHidden();
+  await expect(part(page, "manual-input")).toHaveValue("");
+  await part(page, "copy").click();
+  await expect(part(page, "message")).toContainText("无法自动复制");
+  await expect(part(page, "manual")).toBeVisible();
+  await expect(part(page, "manual-input")).toHaveValue(view.url);
+  await expect(part(page, "manual-input")).toBeFocused();
+  expect(
+    await part(page, "manual-input").evaluate(
+      (input: HTMLInputElement) =>
+        input.selectionStart === 0 && input.selectionEnd === input.value.length,
+    ),
+  ).toBe(true);
+  // 地址只作为输入框的值，不写进标记、本机存储或偏好；也不冒充复制成功。
+  await expect(part(page, "message")).not.toContainText("已复制");
+  expect(await page.evaluate(() => document.body.innerHTML.includes("/feeds/u/"))).toBe(false);
+  expect(
+    await page.evaluate(() => JSON.stringify([localStorage, sessionStorage]).includes("/feeds/u/")),
+  ).toBe(false);
+  expect(run.renewals()).toBe(0);
+  expect(run.writes).toHaveLength(0);
+  await page.evaluate(() =>
+    document.dispatchEvent(
+      new CustomEvent("hoyo:draft-identity", { detail: { status: "unknown" } }),
+    ),
+  );
+  await expectPanelCleared(page);
+  expect(
+    await page.evaluate(() =>
+      [...document.querySelectorAll("input")].some((input) => input.value.includes("/feeds/u/")),
+    ),
+  ).toBe(false);
 });
 test("U20 首屏429也按错误体等待重试，不把空白当完整", async ({ page }) => {
   const run = await open(page, {
@@ -412,8 +507,9 @@ test("U20 服务端身份失效清除私人状态，不续期", async ({ page })
     }),
   );
   await part(page, "begin").click();
-  await expect(page.locator("#calendar-channel")).toContainText("身份待确认");
+  await expectPanelCleared(page);
   expect(run.renewals()).toBe(0);
+  expect(run.writes).toHaveLength(0);
 });
 test("U20 旧重置被后续操作替代时只核对状态，不重新换证", async ({ page }) => {
   const view = syntheticView();
@@ -426,7 +522,7 @@ test("U20 旧重置被后续操作替代时只核对状态，不重新换证", a
     },
   });
   page.on("dialog", (dialog) => dialog.accept());
-  await page.getByText("管理日历地址", { exact: true }).click();
+  await openManage(page);
   await part(page, "reset").click();
   await expect(page.locator("#calendar-channel")).toHaveAttribute("aria-busy", "false");
   await expect(part(page, "retry")).toBeHidden();
@@ -441,7 +537,7 @@ test("U20 管理返回畸形成功体保持未知且不续期", async ({ page })
   });
   await part(page, "begin").click();
   await confirm(page);
-  await expect(part(page, "message")).toContainText("操作结果未知");
+  await expect(part(page, "message")).toContainText("操作结果暂时不确定");
   await expect(part(page, "retry")).toBeVisible();
   expect(run.renewals()).toBe(0);
 });
@@ -460,7 +556,7 @@ test("U11 保存冲突不续期、不预览、不启用", async ({ page }) => {
   await page.locator('input[name="games"][value="hsr"]').check();
   await part(page, "begin").click();
   await part(page, "save").click();
-  await expect(part(page, "message")).toContainText("请先处理保存结果或冲突");
+  await expect(part(page, "message")).toContainText("请先处理保存结果");
   expect(run.renewals()).toBe(0);
   expect(run.previews()).toBe(0);
   expect(run.writes).toHaveLength(0);
@@ -521,11 +617,11 @@ for (const status of [500, 503])
       return route.fulfill({ json: view });
     });
     page.on("dialog", (dialog) => dialog.accept());
-    await page.getByText("管理日历地址", { exact: true }).click();
+    await openManage(page);
     await part(page, "reset").click();
     await expect(part(page, "retry")).toBeVisible();
     await expect(page.locator("#calendar-channel")).toHaveAttribute("aria-busy", "false");
-    await expect(part(page, "message")).toContainText("操作结果未知");
+    await expect(part(page, "message")).toContainText("操作结果暂时不确定");
     await expect(part(page, "reset")).toBeDisabled();
     expect(readsAfterWrite).toBe(1);
     expect(run.renewals()).toBe(0);
@@ -534,12 +630,12 @@ for (const status of [500, 503])
     expect(run.writes[0].body).toEqual({ confirmed: true, expected_generation: 7 });
     expect(run.writes[0].key).toBeTruthy();
     await part(page, "refresh").click();
-    await expect(part(page, "message")).toContainText("原操作结果仍须用同一操作键核对");
+    await expect(part(page, "message")).toContainText("原操作的结果仍需用同一操作核对");
     await expect(part(page, "reset")).toBeDisabled();
     expect(run.renewals()).toBe(0);
     await part(page, "retry").click();
     await expect(part(page, "retry")).toBeHidden();
-    await expect(part(page, "message")).toContainText("日历订阅地址已创建");
+    await expect(part(page, "message")).toContainText("已生成新的订阅链接");
     expect(run.writes).toHaveLength(2);
     expect(run.writes[1]).toEqual(run.writes[0]);
     expect(view.token_generation).toBe(8);
@@ -602,8 +698,9 @@ for (const mismatch of ["publication", "subscription"] as const)
     await expect(part(page, "preview")).toContainText("整轮重取的新活动");
     await expect(part(page, "preview").locator("li")).toHaveCount(1);
     await expect(part(page, "preview")).not.toContainText("合成活动");
-    await expect(part(page, "consent")).not.toBeChecked();
-    await expect(part(page, "confirm")).toBeDisabled();
+    // 没有同意勾选框：整轮重取后停在「确认启用」，必须再次显式点击，不自动提交。
+    await expect(page.locator("#calendar-channel")).toHaveAttribute("aria-busy", "false");
+    await expect(part(page, "confirm")).toBeVisible();
     expect(run.writes).toHaveLength(1);
     expect(run.renewals()).toBe(0);
     await confirm(page);
@@ -614,6 +711,8 @@ for (const mismatch of ["publication", "subscription"] as const)
       expected_revision: fresh.subscription.revision,
       publication_generation: fresh.publication.generation,
     });
+    expect(run.writes[1].key).toBeTruthy();
+    expect(run.writes[1].key).not.toBe(run.writes[0].key);
   });
 
 for (const entry of ["save", "alarms"] as const)
@@ -641,9 +740,17 @@ for (const entry of ["save", "alarms"] as const)
       const held = new Promise<void>((resolve) => {
         release = resolve;
       });
+      let markResponded: () => void = () => {};
+      const responded = new Promise<void>((resolve) => {
+        markResponded = resolve;
+      });
+      let reads = 0;
       await page.route("**/api/v2/me/subscription", async (route) => {
         const snapshot = () => ({ state: "initialized", revision: cloud.revision, config: cloud });
-        if (route.request().method() === "GET") return route.fulfill({ json: snapshot() });
+        if (route.request().method() === "GET") {
+          reads++;
+          return route.fulfill({ json: snapshot() });
+        }
         patches++;
         const submitted = route.request().postDataJSON();
         const next = { ...submitted.config, revision: submitted.expected_revision + 1 };
@@ -681,13 +788,14 @@ for (const entry of ["save", "alarms"] as const)
               saved: outcome !== "unsaved",
             },
           })
-          .catch(() => {});
+          .catch(() => {})
+          .finally(markResponded);
       });
       page.on("dialog", (dialog) => dialog.accept());
       if (entry === "save") {
         await page.locator('input[name="games"][value="hsr"]').check();
         await part(page, "begin").click();
-      } else await page.getByText("管理日历地址", { exact: true }).click();
+      } else await openManage(page);
       await part(page, entry).click();
       await expect.poll(() => patches).toBe(1);
       if (outcome === "old-identity") {
@@ -696,14 +804,25 @@ for (const entry of ["save", "alarms"] as const)
             new CustomEvent("hoyo:draft-identity", { detail: { status: "unknown" } }),
           ),
         );
+        await expectPanelCleared(page);
         release?.();
-        await expect(page.locator("#calendar-channel")).toContainText("身份待确认");
+        // 等旧身份的保存回执真正送达并处理完，再断言它没有触发续期或恢复面板。
+        await responded;
+        await settle(page);
+        await expectPanelCleared(page);
       } else {
         await expect(page.locator("#calendar-channel")).toHaveAttribute("aria-busy", "false");
         if (outcome === "lost") {
           await expect(page.locator("#save-result")).toContainText("已从云端确认");
-          await page.locator("#recheck-save").click();
-          await expect(page.locator("#cloud-state")).toContainText(`版本 ${cloud.revision}`);
+          // 新界面在云端确认保存后隐藏「重新读取」按钮；回到标签页会走同一条只读路径
+          // （machine.refresh → GET），用它再读一次云端，确认再次读取也不续期。
+          const before = reads;
+          await page.evaluate(() => document.dispatchEvent(new Event("visibilitychange")));
+          await expect.poll(() => reads).toBe(before + 1);
+          await expect(page.locator("#save-result")).toContainText("已读取云端设置");
+          // 已确认的云端版本显示在 #draft-state（#cloud-state 只显示保存阶段）。
+          await expect(page.locator("#draft-state")).toHaveText(`云端版本 ${cloud.revision}`);
+          await expect(page.locator("#cloud-state")).toHaveText("已保存到云端");
         }
       }
       expect(run.renewals()).toBe(0);

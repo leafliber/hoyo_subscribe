@@ -60,15 +60,21 @@ async function identity(page: Page, userId: string | null): Promise<void> {
   );
 }
 async function change(page: Page): Promise<void> {
-  if (!(await page.locator("#change-settings").getAttribute("open"))) {
-    // details.open 的空属性也是开启状态。
-    await page.locator("#change-settings").evaluate((node) => {
-      (node as HTMLDetailsElement).open = true;
-    });
-  }
+  // 变化通知开关始终可见，不再折叠在 details 里。
   await page.getByRole("checkbox", { name: "新事件公布" }).check();
 }
+// #cloud-state 现在是保存阶段胶囊；云端版本号显示在 #draft-state。
+async function expectCloudRevision(page: Page, revision: number): Promise<void> {
+  await expect(page.locator("#draft-state")).toHaveText(`云端版本 ${revision}`);
+}
+// 导入/导出入口收在默认折叠的「导入或导出设置」里。
+async function openLocalPreferences(page: Page): Promise<void> {
+  const details = page.locator("details.local-preferences");
+  if ((await details.getAttribute("open")) === null) await details.locator("summary").click();
+  await expect(details).toHaveAttribute("open", "");
+}
 async function upload(page: Page, value: unknown): Promise<void> {
+  await openLocalPreferences(page);
   await page.getByLabel("导入偏好 JSON").setInputFiles({
     name: "synthetic-preferences.json",
     mimeType: "application/json",
@@ -118,14 +124,16 @@ async function watchEffects(page: Page): Promise<string[]> {
 test("U18 游客离线修改持久化，联网只提示，刷新后比较草稿", async ({ page, context }, info) => {
   const writes = await watchEffects(page);
   await page.goto("/subscription");
-  await expect(page.locator("#local-draft-status")).toContainText("本机草稿就绪");
+  await expect(page.locator("#local-draft-status")).toHaveText("修改不会自动提交，需要点击保存。");
   await context.setOffline(true);
   await change(page);
-  await expect(page.locator("#local-draft-status")).toHaveText("离线：仅保存在本机，尚未同步。");
+  await expect(page.locator("#local-draft-status")).toHaveText(
+    "当前离线：修改已暂存在本机，联网后需要手动保存。",
+  );
   expect((await rows(page)).map((row) => row.key)).toEqual(["guest"]);
-  await page.getByRole("button", { name: "保存订阅" }).click();
+  // 游客没有云端保存入口：主按钮只准备续接并跳转登录页（见 subscription.spec），离线时不点击跳转。
   await context.setOffline(false);
-  await expect(page.locator("#local-draft-status")).toContainText("有待保存草稿");
+  await expect(page.locator("#local-draft-status")).toContainText("未保存的修改已暂存在本机");
   expect(writes).toEqual([]);
   expect(
     await page.evaluate(
@@ -142,17 +150,17 @@ test("U18 未确认身份不读私人缓存，A/B/游客互不串草稿，确认
   await session(page);
   await page.route("**/api/v2/me/subscription", (route) => route.fulfill({ json: snapshot() }));
   await page.goto("/subscription");
-  await expect(page.locator("#cloud-state")).toContainText("版本 1");
+  await expectCloudRevision(page, 1);
   await identity(page, "synthetic-user-a");
-  await expect(page.locator("#cloud-state")).toContainText("版本 1");
+  await expectCloudRevision(page, 1);
   await change(page);
-  await expect(page.locator("#local-draft-status")).toContainText("有待保存草稿");
+  await expect(page.locator("#local-draft-status")).toContainText("未保存的修改已暂存在本机");
   expect((await rows(page)).map((row) => row.key)).toEqual(["user:synthetic-user-a"]);
   await page.reload();
-  await expect(page.locator("#local-draft-status")).toContainText("尚未确认账号身份");
+  await expect(page.locator("#local-draft-status")).toContainText("正在确认账号身份");
   await expect(page.locator('input[name="new_event"]')).not.toBeChecked();
   await identity(page, "synthetic-user-b");
-  await expect(page.locator("#cloud-state")).toContainText("版本 1");
+  await expectCloudRevision(page, 1);
   await expect(page.locator("#save-comparison")).toBeHidden();
   await expect(page.locator('input[name="new_event"]')).not.toBeChecked();
   await identity(page, "synthetic-user-a");
@@ -160,10 +168,12 @@ test("U18 未确认身份不读私人缓存，A/B/游客互不串草稿，确认
   await expect(page.locator('input[name="new_event"]')).toBeChecked();
   await page.context().clearCookies();
   await page.evaluate(() => window.dispatchEvent(new Event("online")));
-  await expect(page.locator("#cloud-state")).toHaveText("身份待确认");
+  // 登录凭据已清除：如实显示为游客，原账号的版本与比较立即清空。
+  await expect(page.locator("#cloud-state")).toHaveText("未登录 · 设置仅保存在本机");
+  await expect(page.locator("#draft-state")).toHaveText("登录后可保存到云端");
   await expect(page.locator('input[name="new_event"]')).not.toBeChecked();
   await expect(page.locator("#save-comparison")).toBeHidden();
-  await expect(page.locator("#channel-saved-summary")).not.toContainText("版本 1");
+  await expect(page.locator("#channel-saved-summary")).not.toContainText("第 1 版");
 });
 
 for (const method of ["GET", "PATCH"]) {
@@ -193,16 +203,16 @@ for (const method of ["GET", "PATCH"]) {
       } else await route.fulfill({ json: snapshot() });
     });
     await page.goto("/subscription");
-    await expect(page.locator("#cloud-state")).toContainText("版本 1");
+    await expectCloudRevision(page, 1);
     await identity(page, "synthetic-user-a");
-    await expect(page.locator("#cloud-state")).toContainText("版本 1");
+    await expectCloudRevision(page, 1);
     await change(page);
-    await expect(page.locator("#local-draft-status")).toContainText("有待保存草稿");
+    await expect(page.locator("#local-draft-status")).toContainText("未保存的修改已暂存在本机");
     hold = true;
     await page.locator(method === "GET" ? "#recheck-save" : "#save-subscription").click();
     await started;
     await identity(page, "synthetic-user-b");
-    await expect(page.locator("#cloud-state")).toContainText("版本 1");
+    await expectCloudRevision(page, 1);
     const late = page.waitForResponse(
       (response) =>
         response.url().endsWith("/api/v2/me/subscription") &&
@@ -217,7 +227,7 @@ for (const method of ["GET", "PATCH"]) {
           requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
         ),
     );
-    await expect(page.locator("#cloud-state")).not.toContainText("99");
+    await expect(page.locator("#draft-state")).not.toContainText("99");
     await expect(page.locator('input[name="new_event"]')).not.toBeChecked();
     expect((await rows(page)).map((row) => row.key)).toEqual(["user:synthetic-user-a"]);
   });
@@ -226,19 +236,19 @@ for (const method of ["GET", "PATCH"]) {
 test("U18 存储失败不伪称已落盘，清空必选项的中间草稿可恢复", async ({ page }) => {
   await page.goto("/subscription");
   for (const checkbox of await page.locator('input[name="games"]').all()) await checkbox.uncheck();
-  await expect(page.locator("#local-draft-status")).toContainText("有待保存草稿");
+  await expect(page.locator("#local-draft-status")).toContainText("未保存的修改已暂存在本机");
   await page.reload();
   await expect(page.locator("#save-comparison")).toBeVisible();
   await expect(page.locator('input[name="games"]:checked')).toHaveCount(0);
-  await page.getByRole("button", { name: "保留草稿，返回编辑" }).click();
+  await page.getByRole("button", { name: "保留我的修改" }).click();
   await page.evaluate(() => {
     indexedDB.open = () => {
       throw new Error("synthetic-storage-failure");
     };
   });
   await change(page);
-  await expect(page.locator("#local-draft-status")).toContainText("无法保存本机草稿");
-  await expect(page.locator("#local-draft-status")).not.toContainText("仅保存在本机");
+  await expect(page.locator("#local-draft-status")).toContainText("无法暂存本机草稿");
+  await expect(page.locator("#local-draft-status")).not.toContainText("已暂存在本机");
 });
 
 test("U18 缓存策略仅接受精确白名单公开资源，拒绝私人请求", () => {
@@ -280,7 +290,7 @@ test("U19 P2-07 导入生成四组比较草稿，空提醒合法，显式保存�
     }
   });
   await page.goto("/subscription");
-  await expect(page.locator("#cloud-state")).toContainText("版本 1");
+  await expectCloudRevision(page, 1);
   await upload(
     page,
     preferences({
@@ -301,9 +311,9 @@ test("U19 P2-07 导入生成四组比较草稿，空提醒合法，显式保存�
   ).toBe(0);
   await expect(page.getByRole("button", { name: "保存订阅" })).toBeDisabled();
   await page.screenshot({ path: info.outputPath("import-comparison.png"), fullPage: true });
-  await page.getByRole("button", { name: "保留草稿，返回编辑" }).click();
+  await page.getByRole("button", { name: "保留我的修改" }).click();
   await page.getByRole("button", { name: "保存订阅" }).click();
-  await expect(page.locator("#cloud-state")).toContainText("版本 2");
+  await expectCloudRevision(page, 2);
   expect(bodies).toHaveLength(1);
   expect(bodies[0].expected_revision).toBe(1);
   expect(bodies[0].config).not.toHaveProperty("revision");
@@ -336,6 +346,7 @@ test("U19 错误文件与秘密字段拒绝，uninitialized 不制造默认配�
 test("U19 导出下载只含白名单，规范化后可回读，无身份和通道字段", async ({ page }) => {
   await page.goto("/subscription");
   await change(page);
+  await openLocalPreferences(page);
   const download = page.waitForEvent("download");
   await page.getByRole("button", { name: "导出当前偏好" }).click();
   const path = await (await download).path();
@@ -369,19 +380,20 @@ test("U18 身份切换广播只使其他标签失效，不传身份或自动读�
     return route.fulfill({ json: snapshot() });
   });
   await page.goto("/subscription");
-  await expect(page.locator("#cloud-state")).toContainText("版本 1");
+  await expectCloudRevision(page, 1);
   await identity(page, "synthetic-user-a");
-  await expect(page.locator("#cloud-state")).toContainText("版本 1");
+  await expectCloudRevision(page, 1);
   await change(page);
-  await expect(page.locator("#local-draft-status")).toContainText("有待保存草稿");
+  await expect(page.locator("#local-draft-status")).toContainText("未保存的修改已暂存在本机");
   const second = await context.newPage();
   await second.goto("/subscription");
-  await expect(second.locator("#cloud-state")).toContainText("版本 1");
+  await expectCloudRevision(second, 1);
   const before = reads;
   await identity(second, null);
-  await expect(page.locator("#cloud-state")).toHaveText("身份待确认");
+  await expect(page.locator("#cloud-state")).toHaveText("登录状态待确认");
+  await expect(page.locator("#draft-state")).not.toContainText("版本 1");
   await expect(page.locator('input[name="new_event"]')).not.toBeChecked();
-  await expect(page.locator("#local-draft-status")).toContainText("尚未确认账号身份");
+  await expect(page.locator("#local-draft-status")).toContainText("正在确认账号身份");
   expect(reads).toBe(before);
 });
 
@@ -389,9 +401,9 @@ test("U19 导入文件的迟到读取在身份切换后丢弃", async ({ page })
   await session(page);
   await page.route("**/api/v2/me/subscription", (route) => route.fulfill({ json: snapshot() }));
   await page.goto("/subscription");
-  await expect(page.locator("#cloud-state")).toContainText("版本 1");
+  await expectCloudRevision(page, 1);
   await identity(page, "synthetic-user-a");
-  await expect(page.locator("#cloud-state")).toContainText("版本 1");
+  await expectCloudRevision(page, 1);
   await page.evaluate(() => {
     const original = File.prototype.text;
     File.prototype.text = async function () {
@@ -414,7 +426,7 @@ test("U19 导入文件的迟到读取在身份切换后丢弃", async ({ page })
     )
     .toBe("function");
   await identity(page, "synthetic-user-b");
-  await expect(page.locator("#cloud-state")).toContainText("版本 1");
+  await expectCloudRevision(page, 1);
   await page.evaluate(() =>
     (window as unknown as { releaseDraftFile: () => void }).releaseDraftFile(),
   );
@@ -482,16 +494,21 @@ test("U18 返工：已登录离线草稿按 /me 身份落盘，联网只提示�
     return route.fulfill({ json: snapshot({ ...body.config, revision: 2 }) });
   });
   await page.goto("/subscription");
-  await expect(page.locator("#cloud-state")).toContainText("版本 1");
-  expect(reads).toEqual(["me", "subscription"]);
+  await expectCloudRevision(page, 1);
+  // 订阅只读一次，且在身份确认之后；此前的两次 /me 是页头账号入口的只读核对与草稿/云端流程共用的
+  // 一次身份读取（日历面板挂载后自己的只读 /me 发生在订阅读取之后）。
+  expect(reads.filter((read) => read === "subscription")).toEqual(["subscription"]);
+  expect(reads.slice(0, reads.indexOf("subscription"))).toEqual(["me", "me"]);
   await context.setOffline(true);
   await change(page);
-  await expect(page.locator("#local-draft-status")).toHaveText("离线：仅保存在本机，尚未同步。");
+  await expect(page.locator("#local-draft-status")).toHaveText(
+    "当前离线：修改已暂存在本机，联网后需要手动保存。",
+  );
   const stored = await rows(page);
   expect(stored.map((row) => row.key)).toEqual(["user:synthetic-account-a"]);
   expect(JSON.stringify(stored[0].value)).not.toContain("synthetic-account-a");
   await context.setOffline(false);
-  await expect(page.locator("#local-draft-status")).toContainText("有待保存草稿");
+  await expect(page.locator("#local-draft-status")).toContainText("未保存的修改已暂存在本机");
   await drainBrowser(page);
   expect(writes).toEqual([]);
   expect(
@@ -501,9 +518,10 @@ test("U18 返工：已登录离线草稿按 /me 身份落盘，联网只提示�
   ).toBe(0);
   await expect(page.locator('input[name="new_event"]')).toBeChecked();
   await page.getByRole("button", { name: "保存订阅" }).click();
-  await expect(page.locator("#cloud-state")).toContainText("版本 2");
+  await expectCloudRevision(page, 2);
   expect(writes).toEqual(["PATCH"]);
   await expect.poll(() => rows(page)).toEqual([]);
+  await openLocalPreferences(page);
   const download = page.waitForEvent("download");
   await page.getByRole("button", { name: "导出当前偏好" }).click();
   const path = await (await download).path();
@@ -537,14 +555,16 @@ for (const failure of [
     });
     await page.route("**/api/v2/me/subscription", (route) => route.fulfill({ json: snapshot() }));
     await page.goto("/subscription");
-    await expect(page.locator("#cloud-state")).toContainText("版本 1");
+    await expectCloudRevision(page, 1);
     await change(page);
-    await expect(page.locator("#local-draft-status")).toContainText("尚未确认账号身份");
+    await expect(page.locator("#local-draft-status")).toContainText("正在确认账号身份");
     await drainBrowser(page);
     expect(await rows(page)).toEqual([]);
     await page.context().clearCookies();
     await page.reload();
-    await expect(page.locator("#local-draft-status")).toContainText("本机草稿就绪");
+    await expect(page.locator("#local-draft-status")).toHaveText(
+      "修改不会自动提交，需要点击保存。",
+    );
     await expect(page.locator('input[name="new_event"]')).not.toBeChecked();
     await expect(page.locator("#save-comparison")).toBeHidden();
     expect(await rows(page)).toEqual([]);
@@ -559,9 +579,9 @@ test("U18 返工：账号本机读取迟到不覆盖读取期间的新编辑", a
   );
   await page.route("**/api/v2/me/subscription", (route) => route.fulfill({ json: snapshot() }));
   await page.goto("/subscription");
-  await expect(page.locator("#cloud-state")).toContainText("版本 1");
+  await expectCloudRevision(page, 1);
   await change(page);
-  await expect(page.locator("#local-draft-status")).toContainText("有待保存草稿");
+  await expect(page.locator("#local-draft-status")).toContainText("未保存的修改已暂存在本机");
   // 延迟真实 IndexedDB get 的成功回调，保留真实事务、记录与写入顺序。
   await page.addInitScript(() => {
     const get = IDBObjectStore.prototype.get;
@@ -588,15 +608,14 @@ test("U18 返工：账号本机读取迟到不覆盖读取期间的新编辑", a
       ),
     )
     .toBe("function");
-  await expect(page.locator("#cloud-state")).toContainText("版本 1");
-  await page.locator("#calendar-settings summary").click();
-  await page.getByRole("checkbox", { name: "日历提醒" }).uncheck();
+  await expectCloudRevision(page, 1);
+  await page.getByRole("checkbox", { name: "在日历中提醒我" }).uncheck();
   await page.evaluate(() =>
     (window as unknown as { releaseDraftRead: () => void }).releaseDraftRead(),
   );
-  await expect(page.locator("#local-draft-status")).toContainText("有待保存草稿");
+  await expect(page.locator("#local-draft-status")).toContainText("未保存的修改已暂存在本机");
   await drainBrowser(page);
-  await expect(page.getByRole("checkbox", { name: "日历提醒" })).not.toBeChecked();
+  await expect(page.getByRole("checkbox", { name: "在日历中提醒我" })).not.toBeChecked();
   await expect(page.locator('input[name="new_event"]')).not.toBeChecked();
   await expect(page.locator("#save-comparison")).toBeHidden();
   expect((await rows(page))[0].value).toMatchObject({
@@ -621,18 +640,18 @@ test("U18 返工：A 草稿对 B 与 401 游客不可见，/me 再次确认 A �
     return route.fulfill({ json: snapshot() });
   });
   await page.goto("/subscription");
-  await expect(page.locator("#cloud-state")).toContainText("版本 1");
+  await expectCloudRevision(page, 1);
   await change(page);
-  await expect(page.locator("#local-draft-status")).toContainText("有待保存草稿");
+  await expect(page.locator("#local-draft-status")).toContainText("未保存的修改已暂存在本机");
   currentId = "synthetic-account-b";
   await page.reload();
-  await expect(page.locator("#cloud-state")).toContainText("版本 1");
-  await expect(page.locator("#local-draft-status")).toContainText("本机草稿就绪");
+  await expectCloudRevision(page, 1);
+  await expect(page.locator("#local-draft-status")).toHaveText("修改不会自动提交，需要点击保存。");
   await expect(page.locator('input[name="new_event"]')).not.toBeChecked();
   currentId = null;
   const beforeGuest = reads;
   await page.reload();
-  await expect(page.locator("#local-draft-status")).toContainText("本机草稿就绪");
+  await expect(page.locator("#local-draft-status")).toHaveText("修改不会自动提交，需要点击保存。");
   await expect(page.locator('input[name="new_event"]')).not.toBeChecked();
   expect(reads).toBe(beforeGuest);
   await expect(page.locator("#save-comparison")).toBeHidden();
@@ -665,21 +684,24 @@ test("U18 返工：/me 确认期间的编辑保留且迟到身份不跨账号", 
   release?.();
   await expect(page.locator("#save-comparison")).toBeVisible();
   await expect(page.locator('input[name="new_event"]')).toBeChecked();
-  await expect(page.locator("#local-draft-status")).toContainText("有待保存草稿");
+  await expect(page.locator("#local-draft-status")).toContainText("未保存的修改已暂存在本机");
   hold = false;
-  // 另一条独立延迟响应覆盖未知身份的生命周期防线。
+  // 另一条独立延迟响应覆盖未知身份的生命周期防线。页头账号入口同样只读 /me，
+  // 因此挂起全部 /me 读取并一起放行，确保迟到的身份读取确实送达。
+  const heldReads: Array<() => void> = [];
+  let answered = 0;
   await page.route("**/api/v2/me", async (route) => {
-    await new Promise<void>((resolve) => {
-      release = resolve;
-    });
+    await new Promise<void>((resolve) => heldReads.push(resolve));
     await route.fulfill({ json: accountSummary("synthetic-account-a") });
+    answered += 1;
   });
   await page.reload();
   await identity(page, null);
-  const response = page.waitForResponse((response) => response.url().endsWith("/api/v2/me"));
-  release?.();
-  await response;
+  await expect.poll(() => heldReads.length).toBeGreaterThanOrEqual(2);
+  const released = heldReads.length;
+  for (const resolve of heldReads.splice(0)) resolve();
+  await expect.poll(() => answered).toBeGreaterThanOrEqual(released);
   await drainBrowser(page);
-  await expect(page.locator("#local-draft-status")).toContainText("尚未确认账号身份");
+  await expect(page.locator("#local-draft-status")).toContainText("正在确认账号身份");
   await expect(page.locator('input[name="new_event"]')).not.toBeChecked();
 });

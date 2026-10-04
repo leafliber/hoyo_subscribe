@@ -1,0 +1,107 @@
+/* Worker 直接输出的退订确认页样式（无脚本页面）。只引用 tokens.css 变量。
+   构建时与 tokens.css 拼成固定路径 /mail-page.css，见 pages/mail-page.css.ts。 */
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html {
+  font-family: var(--font-family-body);
+  font-size: var(--font-size-body);
+  line-height: 1.6;
+  color: var(--color-text-primary);
+  background: var(--color-bg-page);
+  -webkit-text-size-adjust: 100%;
+}
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+header {
+  border-bottom: var(--border-thin) solid var(--color-border);
+  background: var(--color-bg-surface);
+}
+
+header p {
+  max-width: 560px;
+  margin: 0 auto;
+  padding: var(--space-4);
+  font-weight: 700;
+}
+
+main {
+  flex: 1;
+  width: 100%;
+  max-width: 560px;
+  margin: 0 auto;
+  padding: var(--space-6) var(--space-4);
+}
+
+.mail-card {
+  padding: var(--space-6);
+  border: var(--border-thin) solid var(--color-border);
+  border-radius: var(--radius-card);
+  background: var(--color-bg-surface);
+  box-shadow: var(--shadow-sm);
+}
+
+h1 {
+  margin: 0 0 var(--space-3);
+  font-size: var(--font-size-section);
+  line-height: 1.3;
+}
+
+p {
+  margin: 0 0 var(--space-3);
+  color: var(--color-text-secondary);
+}
+
+.mail-note {
+  padding: var(--space-3) var(--space-4);
+  border: var(--border-thin) solid var(--color-accent-border);
+  border-radius: 10px;
+  background: var(--color-accent-soft);
+  color: var(--color-text-primary);
+  font-size: var(--font-size-aux);
+}
+
+form {
+  margin-top: var(--space-5);
+}
+
+button {
+  width: 100%;
+  min-height: var(--tap-target-min);
+  padding: var(--space-2) var(--space-5);
+  border: var(--border-thin) solid var(--color-danger);
+  border-radius: var(--radius-control);
+  background: var(--color-danger);
+  color: var(--color-on-accent);
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+button:hover {
+  background: var(--color-danger-strong);
+}
+
+button:focus-visible,
+a:focus-visible {
+  outline: 2px solid var(--color-focus-ring);
+  outline-offset: 2px;
+}
+
+a {
+  color: var(--color-accent);
+}
+
+.mail-links {
+  margin: var(--space-5) 0 0;
+  font-size: var(--font-size-aux);
+}

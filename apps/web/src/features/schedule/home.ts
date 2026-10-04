@@ -7,33 +7,68 @@ import {
   NODE_NAMES,
   parseBrowseFilters,
 } from "@hoyo/contracts";
+import { clock, relative, remaining } from "../../lib/format";
 import { ScheduleLoader } from "./load";
-import { renderResults } from "./render";
+import { HOME_RANGES, homeRange } from "./ranges";
+import { countdownValue, renderAside, renderEndingSoon, renderResults, urgency } from "./render";
 
 const form = document.querySelector<HTMLFormElement>("#browse-filters");
 const results = document.querySelector<HTMLElement>("#schedule-results");
+const aside = document.querySelector<HTMLElement>("#schedule-aside-dynamic");
+const ending = document.querySelector<HTMLElement>("#ending-soon");
+const pageRoot = document.querySelector<HTMLElement>(".schedule-page");
+
+/** 白名单解析后再把已下线的档位映射到首页档位（旧链接 range=90d → 全部）。 */
+function readFilters(params: URLSearchParams) {
+  const filters = parseBrowseFilters(params);
+  filters.range = homeRange(filters.range);
+  return filters;
+}
+
+const reducedMotion = () => matchMedia("(prefers-reduced-motion: reduce)").matches;
+
 if (form && results) {
   const filterForm = form;
   const output = results;
-  let filters = parseBrowseFilters(new URLSearchParams(location.search));
+  let filters = readFilters(new URLSearchParams(location.search));
   let restoreScroll: number | null =
     typeof history.state?.schedule?.scroll === "number" ? history.state.schedule.scroll : null;
-  const moreFilters = document.querySelector<HTMLDetailsElement>("#more-filters");
-  if (moreFilters && typeof history.state?.schedule?.more === "boolean")
-    moreFilters.open = history.state.schedule.more;
   window.addEventListener("pagehide", () =>
-    history.replaceState(
-      { schedule: { scroll: scrollY, more: moreFilters?.open ?? false } },
-      "",
-      location.href,
-    ),
+    history.replaceState({ schedule: { scroll: scrollY } }, "", location.href),
   );
   let wake: ReturnType<typeof setTimeout> | undefined;
   const loader = new ScheduleLoader(render);
-  function render() {
-    const opened = [...output.querySelectorAll<HTMLDetailsElement>("details[open]")].map(
+  /** 已经展示过的条目：只有新出现的条目播放入场动效，加载续页或刷新时旧条目不闪动。 */
+  let shownRows = new Set<string>();
+  let shownCards = new Set<string>();
+
+  function openDisclosures(root: HTMLElement): string[] {
+    return [...root.querySelectorAll<HTMLDetailsElement>("details[open]")].map(
       (item) => item.dataset.disclosure ?? item.className,
     );
+  }
+  function restoreDisclosures(root: HTMLElement, opened: string[]): void {
+    for (const detail of root.querySelectorAll<HTMLDetailsElement>("details"))
+      if (opened.includes(detail.dataset.disclosure ?? detail.className)) detail.open = true;
+  }
+  function markEntering(root: ParentNode, attribute: string, previous: Set<string>): Set<string> {
+    const current = new Set<string>();
+    let order = 0;
+    for (const item of root.querySelectorAll<HTMLElement>(`[${attribute}]`)) {
+      const id = item.getAttribute(attribute);
+      if (!id) continue;
+      current.add(id);
+      if (previous.has(id)) continue;
+      item.classList.add("is-entering");
+      item.style.setProperty("--enter-delay", `${Math.min(order, 10) * 45}ms`);
+      order++;
+    }
+    return current;
+  }
+
+  function render() {
+    const opened = openDisclosures(output);
+    const asideOpened = aside ? openDisclosures(aside) : [];
     const focusKey =
       document.activeElement instanceof HTMLElement
         ? document.activeElement.dataset.focus
@@ -44,17 +79,33 @@ if (form && results) {
         : undefined;
     output.replaceChildren(renderResults(loader.state, filters));
     output.setAttribute("aria-busy", String(loader.state.phase === "loading"));
-    for (const detail of output.querySelectorAll<HTMLDetailsElement>("details"))
-      if (opened.includes(detail.dataset.disclosure ?? detail.className)) detail.open = true;
+    restoreDisclosures(output, opened);
+    shownRows = markEntering(output, "data-node", shownRows);
+    if (ending) {
+      const parts = renderEndingSoon(loader.state, filters);
+      ending.hidden = parts === null;
+      ending.setAttribute(
+        "aria-busy",
+        String(loader.state.phase === "loading" && loader.state.pages.length === 0),
+      );
+      if (parts) ending.replaceChildren(...parts);
+      shownCards = markEntering(ending, "data-ending", parts ? shownCards : new Set());
+    }
+    if (aside) {
+      aside.replaceChildren(renderAside(loader.state, filters));
+      restoreDisclosures(aside, asideOpened);
+    }
     if (active)
-      output
-        .querySelector<HTMLElement>(`[data-action="${active}"]`)
+      pageRoot
+        ?.querySelector<HTMLElement>(`[data-action="${active}"]`)
         ?.focus({ preventScroll: true });
     if (focusKey)
       output
         .querySelector<HTMLElement>(`[data-focus="${CSS.escape(focusKey)}"]`)
         ?.focus({ preventScroll: true });
-    for (const action of output.querySelectorAll<HTMLButtonElement>('[data-action="refresh"]'))
+    for (const action of document.querySelectorAll<HTMLButtonElement>(
+      '.schedule-layout [data-action="refresh"]',
+    ))
       action.disabled = loader.state.phase === "loading" || Date.now() < loader.state.retryAt;
     if (restoreScroll !== null && loader.state.phase === "ready") {
       const position = restoreScroll;
@@ -68,7 +119,7 @@ if (form && results) {
           ? "正在加载公开日程。"
           : loader.state.phase === "failed"
             ? "加载失败，已有条目保留，可重试。"
-            : "已显示完当前范围。浏览筛选不改变已保存订阅。";
+            : "已显示完当前范围。";
     clearTimeout(wake);
     const deadlines = [
       ...loader.state.pages.map((page) => page.cache.freshUntil + 1),
@@ -79,6 +130,114 @@ if (form && results) {
     ].filter((time) => time > Date.now());
     if (deadlines.length) wake = setTimeout(render, Math.min(...deadlines) - Date.now());
   }
+
+  /** 每分钟：相对时间文字、过去/未来分界与「现在」标记；不重建列表、不发请求。 */
+  function tick() {
+    const now = Date.now();
+    for (const node of document.querySelectorAll<HTMLElement>("[data-relative-to]")) {
+      const target = Number(node.dataset.relativeTo);
+      if (!Number.isFinite(target)) continue;
+      const text =
+        node.dataset.relativeMode === "remaining" && target > now
+          ? remaining(target, now)
+          : relative(target, now);
+      if (text && node.textContent !== text) node.textContent = text;
+    }
+    for (const row of output.querySelectorAll<HTMLElement>(".schedule-node[data-time]"))
+      row.classList.toggle("is-past", Number(row.dataset.time) <= now);
+    for (const marker of output.querySelectorAll<HTMLElement>(".now-marker")) {
+      const label = marker.querySelector<HTMLElement>("[data-now-clock]");
+      if (label) label.textContent = clock(now);
+      const list = marker.parentElement;
+      if (!list) continue;
+      const next = [...list.querySelectorAll<HTMLElement>(":scope > [data-time]")].find(
+        (row) => Number(row.dataset.time) > now,
+      );
+      if (next && marker.nextElementSibling !== next) list.insertBefore(marker, next);
+      if (!next && list.lastElementChild !== marker) list.append(marker);
+    }
+  }
+  /** 每秒：只更新倒计时数字与紧迫程度；有条目到点时整体重绘一次，把它移出「即将截止」。 */
+  function tickCountdowns() {
+    const now = Date.now();
+    let expired = false;
+    for (const value of document.querySelectorAll<HTMLElement>("[data-countdown-to]")) {
+      const target = Number(value.dataset.countdownTo);
+      if (!Number.isFinite(target)) continue;
+      if (target <= now) {
+        expired = true;
+        continue;
+      }
+      const parts = countdownValue(target, now);
+      const text = parts.map((part) => part.textContent).join("");
+      if (value.textContent !== text) value.replaceChildren(...parts);
+      const card = value.closest<HTMLElement>(".ending-card");
+      const level = `is-${urgency(target, now)}`;
+      if (card && !card.classList.contains(level)) {
+        card.classList.remove("is-critical", "is-urgent", "is-soon", "is-later");
+        card.classList.add(level);
+      }
+    }
+    if (expired) render();
+  }
+  let lastMinute = Math.floor(Date.now() / 60_000);
+  setInterval(() => {
+    tickCountdowns();
+    const minute = Math.floor(Date.now() / 60_000);
+    if (minute !== lastMinute) {
+      lastMinute = minute;
+      tick();
+    }
+  }, 1000);
+
+  function isDefault(): boolean {
+    return browseSearch(filters) === "";
+  }
+
+  /** 时间范围的滑块：量出选中项的位置，交给 CSS 过渡；首次定位不播放动画。 */
+  const rangeGroup = filterForm.querySelector<HTMLElement>(".range-options");
+  function placeThumb() {
+    const checked = rangeGroup
+      ?.querySelector<HTMLInputElement>('input[name="range"]:checked')
+      ?.closest<HTMLElement>("label");
+    if (!rangeGroup || !checked?.offsetWidth) return;
+    rangeGroup.style.setProperty("--thumb-x", `${checked.offsetLeft}px`);
+    rangeGroup.style.setProperty("--thumb-w", `${checked.offsetWidth}px`);
+    if (!rangeGroup.classList.contains("has-thumb")) {
+      rangeGroup.classList.add("has-thumb");
+      requestAnimationFrame(() =>
+        requestAnimationFrame(() => rangeGroup.classList.add("thumb-ready")),
+      );
+    }
+  }
+  window.addEventListener("resize", placeThumb);
+  void document.fonts?.ready.then(placeThumb);
+
+  /** 筛选栏：吸顶时显示毛玻璃底；单行放不下时按滚动位置给两端加渐隐提示。 */
+  const scroller = filterForm.querySelector<HTMLElement>(".filter-scroller");
+  let frame = 0;
+  function measureBar() {
+    frame = 0;
+    const header = document.querySelector<HTMLElement>(".app-header")?.offsetHeight ?? 0;
+    filterForm.classList.toggle(
+      "is-stuck",
+      scrollY > 0 && filterForm.getBoundingClientRect().top <= header + 0.5,
+    );
+    if (scroller) {
+      const end = scroller.scrollWidth - scroller.clientWidth - scroller.scrollLeft;
+      scroller.classList.toggle("fade-start", scroller.scrollLeft > 4);
+      scroller.classList.toggle("fade-end", end > 4);
+    }
+  }
+  const scheduleMeasure = () => {
+    if (frame) return;
+    frame = requestAnimationFrame(measureBar);
+  };
+  window.addEventListener("scroll", scheduleMeasure, { passive: true });
+  window.addEventListener("resize", scheduleMeasure);
+  scroller?.addEventListener("scroll", scheduleMeasure, { passive: true });
+  scheduleMeasure();
+
   function updateControls() {
     history.replaceState(
       history.state,
@@ -86,15 +245,29 @@ if (form && results) {
       `${location.pathname}${browseSearch(filters) ? `?${browseSearch(filters)}` : ""}`,
     );
     const summary = document.getElementById("browse-summary");
-    if (summary)
-      summary.textContent = `${filters.games.map((g) => GAME_NAMES[g]).join("、") || "未选择游戏"} · ${BROWSE_RANGES.find((r) => r.id === filters.range)?.label}${filters.ending ? " · 临近截止" : ""}`;
+    if (summary) {
+      const games =
+        filters.games.length === 0
+          ? "未选择游戏"
+          : filters.games.length === 3
+            ? "全部游戏"
+            : filters.games.map((g) => GAME_NAMES[g]).join("、");
+      summary.textContent = `${games} · ${BROWSE_RANGES.find((r) => r.id === filters.range)?.label}${filters.ending ? " · 只看截止" : ""}`;
+    }
+    const reset = document.getElementById("reset-filters");
+    if (reset) reset.hidden = isDefault();
     const more = document.getElementById("more-summary");
-    if (more)
-      more.textContent =
-        [
-          ...filters.events.map((v) => EVENT_NAMES[v]),
-          ...filters.nodes.map((v) => NODE_NAMES[v]),
-        ].join("、") || "事件类型、节点类型";
+    const selected = [
+      ...filters.events.map((v) => EVENT_NAMES[v]),
+      ...filters.nodes.map((v) => NODE_NAMES[v]),
+    ];
+    if (more) {
+      more.textContent = selected.length ? `${selected.length}` : "";
+      more.hidden = selected.length === 0;
+      more.title = selected.join("、");
+    }
+    const moreClear = document.getElementById("more-clear");
+    if (moreClear instanceof HTMLButtonElement) moreClear.disabled = selected.length === 0;
     for (const input of filterForm.querySelectorAll<HTMLInputElement>("input")) {
       input.checked =
         input.name === "range"
@@ -105,6 +278,7 @@ if (form && results) {
                 (value) => value === input.value,
               );
     }
+    placeThumb();
   }
   function update(remote = true) {
     updateControls();
@@ -118,7 +292,7 @@ if (form && results) {
     for (const key of ["games", "events", "nodes"]) params.set(key, data.getAll(key).join(","));
     params.set("range", String(data.get("range") ?? ""));
     params.set("ending", String(data.get("ending") ?? ""));
-    filters = parseBrowseFilters(params);
+    filters = readFilters(params);
     update(
       event.target instanceof HTMLInputElement && ["games", "range"].includes(event.target.name),
     );
@@ -127,21 +301,79 @@ if (form && results) {
     filters = defaultBrowseFilters();
     update();
   }
-  document.getElementById("reset-filters")?.addEventListener("click", reset);
-  output.addEventListener("click", (event) => {
+  document.getElementById("reset-filters")?.addEventListener("click", () => {
+    reset();
+    filterForm.querySelector<HTMLInputElement>('input[name="games"]')?.focus();
+  });
+  document.getElementById("more-clear")?.addEventListener("click", () => {
+    filters = { ...filters, events: [], nodes: [] };
+    update(false);
+  });
+
+  // 「更多筛选」：浏览器顶层弹层（不会被横向滚动的筛选栏裁掉）。桌面端贴在按钮下方，
+  // 窄屏由 CSS 呈现为底部面板。轻点外部或 Esc 关闭由浏览器处理。
+  const morePanel = document.getElementById("more-filters");
+  const moreToggle = document.getElementById("more-filters-toggle");
+  const popoverSupported = typeof HTMLElement.prototype.togglePopover === "function";
+  function placeMore() {
+    if (!morePanel || !moreToggle) return;
+    if (matchMedia("(max-width: 640px)").matches) {
+      morePanel.style.removeProperty("top");
+      morePanel.style.removeProperty("left");
+      return;
+    }
+    const rect = moreToggle.getBoundingClientRect();
+    const width = Math.min(380, innerWidth - 32);
+    morePanel.style.top = `${Math.round(rect.bottom + 8)}px`;
+    morePanel.style.left = `${Math.round(Math.max(16, Math.min(rect.right - width, innerWidth - width - 16)))}px`;
+  }
+  if (morePanel && moreToggle && popoverSupported) {
+    morePanel.addEventListener("beforetoggle", (event) => {
+      if ((event as ToggleEvent).newState === "open") placeMore();
+    });
+    morePanel.addEventListener("toggle", (event) => {
+      moreToggle.setAttribute("aria-expanded", String((event as ToggleEvent).newState === "open"));
+    });
+    const follow = () => {
+      if (morePanel.matches(":popover-open")) placeMore();
+    };
+    window.addEventListener("resize", follow);
+    window.addEventListener("scroll", follow, { passive: true });
+  } else if (morePanel && moreToggle) {
+    // 不支持顶层弹层的旧浏览器：退化为按钮下方的普通展开区。
+    morePanel.hidden = true;
+    morePanel.classList.add("is-fallback");
+    filterForm.classList.add("no-popover");
+    const toggle = (open: boolean) => {
+      morePanel.hidden = !open;
+      moreToggle.setAttribute("aria-expanded", String(open));
+    };
+    moreToggle.addEventListener("click", () => toggle(Boolean(morePanel.hidden)));
+    for (const close of morePanel.querySelectorAll("[popovertargetaction='hide']"))
+      close.addEventListener("click", () => toggle(false));
+  }
+
+  pageRoot?.addEventListener("click", (event) => {
     const target =
       event.target instanceof Element ? event.target.closest<HTMLElement>("[data-action]") : null;
     if (target?.dataset.action === "reset") {
       reset();
-      document.getElementById("reset-filters")?.focus();
+      filterForm.querySelector<HTMLInputElement>('input[name="games"]')?.focus();
     }
     if (target?.dataset.action === "widen") {
-      const range = BROWSE_RANGES.find((range) => range.id === target.dataset.range);
+      const range = HOME_RANGES.find((item) => item.id === target.dataset.range);
       if (range) {
         filters.range = range.id;
         update();
         filterForm.querySelector<HTMLInputElement>('input[name="range"]:checked')?.focus();
       }
+    }
+    if (target?.dataset.action === "ending-all") {
+      filters.ending = true;
+      update(false);
+      const heading = document.getElementById("timeline-title");
+      heading?.scrollIntoView({ behavior: reducedMotion() ? "auto" : "smooth", block: "start" });
+      heading?.focus({ preventScroll: true });
     }
     if (target?.dataset.action === "retry") loader.retry();
     if (target?.dataset.action === "refresh" && loader.state.phase !== "loading")
@@ -153,10 +385,13 @@ if (form && results) {
     if (loader.state.pages.length) render();
   });
   document.addEventListener("visibilitychange", () => {
-    if (!document.hidden) render();
+    if (!document.hidden) {
+      tick();
+      render();
+    }
   });
   window.addEventListener("popstate", () => {
-    filters = parseBrowseFilters(new URLSearchParams(location.search));
+    filters = readFilters(new URLSearchParams(location.search));
     update();
   });
   update();

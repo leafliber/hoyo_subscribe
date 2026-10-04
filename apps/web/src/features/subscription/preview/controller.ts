@@ -1,4 +1,3 @@
-import "./style.css";
 import { PUBLIC_CACHE_FRESH } from "@hoyo/contracts";
 import { downloadCalendarNodes, PreviewDataError } from "./data";
 import { type PreviewInput, type PreviewState, renderPreview } from "./view";

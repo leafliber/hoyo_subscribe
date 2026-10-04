@@ -25,6 +25,13 @@ const base: SubscriptionConfig = {
   notifications: { rule_ids: [...DEFAULT_RULE_IDS], ...CHANGE_DEFAULTS },
 };
 
+// #cloud-state 现在是保存阶段胶囊；云端版本号显示在 #draft-state。
+async function expectCloudRevision(page: Page, revision: number): Promise<void> {
+  await expect(page.locator("#draft-state")).toHaveText(`云端版本 ${revision}`);
+}
+// 日历提醒开关不再折叠在 #calendar-settings 里，其可访问名称以「在日历中提醒我」开头。
+const alarm = (page: Page) => page.getByRole("checkbox", { name: "在日历中提醒我" });
+
 async function session(page: Page): Promise<void> {
   await page.context().addCookies([
     {
@@ -67,24 +74,26 @@ test("U11 显式保存已保存配置；后续本机改动不被旧响应清空�
     });
   });
   await page.goto("/subscription");
-  await expect(page.locator("#cloud-state")).toContainText("版本 1");
-  await page.locator("#change-settings summary").click();
+  await expectCloudRevision(page, 1);
   await page.getByRole("checkbox", { name: "新事件公布" }).check();
   await page.getByRole("button", { name: "保存订阅" }).click();
-  await expect(page.locator("#draft-state")).toHaveText("正在保存");
-  await page.locator("#calendar-settings summary").click();
-  await page.getByRole("checkbox", { name: "日历提醒" }).uncheck();
+  await expect(page.locator("#cloud-state")).toHaveText("正在保存…");
+  await alarm(page).uncheck();
   release?.();
-  await expect(page.locator("#cloud-state")).toContainText("版本 2");
-  await expect(page.locator("#draft-state")).toContainText("本机未保存修改");
-  await expect(page.getByRole("checkbox", { name: "日历提醒" })).not.toBeChecked();
-  await expect(page.locator("#channel-saved-summary")).toContainText("版本 2");
-  await expect(page.locator("#channel-saved-summary")).toContainText("日历提醒开启");
+  await expectCloudRevision(page, 2);
+  await expect(page.locator("#cloud-state")).toHaveText("有未保存的修改");
+  await expect(alarm(page)).not.toBeChecked();
+  await expect(page.locator("#channel-saved-summary")).toContainText("第 2 版");
+  await expect(page.locator("#channel-saved-summary")).toContainText("未保存的修改");
   expect(writes).toHaveLength(1);
-  expect(writes[0]).toMatchObject({ expected_revision: 1 });
+  // 摘要不再逐项列出设置：直接核对已保存的第 2 版是点击时的快照（日历提醒仍开启）。
+  expect(writes[0]).toMatchObject({
+    expected_revision: 1,
+    config: { calendar: { alarms_enabled: true }, notifications: { new_event: true } },
+  });
   expect((writes[0] as { config: Record<string, unknown> }).config).not.toHaveProperty("revision");
   await page.getByRole("button", { name: "保存订阅" }).click();
-  await expect(page.locator("#draft-state")).toContainText("当前选择与云端一致");
+  await expect(page.locator("#cloud-state")).toHaveText("已保存到云端");
   expect(writes).toHaveLength(2);
 });
 
@@ -102,7 +111,7 @@ test("U11 与云端规范配置相同的显式保存不发 PATCH", async ({ page
     }
   });
   await page.goto("/subscription");
-  await expect(page.locator("#cloud-state")).toContainText("版本 1");
+  await expectCloudRevision(page, 1);
   await page.getByRole("button", { name: "保存订阅" }).click();
   await expect(page.locator("#save-result")).toContainText("无需再次保存");
   expect(writes).toBe(0);
@@ -127,8 +136,7 @@ test("U11 服务端字段错误定位字段；会话失效和额度暂停均保�
     }
   });
   await page.goto("/subscription");
-  await expect(page.locator("#cloud-state")).toContainText("版本 1");
-  await page.locator("#change-settings summary").click();
+  await expectCloudRevision(page, 1);
   const change = page.getByRole("checkbox", { name: "新事件公布" });
   await change.check();
   await page.getByRole("button", { name: "保存订阅" }).click();
@@ -148,7 +156,7 @@ test("U11 服务端字段错误定位字段；会话失效和额度暂停均保�
   await page.getByRole("button", { name: "保存订阅" }).click();
   await expect(page.locator("#save-result")).toContainText("额度已用尽");
   await expect(change).toBeChecked();
-  await expect(page.locator("#cloud-state")).toContainText("版本 1");
+  await expectCloudRevision(page, 1);
 });
 
 test("U16 首次云端读取未完成时产生草稿，读取完成后进入比较而不静默覆盖", async ({ page }) => {
@@ -166,7 +174,6 @@ test("U16 首次云端读取未完成时产生草稿，读取完成后进入比�
     }
   });
   await page.goto("/subscription");
-  await page.locator("#change-settings summary").click();
   const change = page.getByRole("checkbox", { name: "新事件公布" });
   await change.check();
   release?.();
@@ -218,28 +225,26 @@ test("U16 两设备同版本保存后一方 409：按四组比较，采用云端
     });
   });
   await Promise.all([first.goto("/subscription"), second.goto("/subscription")]);
-  await expect(first.locator("#cloud-state")).toContainText("版本 1");
-  await expect(second.locator("#cloud-state")).toContainText("版本 1");
-  await first.locator("#change-settings summary").click();
+  await expectCloudRevision(first, 1);
+  await expectCloudRevision(second, 1);
   await first.getByRole("checkbox", { name: "新事件公布" }).check();
-  await second.locator("#calendar-settings summary").click();
-  await second.getByRole("checkbox", { name: "日历提醒" }).uncheck();
+  await alarm(second).uncheck();
   await Promise.all([
     first.getByRole("button", { name: "保存订阅" }).click(),
     second.getByRole("button", { name: "保存订阅" }).click(),
   ]);
-  await expect(first.locator("#cloud-state")).toContainText("版本 2");
+  await expectCloudRevision(first, 2);
   await expect(second.locator("#save-comparison")).toBeVisible();
   await expect(second.locator("#save-differences h3")).toHaveCount(4);
   await expect(second.getByRole("button", { name: "保存订阅" })).toBeDisabled();
   second.once("dialog", (dialog) => void dialog.dismiss());
-  await second.getByRole("button", { name: "采用云端设置" }).click();
+  await second.getByRole("button", { name: "使用云端设置" }).click();
   await expect(second.locator("#save-comparison")).toBeVisible();
-  await second.getByRole("button", { name: "保留草稿，返回编辑" }).click();
+  await second.getByRole("button", { name: "保留我的修改" }).click();
   await expect(second.locator("#save-comparison")).toBeHidden();
-  await expect(second.getByRole("checkbox", { name: "日历提醒" })).not.toBeChecked();
+  await expect(alarm(second)).not.toBeChecked();
   await second.getByRole("button", { name: "保存订阅" }).click();
-  await expect(second.locator("#cloud-state")).toContainText("版本 3");
+  await expectCloudRevision(second, 3);
   expect(writes.map((write) => write.expected_revision)).toEqual([1, 1, 2]);
 });
 
@@ -263,17 +268,15 @@ test("U17 保存响应丢失：重新读取一致才确认", async ({ page }) =>
       });
   });
   await page.goto("/subscription");
-  await expect(page.locator("#cloud-state")).toContainText("版本 1");
-  await page.locator("#change-settings summary").click();
+  await expectCloudRevision(page, 1);
   await page.getByRole("checkbox", { name: "新事件公布" }).check();
   await page.getByRole("button", { name: "保存订阅" }).click();
   await expect(page.locator("#save-result")).toContainText("已从云端确认提交的配置");
-  await expect(page.locator("#cloud-state")).toContainText("版本 2");
+  await expectCloudRevision(page, 2);
   loseResponse = false;
-  await page.locator("#calendar-settings summary").click();
-  await page.getByRole("checkbox", { name: "日历提醒" }).uncheck();
+  await alarm(page).uncheck();
   await page.getByRole("button", { name: "保存订阅" }).click();
-  await expect(page.locator("#cloud-state")).toContainText("版本 3");
+  await expectCloudRevision(page, 3);
 });
 
 test("U17 响应丢失后虽读到提交快照，若已有后续草稿仍须比较", async ({ page }) => {
@@ -296,15 +299,13 @@ test("U17 响应丢失后虽读到提交快照，若已有后续草稿仍须比�
     await route.abort("failed");
   });
   await page.goto("/subscription");
-  await expect(page.locator("#cloud-state")).toContainText("版本 1");
-  await page.locator("#change-settings summary").click();
+  await expectCloudRevision(page, 1);
   await page.getByRole("checkbox", { name: "新事件公布" }).check();
   await page.getByRole("button", { name: "保存订阅" }).click();
-  await expect(page.locator("#draft-state")).toHaveText("正在保存");
-  await page.locator("#calendar-settings summary").click();
-  await page.getByRole("checkbox", { name: "日历提醒" }).uncheck();
+  await expect(page.locator("#cloud-state")).toHaveText("正在保存…");
+  await alarm(page).uncheck();
   release?.();
   await expect(page.locator("#save-comparison")).toBeVisible();
-  await expect(page.getByRole("checkbox", { name: "日历提醒" })).not.toBeChecked();
-  await expect(page.locator("#cloud-state")).toContainText("版本 2");
+  await expect(alarm(page)).not.toBeChecked();
+  await expectCloudRevision(page, 2);
 });

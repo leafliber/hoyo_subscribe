@@ -211,34 +211,50 @@ async function setup(page: Page, summary: Record<string, unknown> = facts()) {
 }
 async function open(page: Page) {
   await page.goto("/account");
-  await expect(page.getByRole("button", { name: "退出当前账号", exact: true })).toBeEnabled();
+  await expect(page.getByRole("button", { name: "退出登录", exact: true })).toBeEnabled();
 }
 async function chooseLogout(page: Page, pause = false) {
-  await page.getByRole("button", { name: "退出当前账号", exact: true }).click();
-  await page
-    .getByRole("button", { name: pause ? "退出并暂停本浏览器通知" : "仅退出账号", exact: true })
-    .click();
+  await page.getByRole("button", { name: "退出登录", exact: true }).click();
+  const dialog = page.getByRole("dialog", { name: "选择退出方式" });
+  await expect(dialog).toBeVisible();
+  if (pause) {
+    // Browser-notification pausing is not implemented, so the redesign no longer offers this
+    // choice; its handler still exists and must keep sending only the single logout request.
+    await expect(page.locator("#logout-pause")).toBeHidden();
+    await page.locator("#logout-pause").evaluate((button) => (button as HTMLButtonElement).click());
+  } else await dialog.getByRole("button", { name: "仅退出账号", exact: true }).click();
 }
+// The email-change card has its own "恢复码 ID/秘密" fields, so scope proof inputs to the dialog.
+const deleteDialog = (page: Page) => page.getByRole("dialog", { name: "确认删除账号" });
 async function proof(page: Page) {
-  await page.getByRole("button", { name: "准备删除账号" }).click();
-  await page.getByLabel("恢复码 ID", { exact: true }).fill("synthetic-recovery-id");
-  await page.getByLabel("恢复码秘密", { exact: true }).fill("synthetic-recovery-secret");
-  await page.getByRole("button", { name: "验证本次删除用途" }).click();
-  await expect(page.getByRole("button", { name: "确认删除账号", exact: true })).toBeEnabled();
+  await page.getByRole("button", { name: "删除账号…", exact: true }).click();
+  const dialog = deleteDialog(page);
+  await dialog.locator("summary", { hasText: "或者用恢复码验证" }).click();
+  await dialog.getByLabel("恢复码 ID", { exact: true }).fill("synthetic-recovery-id");
+  await dialog.getByLabel("恢复码秘密", { exact: true }).fill("synthetic-recovery-secret");
+  await dialog.getByRole("button", { name: "验证本次删除用途" }).click();
+  await expect(dialog.getByRole("button", { name: "确认删除账号", exact: true })).toBeEnabled();
 }
 
-test("U14a 账号事实、会话滞后与 Push 分组，加载和等待不续期", async ({ page }, testInfo) => {
+test("U14a 账号事实、会话滞后，未接入的 Push 不展示，加载和等待不续期", async ({
+  page,
+}, testInfo) => {
   const state = await setup(page);
   await open(page);
   await expect(page.locator("#account-email")).toContainText("s***@example.invalid");
   await expect(page.locator("#account-lag")).toContainText(
     `${SESSION_RENEW_INTERVAL / (24 * 60 * 60)} 天`,
   );
-  await expect(page.locator("#account-reclaim")).toContainText("不据网页登录频率判断");
+  // No server reclaim deadline: the page must not invent one from web-login frequency.
+  await expect(page.locator("#account-reclaim")).toHaveText("正常使用中");
   await expect(page.locator("#account-lease")).toContainText("后台续租状态未知");
-  await expect(page.getByRole("heading", { name: "Push 绑定", exact: true })).toBeVisible();
+  // The redesign drops the Push group (binding/pausing is not implemented) instead of listing it.
+  await expect(page.getByRole("heading", { name: "Push 绑定", exact: true })).toHaveCount(0);
+  await expect(page.locator("#account-push-permission")).toBeHidden();
   await expect(page.locator("#account-sessions li")).toHaveCount(2);
-  await expect(page.locator("#account-result")).toContainText("已读取账号事实");
+  await expect(page.locator("#account-login")).toBeHidden();
+  // A successful initial read is quiet: the facts themselves are the result.
+  await expect(page.locator("#account-result")).toHaveText("");
   expect(state.writes).toEqual([]);
   await page.screenshot({ path: testInfo.outputPath("account.png"), fullPage: true });
 });
@@ -249,7 +265,11 @@ test("U14a 回收期限仅来自摘要；远古设备续期不导致账号被判
   const state = await setup(page, summary);
   state.rows[1].renewed_at = 0;
   await open(page);
-  await expect(page.locator("#account-reclaim")).toContainText("服务端记录的回收宽限期限");
+  const deadline = await page.evaluate(
+    (time) => new Date(time).toLocaleString("zh-CN", { timeZone: "Asia/Shanghai", hour12: false }),
+    serverTime + SESSION_IDLE_TTL * second,
+  );
+  await expect(page.locator("#account-reclaim")).toContainText(`账号将在 ${deadline} 后可能被回收`);
   await expect(page.locator("#account-sessions")).toContainText("1970");
   await expect(page.locator("#account-sessions")).not.toContainText("账号不活跃");
 });
@@ -260,25 +280,33 @@ for (const missing of ["user_id", "server_time", "recent_auth"] as const) {
     delete summary[missing];
     await setup(page, summary);
     await page.goto("/account");
-    await expect(page.locator("#account-result")).toContainText("账号状态尚未确认");
+    await expect(page.locator("#account-result")).toContainText("账号状态暂时无法读取");
     await expect(page.locator("#account-email")).toHaveText("未知");
     await expect(page.locator("#account-logout")).toBeDisabled();
   });
 }
 
-test("U24 两个独立退出按钮、取消与键盘焦点，不用预勾选", async ({ page }) => {
+test("U24 退出方式独立按钮、取消与键盘焦点，不用预勾选，未接入的暂停不展示", async ({ page }) => {
   const state = await setup(page);
   await open(page);
   await page.locator("#account-logout").click();
-  await expect(page.getByRole("dialog", { name: "选择退出方式" })).toBeVisible();
-  await expect(page.locator("#logout-only")).toBeFocused();
+  const dialog = page.getByRole("dialog", { name: "选择退出方式" });
+  await expect(dialog).toBeVisible();
+  // Focus enters the dialog on its first control (the safe "取消"), then reaches the action.
+  await expect(dialog.getByRole("button", { name: "取消", exact: true })).toBeFocused();
+  await expect(page.locator("#logout-only")).toBeVisible();
+  await expect(page.locator("#logout-pause")).toBeHidden();
   await expect(page.locator("#logout-dialog input")).toHaveCount(0);
+  await page.keyboard.press("Tab");
+  await expect(page.locator("#logout-only")).toBeFocused();
   await page.keyboard.press("Escape");
+  await expect(dialog).toBeHidden();
   await expect(page.locator("#account-logout")).toBeFocused();
   expect(state.writes).toEqual([]);
 });
 
 for (const pause of [false, true]) {
+  // pause=true drives the hidden (not implemented) pause handler directly; see chooseLogout.
   test(`U24 ${pause ? "组合退出展示暂停未接入" : "仅退出不触碰通道"}，请求前失效身份`, async ({
     page,
   }, testInfo) => {
@@ -302,7 +330,8 @@ for (const mode of ["reject", "lost", "unknown", "malformed"]) {
     const state = await setup(page);
     state.logout = mode;
     await open(page);
-    await chooseLogout(page, true);
+    // Uses the only user-visible choice now that the pause variant is hidden (same request).
+    await chooseLogout(page);
     await expect(page.locator("#account-result")).toContainText(
       mode === "lost"
         ? "核对确认当前会话已失效"
@@ -310,7 +339,7 @@ for (const mode of ["reject", "lost", "unknown", "malformed"]) {
           ? "退出未执行"
           : "退出结果未知",
     );
-    await expect(page.locator("#account-result")).toContainText("暂停未执行");
+    await expect(page.locator("#account-result")).toContainText("未请求暂停");
     expect(state.sessionReads).toBeGreaterThan(1);
     expect(state.meReads).toBeGreaterThan(1);
     expect(state.writes).toHaveLength(1);
@@ -390,7 +419,7 @@ test("U29 server_time 校正、用途证明和明确确认，deleting 不是清�
   const state = await setup(page);
   await open(page);
   await proof(page);
-  await expect(page.getByLabel("恢复码秘密", { exact: true })).toHaveValue("");
+  await expect(deleteDialog(page).getByLabel("恢复码秘密", { exact: true })).toHaveValue("");
   await page.getByRole("button", { name: "确认删除账号", exact: true }).click();
   await expect(page.locator("#account-deletion")).toContainText("权限与发送已停止。数据仍在清理");
   await expect(page.locator("#account-deletion")).toContainText("尚无清理完成的证据");
@@ -441,7 +470,11 @@ test("U29 受限恢复会话按 contracts 删除例外直接确认，导出仍�
   await open(page);
   await expect(page.locator("#account-export")).toBeEnabled();
   await page.locator("#account-delete-open").click();
+  // 删除例外：整块用途验证入口隐藏（不是折叠），改为直接说明可确认删除。
+  await expect(page.locator("#delete-proofs")).toBeHidden();
   await expect(page.locator("#delete-proof-form")).toBeHidden();
+  await expect(page.locator("#delete-otp")).toBeHidden();
+  await expect(page.locator("#delete-restricted-note")).toBeVisible();
   await page.locator("#delete-confirm").click();
   await expect(page.locator("#account-deletion")).toContainText("数据仍在清理");
   expect(state.writes[0].body).toEqual({ confirm: true });

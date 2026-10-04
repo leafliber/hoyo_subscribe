@@ -5,4 +5,6 @@ import { defineConfig } from "astro/config";
 // 不引入 SSR / 服务端依赖；apps/web 不持有任何秘密。
 export default defineConfig({
   output: "static",
+  // 默认输出 dist；本地并行验证时可用 WEB_OUT_DIR 指向独立目录，避免互相清空构建产物。
+  outDir: process.env.WEB_OUT_DIR ?? "./dist",
 });

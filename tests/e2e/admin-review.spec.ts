@@ -40,7 +40,20 @@ function detail(id = "synthetic-candidate"): CandidateDetail {
     ],
   };
 }
-type Call = { path: string; body: Record<string, unknown>; csrf?: string; url: string };
+// 运行开关面板（features/admin/controls.ts）在工作区出现时读取一次；形状同 Worker 的 GET /api/v2/admin/controls。
+const controlRows = [
+  { control: "read_only", value: false, updated_at: 1_900_000_000_000 },
+  { control: "registration_open", value: true, updated_at: 1_900_000_000_000 },
+  { control: "source_enabled", source: "genshin-ann", value: true, updated_at: 1_900_000_000_000 },
+];
+const controlsRead = `已读取 ${controlRows.length} 个开关。每次修改都会写入审计记录。`;
+type Call = {
+  path: string;
+  method: string;
+  body: Record<string, unknown>;
+  csrf?: string;
+  url: string;
+};
 async function setup(page: Page, options: { loggedIn?: boolean; pages?: QueuePage[] } = {}) {
   const state = {
     loggedIn: options.loggedIn ?? true,
@@ -72,6 +85,7 @@ async function setup(page: Page, options: { loggedIn?: boolean; pages?: QueuePag
     const path = url.pathname.replace("/api/v2/", "");
     const call = {
       path,
+      method: req.method(),
       body: (req.postDataJSON() ?? {}) as Record<string, unknown>,
       csrf: req.headers()["x-csrf-token"],
       url: req.url(),
@@ -101,6 +115,8 @@ async function setup(page: Page, options: { loggedIn?: boolean; pages?: QueuePag
     }
     if (!state.loggedIn)
       return route.fulfill({ status: 401, json: buildApiErrorBody("unauthorized") });
+    if (path === "admin/controls" && req.method() === "GET")
+      return route.fulfill({ json: { server_time: 1_900_000_000_000, controls: controlRows } });
     if (path === "admin/session/logout") {
       await state.logoutWait;
       if (state.logoutNetworkFailure) return route.abort("failed");
@@ -195,10 +211,17 @@ test.describe("A-F6-REVIEW", () => {
     expect(state.calls.some((call) => call.path === "admin/session/bootstrap")).toBe(false);
     releasePreauth(); // 在预认证响应尚未返回时，输入就必须已经清空。
     await expect(page.getByText("没有待审核的候选", { exact: true })).toBeVisible();
-    const writes = state.calls.filter((call) => call.path !== "admin/review/queue");
-    expect(writes.map((call) => call.path)).toEqual(["auth/preauth", "admin/session/bootstrap"]);
-    expect(writes[1].body).toEqual({ secret: syntheticSecret });
-    expect(writes[1].csrf).toBe("synthetic-preauth");
+    // 工作区出现后，运行开关面板只做一次被动读取（GET，无 CSRF、无请求体）；等它落定再核对全部请求。
+    await expect(page.locator("#controls-status")).toHaveText(controlsRead);
+    const nonQueue = state.calls.filter((call) => call.path !== "admin/review/queue");
+    expect(nonQueue.map((call) => `${call.method} ${call.path}`)).toEqual([
+      "POST auth/preauth",
+      "POST admin/session/bootstrap",
+      "GET admin/controls",
+    ]);
+    expect(nonQueue[1].body).toEqual({ secret: syntheticSecret });
+    expect(nonQueue[1].csrf).toBe("synthetic-preauth");
+    expect(nonQueue[2]).toMatchObject({ body: {}, csrf: undefined });
     expect(
       state.calls.filter((call) => JSON.stringify(call).includes(syntheticSecret)),
     ).toHaveLength(1);
@@ -216,10 +239,19 @@ test.describe("A-F6-REVIEW", () => {
     expect(logs.join("\n")).not.toContain(syntheticSecret);
     await page.reload(); // 不依赖本地登录标志，直接查询管理接口。
     await expect(page.getByText("没有待审核的候选", { exact: true })).toBeVisible();
+    await expect(page.locator("#controls-status")).toHaveText(controlsRead);
     await page.getByRole("button", { name: "退出管理端", exact: true }).click();
     await expect(page.locator("#notice")).toHaveText("已退出管理端。");
     await expect(input).toBeVisible();
-    expect(state.calls.at(-1)?.csrf).toBe("synthetic-admin");
+    expect(state.calls.at(-1)).toMatchObject({
+      method: "POST",
+      path: "admin/session/logout",
+      csrf: "synthetic-admin",
+    });
+    // 每次工作区出现只读一次运行开关：不轮询、不写入。
+    expect(
+      state.calls.filter((call) => call.path === "admin/controls").map((call) => call.method),
+    ).toEqual(["GET", "GET"]);
     expect(state.calls.some((call) => call.path.startsWith("me"))).toBe(false);
   });
   test("登录失败统一提示且不回显响应文本，限速只显示公开等待", async ({ page }) => {
@@ -263,10 +295,13 @@ test.describe("A-F6-REVIEW", () => {
     await expect(page.locator("#evidence")).toContainText("<img src=x");
     await expect(page.locator("#review img")).toHaveCount(0);
     expect(await page.evaluate(() => "adminInjection" in window)).toBe(false);
-    expect(
-      await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth),
-    ).toBe(true);
     await page.screenshot({ path: testInfo.outputPath("admin-review.png"), fullPage: true });
+    // 移动端模拟下内容溢出会把 innerWidth（布局视口）一起撑宽；clientWidth 才保持设备宽度。
+    expect(
+      await page.evaluate(
+        () => document.documentElement.scrollWidth <= document.documentElement.clientWidth,
+      ),
+    ).toBe(true);
   });
   for (const action of ["revise", "reject", "approve", "correct", "associate", "retract"]) {
     test(`${action} 使用读到的版本与理由，发布操作显示 outcome`, async ({ page }) => {

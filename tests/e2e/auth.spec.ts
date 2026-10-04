@@ -15,6 +15,11 @@ import { manualTurnstile, widgetEvent, widgetState } from "./turnstile-support";
 // E2: every API and Turnstile response is synthetic; no mail or production auth is used.
 const sampleEmail = "First.Last+tag@example.invalid";
 const sampleCode = "1".repeat(OTP_DIGITS);
+// 新版界面文案（来源：apps/web/src/features/auth/login.ts）。只有服务端返回统一公开响应时才会显示发送成功文案。
+const sentMessage = "如果这个邮箱可以登录或注册，验证码已经发出。";
+const resentMessage = "已重新发送（如果这个邮箱符合条件）。请查看最新的一封邮件。";
+const unknownMessage =
+  "暂时无法确认结果，请求可能已经完成。请点「核对结果」，不要重复发起新的操作。";
 const csrf = (value: string) => ({
   "set-cookie": `__Host-hoyo_csrf=${value}; Secure; SameSite=Lax; Path=/`,
   "cache-control": "no-store",
@@ -182,6 +187,9 @@ test("U13 真实接口形状、整段验证码、pending 确认激活及身份�
   });
   await expect(page.locator("#retry-auth")).toBeHidden();
   await expect(page.locator("#cancel-wait")).toBeHidden();
+  // 开放注册且邮件可用时不显示服务提示。
+  await expect(page.locator("#auth-service")).toBeHidden();
+  await expect(page.locator('[data-auth-step="email"]')).toHaveAttribute("data-state", "current");
   await full(page);
   expect(calls.find((call) => call.path === "auth/challenges")?.body).toMatchObject({
     email: sampleEmail,
@@ -192,10 +200,17 @@ test("U13 真实接口形状、整段验证码、pending 确认激活及身份�
   );
   expect(calls.filter((call) => call.path === "auth/activate")).toHaveLength(0);
   expect(calls.find((call) => call.path === "auth/challenges/verify")?.key).toBeTruthy();
-  await expect(page.locator("#pending-section")).toContainText("普通账号权限尚不可用");
-  await page.getByLabel("当前设备名称（可选）").fill("我的桌面");
-  await page.getByRole("button", { name: "激活当前浏览器", exact: true }).click();
-  await expect(page.locator("#auth-result")).toContainText("登录已完成");
+  // pending 会话还不是完成的登录：只提示确认设备，不显示完成入口。
+  await expect(page.locator("#pending-section")).toContainText("最后一步：确认在这台设备登录");
+  await expect(page.locator("#auth-result")).toHaveText("验证通过！请确认在这台设备登录。");
+  await expect(page.locator('[data-auth-step="pending"]')).toHaveAttribute("aria-current", "step");
+  await expect(page.locator("#login-done")).toBeHidden();
+  await page.getByLabel("给这台设备起个名字（可选）").fill("我的桌面");
+  await page.getByRole("button", { name: "确认登录", exact: true }).click();
+  await expect(page.locator("#auth-result")).toHaveText(
+    "登录成功！订阅设置和通知不会因登录自动改变。",
+  );
+  await expect(page.locator('[data-auth-step][data-state="done"]')).toHaveCount(3);
   expect(calls.find((call) => call.path === "auth/activate")).toMatchObject({
     body: { label: "我的桌面" },
     csrf: "synthetic-session-csrf",
@@ -217,19 +232,29 @@ test("U13 真实接口形状、整段验证码、pending 确认激活及身份�
 test("U13 全局暂停注册仍用统一响应，不声明送达或剩余次数", async ({ page }) => {
   await setup(page, { registration: false });
   await apply(page);
-  await expect(page.locator("#auth-service")).toContainText("全站暂停注册，已有账号仍可登录");
-  await expect(page.locator("#auth-result")).toHaveText(AUTH_INTENT_PUBLIC_BODY.message);
-  await expect(page.locator("#code-section")).toContainText(`${OTP_ATTEMPTS} 次错误尝试`);
-  await expect(page.locator("#challenge-time")).toContainText("如果验证码已发出");
+  await expect(page.locator("#auth-service")).toHaveText(
+    "目前暂停新用户注册，已有账号可以正常登录。",
+  );
+  // 统一文案以“如果”限定，不声明已送达，也不给出剩余次数。
+  await expect(page.locator("#auth-result")).toHaveText(sentMessage);
+  await expect(page.locator("#code-section")).toContainText(
+    "如果这个邮箱可以登录或注册，验证码已经发出",
+  );
+  await expect(page.locator("#code-section")).toContainText(`每次最多允许输错 ${OTP_ATTEMPTS} 次`);
+  await expect(page.locator("#code-section")).not.toContainText("剩余");
+  await expect(page.locator("#challenge-time")).toContainText("验证码约在");
   await expect(page.locator("#code-section")).toContainText("代发");
-  await expect(page.locator("#code-section")).toContainText("邮件可能晚到");
+  await expect(page.locator("#code-section")).toContainText("邮件可能稍晚到达");
 });
 
 test("U13 邮件全局故障与缺站点密钥均不模拟发码", async ({ page }) => {
   let state = await setup(page, { mail: false });
+  await expect(page.locator("#auth-service")).toContainText("验证码邮件暂时无法发送");
   await page.getByLabel("邮箱地址", { exact: true }).fill(sampleEmail);
   await page.getByRole("button", { name: "发送验证码", exact: true }).click();
-  await expect(page.locator("#auth-result")).toContainText("全局不可用");
+  await expect(page.locator("#auth-result")).toHaveText(
+    "验证码邮件暂时无法发送，请稍后再试，或用恢复码找回账号。",
+  );
   expect(state.calls.some((call) => call.path === "auth/challenges")).toBe(false);
   await page.unrouteAll({ behavior: "wait" });
   state = await setup(page, { key: false });
@@ -249,10 +274,10 @@ test("U13 明确重发保留最初期限及错误次数说明，参数全部来�
     route.fulfill({ status: 400, json: invalid("mismatch") }),
   );
   await verify(page);
-  await expect(page.locator("#auth-result")).toContainText("累计计算");
+  await expect(page.locator("#auth-result")).toContainText("输错次数会累计，重新发送不会清零");
   await page.clock.fastForward(OTP_COOLDOWN * 1000);
   await page.locator("#resend").click();
-  await expect(page.locator("#auth-result")).toHaveText(AUTH_INTENT_PUBLIC_BODY.message);
+  await expect(page.locator("#auth-result")).toHaveText(resentMessage);
   await expect(page.locator("#challenge-time")).toHaveText(deadline ?? "");
   const sent = calls.filter((call) => call.path.startsWith("auth/challenges"));
   expect(sent[0]?.body.idempotency_key).not.toBe(sent[1]?.body.idempotency_key);
@@ -279,9 +304,12 @@ for (const intent of ["apply", "resend"] as const) {
       await page.getByLabel("邮箱地址", { exact: true }).fill(sampleEmail);
       await page.locator("#login-request-otp").click();
     } else await page.locator("#resend").click();
-    await expect(page.locator("#auth-result")).toContainText("结果未知");
+    await expect(page.locator("#auth-result")).toHaveText(unknownMessage);
+    await expect(page.locator("#retry-auth")).toHaveText("重试发送（不会重复发信）");
     await page.locator("#retry-auth").click();
-    await expect(page.locator("#auth-result")).toHaveText(AUTH_INTENT_PUBLIC_BODY.message);
+    await expect(page.locator("#auth-result")).toHaveText(
+      intent === "apply" ? sentMessage : resentMessage,
+    );
     expect([...calls].reverse().find((call) => call.path === path)?.body.idempotency_key).toBe(
       first?.idempotency_key,
     );
@@ -324,7 +352,9 @@ test("U13 连续续期要求停止自动重试并引导重建", async ({ page })
     });
   });
   await verify(page);
-  await expect(page.locator("#auth-result")).toContainText("仍无法续接");
+  await expect(page.locator("#auth-result")).toHaveText(
+    "登录流程无法续接，请点「重新开始」。这不是验证码错误。",
+  );
   expect(tries).toBe(2);
 });
 
@@ -352,9 +382,10 @@ test("U13 无结构 5xx 与回执丢失保持未知，手动核对也只用 comp
   );
   await page.route("**/auth/complete", (route) => route.abort("failed"));
   await verify(page);
-  await expect(page.locator("#auth-result")).toContainText("结果未知");
+  await expect(page.locator("#auth-result")).toHaveText(unknownMessage);
   await expect(page.locator("#verify")).toBeDisabled();
   await expect(page.locator("#login-done")).toBeHidden();
+  await expect(page.locator("#retry-auth")).toHaveText("核对登录结果");
   await page.unroute("**/auth/complete");
   await page.locator("#retry-auth").click();
   await expect(page.locator("#pending-section")).toBeVisible();
@@ -362,10 +393,10 @@ test("U13 无结构 5xx 与回执丢失保持未知，手动核对也只用 comp
 });
 
 for (const [reason, expected] of [
-  ["mismatch", "验证码不匹配"],
-  ["no_open_challenge", "没有可用"],
-  ["attempts_exhausted", "错误尝试已用尽"],
-  ["login_required", "重新走登录流程"],
+  ["mismatch", "验证码不正确"],
+  ["no_open_challenge", "没有可用的验证码"],
+  ["attempts_exhausted", "输错次数太多，已失效"],
+  ["login_required", "登录状态有变化"],
 ] as const) {
   test(`U13 校验 ${reason} 保留输入并说明实际原因`, async ({ page }) => {
     await setup(page);
@@ -410,9 +441,9 @@ for (const kind of [
     await expect(page.locator("#login-done")).toBeHidden();
     await expect(page.locator("#auth-result")).toContainText(
       kind === "no_session"
-        ? "认证上下文"
+        ? "登录流程已过期，请点「重新开始」。这不是验证码错误。"
         : kind === "conflict"
-          ? "全站当日注册完成名额"
+          ? "今日新用户注册名额已满（这不是验证码错误）"
           : kind === "rate_limited"
             ? "过于频繁"
             : kind === "quota_paused"
@@ -478,7 +509,8 @@ test("U14 激活响应丢失可重放，写请求使用最新 Cookie 中的 CSRF
     } else await route.fallback();
   });
   await page.locator("#activate").click();
-  await expect(page.locator("#auth-result")).toContainText("结果未知");
+  await expect(page.locator("#auth-result")).toHaveText(unknownMessage);
+  await expect(page.locator("#retry-auth")).toHaveText("核对登录结果");
   await page.locator("#retry-auth").click();
   await expect(page.locator("#login-done")).toBeVisible();
   expect(calls.find((call) => call.path === "auth/activate")?.csrf).toBe(
@@ -496,8 +528,10 @@ test("U14 激活会话过期提示重登，不当作名额问题", async ({ page
     }),
   );
   await page.locator("#activate").click();
-  await expect(page.locator("#auth-result")).toContainText("会话已失效");
+  await expect(page.locator("#auth-result")).toHaveText("登录已过期，请点「重新开始」再登录一次。");
+  await expect(page.locator("#auth-result")).not.toContainText("登录设备已满");
   await expect(page.locator("#device-selection")).toBeHidden();
+  await expect(page.locator("#restart-auth")).toBeVisible();
 });
 
 test("U14 刷新已有 pending 只恢复激活界面，不自动激活或续期", async ({ page }) => {
@@ -518,10 +552,10 @@ test("U13 提交等待防重复点击；停止等待保持未知并可核对", a
   });
   await page.getByLabel("邮箱地址", { exact: true }).fill(sampleEmail);
   await page.locator("#login-request-otp").click();
-  await expect(page.locator("#auth-result")).toContainText("正在申请");
+  await expect(page.locator("#auth-result")).toHaveText("正在发送验证码…");
   await expect(page.locator("#login-request-otp")).toBeDisabled();
   await page.locator("#cancel-wait").click();
-  await expect(page.locator("#auth-result")).toContainText("结果未知");
+  await expect(page.locator("#auth-result")).toHaveText(unknownMessage);
   expect(count).toBe(1);
   await held?.abort().catch(() => {});
 });
@@ -554,7 +588,7 @@ test("U13 缺失校验成功字段不能变成成功；核对回执时不再消�
   await page.route("**/auth/challenges/verify", (route) => route.fulfill({ json: {} }));
   await page.route("**/auth/complete", (route) => route.fulfill({ json: {} }));
   await verify(page);
-  await expect(page.locator("#auth-result")).toContainText("结果未知");
+  await expect(page.locator("#auth-result")).toHaveText(unknownMessage);
   await expect(page.locator("#verify")).toBeDisabled();
   await expect(page.locator("#login-done")).toBeHidden();
   expect(calls.filter((call) => call.path === "auth/challenges")).toHaveLength(1);

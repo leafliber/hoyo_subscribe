@@ -38,21 +38,25 @@ test("A-P5-RELEASE 用户帮助公开限制、参数与缩小预览范围，不�
 }, info) => {
   await page.goto("/help");
   const main = page.locator("main");
+  // 同一组公开限制，按改版后的帮助文案逐条核对（客户端实测范围、非必达、不补发、跨通道重复、
+  // 恢复码消耗规则、预览范围、名额与租期参数、回收天数）。
   for (const text of [
-    "Apple Calendar / macOS：已测",
-    "Google Calendar：未测",
-    "Outlook 桌面版与 Web 版：未测",
+    "Apple 日历（iPhone / iPad / Mac）",
+    "已实测",
+    "Google 日历",
+    "Outlook（桌面版与网页版）",
+    "未实测",
     "版本和刷新延迟未记录",
-    "提醒非必达",
-    "首版不自动补发",
+    "提醒不保证",
+    "不会自动补发",
     "业务通知到期即作废",
-    "跨通道重复",
-    "不会消费恢复码",
-    "同一范围反复重试仍可能过期",
-    "保存后重新取得完整预览",
-    `邮件席位上限为 ${MAIL_SEATS_MAX}`,
+    "可能重复提醒",
+    "不会消耗恢复码",
+    "反复重试也可能过期",
+    "保存后再预览",
+    `邮件席位最多 ${MAIL_SEATS_MAX} 个`,
     `最多 ${MAIL_ROUTINE_SEATS_MAX}`,
-    `租期为 ${MAIL_SEAT_LEASE} 天`,
+    `${MAIL_SEAT_LEASE} 天，只要你还在使用`,
     `${ACCOUNT_IDLE_DAYS} 天`,
     `${ACCOUNT_GRACE_DAYS} 天`,
   ])
@@ -80,7 +84,7 @@ test("A-P5-RELEASE 状态未知、来源缺失与空发布不冒充正常", asyn
     "邮件新席位：已关闭",
   ])
     await expect(facts).toContainText(text);
-  await expect(page.locator("main")).toContainText("最终上线放行未完成");
+  await expect(page.locator("main")).toContainText("正式上线尚未放行");
   await page.screenshot({ path: info.outputPath("release-status.png"), fullPage: true });
 });
 test("A-P5-RELEASE 过期/异常响应失败关闭，重试可恢复且不泄露原始文本", async ({ page }) => {
@@ -138,7 +142,7 @@ test("A-P5-RELEASE 来源逐项显示维护与核验未知，不以单一绿灯�
   const f = page.locator("#release-status-facts");
   await expect(f).toContainText("维护中，暂不可用");
   await expect(f).toContainText("核验状态未知");
-  await expect(f).toContainText("发布代次：3");
+  await expect(f).toContainText("日程第 3 版");
 });
 test("A-P5-RELEASE U28 测试夹具与本地负载入口不进入生产产物", () => {
   const scan = (p: string): string[] =>

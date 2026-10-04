@@ -12,7 +12,7 @@ test("U02 玩法结束与奖励领取截止在实际节点时间线中分别出�
   await expect(page.locator(".event-detail")).toBeVisible();
   expect(
     await page
-      .locator(".event-detail > [data-section]")
+      .locator(".event-detail [data-section]")
       .evaluateAll((sections) => sections.map((section) => section.getAttribute("data-section"))),
   ).toEqual(["important", "timeline", "change", "official"]);
   const timeline = page.locator('[data-section="timeline"]');
@@ -57,8 +57,8 @@ test("U04 改期的历史原时间与当前时间并列，旧时间不作当前�
   await expect(change.locator(".current-time")).toContainText("当前时间");
   const oldTime = await change.locator(".historical-time time").textContent();
   const currentTime = await change.locator(".current-time time").textContent();
-  expect(oldTime).toMatch(/\d{4}-\d{2}-\d{2} 10:00/);
-  expect(currentTime).toMatch(/\d{4}-\d{2}-\d{2} 10:00/);
+  expect(oldTime).toMatch(/\d{1,2}月\d{1,2}日 周. 10:00/);
+  expect(currentTime).toMatch(/\d{1,2}月\d{1,2}日 周. 10:00/);
   expect(oldTime).not.toBe(currentTime);
   await expect(page.locator('[data-section="important"]')).toContainText(currentTime ?? "");
   await expect(page.locator('[data-section="important"]')).not.toContainText(oldTime ?? "");
@@ -120,12 +120,14 @@ test("U04 官方依据逐级展开，三项主要操作可用且设置订阅只�
     "href",
     "/",
   );
-  await expect(page.getByRole("link", { name: "设置订阅", exact: true })).toHaveAttribute(
-    "href",
-    "/subscription",
-  );
+  // 页首主操作与侧栏提示都只进入整份订阅设置，不提供「订阅这个活动」。
+  for (const link of await page.getByRole("link", { name: "设置订阅", exact: true }).all())
+    await expect(link).toHaveAttribute("href", "/subscription");
   await expect(page.locator("body")).not.toContainText("订阅这个活动");
-  await page.getByRole("link", { name: "设置订阅", exact: true }).click();
+  await page
+    .locator(".detail-actions")
+    .getByRole("link", { name: "设置订阅", exact: true })
+    .click();
   await expect(page).toHaveURL(/\/subscription\/?$/);
 });
 
@@ -146,14 +148,18 @@ test("U02 U04 桌面与手机截图、窄屏和键盘展开留证", async ({ pag
     ).toBeLessThanOrEqual(1);
   }
   await page.screenshot({ path: `${folder}/${viewport}-detail.png`, fullPage: true });
+  const subscribe = page
+    .locator(".detail-actions")
+    .getByRole("link", { name: "设置订阅", exact: true });
   await page.getByRole("link", { name: "返回日程", exact: true }).focus();
   await expect(page.getByRole("link", { name: "返回日程", exact: true })).toBeFocused();
+  // 键盘顺序：返回 → 主操作「设置订阅」→「查看官方公告」。
+  await page.keyboard.press("Tab");
+  await expect(subscribe).toBeFocused();
   await page.keyboard.press("Tab");
   await expect(page.getByRole("link", { name: "查看官方公告", exact: true })).toBeFocused();
-  await page.keyboard.press("Tab");
-  await expect(page.getByRole("link", { name: "设置订阅", exact: true })).toBeFocused();
   const outline = await page
-    .getByRole("link", { name: "设置订阅", exact: true })
+    .getByRole("link", { name: "查看官方公告", exact: true })
     .evaluate((link) => getComputedStyle(link).outlineStyle);
   expect(outline).not.toBe("none");
   const summary = page.locator('[data-section="official"] details > summary').first();
@@ -214,7 +220,7 @@ test("U04 importantNodeId 为 null 不补安排；删除与官方取消分开，
   await expect(page.locator('[data-section="important"]')).toContainText("暂无可确认");
   await expect(page.locator('[data-section="important"] time')).toHaveCount(0);
   await expect(page.locator('[data-section="change"]')).toContainText("本站删除节点（非官方取消）");
-  await expect(page.locator('[data-section="official"]')).toContainText("发布者：未知");
+  await expect(page.locator('[data-section="official"]')).toContainText("发布者未知");
   await expect(page.locator('a[href^="javascript:"]')).toHaveCount(0);
 });
 
@@ -229,7 +235,7 @@ test("U05 详情失败保留副本；离线注明缓存时间；404 不显示旧
   await expect(page.locator("h1")).toHaveText("巡游拾光 · 城市探索挑战");
   await context.setOffline(true);
   await expect(page.locator("article .data-warning")).toContainText("离线");
-  await expect(page.locator("article .data-warning")).toContainText("2026-09-22 12:30");
+  await expect(page.locator("article .data-warning")).toContainText("2026年9月22日 12:30");
   await context.setOffline(false);
   await page.route("**/api/v2/events/evt_morning", (route) =>
     route.fulfill({ status: 404, json: {} }),

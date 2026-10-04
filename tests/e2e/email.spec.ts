@@ -177,10 +177,27 @@ async function openSubscription(
     await route.fulfill({ json: { result: "completed", state } });
   });
   await page.goto("/subscription");
-  if (options.waitForReady !== false)
-    await expect(part(page, "message")).toContainText("已读取当前邮件状态");
+  if (options.waitForReady !== false) await ready(page);
   if (options.dirty) await editRules(page);
   return { state, writes, saves, reads: () => reads, renewals: () => renewals };
+}
+/**
+ * The panel painted a successful read: facts only render after the GET resolves and the panel is
+ * idle again. This does not depend on whether a (quiet) refresh announces itself in the message.
+ */
+async function ready(page: Page) {
+  await expect(part(page, "facts")).toContainText("当前已验证邮箱（脱敏）");
+  await expect(part(page, "refresh")).toBeEnabled();
+}
+/** Explicit refresh click: the message line announces the start and the completed re-read. */
+async function refreshed(page: Page) {
+  await part(page, "refresh").click();
+  await expect(part(page, "message")).toContainText("已刷新邮件状态");
+}
+/** Placeholder the lifecycle shows while identity or the saved snapshot is re-confirmed. */
+const PENDING = "正在确认账号和已保存的订阅";
+async function openDetails(page: Page) {
+  await page.locator("#mail-channel details.email-details > summary").click();
 }
 async function editRules(page: Page) {
   for (const input of await page.locator('input[name="rule_ids"]').all()) {
@@ -282,7 +299,7 @@ for (const kind of ["conflict", "validation"] as const)
       },
     });
     await consent(page);
-    await expect(part(page, "message")).toContainText("请重新开启确认流程");
+    await expect(part(page, "message")).toContainText("请重新开启并核对内容");
     expect(run.writes).toHaveLength(1);
     expect(run.reads()).toBe(3);
     await part(page, "seat-start").click();
@@ -317,10 +334,15 @@ test("U22 按 contracts 受阻原因置灰，写入拒绝优先使用 blocked_re
   await expect(part(page, "message")).toContainText("请先保存并确认当前恢复码");
   for (const [_reason, patch] of cases) {
     Object.assign(run.state, facts(), patch);
-    await part(page, "refresh").click();
-    await expect(part(page, "message")).toContainText("已读取当前邮件状态");
+    await refreshed(page);
     await expect(part(page, "seat-start")).toBeDisabled();
     await expect(part(page, "seat-reason")).not.toBeEmpty();
+    // Redesign: with no layer on there is nothing to close, so the close control is hidden.
+    await expect(part(page, "seat-stop")).toBeHidden();
+    // An enable block reason never gates the close control once the seat is on.
+    run.state.enabled = true;
+    await refreshed(page);
+    await expect(part(page, "seat-stop")).toBeVisible();
     await expect(part(page, "seat-stop")).toBeEnabled();
   }
   expect(run.writes).toHaveLength(1);
@@ -339,18 +361,29 @@ test("U22 同意关闭、租期、投诉抑制、全站预算可并存；关闭�
     last_event: { action: "disable", created_at: state.server_time },
   };
   const run = await openSubscription(page, { state });
+  // Facts now live in a collapsed disclosure; open it like a user to reach the consent region.
+  await openDetails(page);
   await expect(page.getByRole("region", { name: "同意与主动关闭" })).toContainText("已关闭");
   await expect(part(page, "facts")).toContainText("投诉");
   await expect(part(page, "facts")).toContainText("预算受限");
   await expect(part(page, "facts")).toContainText("北京时间 UTC+8");
+  // Redesign: with no layer on there is nothing to close, so the close control is hidden.
+  await expect(part(page, "seat-stop")).toBeHidden();
+  // The seat is on again (fresh GET); suppression and budget limits must not gate closing it.
+  run.state.enabled = true;
+  run.state.channel_revision++;
+  run.state.consent.seat.last_event = { action: "enable", created_at: run.state.server_time };
+  await refreshed(page);
   await part(page, "seat-stop").click();
   await expect(part(page, "message")).toContainText("邮件席位：已关闭");
-  expect(run.writes[0]).toEqual({
-    expected_revision: 7,
-    email_version: 4,
-    subscription_revision: 1,
-    enabled: false,
-  });
+  expect(run.writes).toEqual([
+    {
+      expected_revision: 8,
+      email_version: 4,
+      subscription_revision: 1,
+      enabled: false,
+    },
+  ]);
   expect(run.saves).toHaveLength(0);
   await page.screenshot({ path: test.info().outputPath("coexisting-states.png"), fullPage: true });
 });
@@ -371,6 +404,7 @@ test("U22 断网但已写入时只 GET 核对；缺字段不显示正常或可�
   );
   await part(page, "refresh").click();
   await expect(part(page, "facts")).toContainText("邮件状态未知");
+  await expect(part(page, "seat-status")).toHaveText("状态未知");
   await expect(part(page, "seat-start")).toBeDisabled();
 });
 
@@ -396,8 +430,9 @@ test("U11 保存冲突不打开同意、不提交邮件", async ({ page }) => {
   const run = await openSubscription(page, { dirty: true, saveConflict: true });
   await part(page, "seat-start").click();
   await part(page, "save-continue").click();
-  await expect(part(page, "message")).toContainText("请先处理保存结果或冲突");
+  await expect(part(page, "message")).toContainText("请先处理保存结果");
   await expect(part(page, "confirmation")).toBeHidden();
+  expect(run.saves).toHaveLength(1);
   expect(run.writes).toHaveLength(0);
 });
 
@@ -419,7 +454,7 @@ test("U22 身份失效清除私人视图，旧响应不重现；不写本机存�
       new CustomEvent("hoyo:draft-identity", { detail: { status: "unknown" } }),
     ),
   );
-  await expect(page.locator("#mail-channel")).toContainText("未展示邮件状态");
+  await expect(page.locator("#mail-channel")).toContainText(PENDING);
   release?.();
   await expect(page.locator("#mail-channel")).not.toContainText("example.invalid");
   expect(
@@ -471,7 +506,7 @@ test("U22 拒绝后的重读失败保持未知，不沿用旧同意；重新读�
     },
   });
   await consent(page);
-  await expect(part(page, "message")).toContainText("当前事实仍无法读取");
+  await expect(part(page, "message")).toContainText("当前状态仍无法读取");
   await expect(part(page, "confirmation")).toBeHidden();
   await expect(part(page, "seat-start")).toBeDisabled();
   await part(page, "refresh").click();
@@ -506,14 +541,18 @@ test("U22 正式页首次加载等待身份和已保存版本，不把未知显�
     beforeSubscription: subscription.promise,
     waitForReady: false,
   });
-  await expect(page.locator("#mail-channel")).toContainText("状态尚未读取");
+  // Identity unconfirmed: only the static placeholder, no channel state and no email read.
+  await expect(part(page, "seat-status")).toHaveCount(0);
+  await expect(page.locator("#mail-channel")).not.toContainText("未开启");
   expect(run.reads()).toBe(0);
   account.release();
-  await expect(page.locator("#draft-state")).toContainText("正在读取云端设置");
+  await expect(page.locator("#cloud-state")).toHaveText("正在读取云端设置…");
+  await expect(page.locator("#mail-channel")).toContainText(PENDING);
   expect(run.reads()).toBe(0);
   await expect(page.locator("#mail-channel")).not.toContainText("已关闭");
+  await expect(page.locator("#mail-channel")).not.toContainText("未开启");
   subscription.release();
-  await expect(part(page, "message")).toContainText("已读取当前邮件状态");
+  await ready(page);
   expect(run.reads()).toBe(1);
   expect(run.writes).toEqual([]);
   expect(run.saves).toEqual([]);
@@ -527,7 +566,8 @@ test("U22 正式页已开启事实覆盖占位，恢复码未保存不能开启�
   await expect(part(page, "seat-status")).toHaveText("已开启");
   await expect(part(page, "routine-start")).toBeDisabled();
   await expect(part(page, "routine-reason")).toContainText("请先保存并确认当前恢复码");
-  await expect(page.locator("#change-summary")).not.toContainText("接收方式尚未开启");
+  // #change-summary was removed in the redesign; the channel's own status pill is the summary now.
+  await expect(part(page, "pill")).toHaveText("已开启");
   await screenshot(page, "recovery-blocked");
   expect(run.writes).toEqual([]);
   expect(run.saves).toEqual([]);
@@ -551,7 +591,7 @@ for (const next of [false, true])
     await part(page, "refresh").click();
     await expect.poll(run.reads).toBe(2);
     await identity(page, null);
-    await expect(page.locator("#mail-channel")).toContainText("未展示邮件状态");
+    await expect(page.locator("#mail-channel")).toContainText(PENDING);
     await expect(page.locator("#mail-channel")).not.toContainText("s***@example.invalid");
     if (next) {
       run.state.email.masked = "b***@example.invalid";
@@ -568,7 +608,7 @@ for (const next of [false, true])
     );
     await expect(page.locator("#mail-channel")).not.toContainText("s***@example.invalid");
     if (next) await expect(part(page, "facts")).toContainText("b***@example.invalid");
-    else await expect(page.locator("#mail-channel")).toContainText("未展示邮件状态");
+    else await expect(page.locator("#mail-channel")).toContainText(PENDING);
   });
 
 test("U22 首次邮件 GET 未完成时切换身份，旧请求不能占据新实例", async ({ page }) => {
@@ -605,13 +645,17 @@ test("U22 跨标签身份失效立即清空；重新确认后重读；页面保�
     channel.postMessage("invalidate");
     channel.close();
   });
-  await expect(page.locator("#mail-channel")).toContainText("未展示邮件状态");
+  await expect(page.locator("#mail-channel")).toContainText(PENDING);
+  await expect(page.locator("#mail-channel")).not.toContainText("s***@example.invalid");
   await identity(page, "synthetic-account-a");
-  await expect(part(page, "message")).toContainText("已读取当前邮件状态");
+  await ready(page);
+  expect(run.reads()).toBe(2);
   await editRules(page);
   await page.getByRole("button", { name: "保存订阅", exact: true }).click();
-  await expect(page.locator("#cloud-state")).toContainText("版本 2");
-  await expect(part(page, "message")).toContainText("已读取当前邮件状态");
+  await expect(page.locator("#draft-state")).toHaveText("云端版本 2");
+  // The saved-version re-read is quiet now; the extra GET proves the panel re-read after saving.
+  await expect.poll(run.reads).toBe(3);
+  await ready(page);
   await part(page, "seat-start").click();
   await expect(part(page, "disclosure")).toContainText("已保存内容（版本 2）");
   await expect(part(page, "disclosure")).toContainText("提前提醒：未选择");
@@ -629,7 +673,10 @@ test("U22 未初始化账号先保存一次；初始草稿预选不产生邮件�
   expect(run.saves).toEqual([]);
 });
 
-test("U22 E2 正式构建页确认布局：完整页面无横向溢出，主要操作可见可触控", async ({ page }) => {
+test("U22 E2 正式构建页确认布局：完整页面无横向溢出，主要操作可见可触控", async ({
+  page,
+  hasTouch,
+}) => {
   await openSubscription(page);
   await part(page, "seat-start").click();
   await part(page, "seat-consent").check();
@@ -637,10 +684,15 @@ test("U22 E2 正式构建页确认布局：完整页面无横向溢出，主要�
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(
     true,
   );
-  for (const name of ["confirm", "cancel-confirm", "seat-start", "seat-stop", "refresh"]) {
+  // Redesign: compact buttons are 36px for fine pointers and grow to the 44px tap target on touch
+  // screens; desktop keeps at least the WCAG 2.5.8 target size.
+  for (const name of ["confirm", "cancel-confirm", "seat-start", "refresh"]) {
+    await expect(part(page, name)).toBeVisible();
     const box = await part(page, name).boundingBox();
-    expect(box?.height).toBeGreaterThanOrEqual(44);
+    expect(box?.height).toBeGreaterThanOrEqual(hasTouch ? 44 : 24);
   }
+  // Nothing is on yet, so the close control is intentionally not offered.
+  await expect(part(page, "seat-stop")).toBeHidden();
   await screenshot(page, "confirmation-page", true);
 });
 
@@ -656,23 +708,21 @@ test("U22 同账号保存更新之后迟到的旧邮件快照保持未知，重�
   await expect.poll(run.reads).toBe(1);
   await editRules(page);
   await page.getByRole("button", { name: "保存订阅", exact: true }).click();
-  await expect(page.locator("#cloud-state")).toContainText("版本 2");
+  await expect(page.locator("#draft-state")).toHaveText("云端版本 2");
   late.release();
   await expect(part(page, "facts")).toContainText("邮件状态未知");
   await expect(part(page, "seat-start")).toBeDisabled();
-  await part(page, "refresh").click();
-  await expect(part(page, "message")).toContainText("已读取当前邮件状态");
+  await refreshed(page);
   await part(page, "seat-start").click();
   await expect(part(page, "disclosure")).toContainText("已保存内容（版本 2）");
 });
 
 test("U22 显式邮件操作 completed 启用停用各续期一次，GET 不续期", async ({ page }) => {
   const run = await openSubscription(page);
-  await part(page, "refresh").click();
-  await expect(part(page, "message")).toContainText("已读取当前邮件状态");
+  await refreshed(page);
   expect(run.renewals()).toBe(0);
   await consent(page);
-  await expect(part(page, "message")).toContainText("已核对操作结果");
+  await expect(part(page, "message")).toContainText("已更新。邮件席位：已开启");
   await expect.poll(run.renewals).toBe(1);
   await part(page, "routine-start").click();
   await part(page, "routine-consent").check();
@@ -685,8 +735,7 @@ test("U22 显式邮件操作 completed 启用停用各续期一次，GET 不续�
   await part(page, "seat-stop").click();
   await expect(part(page, "message")).toContainText("邮件席位：已关闭");
   await expect.poll(run.renewals).toBe(4);
-  await part(page, "refresh").click();
-  await expect(part(page, "message")).toContainText("已读取当前邮件状态");
+  await refreshed(page);
   expect(run.renewals()).toBe(4);
   expect(run.writes).toHaveLength(4);
 });
@@ -718,11 +767,10 @@ for (const outcome of ["completed", "partial", "disabled"] as const)
     expect(run.renewals()).toBe(0);
     await editRules(page);
     await page.getByRole("button", { name: "保存订阅", exact: true }).click();
-    await expect(page.locator("#cloud-state")).toContainText("版本 2");
+    await expect(page.locator("#draft-state")).toHaveText("云端版本 2");
     late.release();
-    await expect(part(page, "message")).toContainText("操作回执（保存版本 1）");
     await expect(part(page, "message")).toContainText(
-      outcome === "partial" ? "部分完成" : "已完成",
+      `本次操作${outcome === "partial" ? "部分完成" : "已完成"}（保存版本 1）`,
     );
     await expect(part(page, "message")).toContainText(
       outcome === "disabled" ? "邮件席位：已关闭" : "邮件席位：已开启",
@@ -732,10 +780,9 @@ for (const outcome of ["completed", "partial", "disabled"] as const)
     await expect(part(page, "confirmation")).toBeHidden();
     await expect.poll(run.renewals).toBe(1);
     expect(run.writes).toHaveLength(1);
-    await part(page, "refresh").click();
-    await expect(part(page, "message")).toContainText("已读取当前邮件状态");
+    await refreshed(page);
     await expect(part(page, "seat-status")).toHaveText(
-      outcome === "disabled" ? "未开启 / 已关闭" : "已开启",
+      outcome === "disabled" ? "未开启" : "已开启",
     );
     expect(run.renewals()).toBe(1);
     expect(run.writes).toHaveLength(1);
@@ -777,7 +824,7 @@ for (const outcome of ["completed", "partial"] as const)
       });
       await consent(page, outcome === "partial");
       await expect(part(page, "message")).toContainText(
-        outcome === "partial" ? "部分完成" : "已核对操作结果",
+        outcome === "partial" ? "部分完成" : "已更新。邮件席位：已开启",
       );
       await expect.poll(run.renewals).toBe(1);
       const message = await part(page, "message").textContent();
@@ -788,8 +835,7 @@ for (const outcome of ["completed", "partial"] as const)
       await expect(part(page, "message")).toHaveText(message ?? "");
       await expect(part(page, "seat-status")).toHaveText("已开启");
       expect(run.writes).toHaveLength(1);
-      await part(page, "refresh").click();
-      await expect(part(page, "message")).toContainText("已读取当前邮件状态");
+      await refreshed(page);
       expect(run.renewals()).toBe(1);
     });
 
@@ -809,9 +855,9 @@ test("U22 加载、未确认、取消、可见性与重读均不续期", async (
   await expect(part(page, "confirm")).toBeEnabled();
   expect(run.renewals()).toBe(0);
   await part(page, "cancel-confirm").click();
+  await expect(part(page, "message")).toContainText("已取消，没有修改邮件设置");
   await page.evaluate(() => document.dispatchEvent(new Event("visibilitychange")));
-  await part(page, "refresh").click();
-  await expect(part(page, "message")).toContainText("已读取当前邮件状态");
+  await refreshed(page);
   await settleBrowser(page);
   expect(run.renewals()).toBe(0);
   expect(run.writes).toHaveLength(0);
@@ -841,12 +887,11 @@ for (const failure of ["conflict", "validation", "rejected", "unknown", "malform
       },
     });
     await consent(page);
-    await expect(part(page, "message")).toContainText("已重新读取当前事实");
+    await expect(part(page, "message")).toContainText("已重新读取当前状态");
     await settleBrowser(page);
     expect(run.renewals()).toBe(0);
     expect(run.writes).toHaveLength(1);
-    await part(page, "refresh").click();
-    await expect(part(page, "message")).toContainText("已读取当前邮件状态");
+    await refreshed(page);
     expect(run.renewals()).toBe(0);
     expect(run.writes).toHaveLength(1);
   });
@@ -882,7 +927,9 @@ for (const outcome of ["completed", "partial"] as const)
     await responded.promise;
     await settleBrowser(page);
     await expect(part(page, "facts")).not.toContainText("s***@example.invalid");
-    await expect(part(page, "message")).toContainText("已读取当前邮件状态");
+    // The new identity's panel shows only its own read, never the old identity's write receipt.
+    await expect(part(page, "facts")).toContainText("b***@example.invalid");
+    await expect(part(page, "message")).not.toContainText("邮件席位");
     expect(run.renewals()).toBe(0);
     expect(run.writes).toHaveLength(1);
   });

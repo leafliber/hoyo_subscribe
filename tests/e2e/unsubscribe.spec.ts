@@ -286,7 +286,12 @@ test("U26 真实本地 Worker/D1 全关/read_only：GET→确认→幂等→重�
     expect(await snapshot()).toEqual(changed);
     expect(getCount).toBe(4);
     expect(securityChecked).toBe(true);
-    expect(requests.every((p) => p === "/synthetic-unsubscribe")).toBe(true);
+    // 页面只额外加载同源的固定样式表与站点图标（no-referrer，不带能力 token），没有其他请求。
+    expect(
+      requests.every((p) =>
+        ["/synthetic-unsubscribe", "/mail-page.css", "/favicon.svg"].includes(p),
+      ),
+    ).toBe(true);
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(
       true,
     );

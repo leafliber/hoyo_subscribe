@@ -8,8 +8,10 @@ import { createRequire } from "node:module";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-const PORT = 4173;
-const DIST = path.resolve(fileURLToPath(new URL("../../apps/web/dist/", import.meta.url)));
+const PORT = Number(process.env.E2E_PORT ?? 4173);
+const DIST = process.env.E2E_DIST
+  ? path.resolve(process.env.E2E_DIST)
+  : path.resolve(fileURLToPath(new URL("../../apps/web/dist/", import.meta.url)));
 const MIME_TYPES = {
   ".css": "text/css; charset=utf-8",
   ".html": "text/html; charset=utf-8",
@@ -49,7 +51,7 @@ function portOwner() {
   });
   return result.status === 0 && result.stdout.trim()
     ? result.stdout.trim()
-    : "监听者信息不可用（可运行 lsof -nP -iTCP:4173 -sTCP:LISTEN 查询）";
+    : `监听者信息不可用（可运行 lsof -nP -iTCP:${PORT} -sTCP:LISTEN 查询）`;
 }
 
 async function serve(request, response) {

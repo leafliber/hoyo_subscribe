@@ -7,12 +7,13 @@ import {
   feedSourcesFresh,
   feedWindow,
   requiredCalendarSources,
-  SUBSCRIPTION_EVENT_TYPE_LABELS,
   SUBSCRIPTION_GAME_LABELS,
-  SUBSCRIPTION_NODE_TYPE_LABELS,
   SUBSCRIPTION_RULE_COPY,
   type TimeValue,
 } from "@hoyo/contracts";
+import { badge, el, icon } from "../../../lib/dom";
+import { clock, dateOnlyLabel, dateTime } from "../../../lib/format";
+import { gameIcon } from "../../../lib/game-icons";
 import type { Draft, Snapshot } from "../save/machine";
 import { sampleNodes } from "./sample";
 
@@ -39,16 +40,12 @@ const formatter = new Intl.DateTimeFormat("zh-CN", {
   hourCycle: "h23",
 });
 export const timestampText = (ms: number) => formatter.format(ms);
-function timeText(time: TimeValue): string {
-  if (time.precision === "unknown") return "时间待定";
-  if (time.precision === "date") return `${time.date} · 具体时刻未公布`;
+
+function timeLabel(time: TimeValue): string {
+  if (time.precision === "unknown") return "待定";
+  if (time.precision === "date") return "全天";
   const estimated = time.time_basis === "official_estimate" || time.time_basis === "unresolved";
-  return `${timestampText(time.utc_ms)}${estimated ? " · 预计／尚未确定" : ""}`;
-}
-function element<K extends keyof HTMLElementTagNameMap>(tag: K, text: string) {
-  const node = document.createElement(tag);
-  node.textContent = text;
-  return node;
+  return `${estimated ? "约 " : ""}${clock(time.utc_ms)}`;
 }
 const rulesText = (ids: readonly string[]) =>
   ids
@@ -61,56 +58,82 @@ const patchLabels = {
   deleted: "节点删除",
   restored: "恢复安排",
   postponed_unknown: "延期待定",
-  classification_corrected: "分类／归属更正",
+  classification_corrected: "分类更正",
 } satisfies Record<NonNullable<CalendarPreviewItem["patch"]>["kind"], string>;
+const blockedReasons = {
+  alarms_disabled: "日历提醒未开启",
+  cancelled: "已取消或延期的条目不设闹钟",
+  date_only: "只有日期，无法精确提醒",
+  estimated: "预计时间，无法精确提醒",
+} as const;
+
 function renderItem(item: CalendarPreviewItem): HTMLElement {
-  const row = element("li", "");
-  row.dataset.milestone = item.milestoneId;
-  row.className = `calendar-preview-item${item.patch || item.cancelled ? " is-correction" : ""}`;
-  row.append(element("h4", `${item.eventTitle} · ${item.milestoneTitle}`));
+  const correction = Boolean(item.patch || item.cancelled);
+  const row = el(
+    "li",
+    {
+      class: `preview-item${correction ? " is-correction" : ""}`,
+      "data-milestone": item.milestoneId,
+    },
+    el("span", { class: "preview-time" }, timeLabel(item.time)),
+  );
+  const tags: HTMLElement[] = [];
+  if (item.inclusion.kind === "reminder_associated") {
+    const tag = badge("提醒关联", "accent");
+    tag.title = `为「${rulesText(item.inclusion.ruleIds)}」保留`;
+    tags.push(tag);
+  }
+  if (item.patch) tags.push(badge(patchLabels[item.patch.kind], "warning"));
+  if (item.cancelled) tags.push(badge("已取消", "danger"));
+  let alarmNote: string;
+  if (item.alarm === null) alarmNote = "无闹钟：没有匹配的提醒规则";
+  else if (item.alarm.blocked)
+    alarmNote = `无闹钟：${blockedReasons[item.alarm.blocked]}（${rulesText(item.alarm.ruleIds)}）`;
+  else alarmNote = `日历闹钟：${rulesText(item.alarm.ruleIds)}`;
+  const hasAlarm = item.alarm !== null && !item.alarm.blocked;
   row.append(
-    element(
-      "p",
-      `${SUBSCRIPTION_GAME_LABELS[item.game]} · ${SUBSCRIPTION_EVENT_TYPE_LABELS[item.eventType]} · ${SUBSCRIPTION_NODE_TYPE_LABELS[item.nodeType]} · ${timeText(item.time)}`,
+    el(
+      "div",
+      { class: "preview-main" },
+      el("p", { class: "preview-title" }, `${item.eventTitle} · ${item.milestoneTitle}`),
+      el(
+        "p",
+        { class: "preview-meta" },
+        el(
+          "span",
+          { class: "game-tag", "data-game": item.game },
+          gameIcon(item.game),
+          SUBSCRIPTION_GAME_LABELS[item.game],
+        ),
+        ...tags,
+      ),
+      item.inclusion.kind === "reminder_associated"
+        ? el(
+            "p",
+            { class: "preview-note" },
+            `提醒关联节点：为「${rulesText(item.inclusion.ruleIds)}」保留；${item.inclusion.hiddenBy
+              .map((by) => (by === "event_type" ? "事件类型已隐藏" : "节点类型已隐藏"))
+              .join("、")}。`,
+          )
+        : null,
+      item.patch
+        ? el(
+            "p",
+            { class: "preview-note" },
+            `${patchLabels[item.patch.kind]}：${item.patch.factReason}${item.patch.oldTime && item.patch.oldTime.precision === "datetime" ? `（原 ${dateTime(item.patch.oldTime.utc_ms)}）` : ""}`,
+          )
+        : null,
+      el("p", { class: "sr-only" }, alarmNote),
+    ),
+    el(
+      "span",
+      {
+        class: `preview-alarm${hasAlarm ? " is-on" : ""}`,
+        title: alarmNote,
+      },
+      hasAlarm ? icon("bell") : null,
     ),
   );
-  if (item.inclusion.kind === "reminder_associated") {
-    const hidden = item.inclusion.hiddenBy.map((by) =>
-      by === "event_type" ? "事件类型已隐藏" : "节点类型已隐藏",
-    );
-    row.append(
-      element(
-        "p",
-        `提醒关联节点：为「${rulesText(item.inclusion.ruleIds)}」保留；${hidden.join("、")}。`,
-      ),
-    );
-  } else row.append(element("p", "基础显示节点"));
-  if (item.patch) {
-    row.append(element("p", `${patchLabels[item.patch.kind]}：${item.patch.factReason}`));
-    if (item.patch.oldTime) row.append(element("p", `更正前：${timeText(item.patch.oldTime)}`));
-    if (!item.inBaseWindow) row.append(element("p", "作为更正保留，不计入基础窗口条目。"));
-  }
-  if (item.cancelled) row.append(element("strong", "日历标记为已取消；不是即将发生的安排。"));
-  if (item.alarm === null) row.append(element("p", "无闹钟：没有匹配的所选提醒规则。"));
-  else {
-    const reason =
-      item.alarm.blocked === null
-        ? null
-        : {
-            alarms_disabled: "日历提醒未开启",
-            cancelled: "取消、撤回、删除或延期待定条目不设闹钟",
-            date_only: "只有日期，不能生成精确闹钟",
-            estimated: "预计或未确定时间，不能生成精确闹钟",
-          }[item.alarm.blocked];
-    row.append(
-      element(
-        "p",
-        reason
-          ? `无闹钟：${reason}；所选规则：${rulesText(item.alarm.ruleIds)}。`
-          : `日历闹钟：${rulesText(item.alarm.ruleIds)}（提前 ${item.alarm.leadSeconds.join("、")} 秒）。`,
-      ),
-    );
-  }
   return row;
 }
 
@@ -122,29 +145,24 @@ export function renderPreview(
 ) {
   const content = document.createDocumentFragment();
   const saved = input.saved && input.snapshot?.config;
-  content.append(
-    element(
-      "p",
-      saved ? `正在预览：已保存设置 · 版本 ${input.snapshot?.revision}` : "正在预览：未保存草稿",
+  const head = el(
+    "div",
+    { class: "preview-head" },
+    badge(
+      saved ? `已保存设置 · 第 ${input.snapshot?.revision} 版` : "未保存草稿",
+      saved ? "success" : "warning",
     ),
   );
-  const status = element("p", "");
-  status.setAttribute("role", "status");
+  content.append(head);
+  const status = el("p", { class: "preview-status", role: "status" });
   const real = state.snapshot;
   const sample = state.sampleAt !== null;
   status.textContent = state.loading
-    ? `不完整 · 正在更新公开数据 ${state.progress}`
+    ? `正在读取公开数据… ${state.progress}`
     : state.error
-      ? `不完整 · ${state.error}${sample ? "；以下是样例预览（合成），不代表真实日历。" : "；请重试，不能据此判断日历为空。"}`
+      ? `${state.error}${sample ? "；下面是样例预览（合成数据），不代表真实日历。" : "；请重试，不能据此判断日历为空。"}`
       : "";
   content.append(status);
-  if (!state.loading) {
-    const button = element("button", "刷新预览数据");
-    button.type = "button";
-    button.className = "secondary-button";
-    button.addEventListener("click", retry);
-    content.append(button);
-  }
   if (real || sample) {
     const asOf = real?.asOf ?? (state.sampleAt as number);
     const window = real?.window ?? feedWindow(asOf);
@@ -160,38 +178,59 @@ export function renderPreview(
     const complete = real !== null && !state.loading && !state.error && diagnostic === null;
     if (!state.loading && !state.error)
       status.textContent = complete
-        ? "真实数据 · 完整（输出大小启用前再核对一次）"
-        : `真实数据 · 不完整 · ${diagnostic ? FEED_DIAGNOSTICS[diagnostic] : "无法核验"}`;
-    content.append(
-      element(
-        "p",
-        `${sample ? "样例生成" : "数据"}时间：${timestampText(asOf)} · 北京时间 UTC+8${real ? ` · 发布代次 ${real.publication.generation}` : ""}`,
+        ? "基于最新公开数据"
+        : `数据不完整：${diagnostic ? FEED_DIAGNOSTICS[diagnostic] : "无法核验"}`;
+    head.append(
+      badge(
+        sample ? "样例" : complete ? "真实数据 · 完整" : "真实数据 · 不完整",
+        sample ? "neutral" : complete ? "accent" : "warning",
       ),
     );
     content.append(
-      element(
-        "p",
-        `基础窗口：${timestampText(window.start)} 至 ${timestampText(window.end)}（不含结束时刻，北京时间 UTC+8）；更正条目可能延长窗口。`,
+      el(
+        "div",
+        { class: "preview-stats" },
+        el(
+          "div",
+          { class: "stat" },
+          el("strong", {}, String(result.totals.items)),
+          el("span", {}, "个日程"),
+        ),
+        el(
+          "div",
+          { class: "stat" },
+          el("strong", {}, String(result.totals.withAlarm)),
+          el("span", {}, "个带提醒"),
+        ),
+        el(
+          "div",
+          { class: "stat" },
+          el(
+            "strong",
+            {},
+            String(result.items.filter((item) => item.patch || item.cancelled).length),
+          ),
+          el("span", {}, "个更正"),
+        ),
       ),
-    );
-    content.append(
-      element(
+      el(
         "p",
+        { class: "preview-window" },
+        `${sample ? "样例生成" : "数据"}时间 ${timestampText(asOf)}${real ? ` · 发布代次 ${real.publication.generation}` : ""}。包含 ${timestampText(window.start)} 至 ${timestampText(window.end)} 的活动（不含结束时刻，更正条目可能超出）。`,
+      ),
+      el(
+        "p",
+        { class: "sr-only" },
         `共 ${result.totals.items} 条 · 窗口内 ${result.totals.inBaseWindow} · 更正 ${result.totals.patches} · 提醒关联 ${result.totals.reminderAssociated} · 带闹钟 ${result.totals.withAlarm} · 已取消 ${result.totals.cancelled}`,
       ),
     );
-    content.append(
-      element(
-        "p",
-        `未进入日历：时间待定 ${result.omitted.unknownTime} 条；仅为提醒保留但没有精确时间 ${result.omitted.reminderNotExact} 条。这些节点不占日历条目数。`,
-      ),
-    );
     if (diagnostic && (state.loading || state.error))
-      content.append(element("p", FEED_DIAGNOSTICS[diagnostic]));
+      content.append(el("p", { class: "callout callout--warning" }, FEED_DIAGNOSTICS[diagnostic]));
     if (result.items.length === 0)
       content.append(
-        element(
+        el(
           "p",
+          { class: "preview-empty" },
           complete
             ? "真实数据中没有符合这份设置的日历条目。"
             : sample
@@ -199,25 +238,45 @@ export function renderPreview(
               : "当前无法确认完整日历内容，请按诊断处理后重试。",
         ),
       );
+    const list = el("div", { class: "preview-list" });
     let day = "";
-    let list: HTMLUListElement | undefined;
+    let group: HTMLUListElement | undefined;
     for (const item of result.items) {
       const nextDay =
         item.time.precision === "date" ? item.time.date : browseDate(item.time.utc_ms);
       if (day !== nextDay) {
         day = nextDay;
-        content.append(element("h3", day));
-        list = document.createElement("ul");
-        list.className = "calendar-preview-list";
-        content.append(list);
+        list.append(el("h3", { class: "preview-day" }, dateOnlyLabel(day)));
+        group = el("ul", { class: "preview-items" });
+        list.append(group);
       }
-      list?.append(renderItem(item));
+      group?.append(renderItem(item));
     }
+    if (result.items.length) content.append(list);
+    if (result.omitted.unknownTime || result.omitted.reminderNotExact)
+      content.append(
+        el(
+          "p",
+          { class: "preview-omitted" },
+          `未进入日历：时间待定 ${result.omitted.unknownTime} 条；仅为提醒保留但没有精确时间 ${result.omitted.reminderNotExact} 条。`,
+        ),
+      );
+  }
+  if (!state.loading) {
+    const button = el(
+      "button",
+      { type: "button", class: "button button--ghost button--sm" },
+      icon("refresh"),
+      "刷新预览数据",
+    );
+    button.addEventListener("click", retry);
+    content.append(el("div", { class: "preview-actions" }, button));
   }
   content.append(
-    element(
+    el(
       "p",
-      "此处为浏览器即时预览。启用前需核对服务端的已保存设置预览；未经验证的客户端不保证提醒可用；外部日历何时更新由客户端决定。",
+      { class: "preview-foot" },
+      "预览在浏览器中生成；启用日历时服务器会按已保存设置再核对一次。日历何时刷新由日历应用决定。",
     ),
   );
   root.replaceChildren(content);
