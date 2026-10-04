@@ -4,16 +4,19 @@ import {
   type PublicEventDetailResponse,
   type PublicScheduleNode,
   versionDerivationBasis,
+  yearCompletionBasis,
 } from "@hoyo/contracts";
 import { type BadgeKind, badge, el, icon, statusPill } from "../../lib/dom";
 import { relative, remaining, stamp } from "../../lib/format";
 import { cacheNotice, timeNode } from "./dom";
 import { gameTag, renderChange, statusBadges } from "./render";
 
-// 前端 §4.4：确定性推导在详情里给出推导依据；目前只有版本锚点（ADR-0011）有可说明的依据。
+// 前端 §4.4：确定性推导在详情里给出推导依据：版本锚点（ADR-0011）与补全年份（ADR-0013）。
 function derivationBasis(node: PublicScheduleNode) {
   if (node.time.time_basis !== "deterministic_derived") return null;
-  const basis = versionDerivationBasis(node.time.raw_expression);
+  const basis =
+    versionDerivationBasis(node.time.raw_expression) ??
+    yearCompletionBasis(node.time.raw_expression, node.time);
   return basis === null ? null : el("p", {}, `推导依据：${basis}`);
 }
 
