@@ -3,6 +3,7 @@ import type {
   CandidateDetail,
   QueuePage,
   VersionListing,
+  VersionRecord,
 } from "../../apps/web/src/features/admin/types";
 import { buildApiErrorBody } from "../../packages/contracts/src/index";
 
@@ -987,5 +988,43 @@ test.describe("P3-19 管理端拆页", () => {
     expect(
       state.calls.filter((call) => call.method === "POST").every((call) => call.csrf !== undefined),
     ).toBe(true);
+  });
+
+  test("A-P3-VERSION 版本结束取自下一版本：值一致时不重复列出，下一版本改过后可重新采用", async ({
+    page,
+  }) => {
+    const state = await setup(page);
+    const start46 = Date.parse("2026-09-27T22:00:00Z");
+    const row = (version: string, fields: Partial<VersionRecord>): VersionRecord => ({
+      game: "hsr",
+      version,
+      update_start_ms: null,
+      update_start_source: null,
+      version_end_ms: null,
+      version_end_source: null,
+      version_end_basis: null,
+      updated_at: 1_900_000_000_500,
+      ...fields,
+    });
+    const next = row("4.6", { update_start_ms: start46, update_start_source: "s46" });
+    state.versions = {
+      versions: [
+        next,
+        row("4.5", {
+          version_end_ms: start46,
+          version_end_source: "s46",
+          version_end_basis: "next_update",
+        }),
+      ],
+      suggestions: [],
+      pending_references: {},
+    };
+    await page.goto("/admin/versions/");
+    const card = page.getByRole("article", { name: "崩坏：星穹铁道 4.5 版本" });
+    await expect(card).toContainText("（取下一版本的更新开始）");
+    await expect(card).not.toContainText("取 4.6 版本的更新开始");
+    next.update_start_ms = start46 + 3_600_000;
+    await page.getByRole("button", { name: "重新读取" }).click();
+    await expect(card).toContainText("取 4.6 版本的更新开始");
   });
 });

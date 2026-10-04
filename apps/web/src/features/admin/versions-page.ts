@@ -151,10 +151,12 @@ function fieldRow(
             ),
       );
     });
+  // 已按"下一版本的更新开始"确认、且值仍一致时不重复列出；下一版本的更新开始改过后可以直接重新采用。
   if (
     field === "version_end" &&
     nextVersion?.update_start_ms != null &&
-    record?.version_end_basis !== "next_update"
+    (record?.version_end_basis !== "next_update" ||
+      record.version_end_ms !== nextVersion.update_start_ms)
   )
     options.push(
       el(
