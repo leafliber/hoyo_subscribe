@@ -3,11 +3,19 @@ import {
   nodeAction,
   type PublicEventDetailResponse,
   type PublicScheduleNode,
+  versionDerivationBasis,
 } from "@hoyo/contracts";
 import { type BadgeKind, badge, el, icon, statusPill } from "../../lib/dom";
 import { relative, remaining, stamp } from "../../lib/format";
 import { cacheNotice, timeNode } from "./dom";
 import { gameTag, renderChange, statusBadges } from "./render";
+
+// 前端 §4.4：确定性推导在详情里给出推导依据；目前只有版本锚点（ADR-0011）有可说明的依据。
+function derivationBasis(node: PublicScheduleNode) {
+  if (node.time.time_basis !== "deterministic_derived") return null;
+  const basis = versionDerivationBasis(node.time.raw_expression);
+  return basis === null ? null : el("p", {}, `推导依据：${basis}`);
+}
 
 function officialLink(raw: string | null, label: string, className: string) {
   if (!raw) return null;
@@ -88,6 +96,7 @@ function timelineNode(node: PublicScheduleNode, now: number, important: boolean)
           "div",
           { class: "evidence-box" },
           el("p", {}, `原始时间表述：${node.time.raw_expression}`),
+          derivationBasis(node),
           el("p", { class: "evidence-text" }, `证据片段：${node.evidence}`),
           el("p", {}, `源时区：${node.time.source_timezone}`),
           el("p", {}, `公告发布时间：${stamp(node.noticePublishedAt)}`),

@@ -224,6 +224,31 @@ test("U04 importantNodeId 为 null 不补安排；删除与官方取消分开，
   await expect(page.locator('a[href^="javascript:"]')).toHaveCount(0);
 });
 
+test("U04 确定性推导在时间依据里写明推导依据（ADR-0011 版本锚点）", async ({ page }) => {
+  let nodeId = "";
+  await page.route("**/api/v2/events/evt_morning", (route) => {
+    const data = detailFixture("evt_morning");
+    if (!data) throw new Error("fixture missing");
+    const node = data.event.milestones[0];
+    nodeId = node.id;
+    node.time = {
+      ...node.time,
+      time_basis: "deterministic_derived",
+      raw_expression: "4.6版本结束",
+    };
+    return route.fulfill({ json: data });
+  });
+  await page.goto("/events/evt_morning");
+  const milestone = page.locator(`[data-milestone="${nodeId}"]`);
+  await expect(milestone.locator(".milestone-status")).toContainText("按公告推算");
+  await expect(milestone.locator(".evidence-box")).toContainText("原始时间表述：4.6版本结束");
+  await expect(milestone.locator(".evidence-box")).toContainText(
+    "推导依据：取 4.6 版本的结束时间，按官方版本公告核对确认。",
+  );
+  // 其他节点不是版本锚点，不出现推导依据。
+  await expect(page.locator(".evidence-box", { hasText: "推导依据" })).toHaveCount(1);
+});
+
 test("U05 详情失败保留副本；离线注明缓存时间；404 不显示旧事实", async ({ page, context }) => {
   await page.goto("/events/evt_morning");
   await expect(page.locator(".event-detail")).toBeVisible();
