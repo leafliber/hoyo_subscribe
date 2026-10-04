@@ -1,6 +1,7 @@
 import type { PublicEventDetailResponse } from "@hoyo/contracts";
 import { el, emptyState, icon } from "../../lib/dom";
 import { PublicApiClient, PublicReadError } from "../../lib/public-api/client";
+import { openArticleDialog } from "./article-dialog";
 import { renderEventDetail } from "./detail";
 import { loadFeedback } from "./render";
 
@@ -154,8 +155,10 @@ if (target) {
     }
   }
   output.addEventListener("click", (event) => {
-    if (event.target instanceof Element && event.target.closest('[data-action="refresh"]'))
-      void load(true);
+    if (!(event.target instanceof Element)) return;
+    if (event.target.closest('[data-action="refresh"]')) void load(true);
+    const reader = event.target.closest<HTMLElement>('[data-action="read-article"]');
+    if (reader && current) openArticleDialog(current.event.id, current.event.official.url, reader);
   });
   window.addEventListener("offline", render);
   window.addEventListener("online", render);

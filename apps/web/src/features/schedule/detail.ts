@@ -37,6 +37,22 @@ function officialLink(raw: string | null, label: string, className: string) {
   }
 }
 
+// P3-22（ADR-0014）：官方没有可读的单篇公告页，official.url 是官方接口地址（原始数据）。
+// 「查看官方公告」改为打开原文弹窗；接口地址仍保留在官方来源里，标明只适合核对。
+function readArticleButton(label: string, className: string, origin: "hero" | "official") {
+  return el(
+    "button",
+    {
+      type: "button",
+      class: className,
+      "data-action": "read-article",
+      "data-article-origin": origin,
+    },
+    icon("file-text"),
+    label,
+  );
+}
+
 function exactTime(node: PublicScheduleNode | undefined): number | null {
   return node && node.time.precision === "datetime" && node.status !== "cancelled"
     ? node.time.utc_ms
@@ -115,6 +131,7 @@ export function renderEventDetail(response: PublicEventDetailResponse) {
   const important = event.milestones.find((node) => node.id === event.importantNodeId);
   const currentInvalid = event.status === "cancelled" || event.status === "retracted";
   const phase = eventPhase(event, now);
+  const officialSource = officialLink(event.official.url, "官方数据源", "official-source-link");
   const article = el(
     "article",
     { class: "event-detail", "data-event": event.id },
@@ -133,7 +150,7 @@ export function renderEventDetail(response: PublicEventDetailResponse) {
         "nav",
         { class: "detail-actions", "aria-label": "活动操作" },
         el("a", { class: "button", href: "/subscription" }, icon("calendar-check"), "设置订阅"),
-        officialLink(event.official.url, "查看官方公告", "button button--secondary"),
+        readArticleButton("查看官方公告", "button button--secondary", "hero"),
       ),
     ),
   );
@@ -224,7 +241,19 @@ export function renderEventDetail(response: PublicEventDetailResponse) {
             el("dt", {}, "发布时间"),
             el("dd", {}, stamp(event.official.publishedAt)),
           ),
-          officialLink(event.official.url, "公告链接", "official-link"),
+          el(
+            "div",
+            { class: "official-actions" },
+            readArticleButton("阅读公告原文", "official-link", "official"),
+            officialSource,
+          ),
+          officialSource
+            ? el(
+                "p",
+                { class: "data-note" },
+                "官方数据源是官方接口返回的原始数据，适合核对，不适合直接阅读。",
+              )
+            : null,
           el(
             "details",
             { class: "official-details disclosure" },
