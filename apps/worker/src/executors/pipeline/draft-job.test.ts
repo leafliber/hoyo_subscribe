@@ -4,7 +4,7 @@ import { env } from "cloudflare:test";
 import { MATCH_PAGE, utcDayPeriod } from "@hoyo/contracts";
 import { beforeEach, describe, expect, it } from "vitest";
 import genshinContent from "../../../../../fixtures/sources/genshin-ann/content-21928.json";
-import { readDraft } from "../../extraction/model/store";
+import { DRAFT_PROFILE_REF, readDraft } from "../../extraction/model/store";
 import {
   DRAFT_T0,
   type FixtureBody,
@@ -136,5 +136,26 @@ describe("A-P3-DRAFT 管线草稿待办", () => {
       { status: "pending", due_at: nextDay, last_error: "ai_budget_exhausted" },
     ]);
     expect(await runtime({ ai }).nextAlarm()).toBe(nextDay);
+  });
+
+  it("ADR-0010 旧 profile 的确定草稿会被补排重新起草，当前 profile 的不会", async () => {
+    const old = await seedRuleCandidate("genshin-ann", gachaEntry, { nowMs: now });
+    const fresh = await seedRuleCandidate("genshin-ann", gachaEntry, { nowMs: now + 1 });
+    const insert = (candidateId: string, versionId: string, profile: string) =>
+      env.DB.prepare(
+        `INSERT INTO ai_drafts (candidate_id, article_version_id, profile_ref, status, attempts, proposal_json,
+                                notes_json, reason_code, usage_json, created_at, updated_at)
+         VALUES (?, ?, ?, 'ready', 1, NULL, '[]', NULL, NULL, ?, ?)`,
+      )
+        .bind(candidateId, versionId, profile, now, now)
+        .run();
+    await insert(
+      old.candidateId,
+      old.versionId,
+      "@cf/qwen/qwen3-30b-a3b-fp8/draft-prompt-v1/candidate-schema-v1",
+    );
+    await insert(fresh.candidateId, fresh.versionId, DRAFT_PROFILE_REF);
+    await runtime({ ai: fakeAi(modelResponse(GACHA_21876_OUTPUT)) }).watchdog();
+    expect((await draftJobs()).map((row) => row.id)).toEqual([`pipeline:draft:${old.candidateId}`]);
   });
 });

@@ -44,13 +44,16 @@ describe("A-P3-DRAFT 可读正文与提示词", () => {
     expect(table).not.toContain("&lt;");
   });
 
-  it("提示词跳过空块但保留官方块号，并带 /no_think；只含官方正文与固定说明", () => {
+  it("提示词跳过空块但保留官方块号；只含官方正文与固定说明（v2 含分阶段、售卖时间与版本时间规则）", () => {
     const prompt = draftUserPrompt(gacha);
     expect(prompt).toContain("游戏：原神（国服）");
     expect(prompt).toContain("[blocks/4]\n祈愿时间");
     expect(prompt).not.toContain("[blocks/2]");
-    expect(prompt.endsWith("只输出 JSON。/no_think")).toBe(true);
+    expect(prompt.endsWith("只输出 JSON。")).toBe(true);
     expect(DRAFT_SYSTEM_PROMPT).toContain("time_text 必须从正文逐字复制");
+    expect(DRAFT_SYSTEM_PROMPT).toContain("中间各阶段的开始用 phase_unlock");
+    expect(DRAFT_SYSTEM_PROMPT).toContain("售卖时间不是节点");
+    expect(DRAFT_SYSTEM_PROMPT).toContain("version_window");
   });
 
   it("解析模型 JSON：去掉思考块与代码围栏，坏文本返回 null", () => {
@@ -271,5 +274,39 @@ describe("A-P3-DRAFT 确定性构建", () => {
     });
     expect(clampText("  a \n b  ")).toBe("a b");
     expect(result.status).toBe("ready");
+  });
+
+  it("ADR-0010 版本时间只收逐字核对通过的部分，写进说明且不进入候选", () => {
+    const result = buildDraftProposal(maintenance, {
+      ...JSON.parse(MAINTENANCE_21928_OUTPUT),
+      version_window: {
+        version: "7.1",
+        update_start: { block: 6, time_text: "2026/09/23 06:00" },
+        update_duration_text: "预计5个小时完成",
+        version_end: { block: 6, time_text: "2026/10/21 06:00" },
+      },
+    });
+    expect(result.versionWindow).toEqual({
+      version: "7.1",
+      updateStart: {
+        blockRef: "blocks/6",
+        quote: "2026/09/23 06:00",
+        utcMs: Date.parse("2026-09-22T22:00:00Z"),
+      },
+      updateDuration: { blockRef: "blocks/6", quote: "预计5个小时完成" },
+      versionEnd: null,
+    });
+    expect(result.notes.slice(0, 2)).toEqual([
+      "版本时间（逐字核对）：7.1 版本更新开始 2026-09-23 06:00（北京时间），预计5个小时完成；版本结束 正文未写。",
+      "版本时间摘录：「2026/10/21 06:00」在原文中核对不到完整时刻，已忽略。",
+    ]);
+    expect(JSON.stringify(result.proposal)).not.toContain("version_window");
+    expect(
+      buildDraftProposal(maintenance, {
+        ...JSON.parse(MAINTENANCE_21928_OUTPUT),
+        version_window: { version: "七点一" },
+      }).notes[0],
+    ).toBe("版本时间摘录：版本号「七点一」无效，已忽略。");
+    expect(buildDraftProposal(gacha, parseModelJson(GACHA_21876_OUTPUT)).versionWindow).toBeNull();
   });
 });

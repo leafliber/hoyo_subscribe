@@ -88,7 +88,7 @@ export interface DraftWrite {
   readonly nowMs: number;
 }
 
-/** 每个候选一行；失败重试覆盖同一行并累计调用次数。 */
+/** 每个候选一行；失败重试覆盖同一行并累计调用次数，换了 profile 的重新起草从头计数。 */
 export async function writeDraft(db: D1Database, draft: DraftWrite): Promise<void> {
   const called = draft.called ? 1 : 0;
   await db
@@ -98,7 +98,9 @@ export async function writeDraft(db: D1Database, draft: DraftWrite): Promise<voi
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT(candidate_id) DO UPDATE SET
          article_version_id = excluded.article_version_id, profile_ref = excluded.profile_ref,
-         status = excluded.status, attempts = ai_drafts.attempts + ?,
+         status = excluded.status,
+         attempts = CASE WHEN ai_drafts.profile_ref = excluded.profile_ref
+                         THEN ai_drafts.attempts + ? ELSE ? END,
          proposal_json = excluded.proposal_json, notes_json = excluded.notes_json,
          reason_code = excluded.reason_code, usage_json = excluded.usage_json,
          updated_at = excluded.updated_at`,
@@ -115,6 +117,7 @@ export async function writeDraft(db: D1Database, draft: DraftWrite): Promise<voi
       draft.usage === null ? null : JSON.stringify(draft.usage),
       draft.nowMs,
       draft.nowMs,
+      called,
       called,
     )
     .run();

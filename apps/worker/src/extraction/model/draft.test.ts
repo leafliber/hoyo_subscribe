@@ -5,6 +5,7 @@ import {
   AI_DRAFT_PROFILE,
   AI_DRAFT_RESERVATION,
   AI_SOFT_DAY,
+  aiDraftReservation,
   MODEL_NETWORK_RETRIES,
   utcDayPeriod,
   WATCHDOG_INTERVAL,
@@ -12,8 +13,10 @@ import {
 import { describe, expect, it } from "vitest";
 import genshinContent from "../../../../../fixtures/sources/genshin-ann/content-21928.json";
 import hsrContent from "../../../../../fixtures/sources/hsr-ann/content-1392.json";
-import { type DraftJobInput, runDraftJob } from "./draft";
+import type { StoredArticleVersion } from "../article";
+import { type DraftJobInput, type DraftModel, runDraftJob } from "./draft";
 import { readUsageDay, reserveNeurons, settleNeurons } from "./ledger";
+import { draftInputBytes, draftMessages } from "./prompt";
 import { DRAFT_PROFILE_REF, readDraft } from "./store";
 import {
   DRAFT_T0,
@@ -26,6 +29,9 @@ import {
 } from "./test-support";
 
 const genshin = genshinContent as unknown as FixtureBody;
+/** 与编排同一口径：本篇提示词实际字节数对应的预占。 */
+const reservationFor = (article: StoredArticleVersion) =>
+  aiDraftReservation(AI_DRAFT_PROFILE, draftInputBytes(draftMessages(article)));
 const gachaEntry = fixtureEntry(genshin, 21876);
 // 每个用例用不同的 UTC 日，账本互不干扰。
 let day = 0;
@@ -104,12 +110,13 @@ describe("A-P3-DRAFT 起草编排", () => {
     expect(call.model).toBe(AI_DRAFT_PROFILE.model);
     expect(call.signal).toBe(true);
     expect(call.inputs).toMatchObject({
-      max_tokens: AI_DRAFT_PROFILE.maxOutputTokens,
+      max_completion_tokens: AI_DRAFT_PROFILE.maxOutputTokens,
       temperature: AI_DRAFT_PROFILE.temperature,
+      reasoning_effort: AI_DRAFT_PROFILE.reasoningEffort,
     });
     const messages = call.inputs.messages as { role: string; content: string }[];
     expect(messages.map((m) => m.role)).toEqual(["system", "user"]);
-    expect(messages[1].content).toContain("/no_think");
+    expect(messages[1].content.endsWith("只输出 JSON。")).toBe(true);
     const draft = await readDraft(env.DB, candidateId);
     expect(draft).toMatchObject({
       status: "ready",
@@ -192,10 +199,11 @@ describe("A-P3-DRAFT 起草编排", () => {
   it("触到草稿日上限（软线）就停到下一个 UTC 日，不调用模型", async () => {
     const now = nextDay();
     const { candidateId } = await seedRuleCandidate("genshin-ann", gachaEntry, { nowMs: now });
+    const { article } = await seedRuleCandidate("genshin-ann", gachaEntry, { nowMs: now });
     const filler = await reserveNeurons(
       env.DB,
       now,
-      AI_SOFT_DAY - AI_DRAFT_RESERVATION + 1,
+      AI_SOFT_DAY - reservationFor(article) + 1,
       AI_SOFT_DAY,
     );
     expect(filler).not.toBeNull();
@@ -210,7 +218,9 @@ describe("A-P3-DRAFT 起草编排", () => {
 
   it("调用失败按整笔预占结算并有限次重试；用尽后停止", async () => {
     const now = nextDay();
-    const { candidateId } = await seedRuleCandidate("genshin-ann", gachaEntry, { nowMs: now });
+    const { candidateId, article } = await seedRuleCandidate("genshin-ann", gachaEntry, {
+      nowMs: now,
+    });
     const ai = fakeAi(new Error("network"));
     for (let attempt = 1; attempt <= MODEL_NETWORK_RETRIES + 1; attempt++) {
       const at = now + attempt;
@@ -231,7 +241,7 @@ describe("A-P3-DRAFT 起草编排", () => {
     });
     expect(await readUsageDay(env.DB, now)).toMatchObject({
       reserved: 0,
-      settled: (MODEL_NETWORK_RETRIES + 1) * AI_DRAFT_RESERVATION,
+      settled: (MODEL_NETWORK_RETRIES + 1) * reservationFor(article),
     });
     expect(await runDraftJob(job({ candidateId, nowMs: now + 9, ai }))).toEqual({
       kind: "done",
@@ -255,7 +265,7 @@ describe("A-P3-DRAFT 起草编排", () => {
     expect(await readDraft(env.DB, garbled.candidateId)).toMatchObject({
       status: "invalid",
       reasonCode: "unparseable",
-      notes: ["模型输出被 max_tokens 截断，无法解析为 JSON，请人工处理。"],
+      notes: ["模型输出被 max_completion_tokens 截断，无法解析为 JSON，请人工处理。"],
     });
     await runDraftJob(
       job({
@@ -280,7 +290,55 @@ describe("A-P3-DRAFT 起草编排", () => {
         ai: fakeAi(modelResponse(GACHA_21876_OUTPUT, null)),
       }),
     );
-    expect((await readDraft(env.DB, bare.candidateId))?.usage?.neurons).toBe(AI_DRAFT_RESERVATION);
+    expect((await readDraft(env.DB, bare.candidateId))?.usage?.neurons).toBe(
+      reservationFor(bare.article),
+    );
     expect((await readUsageDay(env.DB, now)).reserved).toBe(0);
+  });
+
+  it("ADR-0010 按本篇实际输入字节预占，调用期间账本里只占这一笔，远小于单次上限", async () => {
+    const now = nextDay();
+    const { candidateId, article } = await seedRuleCandidate("genshin-ann", gachaEntry, {
+      nowMs: now,
+    });
+    let reservedDuringCall = -1;
+    const ai: DraftModel = {
+      async run() {
+        reservedDuringCall = (await readUsageDay(env.DB, now)).reserved;
+        return modelResponse(GACHA_21876_OUTPUT);
+      },
+    };
+    expect(await runDraftJob(job({ candidateId, nowMs: now, ai }))).toEqual({
+      kind: "done",
+      reason: null,
+    });
+    expect(reservedDuringCall).toBe(reservationFor(article));
+    expect(reservedDuringCall).toBeLessThan(AI_DRAFT_RESERVATION);
+    expect(await readUsageDay(env.DB, now)).toMatchObject({ reserved: 0, settled: 13 });
+  });
+
+  it("ADR-0010 旧 profile 的草稿按新组合重新起草，调用次数从头计", async () => {
+    const now = nextDay();
+    const { candidateId, versionId } = await seedRuleCandidate("genshin-ann", gachaEntry, {
+      nowMs: now,
+    });
+    await env.DB.prepare(
+      `INSERT INTO ai_drafts (candidate_id, article_version_id, profile_ref, status, attempts, proposal_json,
+                              notes_json, reason_code, usage_json, created_at, updated_at)
+       VALUES (?, ?, '@cf/qwen/qwen3-30b-a3b-fp8/draft-prompt-v1/candidate-schema-v1', 'failed', 3, NULL, '[]', 'model_call_failed', NULL, ?, ?)`,
+    )
+      .bind(candidateId, versionId, now, now)
+      .run();
+    const ai = fakeAi(modelResponse(GACHA_21876_OUTPUT));
+    expect(await runDraftJob(job({ candidateId, nowMs: now + 1, ai }))).toEqual({
+      kind: "done",
+      reason: null,
+    });
+    expect(ai.calls).toHaveLength(1);
+    expect(await readDraft(env.DB, candidateId)).toMatchObject({
+      status: "ready",
+      attempts: 1,
+      profileRef: DRAFT_PROFILE_REF,
+    });
   });
 });
