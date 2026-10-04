@@ -1,0 +1,26 @@
+---
+import Icon from "../../components/Icon.astro";
+import AdminLayout from "../../features/admin/AdminLayout.astro";
+---
+<AdminLayout active="settings" title="运行开关" lead="开关会立即影响线上服务。每次修改都要选择理由，写入审计后重新读取核实。">
+  <section id="workspace" hidden aria-label="运行开关">
+    <section id="controls-panel" class="card admin-card" aria-labelledby="controls-title">
+      <div class="card-header">
+        <h2 id="controls-title">运行开关</h2>
+        <button id="controls-refresh" class="button button--ghost button--sm" type="button"><Icon name="refresh" />刷新</button>
+      </div>
+      <div class="card-body">
+        <div class="field controls-reason">
+          <label for="controls-reason">修改理由（每次修改都会记录）</label>
+          <select id="controls-reason"></select>
+        </div>
+        <p id="controls-status" class="field-hint" role="status">登录后读取运行开关。</p>
+        <div id="controls-list" class="controls-list"></div>
+      </div>
+    </section>
+  </section>
+  <script>
+    import "../../features/admin/settings-page";
+    import "../../features/admin/controls";
+  </script>
+</AdminLayout>

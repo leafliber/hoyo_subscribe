@@ -13,6 +13,11 @@ import {
   reviseCandidate,
 } from "../extraction/service";
 import {
+  applyVersionDerivations,
+  loadVersionsFor,
+  versionDerivationIssues,
+} from "../extraction/versions";
+import {
   associateApprovedCandidate,
   type PublishHooks,
   type PublishOutcome,
@@ -175,6 +180,19 @@ export function makeAdminReviewRoutes(clock: () => number = Date.now): ShellRout
             .all()
         ).results;
         const draft = await readDraft(ctx.env.DB, id);
+        // ADR-0011：按当前确认的版本时间表推导"X.Y版本更新后/版本结束"，草稿本身不改写。
+        const derivation =
+          draft?.proposal == null
+            ? null
+            : applyVersionDerivations(
+                draft.proposal,
+                await loadVersionsFor(
+                  ctx.env.DB,
+                  record.article.game,
+                  record.article.region,
+                  draft.proposal,
+                ),
+              );
         return noStore({
           ...record,
           candidate: {
@@ -192,8 +210,10 @@ export function makeAdminReviewRoutes(clock: () => number = Date.now): ShellRout
                   status: draft.status,
                   profile_ref: draft.profileRef,
                   article_version_id: draft.articleVersionId,
-                  proposal: draft.proposal,
-                  notes: draft.notes,
+                  proposal: derivation?.proposal ?? draft.proposal,
+                  notes: [...draft.notes, ...(derivation?.notes ?? [])],
+                  derived_count: derivation?.derived ?? 0,
+                  derivation_key: derivation?.key ?? "[]",
                   reason_code: draft.reasonCode,
                   usage: draft.usage,
                   updated_at: draft.updatedAt,
@@ -224,6 +244,13 @@ export function makeAdminReviewRoutes(clock: () => number = Date.now): ShellRout
         }
         const parsed = validateCandidateAgainstArticle(raw, article);
         if (!parsed.success) invalid("proposal_json", "candidate_validation_failed");
+        if (
+          versionDerivationIssues(
+            parsed.data,
+            await loadVersionsFor(ctx.env.DB, article.game, article.region, parsed.data),
+          ).length > 0
+        )
+          invalid("proposal_json", "version_derivation_mismatch");
         checkCandidateText(parsed.data);
         const candidate = await createManualCandidate(
           ctx.env.DB,
@@ -272,6 +299,18 @@ export function makeAdminReviewRoutes(clock: () => number = Date.now): ShellRout
         }
         const parsed = validateCandidateAgainstArticle(raw, current.article);
         if (!parsed.success) invalid("proposal_json", "candidate_validation_failed");
+        if (
+          versionDerivationIssues(
+            parsed.data,
+            await loadVersionsFor(
+              ctx.env.DB,
+              current.article.game,
+              current.article.region,
+              parsed.data,
+            ),
+          ).length > 0
+        )
+          invalid("proposal_json", "version_derivation_mismatch");
         checkCandidateText(parsed.data);
         const candidate = await reviseCandidate(ctx.env.DB, id, parsed.data, now, {
           expectedUpdatedAt: expected,
@@ -343,6 +382,8 @@ export function makeAdminReviewRoutes(clock: () => number = Date.now): ShellRout
           ...writeFields,
           // ADR-0010：草稿会在后台按新 profile 重新起草；绑定审核员看到的那一版，避免采用没看过的内容。
           expected_draft_updated_at: { type: "number" },
+          // ADR-0011：推导用到的版本时间行；版本时间表在审核员打开后被改过时 409。
+          expected_derivation_key: { type: "string", maxLength: API_BODY_MAX_BYTES },
           exclude: { type: "array", items: { type: "string", minLength: 1, maxLength: 32 } },
           confirm_ambiguities: { type: "boolean" },
         },
@@ -375,7 +416,15 @@ export function makeAdminReviewRoutes(clock: () => number = Date.now): ShellRout
           draft.updatedAt !== body.expected_draft_updated_at
         )
           throw new ApiError("conflict");
-        const events = draft.proposal.events.flatMap((event, eventIndex) => {
+        const versions = await loadVersionsFor(
+          ctx.env.DB,
+          current.article.game,
+          current.article.region,
+          draft.proposal,
+        );
+        const derivation = applyVersionDerivations(draft.proposal, versions);
+        if (derivation.key !== body.expected_derivation_key) throw new ApiError("conflict");
+        const events = derivation.proposal.events.flatMap((event, eventIndex) => {
           if (exclude.has(`e${eventIndex}`)) return [];
           const milestones = event.milestones.filter(
             (_, milestoneIndex) => !exclude.has(`e${eventIndex}.m${milestoneIndex}`),
@@ -393,6 +442,8 @@ export function makeAdminReviewRoutes(clock: () => number = Date.now): ShellRout
         }
         const parsed = validateCandidateAgainstArticle(proposal, current.article);
         if (!parsed.success) invalid("exclude", "candidate_validation_failed");
+        if (versionDerivationIssues(parsed.data, versions).length > 0)
+          invalid("exclude", "version_derivation_mismatch");
         checkCandidateText(parsed.data);
         const candidate = await reviseCandidate(ctx.env.DB, id, parsed.data, now, {
           expectedUpdatedAt: expected,
@@ -449,6 +500,20 @@ export function makeAdminReviewRoutes(clock: () => number = Date.now): ShellRout
         )
           invalid("candidate_id", "candidate_validation_failed");
         checkCandidateText(parsed.data);
+        // ADR-0011：采用后版本时间表被改过或清除时，不发布过期的推导时间；撤回不受此限，避免阻塞纠错。
+        if (
+          action !== "retract" &&
+          versionDerivationIssues(
+            parsed.data,
+            await loadVersionsFor(
+              ctx.env.DB,
+              current.article.game,
+              current.article.region,
+              parsed.data,
+            ),
+          ).length > 0
+        )
+          invalid("candidate_id", "version_derivation_mismatch");
         if (action === "retract" && parsed.data.events.some((e) => e.status !== "retracted"))
           invalid("candidate_id");
         if (action !== "retract" && parsed.data.events.some((e) => e.status === "retracted"))

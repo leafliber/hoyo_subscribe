@@ -43,6 +43,46 @@ export interface DraftView {
   reason_code: string | null;
   usage: { neurons: number; prompt_tokens: number | null; completion_tokens: number | null } | null;
   updated_at: number;
+  /** ADR-0011：按确认的版本时间表推导出的节点数，以及采用时要带回的推导版本。 */
+  derived_count?: number;
+  derivation_key?: string;
+}
+
+export interface VersionEvidence {
+  block_ref: string;
+  quote: string;
+}
+
+export interface VersionSuggestion {
+  id: string;
+  game: string;
+  version: string;
+  article_version_id: string;
+  title: string | null;
+  official_url: string | null;
+  update_start_ms: number | null;
+  update_start: VersionEvidence | null;
+  update_duration: VersionEvidence | null;
+  version_end_ms: number | null;
+  version_end: VersionEvidence | null;
+  created_at: number;
+}
+
+export interface VersionRecord {
+  game: string;
+  version: string;
+  update_start_ms: number | null;
+  update_start_source: string | null;
+  version_end_ms: number | null;
+  version_end_source: string | null;
+  version_end_basis: "stated" | "next_update" | null;
+  updated_at: number;
+}
+
+export interface VersionListing {
+  versions: VersionRecord[];
+  suggestions: VersionSuggestion[];
+  pending_references: Record<string, number>;
 }
 
 export interface CandidateDetail {

@@ -1,175 +1,140 @@
 ---
-import "../../styles/base.css";
-import "../../features/admin/admin.css";
 import Icon from "../../components/Icon.astro";
+import AdminLayout from "../../features/admin/AdminLayout.astro";
 ---
-<!doctype html>
-<html lang="zh-CN">
-  <head>
-    <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <meta name="robots" content="noindex, nofollow" />
-    <meta name="referrer" content="no-referrer" />
-    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
-    <title>管理后台 · HoYo日历</title>
-  </head>
-  <body class="admin-body">
-    <a class="skip-link" href="#main">跳到主要内容</a>
-    <header class="admin-bar">
-      <div class="admin-bar-inner">
-        <span class="brand"><span class="brand-mark" aria-hidden="true"><Icon name="calendar" /></span><span>HoYo日历</span></span>
-        <span class="badge badge--warning">管理后台</span>
-      </div>
-    </header>
-    <main class="app-main admin-main" id="main" tabindex="-1">
-      <header class="page-header admin-heading">
-        <div>
-          <h1>管理后台</h1>
-          <p class="lead">运行开关与人工审核。所有写操作都需要填写理由并写入审计记录。</p>
+<AdminLayout active="review" title="审核" lead="左侧是待审队列，右侧对照公告原文核对 AI 草稿。每个裁定都要填写理由并写入审计记录。">
+  <!-- 读取失败时工作区保持隐藏，重新读取按钮仍要可用。 -->
+  <div class="button-row"><button id="reload" class="button button--secondary" type="button"><Icon name="refresh" />重新读取队列</button></div>
+  <section id="workspace" hidden aria-label="审核工作区">
+    <div class="review-layout">
+      <aside class="card admin-card queue-panel" aria-labelledby="queue-title">
+        <div class="card-header">
+          <h2 id="queue-title">待审队列</h2>
         </div>
-      </header>
-      <p class="callout callout--info admin-help">建议用单独的浏览器配置文件登录管理端。管理员与用户共用 CSRF Cookie；登录管理端会覆盖用户页的 CSRF Cookie，用户页写操作将被拒绝，直到重新取得 CSRF。</p>
-      <p id="notice" class="admin-notice result-message" role="status" aria-live="polite"></p>
-      <div class="button-row"><button id="reload" class="button button--secondary" type="button"><Icon name="refresh" />重新读取队列</button></div>
-
-      <form id="login" class="card admin-login" hidden autocomplete="off">
-        <h2>登录管理端</h2>
-        <div class="field">
-          <label for="secret">引导秘密</label>
-          <input id="secret" type="password" autocomplete="off" autocapitalize="off" spellcheck="false" required />
-          <p class="field-hint">只通过 HTTPS 请求体提交，换取短期管理员会话。</p>
-        </div>
-        <button class="button button--block" type="submit">登录管理端</button>
-      </form>
-
-      <section id="workspace" hidden aria-label="审核工作区">
-        <div class="button-row admin-actions">
-          <button id="new" class="button button--secondary" type="button"><Icon name="plus" />新建候选</button>
-          <button id="logout" class="button button--ghost" type="button"><Icon name="log-out" />退出管理端</button>
-        </div>
-
-        <section id="controls-panel" class="card admin-card" aria-labelledby="controls-title">
-          <div class="card-header">
-            <h2 id="controls-title">运行开关</h2>
-            <button id="controls-refresh" class="button button--ghost button--sm" type="button"><Icon name="refresh" />刷新</button>
-          </div>
-          <div class="card-body">
-            <div class="field controls-reason">
-              <label for="controls-reason">修改理由（每次修改都会记录）</label>
-              <select id="controls-reason"></select>
+        <div class="card-body">
+          <p id="ai-usage" class="field-hint"></p>
+          <div class="queue-filters">
+            <div class="field">
+              <label for="queue-game">游戏</label>
+              <select id="queue-game">
+                <option value="all">全部</option>
+                <option value="genshin">原神</option>
+                <option value="hsr">崩坏：星穹铁道</option>
+                <option value="zzz">绝区零</option>
+              </select>
             </div>
-            <p id="controls-status" class="field-hint" role="status">登录后读取运行开关。</p>
-            <div id="controls-list" class="controls-list"></div>
+            <div class="field">
+              <label for="queue-status">草稿</label>
+              <select id="queue-status">
+                <option value="all">全部</option>
+                <option value="ready">AI 草稿就绪</option>
+                <option value="attention">需人工修正或失败</option>
+                <option value="none">暂无或未生成</option>
+              </select>
+            </div>
           </div>
-        </section>
+          <p id="queue-state" role="status"></p>
+          <ul id="queue" class="admin-queue"></ul>
+          <button id="new" class="button button--secondary button--sm" type="button"><Icon name="plus" />新建候选</button>
+        </div>
+      </aside>
 
-        <section class="card admin-card" aria-labelledby="queue-title">
-          <div class="card-header">
-            <h2 id="queue-title">待审队列</h2>
-            <p id="ai-usage" class="field-hint"></p>
-          </div>
-          <div class="card-body">
-            <p id="queue-state" role="status"></p>
-            <ul id="queue" class="admin-queue"></ul>
-          </div>
-        </section>
-
-        <section id="review" class="card admin-card" hidden aria-labelledby="detail-title">
-          <div class="card-header"><h2 id="detail-title" tabindex="-1">候选详情</h2></div>
-          <div class="card-body">
-            <p id="candidate-meta" class="text-secondary"></p>
-            <p id="candidate-error" class="field-error" role="alert"></p>
-            <p id="media-warning" class="callout callout--warning" hidden>这篇公告带图片，图片里可能有其他日期或阶段。批准前请打开官方原文核对。</p>
-            <div class="admin-columns">
-              <section aria-labelledby="article-title">
-                <h3 id="article-title">公告原文</h3>
-                <p id="article-meta" class="field-hint"></p>
-                <div id="readable-blocks" class="readable-blocks"></div>
-                <details class="disclosure admin-raw">
-                  <summary>原始正文块（HTML 源码）与证据引用</summary>
-                  <div id="blocks" class="admin-blocks"></div>
-                  <h4>逐条证据</h4>
-                  <ol id="evidence"></ol>
-                </details>
-              </section>
-              <section class="draft-column" aria-labelledby="draft-title">
-                <h3 id="draft-title">AI 草稿</h3>
-                <div id="draft-panel" class="draft-panel"></div>
-                <div id="quick-actions" class="quick-actions">
-                  <div class="field">
-                    <label for="reason-preset">常用理由</label>
-                    <select id="reason-preset">
-                      <option value="">选择常用理由，或在下方手填</option>
-                      <option>已对照官方原文核对，保留的时间与证据一致</option>
-                      <option>已核对，公告不含卡池、活动、维护或直播日程</option>
-                      <option>草稿与原文不符，驳回后人工处理</option>
-                      <option>重复或与日程无关的公告</option>
-                    </select>
-                  </div>
-                  <div class="field">
-                    <label for="reason">操作理由</label>
-                    <textarea id="reason" rows="2" required aria-describedby="reason-error"></textarea>
-                    <p id="reason-error" class="field-error"></p>
-                  </div>
-                  <div id="quick-buttons" class="button-row">
-                    <button id="adopt-approve" class="button" type="button">采用草稿并批准</button>
-                    <button id="confirm-no-event" class="button" type="button" hidden>确认无日程</button>
-                    <button id="quick-reject" class="button button--secondary" type="button">驳回候选</button>
-                  </div>
-                  <p id="quick-help" class="field-hint">采用会先把勾选保留的内容保存为候选，再提交批准；两步都记录同一理由。</p>
+      <section id="review" class="card admin-card review-panel" hidden aria-labelledby="detail-title">
+        <div class="card-header">
+          <h2 id="detail-title" tabindex="-1">候选详情</h2>
+          <a id="official-link" class="button button--ghost button--sm" target="_blank" rel="noopener noreferrer" hidden>打开官方原文</a>
+        </div>
+        <div class="card-body">
+          <p id="candidate-meta" class="text-secondary"></p>
+          <p id="candidate-error" class="field-error" role="alert"></p>
+          <p id="media-warning" class="callout callout--warning" hidden>这篇公告带图片，图片里可能有其他日期或阶段。批准前请打开官方原文核对。</p>
+          <div class="admin-columns">
+            <section aria-labelledby="article-title">
+              <h3 id="article-title">公告原文</h3>
+              <p id="article-meta" class="field-hint"></p>
+              <div id="readable-blocks" class="readable-blocks"></div>
+              <details class="disclosure admin-raw">
+                <summary>原始正文块（HTML 源码）与证据引用</summary>
+                <div id="blocks" class="admin-blocks"></div>
+                <h4>逐条证据</h4>
+                <ol id="evidence"></ol>
+              </details>
+            </section>
+            <section class="draft-column" aria-labelledby="draft-title">
+              <h3 id="draft-title">AI 草稿</h3>
+              <div id="draft-panel" class="draft-panel"></div>
+              <div id="quick-actions" class="quick-actions">
+                <div class="field">
+                  <label for="reason-preset">常用理由</label>
+                  <select id="reason-preset">
+                    <option value="">选择常用理由，或在下方手填</option>
+                    <option>已对照官方原文核对，保留的时间与证据一致</option>
+                    <option>已核对，公告不含卡池、活动、维护或直播日程</option>
+                    <option>草稿与原文不符，驳回后人工处理</option>
+                    <option>重复或与日程无关的公告</option>
+                  </select>
                 </div>
-              </section>
-            </div>
-            <details id="advanced" class="disclosure admin-advanced">
-              <summary>高级：手动编辑候选 JSON 与其他审核操作</summary>
-              <form id="editor">
-                <fieldset id="editor-fields">
-                  <legend>候选内容与人工裁定</legend>
-                  <div class="field">
-                    <label for="article_version_id">文章版本 article_version_id（新建时指定）</label>
-                    <input id="article_version_id" required aria-describedby="article_version_id-error" />
-                    <p id="article_version_id-error" class="field-error"></p>
-                  </div>
-                  <div class="field">
-                    <label for="proposal_json">候选 JSON · proposal_json</label>
-                    <textarea id="proposal_json" class="mono" rows="16" required spellcheck="false" aria-describedby="proposal_json-error proposal-help"></textarea>
-                    <p id="proposal-help" class="field-hint">候选规则由服务端校验。修改 JSON 后，先选择“修正”并提交保存，再进行其他裁定。理由使用上方“操作理由”。</p>
-                    <p id="proposal_json-error" class="field-error"></p>
-                    <details class="disclosure"><summary>服务端已保存的候选（核对冲突）</summary><pre id="saved-proposal"></pre></details>
-                  </div>
-                  <div class="field">
-                    <label for="action">审核操作</label>
-                    <select id="action">
-                      <option value="revise">修正（保存候选 JSON）</option>
-                      <option value="reject">驳回</option>
-                      <option value="approve">批准</option>
-                      <option value="correct">纠正（发布受保护字段更正）</option>
-                      <option value="associate">关联（跨公告关联）</option>
-                      <option value="retract">撤回</option>
-                    </select>
-                  </div>
-                  <div class="field" id="target-field" hidden>
-                    <label for="target_event_id">目标事件 target_event_id</label>
-                    <input id="target_event_id" aria-describedby="target_event_id-error" />
-                    <p id="target_event_id-error" class="field-error"></p>
-                  </div>
-                  <button id="submit" class="button" type="submit">提交操作</button>
-                </fieldset>
-              </form>
-            </details>
-            <section aria-label="操作结果" class="admin-result">
-              <p id="publication" class="result-message callout callout--info" role="status"></p>
-              <button id="retry-publication" type="button" class="button" hidden>重试发布</button>
-              <p id="retry-help" class="field-hint" hidden>重试会重新读取候选，并使用最新版本重发同一操作与理由。</p>
+                <div class="field">
+                  <label for="reason">操作理由</label>
+                  <textarea id="reason" rows="2" required aria-describedby="reason-error"></textarea>
+                  <p id="reason-error" class="field-error"></p>
+                </div>
+                <div id="quick-buttons" class="button-row">
+                  <button id="adopt-approve" class="button" type="button">采用草稿并批准</button>
+                  <button id="confirm-no-event" class="button" type="button" hidden>确认无日程</button>
+                  <button id="quick-reject" class="button button--secondary" type="button">驳回候选</button>
+                </div>
+                <p id="quick-help" class="field-hint">采用会先把勾选保留的内容保存为候选，再提交批准；两步都记录同一理由。处理完会自动打开下一条。</p>
+              </div>
             </section>
           </div>
-        </section>
+          <details id="advanced" class="disclosure admin-advanced">
+            <summary>高级：手动编辑候选 JSON 与其他审核操作</summary>
+            <form id="editor">
+              <fieldset id="editor-fields">
+                <legend>候选内容与人工裁定</legend>
+                <div class="field">
+                  <label for="article_version_id">文章版本 article_version_id（新建时指定）</label>
+                  <input id="article_version_id" required aria-describedby="article_version_id-error" />
+                  <p id="article_version_id-error" class="field-error"></p>
+                </div>
+                <div class="field">
+                  <label for="proposal_json">候选 JSON · proposal_json</label>
+                  <textarea id="proposal_json" class="mono" rows="16" required spellcheck="false" aria-describedby="proposal_json-error proposal-help"></textarea>
+                  <p id="proposal-help" class="field-hint">候选规则由服务端校验。修改 JSON 后，先选择“修正”并提交保存，再进行其他裁定。理由使用上方“操作理由”。</p>
+                  <p id="proposal_json-error" class="field-error"></p>
+                  <details class="disclosure"><summary>服务端已保存的候选（核对冲突）</summary><pre id="saved-proposal"></pre></details>
+                </div>
+                <div class="field">
+                  <label for="action">审核操作</label>
+                  <select id="action">
+                    <option value="revise">修正（保存候选 JSON）</option>
+                    <option value="reject">驳回</option>
+                    <option value="approve">批准</option>
+                    <option value="correct">纠正（发布受保护字段更正）</option>
+                    <option value="associate">关联（跨公告关联）</option>
+                    <option value="retract">撤回</option>
+                  </select>
+                </div>
+                <div class="field" id="target-field" hidden>
+                  <label for="target_event_id">目标事件 target_event_id</label>
+                  <input id="target_event_id" aria-describedby="target_event_id-error" />
+                  <p id="target_event_id-error" class="field-error"></p>
+                </div>
+                <button id="submit" class="button" type="submit">提交操作</button>
+              </fieldset>
+            </form>
+          </details>
+          <section aria-label="操作结果" class="admin-result">
+            <p id="publication" class="result-message callout callout--info" role="status"></p>
+            <button id="retry-publication" type="button" class="button" hidden>重试发布</button>
+            <p id="retry-help" class="field-hint" hidden>重试会重新读取候选，并使用最新版本重发同一操作与理由。</p>
+          </section>
+        </div>
       </section>
-      <noscript>请启用 JavaScript 后使用管理后台。</noscript>
-    </main>
-    <script>
-      import "../../features/admin/page";
-      import "../../features/admin/controls";
-    </script>
-  </body>
-</html>
+    </div>
+  </section>
+  <script>
+    import "../../features/admin/review-page";
+  </script>
+</AdminLayout>

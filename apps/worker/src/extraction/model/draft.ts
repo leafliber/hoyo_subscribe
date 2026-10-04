@@ -10,6 +10,7 @@ import {
 } from "@hoyo/contracts";
 import { logEvent } from "../../shell/logger";
 import { loadStoredArticleVersion } from "../article";
+import { recordVersionSuggestion } from "../versions";
 import { buildDraftProposal, parseModelJson } from "./build";
 import { reserveNeurons, settleNeurons } from "./ledger";
 import { draftInputBytes, draftMessages } from "./prompt";
@@ -234,5 +235,14 @@ export async function runDraftJob(input: DraftJobInput): Promise<DraftJobOutcome
     nowMs: input.now(),
   });
   logEvent("info", "ai_draft_written", { reason_code: built.status, count: usage.neurons });
+  // ADR-0011：版本公告摘出的版本时间作为建议入库，由管理员在版本时间表里逐项确认。
+  // 草稿已先写入：建议入库失败（如迁移尚未应用）只记日志，不丢掉已计费的结果，也不触发重新调用。
+  if (built.versionWindow !== null) {
+    try {
+      await recordVersionSuggestion(db, article, built.versionWindow, input.now());
+    } catch {
+      logEvent("error", "ai_version_suggestion_failed", { reason_code: "suggestion_write" });
+    }
+  }
   return { kind: "done", reason: null };
 }

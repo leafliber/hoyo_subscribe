@@ -1,0 +1,32 @@
+---
+import Icon from "../../components/Icon.astro";
+import AdminLayout from "../../features/admin/AdminLayout.astro";
+---
+<AdminLayout active="versions" title="版本时间表" lead="AI 从版本公告里逐字摘出更新开始与版本结束时间，确认后，草稿里的“X.Y版本更新后”推导为更新当天的日期，“X.Y版本结束”推导为确认的结束时刻。">
+  <section id="workspace" hidden aria-label="版本时间表">
+    <div class="card admin-card">
+      <div class="card-body version-toolbar">
+        <div class="field">
+          <label for="version-reason-preset">常用理由</label>
+          <select id="version-reason-preset">
+            <option value="">选择常用理由，或直接填写确认理由</option>
+            <option>已对照版本公告原文核对</option>
+            <option>官方公告时间有更正</option>
+            <option>确认有误，撤回确认</option>
+          </select>
+        </div>
+        <div class="field">
+          <label for="reason">确认理由</label>
+          <input id="reason" aria-describedby="reason-error" />
+          <p id="reason-error" class="field-error"></p>
+        </div>
+        <button id="versions-reload" class="button button--ghost button--sm" type="button"><Icon name="refresh" />重新读取</button>
+      </div>
+      <p class="field-hint version-rule">“更新后”只推到日期、不推出几点：维护“预计 5 小时”不等于实际开服（主方案 §3.3）。版本结束只采用官方写明的时刻，或下一版本的更新开始。</p>
+    </div>
+    <div id="versions" class="versions"></div>
+  </section>
+  <script>
+    import "../../features/admin/versions-page";
+  </script>
+</AdminLayout>

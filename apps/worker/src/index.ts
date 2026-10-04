@@ -25,6 +25,7 @@ import { makeAdminReviewRoutes } from "./admin/review";
 import { combinedAuthenticator } from "./admin/session";
 import { makeAdminSessionRoutes } from "./admin/session-routes";
 import type { AdminConfiguration } from "./admin/types";
+import { makeAdminVersionRoutes } from "./admin/versions";
 import { makeChallengeRoutes } from "./auth/challenges/routes";
 import { makeCompleteRoute } from "./auth/consume/routes";
 import { InMemoryAuthRateGate } from "./auth/preauth/rate-gate";
@@ -141,6 +142,7 @@ function getShell(env: Env): Shell {
           sourceGate: new InMemoryRecoverySourceGate(),
         }),
         ...makeAdminReviewRoutes(),
+        ...makeAdminVersionRoutes(),
         // P2-01 挂载点：预认证初始化（CSRF 签发方，csrf:false 由路由自带）+ /status
         // 全局注册开关。
         makePreauthInitRoute({ keys: () => getKeyring(env as Env & ShellSecrets) }),

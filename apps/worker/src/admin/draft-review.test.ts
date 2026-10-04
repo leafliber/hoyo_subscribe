@@ -86,10 +86,14 @@ async function adopt(
   const draft = await env.DB.prepare("SELECT updated_at FROM ai_drafts WHERE candidate_id = ?")
     .bind(candidateId)
     .first<{ updated_at: number }>();
+  const shown = (await (await call(`candidates/${candidateId}`)).json()) as {
+    draft: { derivation_key: string } | null;
+  };
   return call("adopt-draft", {
     candidate_id: candidateId,
     expected_updated_at: expected,
     expected_draft_updated_at: extra.draftUpdatedAt ?? draft?.updated_at ?? 0,
+    expected_derivation_key: shown.draft?.derivation_key ?? "[]",
     reason: "已对照官方原文核对草稿",
     exclude: extra.exclude ?? [],
     confirm_ambiguities: extra.confirm_ambiguities ?? false,
@@ -124,11 +128,11 @@ describe("A-P3-DRAFT 审核队列与详情", () => {
     expect(detail.readable_blocks).toHaveLength(detail.article.blocks.length);
     expect(detail.readable_blocks[4]).toContain("7.1版本更新后 ~ 2026/10/13 17:59");
     expect(detail.media_count).toBeGreaterThanOrEqual(0);
-    expect(detail.draft).toMatchObject({
-      status: "ready",
-      profile_ref: DRAFT_PROFILE_REF,
-      notes: [],
-    });
+    expect(detail.draft).toMatchObject({ status: "ready", profile_ref: DRAFT_PROFILE_REF });
+    // ADR-0011：版本时间未确认时，"7.1版本更新后"保持未定并提示去版本时间表确认。
+    expect(detail.draft.notes).toEqual([
+      "「7.1版本更新后」：7.1 版本的更新开始时间尚未确认，暂为未定时刻；在「版本时间表」确认后自动推导。",
+    ]);
     expect(detail.draft.proposal.events).toHaveLength(1);
   });
 });
@@ -226,6 +230,7 @@ describe("A-P3-DRAFT 采用草稿", () => {
         candidate_id: candidateId,
         expected_updated_at: updatedAt,
         expected_draft_updated_at: 0,
+        expected_derivation_key: "[]",
         reason: "x",
         exclude: [],
         confirm_ambiguities: false,
@@ -237,6 +242,7 @@ describe("A-P3-DRAFT 采用草稿", () => {
       candidate_id: candidateId,
       expected_updated_at: updatedAt,
       expected_draft_updated_at: 0,
+      expected_derivation_key: "[]",
       reason: " ",
       exclude: [],
       confirm_ambiguities: false,
