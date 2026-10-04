@@ -15,24 +15,11 @@
 // 的 image_date_analysis）。正文有文本但日期不全的情况属抽取层（P3-03）的证据校验，
 // 本层不做日期猜测、不越权判定。
 
+import { ARTICLE_COMPLETENESS_STATES, type ArticleCompleteness } from "@hoyo/contracts";
 import { type ArticleBodyBlock, type ArticleMediaRef, bodyHasVisibleText } from "./blocks";
 
-/**
- * 完整性状态全集。前缀约定：
- *   - complete：官方所给材料完整取得；
- *   - gap-*：缺口——"不知道"，等待下一批或人工，**绝不是"没有"**；
- *   - review-image-borne：信息可能仅由图片承载——送人工核验（首版不做视觉转录）。
- */
-export const ARTICLE_COMPLETENESS_STATES = [
-  "complete",
-  "gap-body-truncated",
-  "gap-content-missing",
-  "gap-source-empty",
-  "gap-channel-unavailable",
-  "review-image-borne",
-] as const;
-
-export type ArticleCompleteness = (typeof ARTICLE_COMPLETENESS_STATES)[number];
+// 状态全集自 P3-22（ADR-0014）起定义在 @hoyo/contracts：公开原文接口按同一枚举告知正文是否完整。
+export { ARTICLE_COMPLETENESS_STATES, type ArticleCompleteness };
 
 /** 全部缺口/审核态（complete 之外的全部）。下游把它们当作"需要动作"，绝不能当作"无活动"。 */
 export const COMPLETENESS_GAP_STATES: readonly ArticleCompleteness[] = [

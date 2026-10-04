@@ -14,6 +14,7 @@ import {
   NodeTypeSchema,
   RegionIdSchema,
 } from "./enums";
+import { ArticleCompletenessSchema } from "./official-article";
 import { TimeValueSchema } from "./time";
 
 const Timestamp = z.int();
@@ -100,6 +101,32 @@ export const PublicEventDetailResponseSchema = z.strictObject({
     official: PublicOfficialEvidenceSchema,
   }),
 });
+/** P3-22（ADR-0014）：文章版本的正文块，原样取自不可变版本。title/text 是文本；
+ * html 是官方原始 HTML 片段，只能惰性解析后按白名单重建，不得放进 innerHTML。 */
+export const PublicArticleBlockSchema = z.discriminatedUnion("kind", [
+  z.strictObject({ kind: z.literal("title"), text: z.string() }),
+  z.strictObject({ kind: z.literal("html"), html: z.string() }),
+  z.strictObject({ kind: z.literal("text"), text: z.string() }),
+]);
+/** GET /api/v2/events/{eventId}/articles：本代该活动依据的官方公告原文（本站采集时保存的版本）。 */
+export const PublicEventArticlesResponseSchema = z.strictObject({
+  publication: PublicPublicationSchema,
+  cache: PublicCacheSchema,
+  eventId: z.string().min(1),
+  /** 与公告发布时间同一绑定条件（已发布证据、本代投影一致、逐字段匹配）的文章版本，去重、按抓取时间新到旧；
+   * 无法证明绑定时为空数组，不取未发布或未批准的正文。 */
+  articles: z.array(
+    z.strictObject({
+      officialUrl: z.url(),
+      versionNo: z.int().positive(),
+      /** 本站抓取这一版正文的时间，不是官方发布或更新时间。 */
+      fetchedAt: Timestamp,
+      publishedAt: Timestamp.nullable(),
+      completeness: ArticleCompletenessSchema,
+      blocks: z.array(PublicArticleBlockSchema),
+    }),
+  ),
+});
 export const PublicSourceStatusSchema = z.strictObject({
   sourceId: z.string().min(1),
   game: GameIdSchema,
@@ -140,6 +167,8 @@ export type PublicCache = z.infer<typeof PublicCacheSchema>;
 export type PublicScheduleNode = z.infer<typeof PublicScheduleNodeSchema>;
 export type PublicEventsResponse = z.infer<typeof PublicEventsResponseSchema>;
 export type PublicEventDetailResponse = z.infer<typeof PublicEventDetailResponseSchema>;
+export type PublicArticleBlock = z.infer<typeof PublicArticleBlockSchema>;
+export type PublicEventArticlesResponse = z.infer<typeof PublicEventArticlesResponseSchema>;
 export type PublicStatusResponse = z.infer<typeof PublicStatusResponseSchema>;
 
 // 公开表现和窗口判断的单一定义源；Worker 只执行查询与传输。
