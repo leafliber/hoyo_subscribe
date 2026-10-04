@@ -1,6 +1,7 @@
 import {
   type AccountSummary,
   AccountSummarySchema,
+  AUTH_COMPLETION_TTL,
   canonicalizeEmail,
   deriveAccountActions,
   isApiErrorBody,
@@ -8,6 +9,7 @@ import {
   type RecentAuthAction,
   type RecentAuthRole,
   recentAuthTurnstileAction,
+  SESSION_PENDING_TTL,
   SESSION_RENEW_INTERVAL,
 } from "@hoyo/contracts";
 import { closeDialog } from "../../../components/dialog";
@@ -688,8 +690,10 @@ async function changeEmail(): Promise<void> {
       (reply.body.email_version as number) <= oldVersion
     )
       throw new Error("unknown_email_change");
+    // The new session is pending: the user confirms it on /login without another code.
+    // Its window is the shorter of the completion receipt and the pending session lifetime.
     el("email-change-result").textContent =
-      "邮箱已更换。为了安全，所有设备都已退出登录，请用新邮箱重新登录。订阅设置保留在原账号；新邮箱的邮件通知需要重新开启。";
+      `邮箱已更换。其他设备和旧会话都已退出；这个浏览器有一个待确认的新会话，请在约 ${Math.min(AUTH_COMPLETION_TTL, SESSION_PENDING_TTL) / 60} 分钟内点「继续激活新会话」到登录页确认，不需要再收验证码。订阅设置保留在原账号；新邮箱的邮件通知需要重新开启。`;
     el("email-activate").hidden = false;
   } catch (error) {
     if (turn !== epoch) return;

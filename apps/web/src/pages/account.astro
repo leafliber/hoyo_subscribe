@@ -48,7 +48,7 @@ const otpNote = `验证码 ${OTP_DIGITS} 位，${OTP_TTL / 60} 分钟内有效�
             <details id="email-maintenance" class="disclosure email-change">
               <summary><Icon name="mail" />更换登录邮箱</summary>
               <div class="email-change-body">
-                <p class="text-secondary">订阅设置会保留在当前账号。更换后所有设备都会退出登录，需要用新邮箱重新登录；新邮箱的邮件通知需要重新开启。</p>
+                <p class="text-secondary">订阅设置会保留在当前账号。更换后其他设备和旧会话都会退出；这个浏览器会得到一个待确认的新会话，到登录页确认即可，不需要再收验证码。新邮箱的邮件通知需要重新开启。</p>
                 <form id="email-target-form" autocomplete="off" class="inline-form">
                   <div class="field"><label for="email-target">新邮箱地址</label><input id="email-target" type="email" autocomplete="off" required /></div>
                   <button id="email-start" class="button" type="submit" disabled>开始验证</button>
@@ -85,7 +85,7 @@ const otpNote = `验证码 ${OTP_DIGITS} 位，${OTP_TTL / 60} 分钟内有效�
                   </div>
                 </div>
                 <p id="email-change-result" class="result-message callout callout--info" role="status"></p>
-                <a id="email-activate" class="button" href="/login?returnTo=%2Faccount" hidden>用新邮箱登录</a>
+                <a id="email-activate" class="button" href="/login?returnTo=%2Faccount" hidden>继续激活新会话</a>
               </div>
             </details>
           </div>
