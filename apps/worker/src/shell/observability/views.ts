@@ -28,7 +28,7 @@ export const DELIVERY_TERMINAL_JOBS = [
   "delivery:dispatch-backoff",
   "delivery:dispatch",
 ] as const;
-interface SourceStateRow {
+export interface SourceStateRow {
   source_id: string;
   verification_state: string | null;
   last_success_at: number | null;
@@ -44,6 +44,23 @@ async function safe<T>(read: () => Promise<T>): Promise<T | null> {
   } catch {
     return null;
   }
+}
+/** 来源维护锁与来源待办的当前状态，只读固定注册表行；观测页与运行开关页共用。 */
+export function readSourceStates(db: D1Database): Promise<SourceStateRow[] | null> {
+  return safe(
+    async () =>
+      (
+        await db
+          .prepare(
+            `SELECT r.value AS source_id, s.verification_state, s.last_success_at, s.updated_at,
+       j.status AS job_status, j.last_error AS job_last_error, j.attempts AS job_attempts
+     FROM json_each(?) r LEFT JOIN sources s ON s.source_id = r.value
+     LEFT JOIN jobs j ON j.id = 'pipeline:source:' || r.value ORDER BY r.key`,
+          )
+          .bind(JSON.stringify(SOURCE_REGISTRY.map((entry) => entry.sourceId)))
+          .all<SourceStateRow>()
+      ).results,
+  );
 }
 export async function readObservability(db: D1Database, now: number) {
   const day = utcDayPeriod(now);
@@ -126,14 +143,8 @@ export async function readObservability(db: D1Database, now: number) {
     "SELECT id,status,last_error,attempts,updated_at FROM jobs WHERE id IN (SELECT value FROM json_each(?)) AND status='failed'",
     JSON.stringify(DELIVERY_TERMINAL_JOBS),
   );
-  // 来源维护锁与来源待办终态按当前状态持续告警（不依赖当日指标槽），只读固定注册表行。
-  const sourceStates = (await many(
-    `SELECT r.value AS source_id, s.verification_state, s.last_success_at, s.updated_at,
-       j.status AS job_status, j.last_error AS job_last_error, j.attempts AS job_attempts
-     FROM json_each(?) r LEFT JOIN sources s ON s.source_id = r.value
-     LEFT JOIN jobs j ON j.id = 'pipeline:source:' || r.value ORDER BY r.key`,
-    JSON.stringify(SOURCE_REGISTRY.map((entry) => entry.sourceId)),
-  )) as SourceStateRow[] | null;
+  // 来源维护锁与来源待办终态按当前状态持续告警（不依赖当日指标槽）。
+  const sourceStates = await readSourceStates(db);
   const retry = await safe(async () => {
     const r = await db
       .prepare("SELECT value_json FROM system_state WHERE key='mail_retry_budget_not_scheduled'")

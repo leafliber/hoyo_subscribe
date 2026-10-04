@@ -434,6 +434,40 @@ describe("终态可见且只能由所有者有意解除", () => {
       }),
     );
   });
+  it("A-P3-CONTROLS 运行开关的来源行带能力与抓取状态：仅列表来自注册表，维护中给出解除所需版本", async () => {
+    await seedMaintenance();
+    const response = await request("/api/v2/admin/controls", await admin());
+    expect(response.status).toBe(200);
+    const { controls } = (await response.json()) as {
+      controls: { control: string; source?: string; info?: Record<string, unknown> }[];
+    };
+    const rows = controls.filter((row) => row.control === "source_enabled");
+    expect(rows.map((row) => row.source)).toEqual(SOURCE_REGISTRY.map((entry) => entry.sourceId));
+    expect(rows.find((row) => row.source === source.sourceId)?.info).toEqual({
+      game: source.game,
+      adapter: source.adapterKind,
+      list_only: false,
+      state: {
+        verification_state: "maintenance-required",
+        last_success_at: now - 1,
+        updated_at: now - 1,
+        job_status: "failed",
+        job_last_error: "source_maintenance",
+      },
+    });
+    const listOnly = SOURCE_REGISTRY.find((entry) => entry.contentChannelDisabled);
+    expect(listOnly).toBeDefined();
+    // 来源行尚未建立（开关从未开过）时状态为 null，能力照样来自注册表。
+    expect(rows.find((row) => row.source === listOnly?.sourceId)?.info).toEqual({
+      game: listOnly?.game,
+      adapter: listOnly?.adapterKind,
+      list_only: true,
+      state: null,
+    });
+    expect(
+      controls.filter((row) => row.control !== "source_enabled").every((row) => !row.info),
+    ).toBe(true);
+  });
   it("解除来源维护：恢复注册表状态、只放回一次轮询并审计；版本过期、非维护或租约中均冲突", async () => {
     await seedMaintenance();
     const a = await admin();
