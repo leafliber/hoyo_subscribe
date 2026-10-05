@@ -311,3 +311,102 @@ describe("A-F1-POLISH 统一叫活动；截止 24 小时内为高危（ADR-0015�
     expect(deadlineUrgency(now + 72 * hour, now)).toBe("later");
   });
 });
+
+describe("A-F1-BROWSE 从上到下按时间先后、从开始到结束（ADR-0017）", () => {
+  const day = 86_400_000;
+  function node(
+    id: string,
+    nodeType: ScheduleNode["nodeType"],
+    time: "unknown" | number | string,
+  ): ScheduleNode {
+    return {
+      ...exact(id, start),
+      nodeType,
+      time:
+        time === "unknown"
+          ? {
+              precision: "unknown",
+              source_timezone: "UTC+8",
+              raw_expression: "待公布",
+              time_basis: "unresolved",
+            }
+          : typeof time === "string"
+            ? {
+                precision: "date",
+                date: DateOnlySchema.parse(time),
+                source_timezone: "UTC+8",
+                raw_expression: time,
+                time_basis: "official_explicit",
+              }
+            : exact(id, time).time,
+    };
+  }
+  const toPublic = (item: ScheduleNode): import("./public-api").PublicScheduleNode => ({
+    ...item,
+    eventId: item.id,
+    noticePublishedAt: null,
+    change: null,
+  });
+
+  it("时间未知的开始排最前、结束类排最后；有日期的按日期与时刻，同一天全天在精确时刻之后", async () => {
+    const { compareScheduleNodes } = await import("./schedule-browse");
+    const nodes = [
+      node("reward", "reward_deadline", "unknown"),
+      node("late", "end", now + day),
+      node("allday", "end", "2026-09-22"),
+      node("phase", "phase_unlock", "unknown"),
+      node("begin", "start", "unknown"),
+      node("noon", "start", now),
+      node("finish", "end", "unknown"),
+    ];
+    expect([...nodes].sort(compareScheduleNodes).map((item) => item.id)).toEqual([
+      "begin",
+      "noon",
+      "allday",
+      "late",
+      "phase",
+      "finish",
+      "reward",
+    ]);
+  });
+
+  it("同一时刻按开始 → 阶段 → 结束，再按稳定身份；开始时间未知也排在已知的结束之前", async () => {
+    const { compareScheduleNodes } = await import("./schedule-browse");
+    const same = [
+      node("z-end", "end", now),
+      node("b-start", "start", now),
+      node("a-start", "start", now),
+      node("phase", "phase_unlock", now),
+    ];
+    expect([...same].sort(compareScheduleNodes).map((item) => item.id)).toEqual([
+      "a-start",
+      "b-start",
+      "phase",
+      "z-end",
+    ]);
+    // 详情时间线：开始写着"7.0版本更新后"（未定），结束有明确时刻——开始仍在前。
+    const event = [node("finish", "end", now + day), node("open", "start", "unknown")];
+    expect([...event].sort(compareScheduleNodes).map((item) => item.id)).toEqual([
+      "open",
+      "finish",
+    ]);
+  });
+
+  it("首页的时间待定与近期重要变更同样从开始到结束、从早到晚", async () => {
+    const { selectScheduleCore } = await import("./schedule-browse");
+    const view = selectScheduleCore(
+      {
+        nodes: [node("p-end", "end", "unknown"), node("p-start", "start", "unknown")].map(toPublic),
+        recentChanges: [node("c-late", "end", now + 2 * day), node("c-soon", "start", now)].map(
+          toPublic,
+        ),
+        window: browseWindow("3d", now),
+        sources: [],
+        reviewGaps: [],
+      },
+      defaultBrowseFilters(),
+    );
+    expect(view.pending.map((item) => item.id)).toEqual(["p-start", "p-end"]);
+    expect(view.changes.map((item) => item.id)).toEqual(["c-soon", "c-late"]);
+  });
+});

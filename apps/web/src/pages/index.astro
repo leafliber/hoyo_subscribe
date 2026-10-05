@@ -38,19 +38,6 @@ const filters = defaultBrowseFilters();
           </div>
         </fieldset>
         <span class="filter-divider" aria-hidden="true"></span>
-        <fieldset class="filter-group">
-          <legend class="sr-only">时间范围</legend>
-          <div class="segmented range-options">
-            <span class="segmented-thumb" aria-hidden="true"></span>
-            {HOME_RANGES.map((range) => (
-              <label class="range-option">
-                <input type="radio" name="range" value={range.id} checked={range.id === filters.range} />
-                <span>{range.label}</span>
-              </label>
-            ))}
-          </div>
-        </fieldset>
-        <span class="filter-divider" aria-hidden="true"></span>
         <label class="chip deadline-filter">
           <input type="checkbox" name="ending" value="1" />
           <Icon name="hourglass" />
@@ -69,17 +56,30 @@ const filters = defaultBrowseFilters();
           aria-expanded="false"
         >
           <Icon name="sliders" />
-          <span class="more-label">更多筛选</span>
+          <span class="more-label">筛选</span>
+          <span id="more-range" class="more-range">{HOME_RANGES.find((range) => range.id === filters.range)?.label}</span>
           <span id="more-summary" class="more-summary" hidden></span>
         </button>
       </div>
       <div id="more-filters" class="more-popover" popover role="dialog" aria-labelledby="more-filters-title">
         <div class="more-head">
-          <h2 id="more-filters-title">更多筛选</h2>
-          <button type="button" class="more-close" popovertarget="more-filters" popovertargetaction="hide" aria-label="关闭更多筛选">
+          <h2 id="more-filters-title">筛选</h2>
+          <button type="button" class="more-close" popovertarget="more-filters" popovertargetaction="hide" aria-label="关闭筛选">
             <Icon name="x" />
           </button>
         </div>
+        <fieldset class="more-group">
+          <legend class="filter-label">时间范围</legend>
+          <div class="segmented range-options">
+            <span class="segmented-thumb" aria-hidden="true"></span>
+            {HOME_RANGES.map((range) => (
+              <label class="range-option">
+                <input type="radio" name="range" value={range.id} checked={range.id === filters.range} />
+                <span>{range.label}</span>
+              </label>
+            ))}
+          </div>
+        </fieldset>
         <fieldset class="more-group">
           <legend class="filter-label">活动类型</legend>
           <div class="chip-group">

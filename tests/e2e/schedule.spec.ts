@@ -1,7 +1,7 @@
 import { mkdirSync } from "node:fs";
 import { resolve } from "node:path";
 import { expect, type Page, test } from "@playwright/test";
-import { ExactTimeSchema } from "../../packages/contracts/src/index";
+import { compareScheduleNodes, ExactTimeSchema } from "../../packages/contracts/src/index";
 import { clock, eventsFixture, mockPublicApi, statusFixture } from "./fixtures/public-schedule";
 
 const controls = new WeakMap<Page, Awaited<ReturnType<typeof mockPublicApi>>>();
@@ -9,7 +9,13 @@ test.beforeEach(async ({ page }) => {
   controls.set(page, await mockPublicApi(page));
 });
 async function complete(page: Page) {
-  await expect(page.locator(".load-row")).toContainText("已显示完当前范围");
+  await expect(page.locator(".load-row")).toContainText("已显示完");
+}
+/** 时间范围在「筛选」弹层里（ADR-0017）：打开、选档、关闭。 */
+async function chooseRange(page: Page, label: string) {
+  await page.locator("#more-filters-toggle").click();
+  await page.getByRole("radio", { name: label, exact: true }).check();
+  await page.keyboard.press("Escape");
 }
 async function scenario(page: Page, value: "normal" | "quiet" | "source" | "review" | "stale") {
   const control = controls.get(page);
@@ -99,7 +105,9 @@ test("U05 四种空态分开；昨天不计入范围条数；近7天出口可用
   await expect(page.locator(".timeline-heading")).toContainText("0 项");
   await page.getByRole("button", { name: "试试近7天" }).focus();
   await page.keyboard.press("Enter");
-  await expect(page.getByRole("radio", { name: "近7天", exact: true })).toBeFocused();
+  // 时间范围在「筛选」里（ADR-0017）：焦点落到写着当前档位的按钮上。
+  await expect(page.locator("#more-filters-toggle")).toBeFocused();
+  await expect(page.locator("#more-filters-toggle")).toContainText("近7天");
   await expect(page.locator('[data-node="later"]')).toBeVisible();
 });
 
@@ -163,7 +171,7 @@ test("U06 浏览筛选不改云配置；URL只含白名单，低频筛选在本�
   await complete(page);
   const before = await page.evaluate(() => JSON.stringify(localStorage));
   await page.locator(".game-option").filter({ hasText: "原神" }).click();
-  await page.getByRole("radio", { name: "近30天" }).check();
+  await chooseRange(page, "近30天");
   await complete(page);
   const count = controls.get(page)?.calls.length;
   await page.getByRole("checkbox", { name: "只看截止" }).check();
@@ -182,21 +190,34 @@ test("U06 浏览筛选不改云配置；URL只含白名单，低频筛选在本�
   expect(url.hash).toBe("");
 });
 
-test("U03 五档昨天带常驻末尾；按响应 window 切分，不按浏览器日期", async ({ page }) => {
+test("U03 五档昨天带常驻顶部（从上到下按时间先后）；按响应 window 切分，不按浏览器日期", async ({
+  page,
+}) => {
   await page.clock.setFixedTime(new Date("2026-09-25T12:00:00+08:00"));
   await page.goto("/");
   // 「未来90天」与「全部」重叠，首页不再单独提供。
-  await expect(page.getByRole("radio", { name: "未来90天" })).toHaveCount(0);
+  await expect(page.getByRole("radio", { name: "未来90天", includeHidden: true })).toHaveCount(0);
   for (const label of ["今天", "近3天", "近7天", "近30天", "全部"]) {
-    await page.getByRole("radio", { name: label, exact: true }).check();
+    await chooseRange(page, label);
     await complete(page);
     await expect(page.locator('[data-node="morning"]')).toBeVisible();
     await expect(page.locator('[data-region="yesterday"] [data-node="old"]')).toHaveCount(1);
     await expect(page.locator('[data-region="yesterday"]')).toContainText("9月21日");
   }
-  expect(await page.locator(".timeline > :last-child").getAttribute("data-region")).toBe(
-    "yesterday",
-  );
+  // ADR-0017：昨天 → 当前范围逐日 → 末行 → 时间待定（时间未知排最后）。
+  expect(
+    await page
+      .locator(".timeline > *")
+      .evaluateAll((items) =>
+        items
+          .map((item) =>
+            item instanceof HTMLElement
+              ? (item.dataset.region ?? (item.classList.contains("load-row") ? "end" : ""))
+              : "",
+          )
+          .filter(Boolean),
+      ),
+  ).toEqual(["yesterday", "days", "end", "pending"]);
   // 昨天带默认折叠，展开后条目可见；文字不做半透明降权。
   await page.locator(".yesterday-band > summary").click();
   await expect(page.locator('[data-region="yesterday"] [data-node="old"]')).toBeVisible();
@@ -259,7 +280,7 @@ test("U05 空页有游标继续加载，续页近期变更忽略且失败后保�
   await expect(page.locator(".load-row")).toContainText("加载失败");
   await expect(page.locator('[data-node="morning"]')).toBeVisible();
   await expect(page.locator("[data-empty]")).toHaveCount(0);
-  await expect(page.locator(".load-row")).not.toContainText("已显示完");
+  await expect(page.locator(".load-row", { hasText: "已显示完" })).toHaveCount(0);
   await page.getByRole("button", { name: "重试加载" }).click();
   await complete(page);
   expect(cursors).toEqual([null, "first", "last", "last"]);
@@ -297,7 +318,7 @@ test("U05 409 立即清空旧代再重载，绝不跨代拼接", async ({ page }
   await page.goto("/");
   await expect.poll(() => restarted).toBe(true);
   await expect(page.locator('[data-node="old-generation"]')).toHaveCount(0);
-  await expect(page.locator(".load-row")).not.toContainText("已显示完");
+  await expect(page.locator(".load-row", { hasText: "已显示完" })).toHaveCount(0);
   resume?.();
   await complete(page);
   await expect(page.locator('[data-node="new-generation"]')).toBeVisible();
@@ -320,7 +341,7 @@ test("U05 旧筛选在途响应不会覆盖新筛选；首次失败不假空", a
   });
   await page.goto("/");
   await expect.poll(() => started).toBe(true);
-  await page.getByRole("radio", { name: "今天", exact: true }).check();
+  await chooseRange(page, "今天");
   await complete(page);
   release?.();
   await expect(page.locator('[data-node="date"]')).toHaveCount(0);
@@ -337,7 +358,10 @@ test("U06 返回列表恢复筛选；U03 U05 桌面手机截图与窄屏关键�
   await expect(page).toHaveURL(/\/events\/evt_later/);
   await page.goBack();
   await complete(page);
-  await expect(page.getByRole("radio", { name: "近7天", exact: true })).toBeChecked();
+  await expect(
+    page.getByRole("radio", { name: "近7天", exact: true, includeHidden: true }),
+  ).toBeChecked();
+  await expect(page.locator("#more-range")).toHaveText("近7天");
   await expect(page.locator('[data-node="later"]')).toBeVisible();
   if (info.project.name.startsWith("mobile")) {
     await page.setViewportSize({ width: 320, height: 800 });
@@ -376,7 +400,7 @@ test("U05 服务端等待信息约束重试与刷新入口，不因重复点击�
   await expect(page.getByRole("button", { name: "重试加载" })).toBeDisabled();
   await page.locator(".data-freshness summary").click();
   await expect(page.getByRole("button", { name: "重新检查" })).toBeDisabled();
-  await page.getByRole("radio", { name: "今天", exact: true }).check();
+  await chooseRange(page, "今天");
   expect(calls).toBe(1);
   await page.clock.setFixedTime(new Date(clock.getTime() + 1235));
   await page.evaluate(() => window.dispatchEvent(new Event("online")));
@@ -546,16 +570,17 @@ test("首屏即将截止遵从游戏筛选；超过四项时「查看全部」�
   await expect(page.locator('[data-empty="filtered"]')).toBeVisible();
 });
 
-test("筛选栏单行：桌面不换行，窄屏横向滑动且页面不横向溢出；更多筛选弹层不被裁切", async ({
+test("筛选栏单行：桌面不换行，窄屏横向滑动且页面不横向溢出；筛选弹层不被裁切", async ({
   page,
 }, info) => {
   await page.goto("/");
   await complete(page);
   const bar = page.locator("#browse-filters");
+  // ADR-0017：时间范围收进「筛选」弹层，筛选栏只剩游戏、只看截止与「筛选」按钮。
+  await expect(page.locator("#more-filters .range-option")).toHaveCount(5);
+  await expect(page.locator("#more-filters-toggle")).toContainText("近3天");
   const rows = await page
-    .locator(
-      "#browse-filters .game-option, #browse-filters .range-option, #browse-filters .deadline-filter, #more-filters-toggle",
-    )
+    .locator("#browse-filters .game-option, #browse-filters .deadline-filter, #more-filters-toggle")
     .evaluateAll((items) =>
       items
         .map((item) => item.getBoundingClientRect())
@@ -598,9 +623,15 @@ test("筛选栏单行：桌面不换行，窄屏横向滑动且页面不横向�
   expect((box?.x ?? 0) + (box?.width ?? 0)).toBeLessThanOrEqual(viewport.width + 1);
   await page.getByRole("checkbox", { name: "卡池", exact: true }).check();
   await expect(toggle.locator("#more-summary")).toHaveText("1");
+  await page.getByRole("radio", { name: "近7天", exact: true }).check();
+  await expect(toggle.locator("#more-range")).toHaveText("近7天");
+  // 「清除这些条件」恢复弹层里的全部条件：时间范围回到默认档，类型清空。
   await page.getByRole("button", { name: "清除这些条件" }).click();
   await expect(page.getByRole("checkbox", { name: "卡池", exact: true })).not.toBeChecked();
+  await expect(page.getByRole("radio", { name: "近3天", exact: true })).toBeChecked();
+  await expect(toggle.locator("#more-range")).toHaveText("近3天");
   await expect(toggle.locator("#more-summary")).toBeHidden();
+  await expect(page.getByRole("button", { name: "清除这些条件" })).toBeDisabled();
   await page.keyboard.press("Escape");
   await expect(panel).toBeHidden();
   await expect(toggle).toHaveAttribute("aria-expanded", "false");
@@ -614,7 +645,12 @@ test("旧链接 range=90d 按「全部」读取，地址改写为当前档位", 
   });
   await page.goto("/?range=90d");
   await complete(page);
-  await expect(page.getByRole("radio", { name: "全部", exact: true })).toBeChecked();
+  await expect(
+    page.getByRole("radio", { name: "全部", exact: true, includeHidden: true }),
+  ).toBeChecked();
+  await expect(page.locator("#more-range")).toHaveText("全部");
+  await expect(page.locator(".load-row")).toContainText("已显示完全部日程");
+  await expect(page.locator('.load-row [data-action="show-more"]')).toHaveCount(0);
   expect(new URL(page.url()).searchParams.get("range")).toBe("all");
   expect(ranges).toEqual(["all"]);
 });
@@ -723,5 +759,175 @@ test("A-F1-POLISH 过时条幅只说信息获取时间，条幅里的刷新按�
     "/api/v2/catalog",
     "/api/v2/events",
     "/api/v2/status",
+  ]);
+});
+
+// ADR-0017：从上到下按时间先后；时间范围收进「筛选」；「显示更多」逐档续读。
+const nodeIds = (items: Element[]) =>
+  items.map((item) => (item as HTMLElement).dataset.node ?? (item as HTMLElement).dataset.change);
+
+test("A-F1-BROWSE 末行写明已显示完的档位；「显示更多」读下一档，已显示的条目不清空，新条目接在末行位置", async ({
+  page,
+}) => {
+  let hold: (() => void) | undefined;
+  const ranges: (string | null)[] = [];
+  const shownBefore = new Set(
+    eventsFixture(new URLSearchParams({ range: "3d" })).nodes.map((node) => node.id),
+  );
+  await page.route("**/api/v2/events?**", async (route) => {
+    const params = new URL(route.request().url()).searchParams;
+    ranges.push(params.get("range"));
+    const data = eventsFixture(params);
+    if (params.get("range") !== "7d") return route.fulfill({ json: data });
+    // 下一档分两页、第一页只有新条目：逐页替换会让已显示的条目先消失。
+    // 换上时上方区块变高（副本已过新鲜期的提示），检验视口以最后一天为锚不跳。
+    const stale = { ...data, cache: { ...data.cache, freshUntil: clock.getTime() - 1 } };
+    if (!params.has("cursor"))
+      return route.fulfill({
+        json: {
+          ...stale,
+          nodes: data.nodes.filter((node) => !shownBefore.has(node.id)),
+          nextCursor: "7d-rest",
+        },
+      });
+    await new Promise<void>((resolve) => {
+      hold = resolve;
+    });
+    return route.fulfill({
+      json: {
+        ...stale,
+        nodes: data.nodes.filter((node) => shownBefore.has(node.id)),
+        recentChanges: [],
+      },
+    });
+  });
+  await page.goto("/");
+  await complete(page);
+  const end = page.locator(".load-row");
+  await expect(end).toContainText("已显示完近3天");
+  await expect(page.locator('[data-node="later"]')).toHaveCount(0);
+  const rows = page.locator('[data-region="days"] [data-node]');
+  const before = await rows.count();
+  const lastDate = await page
+    .locator('[data-region="days"] > .schedule-day')
+    .last()
+    .getAttribute("data-date");
+  // 记录读取期间日程条目的最少数量：页面不清空、不整体重载。
+  await page.evaluate(() => {
+    const state = window as unknown as { minRows: number };
+    state.minRows = Number.POSITIVE_INFINITY;
+    const count = () => {
+      state.minRows = Math.min(
+        state.minRows,
+        document.querySelectorAll('#schedule-results [data-region="days"] [data-node]').length,
+      );
+    };
+    const results = document.getElementById("schedule-results");
+    if (results) new MutationObserver(count).observe(results, { childList: true, subtree: true });
+  });
+  await end.scrollIntoViewIfNeeded();
+  const lastDay = page.locator(`[data-region="days"] > [data-date="${lastDate}"]`);
+  const topBefore = (await lastDay.boundingBox())?.y ?? 0;
+  await end.getByRole("button", { name: "显示更多" }).click();
+  // 读取期间：提示在时间线顶部；末行按钮保留（焦点不丢）并标为不可用；条目原样保留。
+  await expect(page.locator(".timeline-heading")).toContainText("正在加载近7天");
+  await expect(end.locator('[data-action="show-more"]')).toHaveAttribute("aria-disabled", "true");
+  await expect(end.locator('[data-action="show-more"]')).toBeFocused();
+  await expect(rows).toHaveCount(before);
+  await expect.poll(() => hold !== undefined).toBe(true);
+  hold?.();
+  await expect(end).toContainText("已显示完近7天");
+  await expect(page.locator('[data-node="later"]')).toBeVisible();
+  expect(
+    await page.evaluate(() => (window as unknown as { minRows: number }).minRows),
+  ).toBeGreaterThanOrEqual(before);
+  // 原来的最后一天原地不动，下一档的日期接在它之后（原末行的位置）。
+  expect(Math.abs(((await lastDay.boundingBox())?.y ?? 0) - topBefore)).toBeLessThanOrEqual(2);
+  const dates = await page
+    .locator('[data-region="days"] > .schedule-day')
+    .evaluateAll((items) => items.map((item) => (item as HTMLElement).dataset.date));
+  expect(dates.indexOf(lastDate ?? "")).toBeLessThan(dates.length - 1);
+  expect(new URL(page.url()).searchParams.get("range")).toBe("7d");
+  await expect(page.locator("#more-range")).toHaveText("近7天");
+  await expect(end.locator('[data-action="show-more"]')).toBeFocused();
+  // 逐档：近30天 → 全部；最大一档不再提供「显示更多」，焦点留在末行；只重读日程，不重读目录与状态。
+  await end.getByRole("button", { name: "显示更多" }).click();
+  await expect(end).toContainText("已显示完近30天");
+  await end.getByRole("button", { name: "显示更多" }).click();
+  await expect(end).toContainText("已显示完全部日程");
+  await expect(end.locator('[data-action="show-more"]')).toHaveCount(0);
+  await expect(end).toBeFocused();
+  expect(ranges).toEqual(["3d", "7d", "7d", "30d", "all"]);
+  expect(controls.get(page)?.calls.filter((call) => call.path !== "/api/v2/events").length).toBe(2);
+});
+
+test("A-F1-BROWSE 加载提示在时间线顶部；读完之前不出现末行", async ({ page }) => {
+  const holds: (() => void)[] = [];
+  await page.route("**/api/v2/events?**", async (route) => {
+    const params = new URL(route.request().url()).searchParams;
+    await new Promise<void>((resolve) => holds.push(resolve));
+    const data = eventsFixture(params);
+    await route.fulfill({
+      json: params.has("cursor")
+        ? { ...data, nodes: [], recentChanges: [] }
+        : { ...data, nextCursor: "more" },
+    });
+  });
+  await page.goto("/");
+  const heading = page.locator(".timeline-heading");
+  // 首屏骨架：提示在卡片顶部、首屏之内。
+  await expect(heading).toContainText("正在加载日程");
+  await expect(page.locator(".timeline-skeleton")).toBeVisible();
+  expect((await heading.boundingBox())?.y ?? Number.POSITIVE_INFINITY).toBeLessThan(
+    page.viewportSize()?.height ?? 0,
+  );
+  await expect.poll(() => holds.length).toBe(1);
+  holds[0]();
+  // 第一页到达、续页未到：条目已显示，提示仍在顶部，末行不出现。
+  await expect(page.locator('[data-node="morning"]')).toBeVisible();
+  await expect(heading).toContainText("正在加载日程");
+  await expect(page.locator(".load-row")).toHaveCount(0);
+  await expect.poll(() => holds.length).toBe(2);
+  holds[1]();
+  await complete(page);
+  await expect(heading).not.toContainText("正在加载");
+});
+
+test("A-F1-BROWSE 近期变更与时间待定从上到下按时间先后、从开始到结束", async ({ page }) => {
+  const control = controls.get(page);
+  if (!control) throw new Error("missing fixture");
+  const unknown = {
+    precision: "unknown" as const,
+    source_timezone: "UTC+8",
+    raw_expression: "待公布",
+    time_basis: "unresolved" as const,
+  };
+  control.events = (params, scenario) => {
+    const data = eventsFixture(params, scenario);
+    const base = data.nodes.find((node) => node.time.precision === "datetime");
+    if (!base) throw new Error("fixture needs a timed node");
+    return {
+      ...data,
+      nodes: [
+        ...data.nodes.filter((node) => node.time.precision !== "unknown"),
+        { ...base, id: "pending-end", eventId: "evt_pending", nodeType: "end", time: unknown },
+        { ...base, id: "pending-start", eventId: "evt_pending", nodeType: "start", time: unknown },
+      ],
+      // 接口按变更保留期排序；页面按节点时间先后重排。
+      recentChanges: [...data.recentChanges].reverse(),
+    };
+  };
+  await page.goto("/");
+  await complete(page);
+  const expected = [...eventsFixture(new URLSearchParams()).recentChanges]
+    .sort(compareScheduleNodes)
+    .map((node) => node.id);
+  expect(expected).not.toEqual([...expected].reverse());
+  await page.locator(".recent-changes summary").click();
+  expect(await page.locator(".change-list > [data-change]").evaluateAll(nodeIds)).toEqual(expected);
+  await page.locator('[data-region="pending"] > summary').click();
+  expect(await page.locator('[data-region="pending"] [data-node]').evaluateAll(nodeIds)).toEqual([
+    "pending-start",
+    "pending-end",
   ]);
 });

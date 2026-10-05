@@ -195,7 +195,46 @@ function nodeDate(node: Pick<ScheduleNode, "time">): string | null {
 function identityOrder(a: { id: string }, b: { id: string }): number {
   return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
 }
-function groupDays<N extends Pick<ScheduleNode, "id" | "time">>(nodes: N[]): ScheduleDay<N>[] {
+/** 同一位置时的先后：开始 → 阶段 → 结束 → 奖励截止（ADR-0017）。 */
+const LIFECYCLE_RANK: Record<NodeType, number> = {
+  start: 0,
+  phase_unlock: 1,
+  end: 2,
+  expected_end: 3,
+  actual_end: 4,
+  reward_deadline: 5,
+};
+/** 时间未知时的位置：开始节点排最前，结束类排最后，其余在两者之间；有日期的按日期排在中间。 */
+function lifecycleBucket(node: Pick<ScheduleNode, "nodeType" | "time">): number {
+  if (node.time.precision !== "unknown") return 1;
+  if (node.nodeType === "start") return 0;
+  return LIFECYCLE_RANK[node.nodeType] >= LIFECYCLE_RANK.end ? 3 : 2;
+}
+/**
+ * 节点"从开始到结束"的先后（ADR-0017）：日程分组、时间待定、近期变更与详情时间线共用。
+ * 有日期的按日期升序，同一天精确时刻在前（按时刻）、只有日期的在后；时间未知的按
+ * lifecycleBucket 放到最前或最后；同一位置按开始 → 阶段 → 结束 → 奖励截止，再按稳定身份。
+ * 比较键是一组有序字段，保证排序结果确定。
+ */
+export function compareScheduleNodes(
+  a: Pick<ScheduleNode, "id" | "nodeType" | "time">,
+  b: Pick<ScheduleNode, "id" | "nodeType" | "time">,
+): number {
+  const bucket = lifecycleBucket(a) - lifecycleBucket(b);
+  if (bucket) return bucket;
+  const day = (nodeDate(a) ?? "").localeCompare(nodeDate(b) ?? "");
+  if (day) return day;
+  const dateOnly = Number(a.time.precision === "date") - Number(b.time.precision === "date");
+  if (dateOnly) return dateOnly;
+  const moment =
+    a.time.precision === "datetime" && b.time.precision === "datetime"
+      ? a.time.utc_ms - b.time.utc_ms
+      : 0;
+  return moment || LIFECYCLE_RANK[a.nodeType] - LIFECYCLE_RANK[b.nodeType] || identityOrder(a, b);
+}
+function groupDays<N extends Pick<ScheduleNode, "id" | "nodeType" | "time">>(
+  nodes: N[],
+): ScheduleDay<N>[] {
   const days = new Map<string, ScheduleDay<N>>();
   for (const node of nodes) {
     const date = nodeDate(node);
@@ -206,12 +245,8 @@ function groupDays<N extends Pick<ScheduleNode, "id" | "time">>(nodes: N[]): Sch
     days.set(date, day);
   }
   for (const day of days.values()) {
-    day.timed.sort((a, b) => {
-      if (a.time.precision !== "datetime" || b.time.precision !== "datetime")
-        throw new Error("日期节点不得参与精确排序");
-      return a.time.utc_ms - b.time.utc_ms || identityOrder(a, b);
-    });
-    day.dateOnly.sort(identityOrder);
+    day.timed.sort(compareScheduleNodes);
+    day.dateOnly.sort(compareScheduleNodes);
   }
   return [...days.values()].sort((a, b) => a.date.localeCompare(b.date));
 }
@@ -250,7 +285,7 @@ export function selectScheduleCore<
   const visible = inWindow.filter(matches);
   const pending = live
     .filter((node) => nodeDate(node) === null && matches(node))
-    .sort(identityOrder);
+    .sort(compareScheduleNodes);
   const sources = input.sources?.filter((source) => filters.games.includes(source.game)) ?? null;
   const unavailable =
     sources?.filter(
@@ -290,7 +325,9 @@ export function selectScheduleCore<
       groups: groupDays(live.filter((node) => nodeDate(node) === yesterday && matches(node))),
     },
     pending,
-    changes: input.recentChanges.filter((node) => filters.games.includes(node.game)),
+    changes: input.recentChanges
+      .filter((node) => filters.games.includes(node.game))
+      .sort(compareScheduleNodes),
     sources,
     unavailable,
     sourcesUnknown,

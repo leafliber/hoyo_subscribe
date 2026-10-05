@@ -1,6 +1,7 @@
 import {
   BROWSE_RANGES,
   type BrowseFilters,
+  type BrowseRange,
   browseDate,
   deadlineUrgency,
   EVENT_NAMES,
@@ -319,7 +320,13 @@ export function renderResults(state: ScheduleLoadState, filters: BrowseFilters) 
       root.append(
         el(
           "section",
-          { class: "timeline card" },
+          { class: "timeline card", "aria-labelledby": "timeline-title" },
+          el(
+            "div",
+            { class: "timeline-heading" },
+            el("h2", { id: "timeline-title", tabindex: "-1" }, "接下来的安排"),
+            loadStatus(state),
+          ),
           el(
             "div",
             { class: "timeline-skeleton" },
@@ -328,7 +335,6 @@ export function renderResults(state: ScheduleLoadState, filters: BrowseFilters) 
             el("div", { class: "skeleton skeleton-row" }),
             el("div", { class: "skeleton skeleton-row" }),
           ),
-          loadRow(state),
         ),
       );
     } else if (nothingPublished(state)) {
@@ -369,6 +375,8 @@ export function renderResults(state: ScheduleLoadState, filters: BrowseFilters) 
   ).cache;
   const notice = cacheNotice(oldest);
   if (notice) root.append(notice);
+  // 页面显示的是已读完的那一档；"显示更多"读取下一档期间，筛选已切到下一档，数据仍是这一档。
+  const shown = state.loadedRange ?? filters.range;
   const view = selectScheduleCore(
     {
       nodes: state.pages.flatMap((page) => page.nodes),
@@ -377,7 +385,7 @@ export function renderResults(state: ScheduleLoadState, filters: BrowseFilters) 
       sources,
       reviewGaps: gaps,
     },
-    filters,
+    { ...filters, range: shown },
   );
   if (view.changes.length)
     root.append(
@@ -433,7 +441,6 @@ export function renderResults(state: ScheduleLoadState, filters: BrowseFilters) 
       ),
     );
 
-  const range = BROWSE_RANGES.find((item) => item.id === filters.range);
   const timeline = el(
     "section",
     { class: "timeline card", "aria-labelledby": "timeline-title" },
@@ -442,15 +449,19 @@ export function renderResults(state: ScheduleLoadState, filters: BrowseFilters) 
       { class: "timeline-heading" },
       el("h2", { id: "timeline-title", tabindex: "-1" }, "接下来的安排"),
       el("span", { class: "badge" }, `${view.count} 项`),
+      // 加载提示放在时间线顶部（ADR-0017）：列表很长时底部看不到。
+      loadStatus(state),
       el(
         "span",
         { class: "window-caption" },
-        `${range?.label ?? ""}${first.window.end === null ? "" : ` · 截至 ${dateTime(first.window.end - 1)}`}`,
+        `${rangeLabel(shown)}${first.window.end === null ? "" : ` · 截至 ${dateTime(first.window.end - 1)}`}`,
       ),
     ),
   );
+  // 当前范围为空时，空态里已有"试试下一档"的出口，末行不再重复"显示更多"。
+  const offerMore = !(state.phase === "ready" && view.empty === "range");
   if (state.phase === "ready" && view.empty) {
-    const next = widerRange(filters.range);
+    const next = widerRange(shown);
     const copy: Record<string, [string, string]> = {
       range: ["当前范围没有已发布日程", "这段时间里没有已发布的活动安排。"],
       filtered: ["筛选没有匹配项", "换个筛选条件试试，或者清除全部筛选。"],
@@ -477,30 +488,6 @@ export function renderResults(state: ScheduleLoadState, filters: BrowseFilters) 
     );
   }
   const today = browseDate(first.window.start);
-  timeline.append(
-    el(
-      "div",
-      { "data-region": "days", class: "days" },
-      ...view.days.map((day) => renderDay(day, today, now)),
-    ),
-  );
-  // 时间待定的条目默认折叠（ADR-0015）；展开状态随重绘保留。
-  if (view.pending.length)
-    timeline.append(
-      el(
-        "details",
-        { class: "pending-area", "data-region": "pending", "data-disclosure": "pending" },
-        el(
-          "summary",
-          {},
-          icon("hourglass"),
-          el("span", {}, "时间待定"),
-          el("span", { class: "day-count" }, `${view.pending.length} 项`),
-        ),
-        el("ul", { class: "node-list" }, ...view.pending.map((node) => renderNode(node, now))),
-      ),
-    );
-  timeline.append(loadRow(state));
   const yesterdayCount = view.yesterday.groups.reduce(
     (total, day) => total + day.timed.length + day.dateOnly.length,
     0,
@@ -539,29 +526,88 @@ export function renderResults(state: ScheduleLoadState, filters: BrowseFilters) 
       ),
     ),
   );
+  // 从上到下按时间先后（ADR-0017）：昨天 → 当前范围逐日 → 末行 → 时间待定。
+  timeline.append(
+    el(
+      "div",
+      { "data-region": "days", class: "days" },
+      ...view.days.map((day) => renderDay(day, today, now)),
+    ),
+  );
+  const end = endRow(state, shown, offerMore);
+  if (end) timeline.append(end);
+  // 时间待定的条目默认折叠（ADR-0015）；展开状态随重绘保留。时间未知，排在最后。
+  if (view.pending.length)
+    timeline.append(
+      el(
+        "details",
+        { class: "pending-area", "data-region": "pending", "data-disclosure": "pending" },
+        el(
+          "summary",
+          {},
+          icon("hourglass"),
+          el("span", {}, "时间待定"),
+          el("span", { class: "day-count" }, `${view.pending.length} 项`),
+        ),
+        el("ul", { class: "node-list" }, ...view.pending.map((node) => renderNode(node, now))),
+      ),
+    );
   root.append(timeline);
   return root;
 }
 
-function loadRow(state: ScheduleLoadState) {
-  const row = el(
-    "div",
-    { class: `load-row is-${state.phase}`, role: "status" },
-    state.phase === "loading" ? el("span", { class: "spinner", "aria-hidden": "true" }) : null,
-    el(
-      "p",
-      {},
-      state.phase === "loading"
-        ? "正在加载日程…"
-        : state.phase === "failed"
-          ? loadFeedback(state.error, state.pages.length > 0)
-          : "已显示完当前范围",
-    ),
+const rangeLabel = (range: BrowseRange) =>
+  BROWSE_RANGES.find((item) => item.id === range)?.label ?? "";
+
+/** 时间线顶部的加载提示（ADR-0017）：首次加载、续页与"显示更多"都在这里说明。 */
+function loadStatus(state: ScheduleLoadState): HTMLElement | null {
+  if (state.phase !== "loading") return null;
+  return el(
+    "span",
+    { class: "load-status" },
+    el("span", { class: "spinner", "aria-hidden": "true" }),
+    state.extending ? `正在加载${rangeLabel(state.extending)}…` : "正在加载日程…",
   );
+}
+
+/**
+ * 列表末行（ADR-0017）：写明已显示到哪一档，并可"显示更多"读取下一档，新条目接在这一行之前。
+ * 读取下一档期间按钮保留（焦点不丢），标为不可用；读取失败时给出原因和重试。
+ * 首次加载与续页期间不显示，提示在时间线顶部。
+ */
+function endRow(
+  state: ScheduleLoadState,
+  shown: BrowseRange,
+  offerMore: boolean,
+): HTMLElement | null {
   if (state.phase === "failed") {
     const retry = actionButton("重试加载", "retry", false, "refresh");
     retry.disabled = Date.now() < state.retryAt;
-    row.append(retry);
+    return el(
+      "div",
+      { class: "load-row is-failed", role: "status" },
+      el("p", {}, loadFeedback(state.error, state.pages.length > 0)),
+      retry,
+    );
+  }
+  if (state.phase === "loading" && state.extending === null) return null;
+  const row = el(
+    "div",
+    { class: `load-row is-${state.phase}`, role: "status", tabindex: "-1" },
+    el("p", {}, shown === "all" ? "已显示完全部日程" : `已显示完${rangeLabel(shown)}`),
+  );
+  const next = widerRange(shown);
+  if (next && offerMore) {
+    const more = actionButton("显示更多", "show-more", false, "chevron-down");
+    more.dataset.range = next.id;
+    if (state.extending !== null) {
+      more.setAttribute("aria-disabled", "true");
+      more.replaceChildren(
+        el("span", { class: "spinner", "aria-hidden": "true" }),
+        `正在加载${rangeLabel(next.id)}…`,
+      );
+    }
+    row.append(more);
   }
   return row;
 }
@@ -696,8 +742,8 @@ export function renderEndingSoon(
       !filters.nodes.some((type) => type === "end" || type === "reward_deadline"));
   if (excludesDeadlines) return null;
   const nodes = endingSoonNodes(state, filters, now);
-  const range = BROWSE_RANGES.find((item) => item.id === filters.range);
-  const scope = range?.id === "all" ? "已发布日程中" : `${range?.label ?? ""}内`;
+  const shownRange = state.loadedRange ?? filters.range;
+  const scope = shownRange === "all" ? "已发布日程中" : `${rangeLabel(shownRange)}内`;
   if (!nodes.length) {
     if (filters.events.length || filters.nodes.length) return null;
     return [

@@ -1,4 +1,5 @@
 import {
+  compareScheduleNodes,
   EVENT_NAMES,
   nodeAction,
   type PublicEventDetailResponse,
@@ -128,6 +129,14 @@ function timelineNode(node: PublicScheduleNode, now: number, important: boolean)
 export function renderEventDetail(response: PublicEventDetailResponse) {
   const { event } = response;
   const now = Date.now();
+  // 从开始到结束（ADR-0017）：时间线按 contracts 的同一顺序，变更记录跟着时间线走。
+  const milestones = [...event.milestones].sort(compareScheduleNodes);
+  const position = new Map(milestones.map((node, index) => [node.id, index]));
+  const changes = [...event.changes].sort(
+    (a, b) =>
+      (position.get(a.nodeId) ?? milestones.length) -
+        (position.get(b.nodeId) ?? milestones.length) || a.nodeId.localeCompare(b.nodeId),
+  );
   const important = event.milestones.find((node) => node.id === event.importantNodeId);
   const currentInvalid = event.status === "cancelled" || event.status === "retracted";
   const phase = eventPhase(event, now);
@@ -202,19 +211,17 @@ export function renderEventDetail(response: PublicEventDetailResponse) {
           el(
             "ol",
             { class: "detail-timeline" },
-            ...event.milestones.map((node) => timelineNode(node, now, node.id === important?.id)),
+            ...milestones.map((node) => timelineNode(node, now, node.id === important?.id)),
           ),
         ),
         el(
           "section",
           { class: "card detail-section", "data-section": "change" },
           el("h2", { class: "detail-section-title" }, "变更记录"),
-          ...event.changes.map(({ nodeId, change }) =>
+          ...changes.map(({ nodeId, change }) =>
             el("div", { "data-change": nodeId, class: "detail-change" }, renderChange(change)),
           ),
-          !event.changes.length
-            ? el("p", { class: "text-secondary" }, "目前没有已发布的变更。")
-            : null,
+          !changes.length ? el("p", { class: "text-secondary" }, "目前没有已发布的变更。") : null,
         ),
       ),
       el(

@@ -460,3 +460,34 @@ test("A-P3-ARTICLE-VIEW 没有可确认的原文版本、读取失败与不完�
   await expect(dialog.locator(".article-content")).toHaveCount(0);
   await expect(dialog.locator("a")).toHaveCount(0);
 });
+
+test("A-F1-BROWSE 详情时间线从开始到结束：接口顺序打乱、开始时间未知也排在最前", async ({
+  page,
+}) => {
+  const control = await mockPublicApi(page);
+  control.detail = (id) => {
+    const data = detailFixture(id);
+    if (!data) return null;
+    const milestones = [...data.event.milestones].reverse().map((node) =>
+      node.nodeType === "start"
+        ? {
+            ...node,
+            time: {
+              precision: "unknown" as const,
+              source_timezone: "UTC+8",
+              raw_expression: "7.0版本更新后",
+              time_basis: "unresolved" as const,
+            },
+          }
+        : node,
+    );
+    return { ...data, event: { ...data.event, milestones } };
+  };
+  await page.goto("/events/evt_morning");
+  await expect(page.locator(".event-detail")).toBeVisible();
+  expect(
+    await page
+      .locator('[data-section="timeline"] [data-milestone]')
+      .evaluateAll((items) => items.map((item) => item.getAttribute("data-milestone"))),
+  ).toEqual(["morning", "morning-end", "morning-reward"]);
+});
