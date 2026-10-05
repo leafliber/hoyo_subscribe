@@ -484,8 +484,8 @@
   transform: translateY(-2px);
 }
 
-.ending-card.is-critical,
-.ending-card.is-urgent {
+/* 24 小时内截止为高危（红），3 天内为临近（琥珀），其余不着色（ADR-0015） */
+.ending-card.is-critical {
   --card-accent: var(--color-danger);
 }
 
@@ -601,8 +601,7 @@
   margin-right: 0;
 }
 
-.ending-card.is-critical .cd-num,
-.ending-card.is-urgent .cd-num {
+.ending-card.is-critical .cd-num {
   color: var(--color-danger);
 }
 
@@ -705,6 +704,27 @@
 .results-stack > .callout,
 .results-stack > .data-warning {
   margin: 0;
+}
+
+/* 过时/离线条幅：一句话加刷新按钮，窄屏时按钮换到下一行（ADR-0015） */
+.cache-notice {
+  align-items: center;
+}
+
+.cache-notice > .icon {
+  margin-top: 0;
+}
+
+.cache-notice .callout-body {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2) var(--space-3);
+}
+
+.cache-notice .button {
+  flex: none;
 }
 
 .schedule-aside {
@@ -869,38 +889,91 @@
   height: 64px;
 }
 
+/* 日期标记（ADR-0015）：和条目同一网格，日期在时间列、轨道上一个日期点、右侧细线与条数。
+   不再是整条带边框的标题栏，轨道穿过它跨日连续；吸顶时用卡片底色盖住下方滚过的条目。 */
 .day-heading {
   position: sticky;
   top: calc(var(--header-height) + var(--filter-bar-height));
   z-index: 2;
-  display: flex;
-  flex-wrap: wrap;
-  align-items: baseline;
-  gap: var(--space-2);
+  display: grid;
+  grid-template-columns: var(--time-col) var(--rail-col) minmax(0, 1fr);
+  align-items: center;
+  column-gap: var(--space-3);
   margin: 0;
-  padding: var(--space-3) var(--row-pad-x);
-  border-bottom: var(--border-thin) solid var(--color-border);
-  background: var(--color-bg-subtle);
+  padding: var(--space-3) var(--row-pad-x) var(--space-1);
+  background: var(--color-bg-surface);
   font-size: var(--font-size-aux);
   font-weight: 650;
 }
 
-.day-relative {
-  color: var(--color-accent-strong);
+.day-label {
+  display: grid;
+  line-height: 1.35;
 }
 
 .day-date {
   color: var(--color-text-primary);
+  font-size: var(--font-size-body);
+  font-weight: 700;
+}
+
+.day-week {
+  color: var(--color-text-aux);
+  font-size: var(--font-size-small);
+  font-weight: 550;
+}
+
+.day-relative {
+  color: var(--color-accent-strong);
+  font-weight: 650;
 }
 
 .day-count {
-  margin-left: auto;
   color: var(--color-text-aux);
   font-size: var(--font-size-small);
   font-weight: 500;
 }
 
+.day-heading .day-count {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.day-heading .day-count::before {
+  content: "";
+  flex: 1;
+  height: var(--border-thin);
+  background: var(--color-border);
+}
+
+/* 日期点：轨道上的实心圆角方块，与条目的空心圆点区分；今天用强调色 */
+.day-rail::before {
+  top: calc(-1 * var(--space-3));
+  bottom: calc(-1 * var(--space-1));
+}
+
+.day-rail::after {
+  width: 10px;
+  height: 10px;
+  margin: -5px 0 0 -5px;
+  border: 0;
+  border-radius: 3px;
+  background: var(--color-control-border);
+}
+
+.schedule-day.is-today .day-rail::after {
+  background: var(--color-accent);
+}
+
+/* 一天内的精确时间与"全天"条目各自成列表，但列表之间没有空隙，轨道不断 */
 .timed-list,
+.date-only {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
 .node-list {
   margin: 0;
   padding: var(--space-2) 0;
@@ -908,22 +981,13 @@
 }
 
 .timed-list > li + li,
+.date-only > li + li,
 .node-list > li + li {
   margin-top: 0;
 }
 
-.date-only > h4 {
-  margin: 0;
-  padding: var(--space-2) var(--row-pad-x);
-  border-top: var(--border-thin) solid var(--color-border);
-  color: var(--color-text-aux);
-  font-size: var(--font-size-small);
-  font-weight: 600;
-}
-
-.schedule-day + .schedule-day,
-.days > .schedule-day:not(:first-child) {
-  border-top: var(--border-thin) solid var(--color-border);
+.days {
+  padding-bottom: var(--space-2);
 }
 
 /* 条目：时间 · 轨道 · 内容 · 箭头。轨道上的圆点按节点类型着色，已过的实心、未到的空心。 */
@@ -992,17 +1056,29 @@
   background: var(--rail-color);
 }
 
-.timed-list > li:first-child > .node-rail::before,
+/* 只有日期、没有时刻的条目：虚线圆点 */
+.date-only .node-rail::after {
+  border-style: dashed;
+}
+
+/* 日程轨道跨日连续：只在第一天的日期点之上、最后一条之下封口 */
+.days > .schedule-day:first-child .day-rail::before {
+  top: 50%;
+}
+
+.days > .schedule-day:last-child > ul:last-child > li:last-child > .node-rail::before {
+  bottom: 50%;
+}
+
+/* 待定与昨天是各自独立的短列表，首尾各自封口 */
 .node-list > li:first-child > .node-rail::before {
   top: 50%;
 }
 
-.timed-list > li:last-child > .node-rail::before,
 .node-list > li:last-child > .node-rail::before {
   bottom: 50%;
 }
 
-.timed-list > li:only-child > .node-rail::before,
 .node-list > li:only-child > .node-rail::before {
   display: none;
 }
@@ -1036,7 +1112,8 @@
   word-break: keep-all;
 }
 
-.node-relative.is-soon {
+/* 截止 24 小时内为高危（ADR-0015） */
+.node-relative.is-critical {
   color: var(--color-danger);
   font-weight: 650;
 }
@@ -1160,11 +1237,7 @@
   background: var(--color-border);
 }
 
-.timed-list > .now-marker:first-child::before {
-  top: 50%;
-}
-
-.timed-list > .now-marker:last-child::before {
+.days > .schedule-day:last-child > ul:last-child > .now-marker:last-child::before {
   bottom: 50%;
 }
 
@@ -1193,7 +1266,39 @@
   background: linear-gradient(to right, var(--color-danger), transparent);
 }
 
+/* 时间待定：默认折叠（ADR-0015），外观与"回看昨天"一致 */
 .pending-area {
+  border-top: var(--border-thin) solid var(--color-border);
+}
+
+.pending-area > summary {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: var(--tap-target-min);
+  padding: var(--space-2) var(--row-pad-x);
+  list-style: none;
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-aux);
+  font-weight: 600;
+}
+
+.pending-area > summary::after {
+  content: "";
+  width: 7px;
+  height: 7px;
+  margin-left: auto;
+  border-right: 2px solid var(--color-text-aux);
+  border-bottom: 2px solid var(--color-text-aux);
+  transform: rotate(-45deg);
+  transition: transform var(--duration-base) var(--ease-standard);
+}
+
+.pending-area[open] > summary::after {
+  transform: rotate(45deg);
+}
+
+.pending-area[open] > .node-list {
   border-top: var(--border-thin) solid var(--color-border);
 }
 
@@ -1328,11 +1433,6 @@
   color: var(--color-warning);
   font-size: var(--font-size-aux);
   font-weight: 650;
-}
-
-.recent-hint {
-  color: var(--color-text-aux);
-  font-size: var(--font-size-small);
 }
 
 .change-list {

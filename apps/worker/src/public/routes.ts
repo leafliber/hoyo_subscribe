@@ -1,5 +1,9 @@
 import { errorResponse, type ShellRoute } from "../shell";
-import { readCatalog, readEventDetail, readEvents } from "./read";
+import { readCatalog, readEventArticles, readEventDetail, readEvents } from "./read";
+
+// P3-22（ADR-0014）：/api/v2/events/{eventId}/articles 是同一事件的原文子资源，其余形状仍按详情处理。
+const ARTICLES_PATH = /^\/([^/]+)\/articles$/;
+
 export const publicRoutes: readonly ShellRoute[] = [
   {
     method: "GET",
@@ -28,6 +32,8 @@ export const publicRoutes: readonly ShellRoute[] = [
           { code: "validation", fields: [{ path: "$path", reason: "not_found" }] },
           404,
         );
+      const articles = ARTICLES_PATH.exec(rest);
+      if (articles?.[1]) return readEventArticles(ctx.env.DB, ctx.url, articles[1]);
       return readEventDetail(ctx.env.DB, ctx.url, rest.slice(1));
     },
   },

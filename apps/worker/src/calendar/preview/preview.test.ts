@@ -83,7 +83,7 @@ describe("A-P3-PREVIEW 真实外壳/D1", () => {
     const anonymous = await request(publicPath),
       logged = await request(publicPath, true);
     expect(anonymous.status).toBe(200);
-    expect(anonymous.headers.get("cache-control")).toBe(`public, max-age=${PUBLIC_CACHE_FRESH}`);
+    expect(anonymous.headers.get("cache-control")).toBe("no-cache");
     const body = CalendarNodesResponseSchema.parse(await anonymous.json());
     expect(await logged.json()).toEqual(body);
     const saved = await request(privatePath, true);

@@ -1,13 +1,13 @@
 import { mkdirSync } from "node:fs";
 import { resolve } from "node:path";
 import { expect, test } from "@playwright/test";
-import { detailFixture, mockPublicApi } from "./fixtures/public-schedule";
+import { articlesFixture, detailFixture, mockPublicApi } from "./fixtures/public-schedule";
 
 test.beforeEach(async ({ page }) => {
   await mockPublicApi(page);
 });
 
-test("U02 玩法结束与奖励领取截止在实际节点时间线中分别出现", async ({ page }) => {
+test("U02 活动结束与奖励领取截止在实际节点时间线中分别出现", async ({ page }) => {
   await page.goto("/events/evt_morning");
   await expect(page.locator(".event-detail")).toBeVisible();
   expect(
@@ -17,9 +17,9 @@ test("U02 玩法结束与奖励领取截止在实际节点时间线中分别出�
   ).toEqual(["important", "timeline", "change", "official"]);
   const timeline = page.locator('[data-section="timeline"]');
   await expect(timeline.locator("[data-milestone]")).toHaveCount(3);
-  await expect(timeline.locator('[data-milestone="morning-end"]')).toContainText("玩法结束");
+  await expect(timeline.locator('[data-milestone="morning-end"]')).toContainText("活动结束");
   await expect(timeline.locator('[data-milestone="morning-reward"]')).toContainText("奖励领取截止");
-  await expect(page.locator('[data-section="important"]')).toContainText("玩法结束");
+  await expect(page.locator('[data-section="important"]')).toContainText("活动结束");
 });
 
 test("U02 从日程条目进入对应事件详情", async ({ page }) => {
@@ -29,12 +29,12 @@ test("U02 从日程条目进入对应事件详情", async ({ page }) => {
   await expect(page.locator("h1")).toHaveText("巡游拾光 · 城市探索挑战");
 });
 
-test("U02 只有奖励截止时不补玩法结束", async ({ page }) => {
+test("U02 只有奖励截止时不补活动结束", async ({ page }) => {
   await page.goto("/events/evt_reward");
   const timeline = page.locator('[data-section="timeline"]');
   await expect(timeline.locator("[data-milestone]")).toHaveCount(1);
   await expect(timeline).toContainText("奖励领取截止");
-  await expect(timeline).not.toContainText("玩法结束");
+  await expect(timeline).not.toContainText("活动结束");
 });
 
 test("U02 纯日期与未知精度只展示已知信息，不猜午夜或时刻", async ({ page }) => {
@@ -107,9 +107,15 @@ test("U04 官方依据逐级展开，三项主要操作可用且设置订阅只�
   await page.goto("/events/evt_morning");
   await expect(page.locator(".event-detail")).toBeVisible();
   const official = page.locator('[data-section="official"]');
-  await expect(page.getByRole("link", { name: "查看官方公告", exact: true })).toHaveAttribute(
+  // P3-22：「查看官方公告」打开原文弹窗；官方接口地址仍在官方来源里，标明是数据源。
+  await expect(page.getByRole("button", { name: "查看官方公告", exact: true })).toBeVisible();
+  await expect(official.getByRole("link", { name: "官方数据源", exact: true })).toHaveAttribute(
     "href",
     "https://example.com/",
+  );
+  await expect(official.getByRole("link", { name: "官方数据源", exact: true })).toHaveAttribute(
+    "title",
+    "官方接口返回的原始数据，适合核对",
   );
   await official.locator("details > summary").first().click();
   await expect(official.locator(".notice-text")).toContainText("synthetic 公告原文样例");
@@ -157,9 +163,9 @@ test("U02 U04 桌面与手机截图、窄屏和键盘展开留证", async ({ pag
   await page.keyboard.press("Tab");
   await expect(subscribe).toBeFocused();
   await page.keyboard.press("Tab");
-  await expect(page.getByRole("link", { name: "查看官方公告", exact: true })).toBeFocused();
+  await expect(page.getByRole("button", { name: "查看官方公告", exact: true })).toBeFocused();
   const outline = await page
-    .getByRole("link", { name: "查看官方公告", exact: true })
+    .getByRole("button", { name: "查看官方公告", exact: true })
     .evaluate((link) => getComputedStyle(link).outlineStyle);
   expect(outline).not.toBe("none");
   const summary = page.locator('[data-section="official"] details > summary').first();
@@ -302,4 +308,153 @@ test("U04 重新读取详情后只保留用户已展开的证据，不展开其�
   await expect(page.locator("#event-detail")).toHaveAttribute("aria-busy", "false");
   await expect(page.locator('[data-milestone="morning-end"] details')).toHaveAttribute("open", "");
   await expect(page.locator('[data-milestone="morning"] details')).not.toHaveAttribute("open");
+});
+
+// P3-22（ADR-0014）：官方公告原文弹窗。数据来自本站保存的正文版本，浏览器端整理成可读文字。
+test("A-P3-ARTICLE-VIEW 查看官方公告打开原文弹窗：整理成可读文字，不出现原始 HTML", async ({
+  page,
+}, info) => {
+  const thirdParty: string[] = [];
+  page.on("request", (request) => {
+    if (new URL(request.url()).hostname === "example.com") thirdParty.push(request.url());
+  });
+  await page.goto("/events/evt_morning");
+  await page.getByRole("button", { name: "查看官方公告", exact: true }).click();
+  const dialog = page.getByRole("dialog", { name: "官方公告原文" });
+  await expect(dialog).toBeVisible();
+  await expect(dialog.locator(".article-title")).toHaveText("「巡游拾光」城市探索挑战活动说明");
+  await expect(dialog.locator(".article-facts")).toContainText("本站抓取于 2026年9月21日 18:30");
+  await expect(dialog.locator(".article-facts")).toContainText("第 2 版");
+  await expect(dialog.getByRole("link", { name: "官方数据源" })).toHaveAttribute(
+    "href",
+    "https://example.com/official-api",
+  );
+  const content = dialog.locator(".article-content");
+  // 官方转义的时间标签只留时间；不出现标签、实体、样式或脚本字样。
+  await expect(content).toContainText("2026/09/22 10:00 - 2026/09/29 03:59");
+  await expect(content).toContainText("注：活动规则以游戏内说明为准 & 解释权归官方所有");
+  const text = (await content.textContent()) ?? "";
+  for (const raw of [
+    "<t",
+    "<p",
+    "<span",
+    "</",
+    "&lt;",
+    "&amp;",
+    "t_gl",
+    "style=",
+    "javascript:",
+    "__articleExecuted",
+  ])
+    expect(text).not.toContain(raw);
+  // 结构保留：标题、列表、表格合并单元格、加粗、官方折叠段（原文默认收起）。
+  await expect(content.locator("h4")).toHaveText("活动说明");
+  await expect(content.locator("strong")).toHaveText("■参与条件");
+  await expect(content.locator("ul > li")).toHaveText(["冒险等阶达到 20 级", "完成序章任务"]);
+  await expect(content.locator('td[colspan="2"]')).toHaveText("阶段安排");
+  await expect(content.locator('td[rowspan="2"]')).toHaveText("第一阶段");
+  await expect(content.locator("table")).toContainText("奖励领取截止 2026/09/30 23:59");
+  const reward = content.locator("details");
+  await expect(reward.locator("summary")).toHaveText("奖励一览");
+  await expect(reward).not.toHaveAttribute("open");
+  await expect(reward.getByText("◇原石×60")).toBeHidden();
+  await reward.locator("summary").click();
+  await expect(reward).toHaveAttribute("open", "");
+  await expect(reward.getByText("◇原石×60")).toBeVisible();
+  // 游戏内链接取出真实网址；javascript: 链接只留文字；图片只给链接、不自动加载。
+  const go = dialog.getByRole("link", { name: ">>点击前往活动页面<<" });
+  await expect(go).toHaveAttribute("href", "https://example.com/event?a=1&b=2");
+  await expect(go).toHaveAttribute("target", "_blank");
+  await expect(go).toHaveAttribute("rel", "noopener noreferrer");
+  await expect(content).toContainText("不安全的链接文字");
+  await expect(dialog.locator('a[href^="javascript:"]')).toHaveCount(0);
+  await expect(dialog.getByRole("link", { name: "查看图片" })).toHaveAttribute(
+    "href",
+    "https://example.com/banner.jpg",
+  );
+  await expect(dialog.locator("img, script, iframe, style")).toHaveCount(0);
+  expect(
+    await page.evaluate(
+      () => (window as Window & { __articleExecuted?: number }).__articleExecuted,
+    ),
+  ).toBeUndefined();
+  expect(thirdParty).toEqual([]);
+  // 弹窗期间背景不可操作；Esc 关闭后焦点回到触发按钮。
+  expect(
+    await page.evaluate(() =>
+      [...document.body.children]
+        .filter((element) => element.id !== "article-dialog")
+        .every((element) => (element as HTMLElement).inert),
+    ),
+  ).toBe(true);
+  if (info.project.name.startsWith("mobile")) {
+    await page.setViewportSize({ width: 320, height: 800 });
+    expect(
+      await page.evaluate(() => document.documentElement.scrollWidth - innerWidth),
+    ).toBeLessThanOrEqual(1);
+  }
+  const folder = resolve(
+    process.env.HOYO_E2E_WRITE_EVIDENCE === "1"
+      ? "tests/e2e/evidence/p3-22"
+      : "tests/e2e/test-results/p3-22",
+  );
+  mkdirSync(folder, { recursive: true });
+  const viewport = info.project.name.startsWith("mobile") ? "mobile" : "desktop";
+  await page.screenshot({ path: `${folder}/${viewport}-article-dialog.png` });
+  await page.keyboard.press("Escape");
+  await expect(dialog).toBeHidden();
+  await expect(page.getByRole("button", { name: "查看官方公告", exact: true })).toBeFocused();
+});
+
+test("A-P3-ARTICLE-VIEW 侧栏也能打开原文；关闭按钮把焦点还给侧栏入口", async ({ page }) => {
+  await page.goto("/events/evt_morning");
+  const entry = page
+    .locator('[data-section="official"]')
+    .getByRole("button", { name: "阅读公告原文", exact: true });
+  await entry.click();
+  const dialog = page.getByRole("dialog", { name: "官方公告原文" });
+  await expect(dialog.locator(".article-content")).toContainText("城市探索");
+  await dialog.getByRole("button", { name: "关闭", exact: true }).first().click();
+  await expect(dialog).toBeHidden();
+  await expect(entry).toBeFocused();
+});
+
+test("A-P3-ARTICLE-VIEW 没有可确认的原文版本、读取失败与不完整版本都如实说明", async ({ page }) => {
+  let mode: "empty" | "fail" | "gap" = "empty";
+  await page.route("**/api/v2/events/evt_morning/articles", (route) => {
+    const data = articlesFixture("evt_morning");
+    if (!data) throw new Error("fixture missing");
+    if (mode === "fail") return route.fulfill({ status: 503, json: {} });
+    if (mode === "empty") data.articles = [];
+    else
+      data.articles = [
+        {
+          ...data.articles[0],
+          // 合同的 z.url() 也接受 javascript:；网页只把 http/https 做成链接。
+          officialUrl: "javascript:alert(1)",
+          completeness: "gap-channel-unavailable",
+          blocks: [{ kind: "title", text: "只有标题的资讯" }],
+        },
+      ];
+    return route.fulfill({ json: data });
+  });
+  await page.goto("/events/evt_morning");
+  const open = page.getByRole("button", { name: "查看官方公告", exact: true });
+  const dialog = page.getByRole("dialog", { name: "官方公告原文" });
+  await open.click();
+  await expect(dialog).toContainText("暂时无法确认这个活动依据的公告原文版本");
+  await expect(dialog.getByRole("link", { name: "打开官方数据源核对" })).toHaveAttribute(
+    "href",
+    "https://example.com/",
+  );
+  await page.keyboard.press("Escape");
+  mode = "fail";
+  await open.click();
+  await expect(dialog).toContainText("原文没有读取成功");
+  mode = "gap";
+  await dialog.getByRole("button", { name: "重试", exact: true }).click();
+  await expect(dialog.locator(".article-title")).toHaveText("只有标题的资讯");
+  await expect(dialog.locator(".article-gap")).toContainText("这个来源只提供公告列表，拿不到正文");
+  await expect(dialog.locator(".article-content")).toHaveCount(0);
+  await expect(dialog.locator("a")).toHaveCount(0);
 });

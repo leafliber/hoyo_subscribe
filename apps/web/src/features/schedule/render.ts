@@ -2,6 +2,7 @@ import {
   BROWSE_RANGES,
   type BrowseFilters,
   browseDate,
+  deadlineUrgency,
   EVENT_NAMES,
   GAME_NAMES,
   isDeadline,
@@ -14,6 +15,7 @@ import {
 import { type BadgeKind, badge, callout, el, emptyState, icon } from "../../lib/dom";
 import { feedbackForFailure } from "../../lib/errors/feedback";
 import {
+  beijingDayStart,
   clock,
   countdownParts,
   dateOnlyLabel,
@@ -23,6 +25,7 @@ import {
   relative,
   remaining,
   stamp,
+  weekday,
 } from "../../lib/format";
 import { gameIcon } from "../../lib/game-icons";
 import { PublicReadError } from "../../lib/public-api/client";
@@ -127,7 +130,7 @@ function relativeLabel(node: PublicScheduleNode, now: number): HTMLElement | nul
   return el(
     "span",
     {
-      class: `node-relative${target <= now ? " is-past" : endLike && target - now < 86_400_000 ? " is-soon" : ""}`,
+      class: `node-relative${target <= now ? " is-past" : endLike && deadlineUrgency(target, now) === "critical" ? " is-critical" : ""}`,
       "data-relative-to": target,
       "data-relative-mode": endLike ? "remaining" : "relative",
     },
@@ -175,7 +178,10 @@ export function renderNode(node: PublicScheduleNode, now: number) {
         : el(
             "span",
             { class: "node-relative" },
-            node.time.precision === "date" ? "具体时间未公布" : "时间待公布",
+            // 窄列里按词不拆字，<wbr> 给"具体时间/未公布"之间留一个换行点。
+            ...(node.time.precision === "date"
+              ? ["具体时间", el("wbr"), "未公布"]
+              : ["时间待公布"]),
           ),
       estimate ? el("span", { class: "sr-only" }, "预计") : null,
     ),
@@ -207,8 +213,13 @@ export function nowMarker(now: number): HTMLElement {
   );
 }
 
+/**
+ * 一天：日期是时间轴上的一个标记行（日期在时间列、轨道上一个日期点），轨道跨日连续不截断。
+ * 只有日期的条目接在当天精确时间之后，各自标"全天"，不排进精确时间序列。
+ */
 function renderDay(day: ScheduleDay<PublicScheduleNode>, today: string, now: number) {
   const label = dayLabel(day.date, today);
+  const start = beijingDayStart(day.date);
   const total = day.timed.length + day.dateOnly.length;
   const rows: HTMLElement[] = day.timed.map((node) => renderNode(node, now));
   if (day.date === today && rows.length) {
@@ -219,24 +230,29 @@ function renderDay(day: ScheduleDay<PublicScheduleNode>, today: string, now: num
   }
   return el(
     "section",
-    { class: "schedule-day", "data-date": day.date },
+    { class: `schedule-day${day.date === today ? " is-today" : ""}`, "data-date": day.date },
     el(
       "h3",
       { class: "day-heading" },
-      label.relative ? el("span", { class: "day-relative" }, label.relative) : null,
-      label.relative ? " " : null,
-      el("span", { class: "day-date" }, label.date),
+      el(
+        "span",
+        { class: "day-label" },
+        el("span", { class: "day-date" }, monthDay(start)),
+        " ",
+        el(
+          "span",
+          { class: "day-week" },
+          weekday(start),
+          label.relative ? el("span", { class: "day-relative" }, ` · ${label.relative}`) : null,
+        ),
+      ),
+      el("span", { class: "node-rail day-rail", "aria-hidden": "true" }),
       " ",
       el("span", { class: "day-count" }, `${total} 项`),
     ),
     day.timed.length ? el("ul", { class: "timed-list" }, ...rows) : null,
-    day.dateOnly.length > 0
-      ? el(
-          "div",
-          { class: "date-only" },
-          el("h4", {}, "当天 · 具体时刻未公布"),
-          el("ul", { class: "node-list" }, ...day.dateOnly.map((node) => renderNode(node, now))),
-        )
+    day.dateOnly.length
+      ? el("ul", { class: "date-only" }, ...day.dateOnly.map((node) => renderNode(node, now)))
       : null,
   );
 }
@@ -377,7 +393,6 @@ export function renderResults(state: ScheduleLoadState, filters: BrowseFilters) 
             { class: "recent-text" },
             el("span", { class: "recent-title" }, "近期重要变更"),
             el("span", { class: "change-count" }, `${view.changes.length} 项`),
-            el("span", { class: "recent-hint" }, "改期、取消与待定安排"),
           ),
         ),
         el(
@@ -398,8 +413,7 @@ export function renderResults(state: ScheduleLoadState, filters: BrowseFilters) 
             ),
           ),
         ),
-        first.recentChangesTruncated &&
-          el("p", { class: "data-note" }, "还有未列出的近期变更，此处不是完整变更历史。"),
+        first.recentChangesTruncated && el("p", { class: "data-note" }, "还有更早的变更未列出"),
       ),
     );
   if (view.unavailable.length)
@@ -470,16 +484,17 @@ export function renderResults(state: ScheduleLoadState, filters: BrowseFilters) 
       ...view.days.map((day) => renderDay(day, today, now)),
     ),
   );
+  // 时间待定的条目默认折叠（ADR-0015）；展开状态随重绘保留。
   if (view.pending.length)
     timeline.append(
       el(
-        "section",
-        { class: "pending-area", "data-region": "pending" },
+        "details",
+        { class: "pending-area", "data-region": "pending", "data-disclosure": "pending" },
         el(
-          "h3",
-          { class: "day-heading" },
-          el("span", { class: "day-relative" }, "时间待定"),
-          " ",
+          "summary",
+          {},
+          icon("hourglass"),
+          el("span", {}, "时间待定"),
           el("span", { class: "day-count" }, `${view.pending.length} 项`),
         ),
         el("ul", { class: "node-list" }, ...view.pending.map((node) => renderNode(node, now))),
@@ -552,7 +567,6 @@ function loadRow(state: ScheduleLoadState) {
 }
 
 const ENDING_LIMIT = 4;
-const HOUR = 3_600_000;
 
 /** 即将截止的候选：已加载的公开节点里尚未到时间的截止类节点，按时间先后；遵从全部浏览筛选。 */
 export function endingSoonNodes(state: ScheduleLoadState, filters: BrowseFilters, now: number) {
@@ -589,17 +603,6 @@ export function countdownValue(target: number, now: number): HTMLElement[] {
   ]);
 }
 
-export function urgency(target: number, now: number): "critical" | "urgent" | "soon" | "later" {
-  const left = target - now;
-  return left < HOUR
-    ? "critical"
-    : left < 24 * HOUR
-      ? "urgent"
-      : left < 72 * HOUR
-        ? "soon"
-        : "later";
-}
-
 function endingCard(node: PublicScheduleNode, today: string, now: number, index: number) {
   if (node.time.precision !== "datetime") throw new Error("截止卡片只接受精确时间");
   const target = node.time.utc_ms;
@@ -607,7 +610,7 @@ function endingCard(node: PublicScheduleNode, today: string, now: number, index:
   return el(
     "li",
     {
-      class: `ending-card is-${urgency(target, now)}`,
+      class: `ending-card is-${deadlineUrgency(target, now)}`,
       "data-ending": node.id,
       style: `--i: ${index}`,
     },
@@ -752,7 +755,7 @@ export function renderAside(state: ScheduleLoadState, filters: BrowseFilters) {
   );
   const body = el("div", { class: "freshness-body" });
   if (status) {
-    const notice = cacheNotice(status.cache, "来源状态");
+    const notice = cacheNotice(status.cache);
     if (notice) body.append(notice);
   }
   if (visibleSources === null) body.append(el("p", {}, "来源状态未知"));
@@ -773,7 +776,7 @@ export function renderAside(state: ScheduleLoadState, filters: BrowseFilters) {
               { class: "source-state" },
               badge(feedback.label, feedback.affected ? "warning" : "success"),
             ),
-            el("span", { class: "source-time" }, `来源成功核验时间：${stamp(source.verifiedAt)}`),
+            el("span", { class: "source-time" }, `核验于 ${stamp(source.verifiedAt)}`),
           );
         }),
       ),
@@ -782,12 +785,7 @@ export function renderAside(state: ScheduleLoadState, filters: BrowseFilters) {
     el(
       "p",
       { class: "text-aux" },
-      `日程发布时间：${stamp(first?.publication.publishedAt ?? null)}${first ? `（第 ${first.publication.generation} 版）` : ""}`,
-    ),
-    el(
-      "p",
-      { class: "text-aux" },
-      `目录发布时间：${stamp(state.catalog?.publication?.publishedAt ?? null)}`,
+      `日程发布于 ${stamp(first?.publication.publishedAt ?? null)}${first ? `（第 ${first.publication.generation} 版）` : ""}`,
     ),
     el(
       "div",

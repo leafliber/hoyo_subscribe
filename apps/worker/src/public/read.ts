@@ -5,9 +5,9 @@ import {
   type GameId,
   PUBLIC_READ_LIMITS as LIMITS,
   NODE_TYPES,
-  PUBLIC_CACHE_FRESH,
   type PublicCache,
   PublicCatalogResponseSchema,
+  PublicEventArticlesResponseSchema,
   PublicEventDetailResponseSchema,
   PublicEventsResponseSchema,
   type PublicPublication,
@@ -28,6 +28,7 @@ import {
 } from "@hoyo/contracts";
 import { ApiError, errorResponse, jsonResponse } from "../shell";
 import {
+  PUBLIC_ARTICLES_SQL,
   PUBLIC_CHANGES_SQL,
   PUBLIC_DETAIL_SQL,
   PUBLIC_HEAD_SQL,
@@ -66,8 +67,9 @@ export function publicResponse(body: { cache: PublicCache }): Response {
   const encoded = JSON.stringify(body);
   if (bytes(encoded) > LIMITS.responseBytes) throw unavailable();
   const response = jsonResponse(body);
-  // PUBLIC_CACHE_FRESH 描述本次响应副本；数据水位由 publication/sources 单独提供。
-  response.headers.set("cache-control", `public, max-age=${PUBLIC_CACHE_FRESH}`);
+  // ADR-0015：浏览器每次打开都向源站取最新；副本新鲜期（cache.freshUntil，PUBLIC_CACHE_FRESH）
+  // 只用于页面标注"可能已过时"。数据水位由 publication/sources 单独提供。
+  response.headers.set("cache-control", "no-cache");
   return response;
 }
 
@@ -100,19 +102,20 @@ function parseNode(row: NodeRow, now: number): PublicSnapshotNode | null {
   publicNode(result); // 闭合 schema 校验；内部字段永不原样透传。
   return result;
 }
+interface Notice {
+  publishedAt: number | null;
+  evidence: ReturnType<typeof publicEvidence>;
+  /** 与发布时间同一绑定条件下的文章版本；只供原文接口读取正文，不进公共响应。 */
+  articleVersionId: string | null;
+}
 async function notices(
   db: D1Database,
   nodes: readonly PublicSnapshotNode[],
   publishedAt: number,
-): Promise<
-  Map<string, { publishedAt: number | null; evidence: ReturnType<typeof publicEvidence> }>
-> {
+): Promise<Map<string, Notice>> {
   if (nodes.length === 0) return new Map();
   // 参数只携带有界的公开投影；按页分块，单值远低于 D1 2 MB 限制。
-  const result = new Map<
-    string,
-    { publishedAt: number | null; evidence: ReturnType<typeof publicEvidence> }
-  >();
+  const result = new Map<string, Notice>();
   for (let offset = 0; offset < nodes.length; offset += LIMITS.scanPage) {
     const input = nodes.slice(offset, offset + LIMITS.scanPage).map((n) => ({
       id: n.projection.milestone_id,
@@ -122,7 +125,12 @@ async function notices(
     const rows = await db
       .prepare(PUBLIC_NOTICE_SQL)
       .bind(LIMITS.nodeBytes, JSON.stringify(input), publishedAt, publishedAt)
-      .all<{ id: string; official_published_at: number | null; proposal_json: string | null }>();
+      .all<{
+        id: string;
+        official_published_at: number | null;
+        article_version_id: string | null;
+        proposal_json: string | null;
+      }>();
     for (const row of rows.results) {
       const node = nodes.find((n) => n.projection.milestone_id === row.id);
       const evidence =
@@ -130,6 +138,7 @@ async function notices(
       result.set(row.id, {
         publishedAt: evidence === null ? null : row.official_published_at,
         evidence,
+        articleVersionId: evidence === null ? null : row.article_version_id,
       });
     }
   }
@@ -243,12 +252,8 @@ export async function readEvents(db: D1Database, url: URL, now = Date.now()): Pr
   return publicResponse(PublicEventsResponseSchema.parse(response));
 }
 
-export async function readEventDetail(
-  db: D1Database,
-  url: URL,
-  id: string,
-  now = Date.now(),
-): Promise<Response> {
+/** 本代该事件的可见节点（排除墓碑）；超过详情节点上限明确不可用。空数组 = 本代没有此事件。 */
+async function eventNodes(db: D1Database, url: URL, id: string, now: number) {
   validatePublicQuery(url);
   if (!id || bytes(id) > LIMITS.queryBytes || id.includes("/")) throw new ApiError("validation");
   const state = requirePublication(await head(db));
@@ -262,13 +267,25 @@ export async function readEventDetail(
   const nodes = rows
     .map((r) => parseNode(r, now))
     .filter((n): n is PublicSnapshotNode => n !== null && !n.tombstone);
+  return { state, nodes };
+}
+const eventNotFound = () =>
+  errorResponse(
+    "validation",
+    { code: "validation", fields: [{ path: "$path", reason: "not_found" }] },
+    404,
+  );
+
+export async function readEventDetail(
+  db: D1Database,
+  url: URL,
+  id: string,
+  now = Date.now(),
+): Promise<Response> {
+  const { state, nodes } = await eventNodes(db, url, id, now);
   if (!nodes.length) {
     await assertCurrent(db, state.head);
-    return errorResponse(
-      "validation",
-      { code: "validation", fields: [{ path: "$path", reason: "not_found" }] },
-      404,
-    );
+    return eventNotFound();
   }
   const times = await notices(db, nodes, state.publication.publishedAt);
   const milestones = nodes.map((n) =>
@@ -304,6 +321,61 @@ export async function readEventDetail(
         excerpts: milestones.map((n) => n.evidence),
       },
     },
+  });
+  await assertCurrent(db, state.head);
+  return publicResponse(body);
+}
+
+/**
+ * P3-22（ADR-0014）：活动依据的官方公告原文。只读本代已发布节点按公告发布时间同一条件绑定出的
+ * 文章版本（不可变），不读未批准候选或未发布的正文；正文块原样返回，由网页按白名单重建。
+ */
+export async function readEventArticles(
+  db: D1Database,
+  url: URL,
+  id: string,
+  now = Date.now(),
+): Promise<Response> {
+  const { state, nodes } = await eventNodes(db, url, id, now);
+  if (!nodes.length) {
+    await assertCurrent(db, state.head);
+    return eventNotFound();
+  }
+  const times = await notices(db, nodes, state.publication.publishedAt);
+  const versionIds = [
+    ...new Set(nodes.flatMap((n) => times.get(n.projection.milestone_id)?.articleVersionId ?? [])),
+  ];
+  const rows =
+    versionIds.length === 0
+      ? []
+      : (
+          await db
+            .prepare(PUBLIC_ARTICLES_SQL)
+            .bind(LIMITS.responseBytes, JSON.stringify(versionIds))
+            .all<{
+              version_no: number;
+              completeness: string;
+              official_published_at: number | null;
+              fetched_at: number;
+              official_url: string;
+              body_blocks_json: string | null;
+            }>()
+        ).results;
+  // 绑定出的版本必须全部读到、正文没有被字节保护置空；残缺原文不冒充完整结果。
+  if (rows.length !== versionIds.length || rows.some((r) => r.body_blocks_json === null))
+    throw unavailable();
+  const body = PublicEventArticlesResponseSchema.parse({
+    publication: state.publication,
+    cache: publicCache(state.publication, now),
+    eventId: id,
+    articles: rows.map((r) => ({
+      officialUrl: r.official_url,
+      versionNo: r.version_no,
+      fetchedAt: r.fetched_at,
+      publishedAt: r.official_published_at,
+      completeness: r.completeness,
+      blocks: JSON.parse(r.body_blocks_json ?? "[]"),
+    })),
   });
   await assertCurrent(db, state.head);
   return publicResponse(body);

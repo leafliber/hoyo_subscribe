@@ -216,7 +216,7 @@ test("U05 缓存新鲜度不以旧代次替代；离线显示当前页面已读�
   await expect(page.locator(".data-freshness")).toContainText("2026年9月21日 18:00");
   await expect(page.locator(".data-freshness")).toContainText("2026年9月21日 19:00");
   await scenario(page, "stale");
-  await expect(page.locator(".data-warning")).toContainText("陈旧缓存");
+  await expect(page.locator(".data-warning")).toContainText("内容可能已过时");
   await expect(page.locator(".data-warning")).toContainText("2026年9月21日 20:00");
   await context.setOffline(true);
   await expect(page.locator(".data-warning").first()).toContainText("离线");
@@ -405,13 +405,18 @@ test("U04 首页公开证据也是文本；近期变更截断不宣称完整历�
   await complete(page);
   await page.locator(".recent-changes summary").click();
   await expect(page.locator(".recent-changes .evidence-text").first()).toContainText("<img src=x");
-  await expect(page.locator(".recent-changes img, .schedule-results img")).toHaveCount(0);
+  // 游戏标识是官方图标图片（ADR-0015）；证据里的 <img> 只能是文字。
+  await expect(
+    page.locator(
+      ".recent-changes img:not(.game-icon > img), .schedule-results img:not(.game-icon > img)",
+    ),
+  ).toHaveCount(0);
   expect(
     await page.evaluate(
       () => (window as Window & { __evidenceExecuted?: number }).__evidenceExecuted,
     ),
   ).toBe(0);
-  await expect(page.locator(".recent-changes")).toContainText("不是完整变更历史");
+  await expect(page.locator(".recent-changes")).toContainText("还有更早的变更未列出");
 });
 
 test("U18 公开离线提示使用 API 副本时间，没有已注册的 Service Worker", async ({
@@ -423,7 +428,7 @@ test("U18 公开离线提示使用 API 副本时间，没有已注册的 Service
   await context.setOffline(true);
   const warning = page.locator("#schedule-results > div > .data-warning");
   await expect(warning).toContainText("离线");
-  await expect(warning).toContainText("实际缓存时间 2026年9月22日 12:30");
+  await expect(warning).toContainText("信息获取时间 2026年9月22日 12:30");
   await expect(page.locator('[data-node="morning"]')).toBeVisible();
   expect(
     await page.evaluate(async () => (await navigator.serviceWorker.getRegistrations()).length),
@@ -438,7 +443,7 @@ test("U05 首次读取失败且没有副本时，不声称离线可读", async (
     const root = page.locator(path === "/" ? "#schedule-results" : "#event-detail");
     await expect(root).toContainText("尚无可展示的公共副本");
     await context.setOffline(true);
-    await expect(root).not.toContainText("实际缓存时间");
+    await expect(root).not.toContainText("信息获取时间");
     await expect(root).not.toContainText("副本仍保留");
     await expect(root.locator("[data-node], .event-detail, [data-empty]")).toHaveCount(0);
   }
@@ -458,10 +463,10 @@ test("首屏即将截止：只列未到时间的截止节点并按先后排序�
   ]);
   const first = cards.first();
   await expect(first).toContainText("绝区零");
-  await expect(first).toContainText("玩法结束");
+  await expect(first).toContainText("活动结束");
   await expect(first.locator(".cd-value")).toHaveText("5小时30分");
   await expect(first).toContainText("今天 18:00 截止");
-  await expect(first).toHaveClass(/is-urgent/);
+  await expect(first).toHaveClass(/is-critical/);
   await expect(first.getByRole("link", { name: "街角奇遇记 · 第三期委托" })).toHaveAttribute(
     "href",
     "/events/evt_end",
@@ -612,4 +617,111 @@ test("旧链接 range=90d 按「全部」读取，地址改写为当前档位", 
   await expect(page.getByRole("radio", { name: "全部", exact: true })).toBeChecked();
   expect(new URL(page.url()).searchParams.get("range")).toBe("all");
   expect(ranges).toEqual(["all"]);
+});
+
+// F1-07（ADR-0015）：日程界面简化。
+test("A-F1-POLISH 时间轴跨日连续，日期是轨道上的标记；全天条目接在当天之后", async ({ page }) => {
+  await page.goto("/");
+  await complete(page);
+  const days = page.locator('[data-region="days"] > section.schedule-day');
+  expect(await days.count()).toBeGreaterThan(1);
+  // 日期标记与条目同一网格、带日期点，不再是带上下边框的整条标题栏。
+  for (const heading of await page.locator('[data-region="days"] .day-heading').all()) {
+    await expect(heading.locator(".day-rail")).toHaveCount(1);
+    expect(await heading.evaluate((e) => getComputedStyle(e).borderBottomWidth)).toBe("0px");
+  }
+  for (const day of await days.all())
+    expect(await day.evaluate((e) => getComputedStyle(e).borderTopWidth)).toBe("0px");
+  // 日程区的列表之间没有内边距空隙，轨道才连得上。
+  for (const list of await page.locator('[data-region="days"] ul').all())
+    expect(
+      await list.evaluate((e) => [
+        getComputedStyle(e).paddingTop,
+        getComputedStyle(e).paddingBottom,
+      ]),
+    ).toEqual(["0px", "0px"]);
+  await expect(page.locator(".day-heading").first()).toContainText("周二 · 今天");
+  // 只有日期的条目归在当天，标"全天"，没有"具体时刻未公布"小标题。
+  const day = page.locator('section.schedule-day[data-date="2026-09-23"]');
+  await expect(day.locator('.date-only [data-node="date"]')).toContainText("全天");
+  await expect(page.locator(".date-only h4, .timeline h4")).toHaveCount(0);
+  await expect(page.locator(".timeline")).not.toContainText("当天 · 具体时刻未公布");
+});
+
+test("A-F1-POLISH 时间待定默认折叠，展开后重绘仍保持展开", async ({ page, context }) => {
+  await page.goto("/");
+  await complete(page);
+  const pending = page.locator('[data-region="pending"]');
+  await expect(pending).not.toHaveAttribute("open");
+  await expect(pending.locator("summary")).toContainText("时间待定");
+  await expect(pending.locator('[data-node="pending"]')).toBeHidden();
+  await pending.locator("summary").click();
+  await expect(pending.locator('[data-node="pending"]')).toBeVisible();
+  // 离线/恢复都会触发整页重绘。
+  await context.setOffline(true);
+  await expect(page.locator(".data-warning").first()).toContainText("当前离线");
+  await context.setOffline(false);
+  await expect(page.locator('[data-region="pending"]')).toHaveAttribute("open", "");
+});
+
+test("A-F1-POLISH 截止 24 小时内为高危：卡片与时间轴剩余时间都标红，3 天内为临近", async ({
+  page,
+}) => {
+  await page.goto("/");
+  await complete(page);
+  const cards = page.locator("#ending-soon [data-ending]");
+  await expect(cards.nth(0)).toHaveClass(/is-critical/);
+  await expect(cards.nth(1)).toHaveClass(/is-soon/);
+  await expect(page.locator(".ending-card.is-urgent")).toHaveCount(0);
+  await expect(page.locator('[data-node="end"] .node-relative')).toHaveClass(/is-critical/);
+  await expect(page.locator('[data-node="long"] .node-relative')).not.toHaveClass(/is-critical/);
+  // 时间推进到 24 小时内，时间轴的剩余时间随每分钟刷新转为高危，不需要重新加载。
+  await page.clock.setFixedTime(new Date("2026-09-22T20:30:00+08:00"));
+  await expect(page.locator('[data-node="long"] .node-relative')).toHaveClass(/is-critical/, {
+    timeout: 70_000,
+  });
+});
+
+test("A-F1-POLISH 游戏标识使用官方应用图标，随站点发布，不向第三方请求", async ({ page }) => {
+  const thirdParty: string[] = [];
+  page.on("request", (request) => {
+    const url = new URL(request.url());
+    if (url.protocol !== "data:" && !["127.0.0.1", "localhost"].includes(url.hostname))
+      thirdParty.push(request.url());
+  });
+  await page.goto("/");
+  await complete(page);
+  for (const game of ["genshin", "hsr", "zzz"]) {
+    const image = page.locator(`.game-option[data-game="${game}"] .game-icon img`);
+    await expect(image).toHaveAttribute("src", `/game-icons/${game}.png`);
+    await expect(image).toHaveAttribute("alt", "");
+    expect(await image.evaluate((e) => (e as HTMLImageElement).naturalWidth)).toBeGreaterThan(0);
+  }
+  await expect(page.locator(".game-icon svg")).toHaveCount(0);
+  expect(thirdParty).toEqual([]);
+});
+
+test("A-F1-POLISH 过时条幅只说信息获取时间，条幅里的刷新按钮重新读取", async ({ page }) => {
+  const control = controls.get(page);
+  if (!control) throw new Error("missing fixture");
+  await page.goto("/");
+  await complete(page);
+  await scenario(page, "stale");
+  const warning = page.locator("#schedule-results .cache-notice");
+  await expect(warning).toHaveText(/^内容可能已过时，信息获取时间 2026年9月21日 20:00\s*刷新$/);
+  const reloads: string[] = [];
+  page.on("request", (request) => {
+    if (new URL(request.url()).pathname.startsWith("/api/v2/"))
+      reloads.push(new URL(request.url()).pathname);
+  });
+  control.scenario = "normal";
+  await warning.getByRole("button", { name: "刷新" }).click();
+  await complete(page);
+  await expect(page.locator("#schedule-results .cache-notice")).toHaveCount(0);
+  // 刷新重新读取目录、状态与日程，不沿用已加载的副本。
+  expect([...new Set(reloads)].sort()).toEqual([
+    "/api/v2/catalog",
+    "/api/v2/events",
+    "/api/v2/status",
+  ]);
 });

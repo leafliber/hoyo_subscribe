@@ -30,6 +30,7 @@ import {
 } from "../mail/feedback/store";
 import { NEXT_OCCURRENCE_ALARM_SQL, START_DUE_OCCURRENCE_SQL } from "../mail/occurrences/expand";
 import {
+  PUBLIC_ARTICLES_SQL,
   PUBLIC_CHANGES_SQL,
   PUBLIC_DETAIL_SQL,
   PUBLIC_HEAD_SQL,
@@ -2164,6 +2165,12 @@ it("A-P3-PUBLIC 当前代次/分片/详情/变更/来源/缺口/证据：增加 
         T0,
         T0,
       ],
+    },
+    // P3-22：原文按绑定出的版本 ID 点查，不随证据、候选与代次历史增长。
+    {
+      name: "articles",
+      sql: PUBLIC_ARTICLES_SQL,
+      args: [PUBLIC_READ_LIMITS.responseBytes, JSON.stringify(["av_001"])],
     },
   ];
   const baseline = await Promise.all(queries.map((q) => measure(q.sql, ...q.args)));

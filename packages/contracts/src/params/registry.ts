@@ -284,8 +284,8 @@ export const CAL_PATCH_TAIL_DAYS = 30 as const;
 /** 公共更正记录保护值；接近上限告警并暂停非关键扩大。附录 A.3；§6.3。 */
 export const CAL_PATCH_GLOBAL_MAX = 10_000 as const;
 
-/** 公共快照新鲜窗口。附录 A.3；§6.4。 */
-export const PUBLIC_CACHE_FRESH = 300 as const;
+/** 公共快照新鲜窗口：公开副本超过这么久才标为可能过时。附录 A.3；§6.4。ADR-0015 由 300 改为 3600。 */
+export const PUBLIC_CACHE_FRESH = 3600 as const;
 
 /** 私人预览每会话、每 isolate 的滑动窗口（秒）。ADR-0006；D2 §3.5。 */
 export const CALENDAR_PREVIEW_RATE_WINDOW = 60 as const;
@@ -780,6 +780,7 @@ export type ParamStatus =
   | "adr-0009"
   | "adr-0012"
   | "adr-0013"
+  | "adr-0015"
   | "p5-02-approved"
   | "measured"
   | "measured-ref"
@@ -1216,8 +1217,9 @@ export const PARAM_META: Readonly<Record<keyof ParamValues, ParamMeta>> = {
   PUBLIC_CACHE_FRESH: {
     section: "A.3",
     unit: "秒",
-    description: "公共快照新鲜窗口",
-    status: "baseline",
+    description: "公共快照新鲜窗口：公开副本超过这么久才标为可能过时",
+    status: "adr-0015",
+    note: "附录原值 300；ADR-0015 改为 3600（所有者 2026-10-05）。公开读取 HTTP 改为 no-cache，打开页面总取最新",
   },
   CALENDAR_PREVIEW_RATE_WINDOW: {
     section: "A.3",

@@ -3,6 +3,7 @@ import {
   type BrowseFilters,
   isApiErrorBody,
   PublicCatalogResponseSchema,
+  PublicEventArticlesResponseSchema,
   PublicEventDetailResponseSchema,
   PublicEventsResponseSchema,
   PublicStatusResponseSchema,
@@ -98,6 +99,15 @@ export class PublicApiClient {
       PublicEventDetailResponseSchema,
       signal,
       reload,
+    );
+  }
+
+  /** P3-22（ADR-0014）：活动依据的官方公告原文——本站采集时保存的不可变版本，不直连官方。 */
+  articles(eventId: string, signal?: AbortSignal) {
+    return this.read(
+      `/api/v2/events/${encodeURIComponent(eventId)}/articles`,
+      PublicEventArticlesResponseSchema,
+      signal,
     );
   }
 

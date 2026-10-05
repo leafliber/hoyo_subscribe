@@ -5,7 +5,9 @@ import {
   browseWindow,
   EVENT_TYPES,
   NODE_TYPES,
+  type PublicArticleBlock,
   type PublicCatalogResponse,
+  type PublicEventArticlesResponse,
   type PublicEventDetailResponse,
   type PublicEventsResponse,
   type PublicScheduleNode,
@@ -145,12 +147,74 @@ export function detailFixture(id: string): PublicEventDetailResponse | null {
     },
   };
 }
+/**
+ * P3-22：按官方公告正文的真实结构（带样式的段落、转义时间标签、表格合并单元格、折叠段、
+ * 游戏内链接写法）合成的原文；文字为隔离样例。另含脚本、事件属性、javascript: 链接等不应生效的内容。
+ */
+export const ARTICLE_FIXTURE_BLOCKS: PublicArticleBlock[] = [
+  { kind: "title", text: "「巡游拾光」城市探索挑战活动说明" },
+  {
+    kind: "html",
+    html: '<p style="white-space: pre-wrap; text-align: center;"><img src="https://example.com/banner.jpg" href="" onerror="window.__articleExecuted=1" style="vertical-align: middle;"></p>',
+  },
+  { kind: "html", html: '<p style="white-space: pre-wrap; min-height: 1.5em;"></p>' },
+  { kind: "html", html: '<h1 style="">活动说明</h1>' },
+  {
+    kind: "html",
+    html: '<p style="white-space: pre-wrap;"><span style="color: rgb(85, 85, 85);">〓活动时间〓</span></p>',
+  },
+  {
+    kind: "html",
+    html: '<p style="white-space: pre-wrap;"><span style="color: rgb(204, 146, 85);">&lt;t class="t_gl" contenteditable="false"&gt;2026/09/22 10:00&lt;/t&gt;</span> - <span>&lt;t class="t_gl"&gt;2026/09/29 03:59&lt;/t&gt;</span></p>',
+  },
+  { kind: "html", html: '<p style="white-space: pre-wrap;"><strong>■参与条件</strong></p>' },
+  {
+    kind: "html",
+    html: '<ul><li><p style="white-space: pre-wrap;">冒险等阶达到 20 级</p></li><li><p style="white-space: pre-wrap;">完成序章任务</p></li></ul>',
+  },
+  {
+    kind: "html",
+    html: '<div class="table-wrapper"><table class="" border="1" cellspacing="0" style="width: 100%;"><colgroup><col style="width: 30%;"><col style="width: 70%;"></colgroup><tbody><tr><td colspan="2" data-colwidth="130,307" style="background-color: rgb(254, 245, 231);"><p style="text-align: center;">阶段安排</p></td></tr><tr><td rowspan="2"><p>第一阶段</p></td><td><p>城市探索</p></td></tr><tr><td><p>奖励领取截止 &lt;t class="t_gl"&gt;2026/09/30 23:59&lt;/t&gt;</p></td></tr></tbody></table></div>',
+  },
+  {
+    kind: "html",
+    html: '<details><summary><span style="color: rgb(53, 150, 151);">奖励一览</span></summary><div class="expansion-content"><p style="white-space: pre-wrap;">◇原石×60</p><p style="white-space: pre-wrap;">◇摩拉×20000</p></div></details>',
+  },
+  {
+    kind: "html",
+    html: '<p style="white-space: pre-wrap;"><a href="javascript:miHoYoGameJSSDK.openInBrowser(\'https://example.com/event?a=1&amp;b=2\');" data-type="a" link-type="game_outer" rel="noopener noreferrer nofollow">&gt;&gt;点击前往活动页面&lt;&lt;</a></p>',
+  },
+  {
+    kind: "html",
+    html: '<p><a href="javascript:alert(1)">不安全的链接文字</a><script>window.__articleExecuted=1</script><iframe src="https://example.com/frame"></iframe><style>body{display:none}</style></p>',
+  },
+  { kind: "text", text: "注：活动规则以游戏内说明为准 &amp; 解释权归官方所有" },
+];
+export function articlesFixture(id: string): PublicEventArticlesResponse | null {
+  if (!detailFixture(id)) return null;
+  return {
+    publication,
+    cache: cache(),
+    eventId: id,
+    articles: [
+      {
+        officialUrl: "https://example.com/official-api",
+        versionNo: 2,
+        fetchedAt: Date.parse("2026-09-21T18:30:00+08:00"),
+        publishedAt: null,
+        completeness: "complete",
+        blocks: ARTICLE_FIXTURE_BLOCKS,
+      },
+    ],
+  };
+}
 export async function mockPublicApi(page: Page) {
   const control = {
     scenario: "normal" as DemoScenario,
     events: eventsFixture,
     status: statusFixture,
     detail: detailFixture,
+    articles: articlesFixture,
     calls: [] as { path: string; method: string }[],
   };
   await page.clock.setFixedTime(clock);
@@ -163,6 +227,11 @@ export async function mockPublicApi(page: Page) {
       return route.fulfill({ json: control.events(url.searchParams, control.scenario) });
     if (url.pathname === "/api/v2/status")
       return route.fulfill({ json: control.status(control.scenario) });
+    const articles = /^\/api\/v2\/events\/([^/]+)\/articles$/.exec(url.pathname);
+    if (articles?.[1]) {
+      const result = control.articles(decodeURIComponent(articles[1]));
+      return route.fulfill(result ? { json: result } : { status: 404, json: {} });
+    }
     if (url.pathname.startsWith("/api/v2/events/")) {
       const result = control.detail(
         decodeURIComponent(url.pathname.slice("/api/v2/events/".length)),

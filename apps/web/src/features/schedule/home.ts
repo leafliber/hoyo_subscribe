@@ -1,6 +1,7 @@
 import {
   BROWSE_RANGES,
   browseSearch,
+  deadlineUrgency,
   defaultBrowseFilters,
   EVENT_NAMES,
   GAME_NAMES,
@@ -10,7 +11,7 @@ import {
 import { clock, relative, remaining } from "../../lib/format";
 import { ScheduleLoader } from "./load";
 import { HOME_RANGES, homeRange } from "./ranges";
-import { countdownValue, renderAside, renderEndingSoon, renderResults, urgency } from "./render";
+import { countdownValue, renderAside, renderEndingSoon, renderResults } from "./render";
 
 const form = document.querySelector<HTMLFormElement>("#browse-filters");
 const results = document.querySelector<HTMLElement>("#schedule-results");
@@ -137,11 +138,12 @@ if (form && results) {
     for (const node of document.querySelectorAll<HTMLElement>("[data-relative-to]")) {
       const target = Number(node.dataset.relativeTo);
       if (!Number.isFinite(target)) continue;
-      const text =
-        node.dataset.relativeMode === "remaining" && target > now
-          ? remaining(target, now)
-          : relative(target, now);
+      const counting = node.dataset.relativeMode === "remaining" && target > now;
+      const text = counting ? remaining(target, now) : relative(target, now);
       if (text && node.textContent !== text) node.textContent = text;
+      // 截止类剩余时间进入 24 小时即标为高危；过了时间转为已过。
+      node.classList.toggle("is-past", target <= now);
+      node.classList.toggle("is-critical", counting && deadlineUrgency(target, now) === "critical");
     }
     for (const row of output.querySelectorAll<HTMLElement>(".schedule-node[data-time]"))
       row.classList.toggle("is-past", Number(row.dataset.time) <= now);
@@ -172,9 +174,9 @@ if (form && results) {
       const text = parts.map((part) => part.textContent).join("");
       if (value.textContent !== text) value.replaceChildren(...parts);
       const card = value.closest<HTMLElement>(".ending-card");
-      const level = `is-${urgency(target, now)}`;
+      const level = `is-${deadlineUrgency(target, now)}`;
       if (card && !card.classList.contains(level)) {
-        card.classList.remove("is-critical", "is-urgent", "is-soon", "is-later");
+        card.classList.remove("is-critical", "is-soon", "is-later");
         card.classList.add(level);
       }
     }

@@ -270,7 +270,8 @@ test("U21 更正保留事实原因、旧时间与跨窗口新时间，注入文�
   await expect(item(page, "rescheduled")).toContainText("（原 10月2日 20:00）");
   // 省略行只在有省略时出现；延期待定的更正不计入「时间待定」。
   await expect(preview(page)).not.toContainText(/时间待定 [1-9]\d* 条/);
-  await expect(preview(page).locator("img")).toHaveCount(0);
+  // 游戏标识是官方图标图片（ADR-0015）；注入的 <img> 只能是文字。
+  await expect(preview(page).locator("img:not(.game-icon > img)")).toHaveCount(0);
   await screenshot(page, "corrections", info.project.name);
 });
 
