@@ -102,7 +102,7 @@ describe("A-P3-ARTICLE 完整性判定：三种缺口各自成态（构造变体
     expect(determineCompleteness(fetchedInput("", { listClaimsContent: true }))).toBe(
       "gap-source-empty",
     );
-    // hasContent 无从判断（null，米游社之外的未来来源形态）同样保守记暂空。
+    // hasContent 无从判断（null：列表缺这个字段）同样保守记暂空。
     expect(determineCompleteness(fetchedInput("", { listClaimsContent: null }))).toBe(
       "gap-source-empty",
     );
@@ -131,33 +131,6 @@ describe("A-P3-ARTICLE 完整性判定：三种缺口各自成态（构造变体
   });
 });
 
-describe("A-P3-ARTICLE 米游社：通道不可用 ≠ 正文为空（红线）", () => {
-  const unavailable = (mediaRefCount: number): CompletenessInput => ({
-    bodyAvailability: "channel-unavailable",
-    bodyTruncated: false,
-    contentEmpty: false,
-    bodyHasText: false,
-    mediaRefCount,
-    listClaimsContent: null,
-  });
-
-  it("通道不可用且有图片级信息 → review-image-borne（人工核验图片日期）", () => {
-    expect(determineCompleteness(unavailable(3))).toBe("review-image-borne");
-  });
-
-  it("通道不可用且无图片 → gap-channel-unavailable（拿不到，不是空）", () => {
-    expect(determineCompleteness(unavailable(0))).toBe("gap-channel-unavailable");
-  });
-
-  it("通道不可用的任何形态都不落 gap-source-empty（不可用不得记成正文为空）", () => {
-    for (const mediaRefCount of [0, 1, 5]) {
-      const state = determineCompleteness(unavailable(mediaRefCount));
-      expect(state).not.toBe("gap-source-empty");
-      expect(state).not.toBe("complete");
-    }
-  });
-});
-
 describe("A-P3-ARTICLE ★ 缺口不得转成「无活动」", () => {
   it("完整性枚举不存在任何「无活动/已取消」类取值；缺口域全部落在 gap-*/review-* 前缀", () => {
     expect(ARTICLE_COMPLETENESS_STATES).not.toContain("no-activity");
@@ -178,7 +151,7 @@ describe("A-P3-ARTICLE ★ 缺口不得转成「无活动」", () => {
 
   it("判定矩阵：输出永远在枚举内，且截断优先于一切（截断时其余信号不参与归类）", () => {
     const states = new Set(ARTICLE_COMPLETENESS_STATES as readonly string[]);
-    const availabilities = ["fetched", "content-missing", "channel-unavailable"] as const;
+    const availabilities = ["fetched", "content-missing"] as const;
     for (const bodyAvailability of availabilities) {
       for (const bodyTruncated of [false, true]) {
         for (const contentEmpty of [false, true]) {

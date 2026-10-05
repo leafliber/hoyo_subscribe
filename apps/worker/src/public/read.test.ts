@@ -614,16 +614,19 @@ describe("A-P3-PUBLIC 真实本地 D1 公共闭环", () => {
     expect(result.nodes[0]?.noticePublishedAt).toBeNull();
     expect(result.nodes[0]?.evidence).toBe(makeNode().projection.milestone.time.raw_expression);
   });
-  it("同游戏官方与米游社逐来源显示，待审独立统计", async () => {
+  it("同游戏多个来源逐来源显示；已下线来源（ADR-0016）的历史行不出现；待审独立统计", async () => {
     await seedApprovedEvidence();
     await env.DB.prepare("UPDATE sources SET verification_state = 'verified-working'").run();
-    await env.DB.prepare(
-      "INSERT INTO sources SELECT 'miyoushe',game,region,adapter,approved_hosts_json,verified_publishers_json,cursor_json,poll_policy_json,'maintenance-required-list-only',last_success_at,created_at,updated_at FROM sources WHERE source_id='source'",
-    ).run();
+    for (const sourceId of ["list-only", "miyoushe-news"])
+      await env.DB.prepare(
+        "INSERT INTO sources SELECT ?,game,region,adapter,approved_hosts_json,verified_publishers_json,cursor_json,poll_policy_json,'maintenance-required-list-only',last_success_at,created_at,updated_at FROM sources WHERE source_id='source'",
+      )
+        .bind(sourceId)
+        .run();
     const result = await readPublicStatus(env.DB, NOW);
     expect(result.sources).toEqual([
       {
-        sourceId: "miyoushe",
+        sourceId: "list-only",
         game: "genshin",
         verifiedAt: NOW - 100,
         verificationState: "verified",

@@ -1,17 +1,15 @@
 // A-P3-ARTICLE · 文章身份、不可变版本与红线落点（任务卡 P3-02）——L2 测试，
 // 真实 workerd + miniflare D1（迁移空库顺序重放，纪律同 cas.test.ts / mutations.test.ts）。
 // (source_id, external_id) 唯一；语义内容变化新增不可变 ArticleVersion（P1-04 触发器不被绕过）；
-// ★ 抓取失败/列表为空零写入、无取消语义；米游社通道不可用 ≠ 正文为空。
+// ★ 抓取失败/列表为空零写入、无取消语义。
 
 import { env } from "cloudflare:test";
 import { beforeAll, describe, expect, it, vi } from "vitest";
 import genshinContent from "../../../../../fixtures/sources/genshin-ann/content-21819.json";
 import genshinList from "../../../../../fixtures/sources/genshin-ann/list-page-1.json";
-import miyousheType2 from "../../../../../fixtures/sources/miyoushe-news/news-list-type2-page1.json";
 import { splitSqlStatements } from "../../storage/split-sql";
 import { createAnnouncementAdapter } from "../adapters/announcement";
-import { createMiyousheNewsAdapter } from "../adapters/miyoushe-news";
-import type { AnnouncementSourceEntry, MiyousheNewsSourceEntry } from "../registry";
+import type { AnnouncementSourceEntry } from "../registry";
 import { getSourceEntry, SOURCE_REGISTRY } from "../registry";
 import { sha256Hex } from "../snapshot-diff";
 import type { ArticleCompletenessSignals, ArticleFetchResult, SourceItemStub } from "../types";
@@ -104,7 +102,6 @@ function replayFetch(body: unknown): typeof fetch {
 }
 
 const genshinEntry = getSourceEntry("genshin-ann") as AnnouncementSourceEntry;
-const miyousheEntry = getSourceEntry("miyoushe-news") as MiyousheNewsSourceEntry;
 
 interface ContentEntry {
   ann_id: number;
@@ -565,89 +562,6 @@ describe("A-P3-ARTICLE 缺口成态：截断 / 图片承载日期 / 来源暂空
   });
 });
 
-describe("A-P3-ARTICLE 米游社：通道不可用 ≠ 正文为空（真实列表样本）", () => {
-  async function miyousheStubWithImages(): Promise<SourceItemStub> {
-    const adapter = createMiyousheNewsAdapter(miyousheEntry, "2", {
-      fetchFn: replayFetch((miyousheType2 as { body: unknown }).body),
-    });
-    const list = await adapter.list(null, 20);
-    const stub = list.items.find((candidate) => candidate.imageUrls.length > 0);
-    if (stub === undefined) throw new Error("type2 样本应含图片级条目");
-    return stub;
-  }
-
-  it("有图片级信息 → review-image-borne；标题块 + 封面/列表图引用入版本；不落 gap-source-empty", async () => {
-    const stub = await miyousheStubWithImages();
-    const adapter = createMiyousheNewsAdapter(miyousheEntry, "2", {
-      fetchFn: replayFetch((miyousheType2 as { body: unknown }).body),
-    });
-    const unavailable = await adapter.fetchArticle({
-      sourceId: miyousheEntry.sourceId,
-      externalId: stub.externalId,
-    });
-    expect(unavailable.status).toBe("channel-unavailable");
-
-    const plan = await buildArticleIngestPlan(miyousheEntry, stub, unavailable, T1);
-    if (plan.kind !== "version") throw new Error("通道不可用必须产标题/图片级版本");
-    expect(plan.plan.completeness).toBe("review-image-borne");
-    expect(plan.plan.completeness).not.toBe("gap-source-empty");
-    expect(plan.plan.blocks).toEqual([{ kind: "title", text: stub.title }]);
-    expect(plan.plan.mediaRefs.length).toBeGreaterThan(0);
-    const origins = new Set(plan.plan.mediaRefs.map((ref) => ref.origin));
-    for (const origin of origins) {
-      expect(["cover", "list"]).toContain(origin);
-    }
-    // 米游社 post.created_at 是真实发布时间 → official_published_at 有值。
-    expect(plan.plan.officialPublishedAtMs).toBe(stub.publishedAtMs);
-
-    expect(await saveArticleVersion(env.DB, plan.plan)).toBe("created");
-    const rows = await query<VersionRow>(
-      "SELECT av.* FROM article_versions av JOIN articles a ON a.id = av.article_id WHERE a.external_id = ? AND a.source_id = ?",
-      stub.externalId,
-      miyousheEntry.sourceId,
-    );
-    expect(rows[0]?.completeness).toBe("review-image-borne");
-  });
-
-  it("媒体引用只存 URL 与位置：不含内容 hash/尺寸/校验字段（不声称同 URL 换图检测）", async () => {
-    const stub = await miyousheStubWithImages();
-    const adapter = createMiyousheNewsAdapter(miyousheEntry, "2", {
-      fetchFn: replayFetch((miyousheType2 as { body: unknown }).body),
-    });
-    const unavailable = await adapter.fetchArticle({
-      sourceId: miyousheEntry.sourceId,
-      externalId: stub.externalId,
-    });
-    const plan = await buildArticleIngestPlan(miyousheEntry, stub, unavailable, T1);
-    if (plan.kind !== "version") throw new Error("该场景必须产版本计划");
-    const refObjects = plan.plan.mediaRefs as unknown as Array<Record<string, unknown>>;
-    expect(refObjects.length).toBeGreaterThan(0);
-    for (const ref of refObjects) {
-      expect(Object.keys(ref).sort()).toEqual(["origin", "url"]);
-      expect(ref.url).not.toContain(" ");
-    }
-    const serialized = JSON.stringify(plan.plan.mediaRefs);
-    expect(serialized).not.toContain("sha256");
-    expect(serialized).not.toContain("contentHash");
-    expect(serialized).not.toContain("width");
-  });
-
-  it("无图片级信息（构造变体）→ gap-channel-unavailable，同样不是 gap-source-empty", async () => {
-    const stub = await miyousheStubWithImages();
-    const bare: SourceItemStub = { ...stub, coverUrl: null, imageUrls: [] };
-    const unavailable: ArticleFetchResult = {
-      status: "channel-unavailable",
-      sourceId: miyousheEntry.sourceId,
-      externalId: stub.externalId,
-      reason: "正文接口 403 访问控制（P0-02）",
-    };
-    const plan = await buildArticleIngestPlan(miyousheEntry, bare, unavailable, T1);
-    if (plan.kind !== "version") throw new Error("该场景必须产版本计划");
-    expect(plan.plan.completeness).toBe("gap-channel-unavailable");
-    expect(plan.plan.mediaRefs).toEqual([]);
-  });
-});
-
 describe("A-P3-TRUNCATE 受限读体到落库的闭环（合成超限响应）", () => {
   it("全量正文超限时用真实列表条目落 gap-body-truncated 行，不保存残缺正文，也不追加请求", async () => {
     const stub = await genshinStub("762");
@@ -834,39 +748,5 @@ describe("A-P3-TRUNCATE 降级抓取不得覆盖真实正文（独立合成身�
       { kind: "title", text: retitled.title },
     ]);
     expect((await articleByExternalId(stub.externalId))?.last_checked_at).toBe(T1);
-  });
-
-  it("A-P3-TRUNCATE 米游社列表级变化仍新增版本，即使 review-image-borne 无正文", async () => {
-    const adapter = createMiyousheNewsAdapter(miyousheEntry, "2", {
-      fetchFn: replayFetch((miyousheType2 as { body: unknown }).body),
-    });
-    const list = await adapter.list(null, 20);
-    const sample = list.items.find((item) => item.imageUrls.length > 0);
-    if (sample === undefined) throw new Error("样本应含图片级条目");
-    const stub: SourceItemStub = { ...sample, externalId: "p3-08-miyoushe-list-change" };
-    const unavailable: ArticleFetchResult = {
-      status: "channel-unavailable",
-      sourceId: miyousheEntry.sourceId,
-      externalId: stub.externalId,
-      reason: "合成：正文通道不可用",
-    };
-    const first = await buildArticleIngestPlan(miyousheEntry, stub, unavailable, T1);
-    if (first.kind !== "version") throw new Error("应产列表级版本");
-    expect(first.plan.completeness).toBe("review-image-borne");
-    expect(await saveArticleVersion(env.DB, first.plan)).toBe("created");
-
-    const retitled: SourceItemStub = { ...stub, title: `${stub.title}（列表修订）` };
-    const second = await buildArticleIngestPlan(miyousheEntry, retitled, unavailable, T2);
-    if (second.kind !== "version") throw new Error("应产列表级版本");
-    expect(second.plan.completeness).toBe("review-image-borne");
-    expect(await saveArticleVersion(env.DB, second.plan)).toBe("created");
-    const rows = await query<VersionRow>(
-      `SELECT av.* FROM article_versions av JOIN articles a ON a.id = av.article_id
-       WHERE a.source_id = ? AND a.external_id = ? ORDER BY av.version_no`,
-      miyousheEntry.sourceId,
-      stub.externalId,
-    );
-    expect(rows).toHaveLength(2);
-    expect(rows[1].content_hash).not.toBe(rows[0].content_hash);
   });
 });

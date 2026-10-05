@@ -12,8 +12,9 @@
 //   - **空列表零写入**：没有条目就没有任何 SQL 效果；本模块不提供任何删除/取消类写操作，
 //     事件取消只能来自官方取消证据（P3-04 的职责）。
 //   - 真正拿到的正文不能被后续抓取缺口覆盖；成功抓取后的内容 hash 决定是否新增版本。
-//   - official_published_at 只接受来源载荷中的真实发布时间（米游社 post.created_at）；
-//     公告列表 start_time/end_time 是**展示窗口时间**（§3.1 红线），不写入本字段。
+//   - official_published_at 只接受来源载荷中的真实发布时间；公告 API 条目没有这个字段
+//     （提供它的米游社来源已下线，ADR-0016）。公告列表 start_time/end_time 是
+//     **展示窗口时间**（§3.1 红线），不写入本字段。
 //
 // 并发口径：生产写入方是单例 PipelineDO（§2.1 两个固定 DO），顺序执行本函数；
 // 若出现并发重放，UNIQUE (article_id, content_hash) 会让后到者整批报错回滚——宁可响亮失败，
@@ -67,25 +68,21 @@ export async function articleRowId(sourceId: string, externalId: string): Promis
 }
 
 /**
- * 官方取材端点 URL：公告源 = 全量正文端点（getAnnContent，该文章正文的实际取得处）；
- * 米游社 = 官方资讯列表端点。单篇官方页 URL 模式未核验（见交付报告已知问题），不虚构。
+ * 官方取材端点 URL：全量正文端点（getAnnContent，该文章正文的实际取得处）。
+ * 单篇官方页 URL 模式未核验（见交付报告已知问题），不虚构。
  */
 function officialUrlForEntry(entry: SourceRegistryEntry): string {
-  if (entry.adapterKind === "announcement-webview") {
-    return buildSourceUrl(
-      entry.approvedHosts[0],
-      entry.request.contentPath,
-      entry.request.listParams,
-    );
-  }
-  return buildSourceUrl(entry.approvedHosts[0], entry.request.listPath, entry.request.listParams);
+  return buildSourceUrl(
+    entry.approvedHosts[0],
+    entry.request.contentPath,
+    entry.request.listParams,
+  );
 }
 
 /**
  * 把一次 (列表条目 × 正文抓取) 组装成版本计划（纯函数 + hash 计算，无 DB）。
  * fetched：标题块 + 正文块（保真）+ 正文图片引用；
  * missing-from-content-set：标题块，completeness=gap-content-missing（列表声称有正文但集合缺条）；
- * channel-unavailable：标题块 + 列表图片级引用（封面 + image_list），拿不到 ≠ 空；
  * truncated：只用列表标题/图片级引用，绝不保存截断正文；
  * failed：no-write。
  */
@@ -147,21 +144,6 @@ export async function buildArticleIngestPlan(
       mediaRefCount: mediaRefs.length,
       listClaimsContent: stub.hasContent,
     };
-  } else if (fetchResult.status === "channel-unavailable") {
-    // 正文通道不可用：只有标题/图片级信息。图片引用（封面 + 列表图）是人工核验的原料。
-    blocks = [titleBlock];
-    mediaRefs = mergeMediaRefs(
-      stub.coverUrl === null ? [] : [{ url: stub.coverUrl, origin: "cover" as const }],
-      stub.imageUrls.map((url) => ({ url, origin: "list" as const })),
-    );
-    completenessInput = {
-      bodyAvailability: "channel-unavailable",
-      bodyTruncated: false,
-      contentEmpty: false,
-      bodyHasText: false,
-      mediaRefCount: mediaRefs.length,
-      listClaimsContent: stub.hasContent,
-    };
   } else {
     // missing-from-content-set：列表声称有正文、全量正文集合缺该条——缺口，不是失败。
     blocks = [titleBlock];
@@ -205,7 +187,7 @@ export async function buildArticleIngestPlan(
       mediaRefs,
       contentHash: await articleContentHash(blocks, mediaRefs),
       completeness: determineCompleteness(completenessInput),
-      // 公告 API 条目无发布时间（列表 start_time 是展示窗口，§3.1）；米游社 post.created_at 是真实发布时间。
+      // 公告 API 条目无发布时间（列表 start_time 是展示窗口，§3.1），这里如实为 null。
       officialPublishedAtMs: stub.publishedAtMs,
       fetchedAtMs: fetchResult.status === "fetched" ? fetchResult.fetchedAtMs : nowMs,
       nowMs,

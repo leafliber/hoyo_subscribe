@@ -19,7 +19,6 @@ type SourceState = {
 type SourceInfo = {
   game: string;
   adapter: string;
-  list_only: boolean;
   state: SourceState | null;
 };
 type ControlRow = {
@@ -60,7 +59,6 @@ const LABELS: Record<string, { name: string; desc: string; danger?: boolean }> =
 };
 const ADAPTERS: Record<string, string> = {
   "announcement-webview": "游戏内公告",
-  "miyoushe-painter-news": "米游社官方资讯",
 };
 const REASONS: [string, string][] = [
   ["initial_deployment", "首次部署"],
@@ -115,12 +113,8 @@ function displayName(row: ControlRow): string {
   return `${meta.name} · ${gameName(row.info.game)}${ADAPTERS[row.info.adapter] ?? row.source}`;
 }
 
-/** 来源能抓什么：能力来自注册表（list_only），这里只负责写成人话。 */
-function sourceDescription(info: SourceInfo): string {
-  return info.list_only
-    ? "仅列表：只有标题和封面。正文接口受源站访问控制，按规则不接入，因此开启后产生的条目正文不完整、不能批准，首次开启还会逐页补抓历史帖子。版本公告与活动正文已由游戏内公告覆盖，通常不需要开启。"
-    : "抓取公告列表（含图文资讯）与完整正文，版本公告、活动、卡池都从这里来。";
-}
+/** 来源能抓什么：现役来源都是游戏内公告（ADR-0016 起不再有仅列表的来源）。 */
+const SOURCE_DESCRIPTION = "抓取公告列表（含图文资讯）与完整正文，版本公告、活动、卡池都从这里来。";
 
 /** 最近一次抓取得怎样；维护中给出解除入口说明。 */
 function sourceState(row: ControlRow): HTMLElement {
@@ -226,7 +220,7 @@ function controlRow(row: ControlRow): HTMLElement {
         unknown ? "未知" : on ? "开" : "关",
       ),
     ),
-    el("p", { class: "control-desc" }, row.info ? sourceDescription(row.info) : meta.desc),
+    el("p", { class: "control-desc" }, row.info ? SOURCE_DESCRIPTION : meta.desc),
     row.info ? sourceState(row) : null,
     el(
       "p",

@@ -11,6 +11,7 @@ import zzzContent from "../../../../../fixtures/sources/zzz-ann/content-1296.jso
 import zzzList from "../../../../../fixtures/sources/zzz-ann/list-page-1.json";
 import type { AnnouncementSourceEntry } from "../registry";
 import { getSourceEntry } from "../registry";
+import type { SourceCursor } from "../types";
 import { createAnnouncementAdapter, PIC_LIST_ID_PREFIX } from "./announcement";
 
 const genshinEntry = getSourceEntry("genshin-ann") as AnnouncementSourceEntry;
@@ -153,12 +154,11 @@ describe("A-P3-PIC-LIST 图文资讯目录（data.pic_list）：崩铁跃迁、�
 });
 
 describe("A-P3-FETCH 公告适配器：游标、失败分类与正文投影（真实样本回放）", () => {
-  it("全量快照型不接受 last-id-offset 游标（模型不混用）", async () => {
+  it("全量快照型不接受其他模型的游标（损坏或旧版本的水位，模型不混用）", async () => {
     const { fetchFn } = replayFetch((genshinList as { body: unknown }).body);
     const adapter = createAnnouncementAdapter(genshinEntry, { fetchFn });
-    await expect(
-      adapter.list({ model: "last-id-offset", newsType: "1", lastId: "20" }, 20),
-    ).rejects.toThrow(/全量快照型/);
+    const foreign = { model: "last-id-offset", lastId: "20" } as unknown as SourceCursor;
+    await expect(adapter.list(foreign, 20)).rejects.toThrow(/全量快照型/);
   });
 
   it("HTTP 200 但 retcode=-1003：complete 必须为 false，业务码透出", async () => {

@@ -546,7 +546,7 @@ async function draftSynthetic(
   publishedAt: number | null = null,
 ) {
   now += 1;
-  // 游戏内公告的载荷没有发布时间（只有米游社有），合成样本默认按真实情况置空。
+  // 游戏内公告的载荷没有发布时间（提供它的米游社来源已下线），合成样本默认按真实情况置空。
   const seeded = await seedRuleCandidate("genshin-ann", entry, {
     nowMs: now,
     publishedAtMs: publishedAt,

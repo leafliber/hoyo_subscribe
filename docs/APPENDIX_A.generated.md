@@ -36,7 +36,7 @@ P0 待定项（`MODEL_MAX_INPUT`、`MODEL_MAX_BILLED_OUTPUT`）未填写前，�
 | SOURCE_HOT_POLL | 600 | 秒 | 前瞻/更新前后的热点轮询 | 基线 |
 | SOURCE_RECHECK_WINDOW | 7 | 天 | 近期公告正文复查范围 | 基线 |
 | SOURCE_RECHECK_INTERVAL | 21,600 | 秒 | 复查间隔；活跃关联公告继续受限跟踪 | 基线 |
-| SOURCE_LIMIT_PROFILE | {"status":"measured-by-p0-02","registryFile":"fixtures/sources/registry.draft.json","perSourceField":"sources[].limit_profile_measured","responseCapsBytes":{"genshin-ann":458752,"hsr-ann":524288,"zzz-ann":393216,"miyoushe-news":131072},"responseCapCeilingBytes":524288} | 按来源结构 | 页数、正文大小、请求超时、重定向和批量上限 | 实测引用；P0-02 实测见 fixtures/sources/registry.draft.json；P3-08 生产响应上限和统一安全界在本参数项 |
+| SOURCE_LIMIT_PROFILE | {"status":"measured-by-p0-02","registryFile":"fixtures/sources/registry.draft.json","perSourceField":"sources[].limit_profile_measured","responseCapsBytes":{"genshin-ann":458752,"hsr-ann":524288,"zzz-ann":393216},"responseCapCeilingBytes":524288} | 按来源结构 | 页数、正文大小、请求超时、重定向和批量上限 | 实测引用；P0-02 实测见 fixtures/sources/registry.draft.json；P3-08 生产响应上限和统一安全界在本参数项；ADR-0016 起只登记三个游戏内公告源（米游社来源下线） |
 | DISCOVERY_TARGET | 1,800 | 秒 | 自官方发布时间计的发现目标（不是 SLA） | 基线 |
 | PUBLICATION_TARGET | 2,700 | 秒 | 自官方发布时间计的发布目标（不是 SLA） | 基线 |
 | WATCHDOG_INTERVAL | 600 | 秒 | 修复两个固定执行器 | 基线 |

@@ -231,11 +231,11 @@ describe("A-P3-PUBLIC 公共读唯一纯函数", () => {
     expect(
       publicSourceStatus("genshin", {
         ...source,
-        source_id: "miyoushe",
+        source_id: "list-only",
         verification_state: "maintenance-required-list-only",
       }),
     ).toMatchObject({
-      sourceId: "miyoushe",
+      sourceId: "list-only",
       verificationState: "verified",
       degradationReasons: ["content_unavailable"],
     });

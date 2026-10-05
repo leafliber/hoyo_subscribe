@@ -76,7 +76,6 @@ export function makeObservabilityRoutes(clock: () => number = Date.now): ShellRo
               info: {
                 game: entry.game,
                 adapter: entry.adapterKind,
-                list_only: entry.contentChannelDisabled,
                 state:
                   state === undefined || state.verification_state === null
                     ? null
@@ -167,7 +166,7 @@ export function makeObservabilityRoutes(clock: () => number = Date.now): ShellRo
         if (!entry) throw new ApiError("validation");
         const jobId = `pipeline:source:${entry.sourceId}`;
         const results = await ctx.env.DB.batch([
-          // 恢复为注册表登记的状态（米游社仍是仅列表），不能借解除升级来源能力。
+          // 恢复为注册表登记的状态，不能借解除升级来源能力。
           ctx.env.DB.prepare(`UPDATE sources SET verification_state=?,updated_at=? WHERE source_id=?
  AND verification_state='maintenance-required' AND updated_at=?
  AND NOT EXISTS(SELECT 1 FROM jobs WHERE id=? AND status='leased')`).bind(

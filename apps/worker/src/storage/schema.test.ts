@@ -2153,7 +2153,7 @@ it("A-P3-PUBLIC 当前代次/分片/详情/变更/来源/缺口/证据：增加 
     {
       name: "sources",
       sql: PUBLIC_SOURCES_SQL,
-      args: ["genshin", PUBLIC_READ_LIMITS.sourcesPerGame + 1],
+      args: ["genshin", JSON.stringify(["miyoushe-news"]), PUBLIC_READ_LIMITS.sourcesPerGame + 1],
     },
     { name: "pending", sql: PUBLIC_PENDING_SQL, args: [PUBLIC_READ_LIMITS.pendingCandidates + 1] },
     {

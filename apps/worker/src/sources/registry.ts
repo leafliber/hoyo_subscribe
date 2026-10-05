@@ -14,8 +14,11 @@
 //   - 公告 API 的内容门控参数（level + 登出态哑 uid=100000000）已由所有者批准（ADR-0001），
 //     沿用登记参数集，不自行调整。
 //
-// verified_publishers 为空数组是 P0-02 实测结论（公告条目无发布者 UID 字段；米游社列表
-// uid="0" 不携带身份），来源身份由官方域名承载——照搬，不"补全"。
+// verified_publishers 为空数组是 P0-02 实测结论（公告条目无发布者 UID 字段），
+// 来源身份由官方域名承载——照搬，不"补全"。
+//
+// ADR-0016：米游社官方资讯（miyoushe-news）已下线——正文接口受访问控制、只有列表，
+// 版本公告与活动正文由游戏内公告覆盖。P0-02 登记与样本作为历史证据保留，不再注册。
 
 import type { GameId } from "@hoyo/contracts";
 import {
@@ -25,25 +28,22 @@ import {
   SOURCE_RECHECK_INTERVAL,
   SOURCE_RECHECK_WINDOW,
 } from "@hoyo/contracts";
-import type { MiyousheNewsType } from "./types";
 
 /** 来源请求限制：实测项来自 P0-02 登记；生产上限来自 SOURCE_LIMIT_PROFILE。 */
 export interface SourceRequestLimits {
   readonly onTruncated?: (host: string) => Promise<void>;
-  /** request_timeout_recommend_ms（四来源实测一致 10,000 ms）。 */
+  /** request_timeout_recommend_ms（各来源实测一致 10,000 ms）。 */
   readonly timeoutMs: number;
   /**
    * 生产响应上限取 SOURCE_LIMIT_PROFILE.responseCapsBytes，区别于观测峰值。
    * 公告源：观测全集 + 20 条（已核验 page_size 的一批）的观测平均体积 + 一条最大观测
    * 正文的体积，最后进位到 64 KiB。最大单条按原始响应/样本 JSON 比例折算，覆盖新批中
    * 一条较大的公告；超过一批或更大单条由截断缺口+告警处理，不自动抬限。
-   * 米游社列表固定 20 条/页：最大观测页 + 该页最大单条再增长一倍，进位到 64 KiB。
-   * 四来源一律不得超过 SOURCE_LIMIT_PROFILE.responseCapCeilingBytes（512 KiB）。
+   * 观测体积是整份响应（含 data.pic_list），读取 pic_list 不改变上限（ADR-0016）。
+   * 一律不得超过 SOURCE_LIMIT_PROFILE.responseCapCeilingBytes（512 KiB）。
    * 这只提高一次既有请求的读体界，不增加请求次数或引入新计量项。
    */
   readonly maxResponseBytes: number;
-  /** 单请求批量上限：米游社 page_size 实测回落值 20；公告源无按页截断 → null。 */
-  readonly listPageSizeCap: number | null;
 }
 
 /** 公告 API 请求形状（sources.verified.json sources[].list/content，参数集不自行调整）。 */
@@ -59,52 +59,33 @@ export interface AnnouncementRequestProfile {
   readonly contentPath: string;
 }
 
-/** 米游社请求形状（gids=2 原神；type/last_id/page_size 由适配器按游标与上限拼装）。 */
-export interface MiyousheRequestProfile {
-  readonly listPath: string;
-  readonly listParams: Readonly<Record<string, string>>;
-}
-
-interface SourceRegistryEntryBase {
+export interface AnnouncementSourceEntry {
   readonly sourceId: string;
   readonly game: GameId;
   readonly region: "cn";
   /** registry.draft.json adapter 字段的前缀（实现名）。 */
   readonly adapterId: string;
+  readonly adapterKind: "announcement-webview";
   readonly approvedHosts: readonly string[];
   /** 实测为空（见文件头）；类型保持 string[] 以承载未来真实核验的发布者。 */
   readonly verifiedPublishers: readonly string[];
+  readonly cursorModel: "full-snapshot-per-request";
+  readonly externalIdField: "ann_id";
   readonly pollPolicy: {
     readonly pollIntervalS: number;
     readonly hotPollIntervalS: number;
-    /** 近期公告复查窗口/间隔（SOURCE_RECHECK_WINDOW / SOURCE_RECHECK_INTERVAL）。米游社未登记复查 → null。 */
-    readonly recheckWindowDays: number | null;
-    readonly recheckIntervalS: number | null;
+    /** 近期公告复查窗口/间隔（SOURCE_RECHECK_WINDOW / SOURCE_RECHECK_INTERVAL）。 */
+    readonly recheckWindowDays: number;
+    readonly recheckIntervalS: number;
   };
-  readonly verificationState: "verified-working" | "maintenance-required-list-only";
-  /** 正文通道被访问控制停用（verification_state 推导，米游社 403 后为 true）。 */
-  readonly contentChannelDisabled: boolean;
+  readonly verificationState: "verified-working";
   readonly lastSuccessAtUtc: string;
   readonly requestLimits: SourceRequestLimits;
-}
-
-export interface AnnouncementSourceEntry extends SourceRegistryEntryBase {
-  readonly adapterKind: "announcement-webview";
-  readonly cursorModel: "full-snapshot-per-request";
-  readonly externalIdField: "ann_id";
   readonly request: AnnouncementRequestProfile;
 }
 
-export interface MiyousheNewsSourceEntry extends SourceRegistryEntryBase {
-  readonly adapterKind: "miyoushe-painter-news";
-  readonly cursorModel: "last-id-offset";
-  readonly externalIdField: "post_id";
-  readonly request: MiyousheRequestProfile;
-  /** 列表三类型各自独立游标（registry.draft.json poll_policy.basis）。 */
-  readonly newsTypes: readonly MiyousheNewsType[];
-}
-
-export type SourceRegistryEntry = AnnouncementSourceEntry | MiyousheNewsSourceEntry;
+/** 注册来源只剩三个游戏内公告源（ADR-0016）；保留此名供各模块按"来源"引用。 */
+export type SourceRegistryEntry = AnnouncementSourceEntry;
 
 const ANNOUNCEMENT_POLL_POLICY = {
   pollIntervalS: SOURCE_POLL,
@@ -125,12 +106,10 @@ const GENSHIN_ANN: AnnouncementSourceEntry = {
   externalIdField: "ann_id",
   pollPolicy: ANNOUNCEMENT_POLL_POLICY,
   verificationState: "verified-working",
-  contentChannelDisabled: false,
   lastSuccessAtUtc: "2026-09-21T17:41:54Z",
   requestLimits: {
     timeoutMs: 10_000,
     maxResponseBytes: SOURCE_LIMIT_PROFILE.responseCapsBytes["genshin-ann"],
-    listPageSizeCap: null,
   },
   request: {
     listPath: "/common/hk4e_cn/announcement/api/getAnnList",
@@ -162,12 +141,10 @@ const HSR_ANN: AnnouncementSourceEntry = {
   externalIdField: "ann_id",
   pollPolicy: ANNOUNCEMENT_POLL_POLICY,
   verificationState: "verified-working",
-  contentChannelDisabled: false,
   lastSuccessAtUtc: "2026-09-21T17:41:54Z",
   requestLimits: {
     timeoutMs: 10_000,
     maxResponseBytes: SOURCE_LIMIT_PROFILE.responseCapsBytes["hsr-ann"],
-    listPageSizeCap: null,
   },
   request: {
     listPath: "/common/hkrpg_cn/announcement/api/getAnnList",
@@ -199,12 +176,10 @@ const ZZZ_ANN: AnnouncementSourceEntry = {
   externalIdField: "ann_id",
   pollPolicy: ANNOUNCEMENT_POLL_POLICY,
   verificationState: "verified-working",
-  contentChannelDisabled: false,
   lastSuccessAtUtc: "2026-09-21T17:41:54Z",
   requestLimits: {
     timeoutMs: 10_000,
     maxResponseBytes: SOURCE_LIMIT_PROFILE.responseCapsBytes["zzz-ann"],
-    listPageSizeCap: null,
   },
   request: {
     listPath: "/common/nap_cn/announcement/api/getAnnList",
@@ -224,43 +199,19 @@ const ZZZ_ANN: AnnouncementSourceEntry = {
   },
 };
 
-const MIYOUSHE_NEWS: MiyousheNewsSourceEntry = {
-  sourceId: "miyoushe-news",
-  game: "genshin",
-  region: "cn",
-  adapterId: "miyoushe-painter-news",
-  adapterKind: "miyoushe-painter-news",
-  approvedHosts: ["bbs-api-static.miyoushe.com", "bbs-api.miyoushe.com"],
-  verifiedPublishers: [],
-  cursorModel: "last-id-offset",
-  externalIdField: "post_id",
-  pollPolicy: {
-    pollIntervalS: SOURCE_POLL,
-    hotPollIntervalS: SOURCE_HOT_POLL,
-    recheckWindowDays: null,
-    recheckIntervalS: null,
-  },
-  verificationState: "maintenance-required-list-only",
-  // getPostFull 对诚实探针 UA、无凭据、单次请求返回 403（P0-02 §3）：停用正文通道并标维护，
-  // 不重试、不换路径、不伪装 UA、不用第三方聚合后端（AGENTS.md 规则 6）。
-  contentChannelDisabled: true,
-  lastSuccessAtUtc: "2026-09-21T17:43:50Z",
-  requestLimits: {
-    timeoutMs: 10_000,
-    maxResponseBytes: SOURCE_LIMIT_PROFILE.responseCapsBytes["miyoushe-news"],
-    listPageSizeCap: 20,
-  },
-  request: { listPath: "/painter/wapi/getNewsList", listParams: { gids: "2" } },
-  newsTypes: ["1", "2", "3"],
-};
+/** 正式来源注册表：三个游戏内公告源，事实来自 P0-02 登记。 */
+export const SOURCE_REGISTRY: readonly SourceRegistryEntry[] = [GENSHIN_ANN, HSR_ANN, ZZZ_ANN];
 
-/** 正式来源注册表：四来源（三公告 + 米游社），事实来自 P0-02 登记。 */
-export const SOURCE_REGISTRY: readonly SourceRegistryEntry[] = [
-  GENSHIN_ANN,
-  HSR_ANN,
-  ZZZ_ANN,
-  MIYOUSHE_NEWS,
-];
+/**
+ * 已下线来源（ADR-0016）。库里可能留有它们的来源行、文章与轮询待办：
+ * 待办直接结束、不再轮询；公开状态只列注册来源；历史文章不能再用于抽取或发布。
+ * 不在此名单、也不在注册表的来源 ID 仍按数据错误处理。
+ */
+export const RETIRED_SOURCE_IDS: readonly string[] = ["miyoushe-news"];
+
+export function isRetiredSource(sourceId: string): boolean {
+  return RETIRED_SOURCE_IDS.includes(sourceId);
+}
 
 for (const entry of SOURCE_REGISTRY) {
   if (entry.requestLimits.maxResponseBytes > SOURCE_LIMIT_PROFILE.responseCapCeilingBytes) {

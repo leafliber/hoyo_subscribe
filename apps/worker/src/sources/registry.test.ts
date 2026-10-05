@@ -18,12 +18,17 @@ import genshinContent from "../../../../fixtures/sources/genshin-ann/content-218
 import genshinIndex from "../../../../fixtures/sources/genshin-ann/index.json";
 import hsrContent from "../../../../fixtures/sources/hsr-ann/content-1195.json";
 import hsrIndex from "../../../../fixtures/sources/hsr-ann/index.json";
-import miyousheType2 from "../../../../fixtures/sources/miyoushe-news/news-list-type2-page1.json";
 import registryDraft from "../../../../fixtures/sources/registry.draft.json";
 import zzzContent from "../../../../fixtures/sources/zzz-ann/content-1301.json";
 import zzzIndex from "../../../../fixtures/sources/zzz-ann/index.json";
 import sourcesVerified from "../../../../scripts/probes/source-samples/sources.verified.json";
-import { getSourceEntry, listSourceEntries, SOURCE_REGISTRY } from "./registry";
+import {
+  getSourceEntry,
+  isRetiredSource,
+  listSourceEntries,
+  RETIRED_SOURCE_IDS,
+  SOURCE_REGISTRY,
+} from "./registry";
 
 const draft = registryDraft as { sources: Array<Record<string, unknown>> };
 const verified = sourcesVerified as { sources: Array<Record<string, unknown>> };
@@ -60,16 +65,18 @@ function limitsOf(sourceId: string): Record<string, unknown> {
 }
 
 describe("A-P3-FETCH 来源注册表与 P0-02 登记零漂移", () => {
-  it("登记草案的每个来源都在生产注册表内，字段逐项一致", () => {
+  it("登记草案里除已下线来源外的每个来源都在生产注册表内，字段逐项一致", () => {
     expect(listSourceEntries().map((entry) => entry.sourceId)).toEqual(
-      draft.sources.map((source) => source.source_id),
+      draft.sources
+        .map((source) => source.source_id as string)
+        .filter((sourceId) => !isRetiredSource(sourceId)),
     );
     for (const entry of SOURCE_REGISTRY) {
       const draftSource = draftEntry(entry.sourceId);
       expect(entry.game).toBe(draftSource.game);
       expect(entry.region).toBe(draftSource.region);
       expect(entry.approvedHosts).toEqual(draftSource.approved_hosts);
-      // verified_publishers 为空是 P0-02 实测结论（公告无发布者字段；米游社 uid="0"）——照搬。
+      // verified_publishers 为空是 P0-02 实测结论（公告无发布者字段）——照搬。
       expect(entry.verifiedPublishers).toEqual(draftSource.verified_publishers);
       expect(entry.verificationState).toBe(draftSource.verification_state);
       expect(entry.lastSuccessAtUtc).toBe(draftSource.last_success_at_utc);
@@ -88,16 +95,10 @@ describe("A-P3-FETCH 来源注册表与 P0-02 登记零漂移", () => {
       expect(entry.pollPolicy.pollIntervalS).toBe(policy.poll_interval_s);
       expect(entry.pollPolicy.hotPollIntervalS).toBe(SOURCE_HOT_POLL);
       expect(entry.pollPolicy.hotPollIntervalS).toBe(policy.hot_poll_interval_s);
-      if (entry.pollPolicy.recheckWindowDays === null) {
-        expect(policy.recheck_window_days).toBeUndefined();
-        expect(entry.pollPolicy.recheckIntervalS).toBeNull();
-        expect(policy.recheck_interval_s).toBeUndefined();
-      } else {
-        expect(entry.pollPolicy.recheckWindowDays).toBe(SOURCE_RECHECK_WINDOW);
-        expect(entry.pollPolicy.recheckWindowDays).toBe(policy.recheck_window_days);
-        expect(entry.pollPolicy.recheckIntervalS).toBe(SOURCE_RECHECK_INTERVAL);
-        expect(entry.pollPolicy.recheckIntervalS).toBe(policy.recheck_interval_s);
-      }
+      expect(entry.pollPolicy.recheckWindowDays).toBe(SOURCE_RECHECK_WINDOW);
+      expect(entry.pollPolicy.recheckWindowDays).toBe(policy.recheck_window_days);
+      expect(entry.pollPolicy.recheckIntervalS).toBe(SOURCE_RECHECK_INTERVAL);
+      expect(entry.pollPolicy.recheckIntervalS).toBe(policy.recheck_interval_s);
     }
   });
 
@@ -113,19 +114,15 @@ describe("A-P3-FETCH 来源注册表与 P0-02 登记零漂移", () => {
       expect(entry.requestLimits.maxResponseBytes).toBeLessThanOrEqual(
         SOURCE_LIMIT_PROFILE.responseCapCeilingBytes,
       );
-      if (entry.adapterKind === "announcement-webview") {
-        expect(entry.requestLimits.maxResponseBytes).toBeGreaterThan(
-          limits.max_observed_content_bytes as number,
-        );
-        expect(entry.requestLimits.listPageSizeCap).toBeNull();
-      } else {
-        // 米游社无正文（403 停用）：上限取列表实测区间上界（"50,056–110,546 B（…）"）。
-        const range = limits.list_response_bytes_observed_range as string;
-        const numbers = range.match(/\d[\d,]*/g)?.map((raw) => Number(raw.replace(/,/g, ""))) ?? [];
-        expect(entry.requestLimits.maxResponseBytes).toBeGreaterThan(Math.max(...numbers));
-        expect(entry.requestLimits.listPageSizeCap).toBe(limits.batch_upper_bound_items);
-      }
+      expect(entry.requestLimits.maxResponseBytes).toBeGreaterThan(
+        limits.max_observed_content_bytes as number,
+      );
     }
+    // 已下线来源不再登记生产上限（ADR-0016）。
+    const registeredCaps = SOURCE_LIMIT_PROFILE.responseCapsBytes as Readonly<
+      Record<string, number>
+    >;
+    expect(Object.keys(registeredCaps)).toEqual(SOURCE_REGISTRY.map((entry) => entry.sourceId));
   });
 
   it("A-P3-TRUNCATE 余量按公告一批增长和最大单篇、列表最大卡片推导，非任意倍数", () => {
@@ -141,30 +138,17 @@ describe("A-P3-FETCH 来源注册表与 P0-02 登记零漂移", () => {
         Math.ceil((largestItemBytes / sampleBytes) * observed);
       expect(getSourceEntry(sourceId).requestLimits.maxResponseBytes).toBe(roundToBlock(projected));
     }
-    const miyousheItems = (miyousheType2 as { body: { data: { list: unknown[] } } }).body.data.list;
-    const observedRange = limitsOf("miyoushe-news").list_response_bytes_observed_range as string;
-    const observed = Math.max(
-      ...(observedRange.match(/\d[\d,]*/g)?.map((value) => Number(value.replace(/,/g, ""))) ?? []),
-    );
-    expect(getSourceEntry("miyoushe-news").requestLimits.maxResponseBytes).toBe(
-      roundToBlock(observed + Math.max(...miyousheItems.map(utf8Bytes))),
-    );
   });
 
   it("请求形状沿用 sources.verified.json 的已核验参数集（level/uid 门控不自行调整，ADR-0001）", () => {
     for (const entry of SOURCE_REGISTRY) {
       const verifiedSource = verifiedEntry(entry.sourceId);
       const list = verifiedSource.list as Record<string, unknown>;
-      if (entry.adapterKind === "announcement-webview") {
-        expect(entry.request.listPath).toBe(list.path);
-        expect({ ...entry.request.listParams }).toEqual(list.params);
-        expect(entry.request.contentPath).toBe(
-          (verifiedSource.content as Record<string, unknown>).path,
-        );
-      } else {
-        expect(entry.request.listPath).toBe(list.path);
-        expect({ ...entry.request.listParams }).toEqual(list.params);
-      }
+      expect(entry.request.listPath).toBe(list.path);
+      expect({ ...entry.request.listParams }).toEqual(list.params);
+      expect(entry.request.contentPath).toBe(
+        (verifiedSource.content as Record<string, unknown>).path,
+      );
     }
   });
 
@@ -172,7 +156,6 @@ describe("A-P3-FETCH 来源注册表与 P0-02 登记零漂移", () => {
     for (const [sourceId, index] of Object.entries(annIndexes)) {
       const entry = getSourceEntry(sourceId);
       expect(entry.adapterKind).toBe("announcement-webview");
-      if (entry.adapterKind !== "announcement-webview") continue;
       expect(entry.request.paginationParams).toEqual({
         page: "1",
         page_size: String(index.list_observation.page_size),
@@ -180,13 +163,16 @@ describe("A-P3-FETCH 来源注册表与 P0-02 登记零漂移", () => {
     }
   });
 
-  it("米游社正文通道由 verification_state 推导为停用（403 访问控制，不绕过）", () => {
-    const miyoushe = getSourceEntry("miyoushe-news");
-    expect(miyoushe.verificationState).toBe("maintenance-required-list-only");
-    expect(miyoushe.contentChannelDisabled).toBe(true);
-    expect(draftEntry("miyoushe-news").maintenance_reason).toContain("403");
-    for (const sourceId of ["genshin-ann", "hsr-ann", "zzz-ann"]) {
-      expect(getSourceEntry(sourceId).contentChannelDisabled).toBe(false);
+  it("A-P3-SOURCE-RETIRE 米游社已下线：登记草案保留历史登记，生产注册表不再含它（ADR-0016）", () => {
+    expect(RETIRED_SOURCE_IDS).toEqual(["miyoushe-news"]);
+    for (const sourceId of RETIRED_SOURCE_IDS) {
+      // 下线原因留在 P0-02 登记里：正文接口受访问控制（403），只能拿到列表。
+      expect(draftEntry(sourceId).maintenance_reason).toContain("403");
+      expect(() => getSourceEntry(sourceId)).toThrow(/未知来源/);
+    }
+    for (const entry of SOURCE_REGISTRY) {
+      expect(isRetiredSource(entry.sourceId)).toBe(false);
+      expect(entry.verificationState).toBe("verified-working");
     }
   });
 

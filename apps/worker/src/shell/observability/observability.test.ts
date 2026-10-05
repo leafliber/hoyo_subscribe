@@ -446,7 +446,6 @@ describe("终态可见且只能由所有者有意解除", () => {
     expect(rows.find((row) => row.source === source.sourceId)?.info).toEqual({
       game: source.game,
       adapter: source.adapterKind,
-      list_only: false,
       state: {
         verification_state: "maintenance-required",
         last_success_at: now - 1,
@@ -455,13 +454,12 @@ describe("终态可见且只能由所有者有意解除", () => {
         job_last_error: "source_maintenance",
       },
     });
-    const listOnly = SOURCE_REGISTRY.find((entry) => entry.contentChannelDisabled);
-    expect(listOnly).toBeDefined();
+    const unopened = SOURCE_REGISTRY.find((entry) => entry.sourceId !== source.sourceId);
+    expect(unopened).toBeDefined();
     // 来源行尚未建立（开关从未开过）时状态为 null，能力照样来自注册表。
-    expect(rows.find((row) => row.source === listOnly?.sourceId)?.info).toEqual({
-      game: listOnly?.game,
-      adapter: listOnly?.adapterKind,
-      list_only: true,
+    expect(rows.find((row) => row.source === unopened?.sourceId)?.info).toEqual({
+      game: unopened?.game,
+      adapter: unopened?.adapterKind,
       state: null,
     });
     expect(

@@ -5,9 +5,7 @@ import { describe, expect, it } from "vitest";
 import {
   advanceFullSnapshotWatermark,
   announcementFingerprint,
-  diffPageAgainstFingerprints,
   diffSnapshotRecords,
-  miyousheFingerprint,
   type SnapshotRecord,
 } from "./snapshot-diff";
 import type { SourceItemStub } from "./types";
@@ -76,16 +74,6 @@ describe("A-P3-FETCH 全量快照差分：新增/消失/内容变化", () => {
     expect(watermark.records).toHaveLength(2);
     expect(watermark.records.map((r) => r.externalId)).toEqual(["762", "21928"]);
   });
-
-  it("单页差分（米游社标题级）：新增与变化，不做消失断言", () => {
-    const fingerprints = { "78299710": "fp-old", "78299600": "fp-keep" };
-    const page = diffPageAgainstFingerprints(
-      [record("78299710", "fp-new"), record("78299600", "fp-keep"), record("78299799", "fp-fresh")],
-      fingerprints,
-    );
-    expect(page.added).toEqual(["78299799"]);
-    expect(page.changed).toEqual([{ externalId: "78299710", previous: "fp-old", next: "fp-new" }]);
-  });
 });
 
 describe("A-P3-FETCH 语义指纹", () => {
@@ -105,22 +93,5 @@ describe("A-P3-FETCH 语义指纹", () => {
     const before = await announcementFingerprint(stub, null);
     const after = await announcementFingerprint(stub, "sha:abc");
     expect(before).not.toBe(after);
-  });
-
-  it("米游社标题级指纹只覆盖标题/图片级信息", async () => {
-    const base: SourceItemStub = {
-      ...annStub({ externalId: "78299710" }),
-      sourceId: "miyoushe-news",
-      coverUrl: "https://upload-bbs.miyoushe.com/upload/a.png",
-      imageUrls: ["https://upload-bbs.miyoushe.com/upload/a.png"],
-    };
-    const fp1 = await miyousheFingerprint(base);
-    const fpSame = await miyousheFingerprint({ ...base, publishedAtMs: 123 });
-    const fpCover = await miyousheFingerprint({
-      ...base,
-      coverUrl: "https://upload-bbs.miyoushe.com/upload/b.png",
-    });
-    expect(fp1).toBe(fpSame);
-    expect(fp1).not.toBe(fpCover);
   });
 });

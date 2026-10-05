@@ -8,7 +8,7 @@
 // 新增（含比最大 ann_id 更小的 id）、消失、内容变化三类都要能识别。
 // 推进 = 用新全集整体替换旧集合，绝不存在"只记最大 ID"的捷径。
 
-import type { MiyousheNewsType, SourceItemStub } from "./types";
+import type { SourceItemStub } from "./types";
 
 /** 指纹集合中的一条：externalId → 语义指纹（列表字段 + 正文 hash 由适配器侧拼装）。 */
 export interface SnapshotRecord {
@@ -80,43 +80,10 @@ export function advanceFullSnapshotWatermark(
   return { model: "full-snapshot", records: next };
 }
 
-/** 米游社单类型扫描状态：游标按 last-id-offset 保存（补漏续扫），条目指纹用于标题级差分。 */
-export interface MiyousheScanState {
-  readonly newsType: MiyousheNewsType;
-  /** 保存的偏移量游标（null = 尚未开始或已到达 is_last 后归零，从头重叠重扫）。 */
-  readonly lastId: string | null;
-  /** 曾到达 is_last（此后每批从头发起，重叠=重扫最新页，可发现新帖与标题级变化）。 */
-  readonly reachedLast: boolean;
-  /** 已见条目的标题级指纹（post_id → fingerprint）。 */
-  readonly fingerprints: Readonly<Record<string, string>>;
-}
+/** 来源水位：只剩全量快照一种（米游社偏移量游标随来源下线删除，ADR-0016）。 */
+export type SourceWatermark = FullSnapshotWatermark;
 
-export interface MiyousheWatermark {
-  readonly model: "last-id-offset";
-  readonly scans: Readonly<Record<MiyousheNewsType, MiyousheScanState>>;
-}
-
-export type SourceWatermark = FullSnapshotWatermark | MiyousheWatermark;
-
-/** 单页条目对已见指纹的差分（米游社标题级）：新增/变化；消失不可见（游标模型限制，见任务卡）。 */
-export function diffPageAgainstFingerprints(
-  page: readonly SnapshotRecord[],
-  fingerprints: Readonly<Record<string, string>>,
-): { added: readonly string[]; changed: readonly SnapshotChange[] } {
-  const added: string[] = [];
-  const changed: SnapshotChange[] = [];
-  for (const record of page) {
-    const previous = fingerprints[record.externalId];
-    if (previous === undefined) {
-      added.push(record.externalId);
-    } else if (previous !== record.fingerprint) {
-      changed.push({ externalId: record.externalId, previous, next: record.fingerprint });
-    }
-  }
-  return { added, changed };
-}
-
-// ---------- 指纹拼装（来源无关的哈希工具 + 两个来源的语义指纹） ----------
+// ---------- 指纹拼装（来源无关的哈希工具 + 公告条目的语义指纹） ----------
 
 /** UTF-8 SHA-256 十六进制（Workers WebCrypto）。 */
 export async function sha256Hex(text: string): Promise<string> {
@@ -159,17 +126,6 @@ export async function announcementFingerprint(
       listEndTime: stub.listEndTime,
       bannerUrl: stub.bannerUrl,
       contentSha256,
-    }),
-  );
-}
-
-/** 米游社条目标题级指纹（仅标题/图片级信息；正文通道维护态，不声称有正文）。 */
-export async function miyousheFingerprint(stub: SourceItemStub): Promise<string> {
-  return sha256Hex(
-    canonicalJson({
-      title: stub.title,
-      coverUrl: stub.coverUrl,
-      imageUrls: stub.imageUrls,
     }),
   );
 }
