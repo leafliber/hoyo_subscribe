@@ -55,7 +55,7 @@
    - html 块只交给 `DOMParser` 惰性解析，解析出的文档不执行脚本、不加载资源。节点从不放进页面，只读文字和少数校验过的属性，按白名单重建：
      - 保留段落、标题（降两级）、列表、表格（含合并单元格）、官方折叠段（展开状态照原文）、加粗、链接；
      - 丢弃颜色、字号等样式，以及官方用作间距的空段落；
-     - 官方转义的 `<t>` 时间标签只留时间。这条规则与审核页可读文本共用 contracts 的 `unwrapOfficialTimeTags`；
+     - 官方转义的 `<t>` 时间标签只留时间。这条规则与审核页可读文本共用 contracts 的 `unwrapOfficialTimeTags`。上线后发现部分原神公告把时间再包一层元素（`&lt;t …&gt;<span>时间</span>&lt;/t&gt;`），开、合标签分在不同文字节点，于是弹窗按块把文字节点一起交给 `unwrapOfficialTimeTagsAcross`，跨节点成对去掉；不成对的仍原样保留；
      - 游戏内链接 `javascript:miHoYoGameJSSDK.openInBrowser('…')` 取出其中的网址，只接受 http/https，其他 `javascript:` 链接只留文字；
      - 图片只给"查看图片"链接，不自动加载；脚本、框架、样式、表单整段跳过；
    - 每篇原文写明"本站抓取于 …"、第几版和官方数据源链接（弹窗开头原有一段说明，ADR-0015 删去）。版本不完整时显示 contracts 的 `ARTICLE_COMPLETENESS_NOTES`，只说缺了什么，不暗示"没有活动"；

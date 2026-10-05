@@ -332,6 +332,7 @@ test("A-P3-ARTICLE-VIEW 查看官方公告打开原文弹窗：整理成可读�
   const content = dialog.locator(".article-content");
   // 官方转义的时间标签只留时间；不出现标签、实体、样式或脚本字样。
   await expect(content).toContainText("2026/09/22 10:00 - 2026/09/29 03:59");
+  await expect(content).toContainText("※2026/09/29 02:59将关闭奖励兑换，请留意时间。");
   await expect(content).toContainText("注：活动规则以游戏内说明为准 & 解释权归官方所有");
   const text = (await content.textContent()) ?? "";
   for (const raw of [
@@ -342,6 +343,7 @@ test("A-P3-ARTICLE-VIEW 查看官方公告打开原文弹窗：整理成可读�
     "&lt;",
     "&amp;",
     "t_gl",
+    "t_lc",
     "style=",
     "javascript:",
     "__articleExecuted",

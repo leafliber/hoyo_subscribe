@@ -3,7 +3,7 @@
 // - 完整性状态描述"我们知道什么/不知道什么"，不是"发生了什么活动"：刻意不存在"无活动/已取消"取值；
 //   缺口（gap-*）是"不知道"，绝不是"没有"。判定逻辑仍在 Worker（sources/articles/completeness.ts）。
 // - 官方正文把时间包成转义的 `&lt;t class="t_gl"&gt;…&lt;/t&gt;`；解码成文本后只保留其中的时间。
-//   审核页可读文本与公开原文弹窗共用这一条，不各写一份。
+//   审核页可读文本与公开原文弹窗共用这一条，不各写一份（弹窗按文字节点处理，用跨段版本）。
 import { z } from "zod";
 
 /**
@@ -42,4 +42,24 @@ const OFFICIAL_TIME_TAG = /<t\b[^>]*>([^<]*)<\/t>/g;
 
 export function unwrapOfficialTimeTags(text: string): string {
   return text.replace(OFFICIAL_TIME_TAG, "$1");
+}
+
+/** 拼接各段的分隔符：HTML 解析出的文字不含 U+0000（解析器会丢弃或替换它）。 */
+const SEGMENT_SEPARATOR = "\u0000";
+
+/**
+ * 同一条规则用于按文档顺序排列的多段文字（网页原文弹窗里一个正文块的各文字节点）。
+ * 官方有时把时间本身再包一层元素：`&lt;t …&gt;<span>2026/11/02 03:59</span>&lt;/t&gt;`，
+ * 解析后开、合标签落在不同的文字节点里，逐段处理匹配不上。这里跨段成对去掉标签，段数不变；
+ * 判定与 unwrapOfficialTimeTags 相同（标签之间只有文字才去掉），不成对的标签原样保留。
+ */
+export function unwrapOfficialTimeTagsAcross(segments: readonly string[]): string[] {
+  if (!segments.some((segment) => segment.includes(SEGMENT_SEPARATOR))) {
+    const joined = unwrapOfficialTimeTags(segments.join(SEGMENT_SEPARATOR)).split(
+      SEGMENT_SEPARATOR,
+    );
+    // 开标签本身被拆到两段时，替换会吞掉分隔符；段数对不上就退回逐段处理，绝不错位。
+    if (joined.length === segments.length) return joined;
+  }
+  return segments.map(unwrapOfficialTimeTags);
 }
