@@ -119,7 +119,7 @@ function displayName(row: ControlRow): string {
 function sourceDescription(info: SourceInfo): string {
   return info.list_only
     ? "仅列表：只有标题和封面。正文接口受源站访问控制，按规则不接入，因此开启后产生的条目正文不完整、不能批准，首次开启还会逐页补抓历史帖子。版本公告与活动正文已由游戏内公告覆盖，通常不需要开启。"
-    : "抓取公告列表与完整正文，版本公告、活动、卡池都从这里来。";
+    : "抓取公告列表（含图文资讯）与完整正文，版本公告、活动、卡池都从这里来。";
 }
 
 /** 最近一次抓取得怎样；维护中给出解除入口说明。 */

@@ -1183,7 +1183,7 @@ test.describe("P3-20 运行开关", () => {
     await page.goto("/admin/settings/");
     await expect(page.locator("#controls-status")).toHaveText(controlsRead);
     const genshin = page.locator(".control-row").filter({ hasText: "原神游戏内公告" });
-    await expect(genshin).toContainText("抓取公告列表与完整正文");
+    await expect(genshin).toContainText("抓取公告列表（含图文资讯）与完整正文");
     await expect(genshin).toContainText("最近成功抓取：");
     const miyoushe = page.locator(".control-row").filter({ hasText: "米游社官方资讯" });
     await expect(miyoushe).toContainText("仅列表：只有标题和封面");
