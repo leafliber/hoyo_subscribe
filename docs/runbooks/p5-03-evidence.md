@@ -31,3 +31,5 @@ pnpm exec tsx scripts/backup/cli.mjs verify --input /private/tmp/p5-03-roundtrip
 额外本地 D1 导出初次使用 `--persist-to`，锁定 Wrangler 报 `Unknown arguments: persist-to, persistTo`，exit 1；独立临时 `--config` 路径修正后导入/导出及重新加密验证全过。初次 `git fetch` 在沙箱因 FETCH_HEAD 只读失败，获准 Git 元数据操作后 fetch 成功。GitHub CLI 首次受网络沙箱限制无法连 api.github.com，获准只读查询后成功。没有把失败写成通过。
 
 损坏密文、错误备份 key、旧 epoch、已有输出文件的 CLI exit 1 是刻意构造的成功拒绝证据；旧 epoch 未产生输出，覆盖尝试没有改变已有文件摘要。任何真实恢复仍须按手册顺序核实独立当前撤销事实后才逐门放行。
+
+**后续（2026-10-06 文档整理）**：本证据基于 0001–0025（43 张应用表）。之后合入 0026（索引）、0027、0028，应用表为 47 张；工具按迁移目录动态枚举，无需改动。0026 的联合演练见 P5-03 卡末登记；0027/0028 之后没有重跑记录，按手册须在下次带迁移的发布前补跑。

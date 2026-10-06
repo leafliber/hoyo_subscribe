@@ -40,9 +40,11 @@ accepted 仅为已提交平台；jobs 的 provider_status=delivered 才表示收
 
 复跑带数字的证据：`pnpm --filter @hoyo/worker exec vitest run src/storage/schema.test.ts --reporter=default --reporter=./src/mail/feedback/rows-reporter.mjs`。测试同时校验 INSERT 容量上界、清理页读量和实际索引，不只打印数值。
 
-Queue 每批末尾额外执行一页到期清理；没有 Queue 流量时由后续 P5 在墙钟内循环调用 `pruneFeedbackPage`。DLQ 修复后的 `reconcileFeedbackPage` 处理当前有精确 outbox 的 pending 记录，包括已关联待重试行；本卡不扩范围接 Cron。未关联异常按数量与 TTL 限制；已关联但未完成的行由发送/对账生命周期负责，不冒充完成删除。
+Queue 每批末尾额外执行一页到期清理；没有 Queue 流量时由后续 P5 在墙钟内循环调用 `pruneFeedbackPage`。DLQ 修复后的 `reconcileFeedbackPage` 处理当前有精确 outbox 的 pending 记录，包括已关联待重试行；本卡不扩范围接 Cron（现状：P5-01 起 `scheduled/feedback.ts` 定时清理与对账）。未关联异常按数量与 TTL 限制；已关联但未完成的行由发送/对账生命周期负责，不冒充完成删除。
 
 ## 需所有者执行的上线前置（本卡均未执行）
+
+> 2026-10-06 现状（只读核对）：Worker 消费者、DLQ、两个发件域的事件订阅与 `MAIL_FEEDBACK_*` 两个变量均已上线；真实反馈、重试与 DLQ 取证仍未登记（`docs/evidence/p5/owner-handoff.md` E3 表）。
 
 1. 配置预期账户、业务订阅/域配对和既有 crypto 秘密；认证域订阅创建后才能把其 ID/域配对写入配置。核对真实载荷的 schema/大小。
 2. 将既有 `hoyo-mail-events` 的 HTTP pull 消费者切换为 Worker 消费者；准备并核对 `hoyo-mail-events-dlq`。提交的 Wrangler 配置不表示资源已存在或已修改；没有 DLQ 就不得部署放行。P1 的 mail-feedback 占位生产者/消费者已从本地配置删除，生成类型已同步；没有删除任何远端队列。

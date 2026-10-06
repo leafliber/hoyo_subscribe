@@ -1,62 +1,55 @@
 # 文档索引
 
 > 本索引只指向当前有效版本：主方案 **v2.1（r2）**、前端设计 **v1.0（r2）**。不存在其他有效版本；出现引用旧版的文档或代码注释，按缺陷处理。
+> 两份合同的正文自 2026-09-22 导入后没有改写，之后的合同变化全部记在 [ADR](adr/README.md) 里；**读合同正文前先看 [CONTRACTS_BASELINE §0](CONTRACTS_BASELINE.md) 的"已生效的合同修订"表**，被修订的章节以 ADR 为准。
 
 ## 合同文档（唯一事实源）
 
 | 文档 | 覆盖 | 谁必须读 |
 | --- | --- | --- |
 | [HOYO_OFFICIAL_EVENT_SUBSCRIPTION_PLAN_v2.1.md](HOYO_OFFICIAL_EVENT_SUBSCRIPTION_PLAN_v2.1.md) | 产品范围、平台预案、抽取管线、认证与恢复、云端订阅、个人 ICS、通知调度、数据与接口、预算与生命周期、运维验收、附录 A 参数基线 | 全体 |
-| [HOYO_SUBSCRIPTION_FRONTEND_DESIGN_v1.0.md](HOYO_SUBSCRIPTION_FRONTEND_DESIGN_v1.0.md) | 信息架构、状态归属、各页面交互、保存状态机、接收方式呈现、视觉与可访问性、前端验收 U01–U29 | 前端轮次 F1–F5；后端在设计对外字段时 |
+| [HOYO_SUBSCRIPTION_FRONTEND_DESIGN_v1.0.md](HOYO_SUBSCRIPTION_FRONTEND_DESIGN_v1.0.md) | 信息架构、状态归属、各页面交互、保存状态机、接收方式呈现、视觉与可访问性、前端验收 U01–U29 | 前端轮次 F1–F6；后端在设计对外字段时 |
+| [adr/](adr/README.md) | 变更合同的决策记录（0001–0024；0002 被 0003 取代，0004 为预留编号）。改动禁止清单中的任何一条、改动合同语义，都必须先有 ADR | 全体；改合同前必读 |
+| [D2_CALENDAR_PREVIEW.md](D2_CALENDAR_PREVIEW.md) | 前端 §13 待确认项 D2 的答案：实际日历预览、启用时的版本核对、公开变更数据（**2026-09-30 所有者审定**；F2-02 正式预览与 F3-04 开通体验以它为准） | 日历预览、启用相关的卡 |
+| [D3_STATE_VIEWS.md](D3_STATE_VIEWS.md) | 前端 §13 待确认项 D3 的答案：状态视图与操作结果（**2026-09-30 所有者审定**，§1.2 改为浏览器推导；F3 联调以它为准） | 账号、通道状态相关的卡 |
+
+D1′（浏览时间范围预设）的定案写在 [F1-02 卡](tasks/F1-F2.md)与 [BUILD_PLAN](BUILD_PLAN.md) 门禁表；#89 起首页不再提供"未来 90 天"，已由 ADR-0023 追认。
 
 ## 执行层文档（导航与约定，不是合同）
 
 | 文档 | 用途 |
 | --- | --- |
 | [../AGENTS.md](../AGENTS.md) | 执行者 Agent 入口：硬规则、禁止清单、工作流、交付报告模板 |
-| [BUILD_PLAN.md](BUILD_PLAN.md) | 阶段依赖图、门禁规则与当前状态、进度与后续计划、任务卡总表、并行策略 |
+| [BUILD_PLAN.md](BUILD_PLAN.md) | 阶段依赖图、门禁规则与当前状态、进度与后续计划、任务卡总表、已知缺口、并行策略 |
 | [ENGINEERING.md](ENGINEERING.md) | 仓库结构、工具链、命令、代码与测试约定、Definition of Done |
-| [CONTRACTS_BASELINE.md](CONTRACTS_BASELINE.md) | 跨阶段反复使用的枚举、公式与边界的集中索引 |
-| [ACCEPTANCE.md](ACCEPTANCE.md) | 验收矩阵 → 测试 ID 映射；每阶段放行检查单；拒收条件 |
-| [DEPLOYMENT_PREREQUISITES.md](DEPLOYMENT_PREREQUISITES.md) | 各卡产生的「需所有者执行」项汇总：secrets、平台配置、待取得实测值 |
-| [D2_CALENDAR_PREVIEW.md](D2_CALENDAR_PREVIEW.md) | 前端 §13 待确认项 D2 的答案：实际日历预览、启用时的版本核对、公开变更数据（**2026-09-30 所有者审定**；F2-02 正式预览与 F3-04 开通体验以它为准） |
-| [D3_STATE_VIEWS.md](D3_STATE_VIEWS.md) | 前端 §13 待确认项 D3 的答案：状态视图与操作结果（**2026-09-30 所有者审定**，§1.2 改为浏览器推导；F3 联调以它为准） |
-| [备份恢复手册](runbooks/backup-restore.md) | P5-03 本地加密备份/校验/隔离恢复、分离保管与所有者目标环境证据门；工具已合，正式备份未执行 |
-| [P5-04 本地交付证据](evidence/p5/results.md) | 负载13组、离线对账、公开限制和历史失败；仅E1/E2，不当目标计费证据 |
-| [P5-04 关闭门部署与E3清单](evidence/p5/owner-handoff.md) | 已授权首次迁移/关闭初始化/发布的脱敏记录、后续Secrets与平台取证边界、完整E3待办 |
+| [CONTRACTS_BASELINE.md](CONTRACTS_BASELINE.md) | 跨阶段反复使用的枚举、公式、启动等式、运行开关与接口分组的集中索引（含 ADR 修订后的现行值） |
+| [APPENDIX_A.generated.md](APPENDIX_A.generated.md) | 附录 A 参数表，由 `pnpm params:docs` 从 `packages/contracts` 注册表生成，勿手改 |
+| [ACCEPTANCE.md](ACCEPTANCE.md) | 验收矩阵 → 测试 ID 映射；变异测试登记；每阶段放行检查单；拒收条件 |
+| [DEPLOYMENT_PREREQUISITES.md](DEPLOYMENT_PREREQUISITES.md) | 各卡产生的「需所有者执行」项汇总：secrets、平台配置、待取得实测值、各次部署须知 |
 | [tasks/](tasks/) | 每阶段的任务卡：P0–P6（后端与管线）、F1–F5（前端轮次）、F6（管理端，`tasks/F6.md`） |
-| [adr/](adr/) | 变更合同的决策记录；改动禁止清单中的任何一条都必须先有 ADR |
-| [ADR-0006](adr/0006-private-calendar-preview-rate-limit.md) | 私人预览按会话近似限速的已批准参数；P3-15 已实施 |
-| [ADR-0007](adr/0007-system-audit-retention.md) | 系统审计保留 180 天的已批准参数；P5-02 负责注册、期限校正与清理 |
-| [ADR-0008](adr/0008-blocked-preview-pagination-limit.md) | 极大 blocked 私人预览取不全的已接受限制；F3-04 如实处理，P5-04 公开 |
-| [ADR-0009](adr/0009-ai-draft-prefill.md) | AI 草稿预填、人工一键批准（所有者 2026-10-04 批准；P3-17 实施）；草稿不自动发布，P3-09 仍关闭 |
-| [ADR-0010](adr/0010-glm-draft-model-and-version-notes.md) | AI 草稿改用 glm-5.3-flash、提示词 v2、版本公告纳入、旧草稿重起草（所有者 2026-10-04 决定；P3-18 实施）；版本时间表由 ADR-0011 落实 |
-| [ADR-0011](adr/0011-version-timeline-derivation.md) | 版本时间表：管理员逐项确认版本时间，"X.Y版本更新后"推导为日期、"X.Y版本结束"推导为确认时刻（所有者 2026-10-04 批准；P3-19 实施）；管理端拆为三页 |
-| [ADR-0012](adr/0012-candidate-size-and-admin-controls.md) | 候选整体上限独立为 32 KiB，整篇版本公告的 AI 草稿一次采用、不拆分；修正长公告批准误判节点超限；运行开关改为页面内确认并说明来源能力（所有者 2026-10-05 批准；P3-20 实施） |
-| [ADR-0013](adr/0013-year-completion-and-version-phrases.md) | 没写年份的日期按公告自身的明确日期（或所属版本更新开始、发布日期）确定性补全年份；"版更后""上线起"加入版本锚点（所有者 2026-10-05 批准；P3-21 实施） |
-| [ADR-0014](adr/0014-official-article-reader.md) | 「查看官方公告」改为原文弹窗：官方接口只允许米哈游自家域名跨域读取，改读本站保存的正文版本，在浏览器里整理成可读文字（所有者 2026-10-05 选定；P3-22 实施） |
-| [ADR-0015](adr/0015-schedule-ui-simplification.md) | 日程与详情界面简化：官方游戏图标、配色避开强调红、24 小时内为高危、统一叫"活动"、待定折叠、时间轴跨日连续；`PUBLIC_CACHE_FRESH` 改为 1 小时、公开读取 `no-cache`（所有者 2026-10-05 批准；F1-07 实施） |
-| [ADR-0016](adr/0016-pic-list-and-miyoushe-retirement.md) | 公告接口同一响应里的图文资讯目录（`pic_list`）纳入现有来源，补上崩铁跃迁与绝区零调频；米游社来源下线，遗留数据保留但不再参与轮询、公开状态与抽取（所有者 2026-10-05 决定；P3-23 实施） |
-| [ADR-0017](adr/0017-schedule-order-and-show-more.md) | 日程从上到下按时间先后、从开始到结束（昨天带移到顶部）；时间范围收进「筛选」；加载提示放到时间线顶部；末行写明档位并"显示更多"逐档续读、页面不整体刷新（所有者 2026-10-05 提出；F1-08 实施） |
-| [ADR-0018](adr/0018-review-skip-switch.md) | 「跳过审核」运行开关：默认关闭；开启后通过全部检查的新 AI 草稿由系统批准为模型路径候选，发布仍走发布待办、不加人工锁；疑似重复、时间未定、有歧义、遇人工锁的留给人工（所有者 2026-10-06 提出；P3-25 实施；P0-03b 未做由所有者知情接受） |
-| [ADR-0019](adr/0019-hyphen-dates-and-image-only-items.md) | "2026-09-30 12:00"横线写法与斜线写法同样解析为官方明确时间；图文资讯里只有图片（无标题、无正文文字）的条目不入库，补上标题后按变更入库（所有者 2026-10-06 提出；P3-24 实施） |
-| [ADR-0020](adr/0020-timeline-integration.md) | 时间轴整合：今天没有安排也画出今天与"现在"时刻线；回看昨天是主时间轴第一行、展开后接在轴上；时间待定是下方单独的折叠卡片；日期点、已过条目与窄屏版式优化（所有者 2026-10-06 提出；F1-09 实施） |
+| [备份恢复手册](runbooks/backup-restore.md) | P5-03 本地加密备份/校验/隔离恢复、分离保管与所有者目标环境证据门；工具已合，正式备份未执行 |
+| [P5-04 关闭门部署与E3清单](evidence/p5/owner-handoff.md) | 首次关闭门发布记录、之后每次部署的顺序、E3 取证表（仍未完成） |
+| [P5-04 本地交付证据](evidence/p5/results.md) | 负载13组、离线对账、公开限制和历史失败；仅E1/E2，不当目标计费证据 |
+| [P0 证据目录](evidence/p0/README.md) | 来源样本、平台事实、日历客户端与邮件链路的 P0 证据（结论见 `evidence/p0/CONCLUSIONS.md`） |
 | [P3-17 真实调用取证](evidence/p3/ai-draft-probe.md) | 6 次真实调用的响应形状、计费口径与 `/no_think` 结论（ADR-0009 依据，不是 P0-03b 质量评估） |
+
+代码目录里另有模块说明（不是合同）：`apps/web/README.md`（网页目录与设计系统约定）、`apps/worker/src/public/README.md`（公共读 API）、`apps/worker/src/shell/observability/README.md`（观测与运行开关）、`apps/worker/src/mail/*/README.md`、`apps/worker/src/accounts/reclaim/README.md`、`scripts/load/README.md`、`scripts/probes/README.md`。
 
 ## 阅读顺序
 
 1. 第一次进入本仓库：`AGENTS.md` → `BUILD_PLAN.md` → `ENGINEERING.md`。
-2. 领到任务卡：`tasks/<阶段>.md` 中本卡全文 → 卡中列出的合同章节原文 → `CONTRACTS_BASELINE.md` 对应条目。
+2. 领到任务卡：`tasks/<阶段>.md` 中本卡全文 → 卡中列出的合同章节原文（先查 `CONTRACTS_BASELINE.md` §0 该节有没有被 ADR 修订）→ `CONTRACTS_BASELINE.md` 对应条目。
 3. 自检与交付：`ACCEPTANCE.md` 中本卡涉及的验收 ID → `AGENTS.md` 第 5 节报告模板。
 
 ## 状态
 
 | 文档 | 状态 | 说明 |
 | --- | --- | --- |
-| 主方案 v2.1 / 前端 v1.0 | 已定稿 | 变更须经 ADR |
-| 执行层文档 | 随阶段推进更新 | 任务卡在阶段开始前细化，不追溯修改已验收卡的验收标准 |
-| D1′ / D2 / D3 三组待确认合同 | D1′ **已定案**；D2、D3 **2026-09-30 已审定** | 见前端文档 §13 与 `BUILD_PLAN.md` 门禁表；未关闭前受影响功能不得按前端推测上线 |
-| P0 证据 | **部分取得** | 来源样本、Apple 日历实测、平台计量、真实收件人发信与邮件反馈链路已取得（G-P0-MAIL 已开）；目标环境（Cloudflare 上）探针仍缺；模型计费首版不需要（2026-09-30 所有者决定首版不带模型抽取），见 `BUILD_PLAN.md` 门禁表 |
+| 主方案 v2.1 / 前端 v1.0 | 已定稿 | 正文不改；变更经 ADR，文首导航注指向 `CONTRACTS_BASELINE.md` §0 的逐节修订表 |
+| 执行层文档 | 随阶段推进更新 | 任务卡在阶段开始前细化，不追溯修改已验收卡的验收标准；2026-10-06 按 main `cea8145` 与线上部署整理过一次 |
+| D1′ / D2 / D3 三组待确认合同 | D1′ **已定案**；D2、D3 **2026-09-30 已审定** | 见前端文档 §13 与 `BUILD_PLAN.md` 门禁表；D1′ 的首页档位按 ADR-0023 为五档 |
+| P0 证据 | **部分取得** | 来源样本、Apple 日历实测、平台计量、真实收件人发信与邮件反馈链路已取得（G-P0-MAIL 已开）；目标环境（Cloudflare 上）的 E3 取证仍缺。模型：所有者 2026-09-30 决定首版不带模型抽取，G-P0-MODEL 未开；2026-10-04 起 AI 草稿预填（ADR-0009/0010）不经该门禁、人工批准才发布，「跳过审核」开关（ADR-0018）默认关闭、P0-03b 未做由所有者知情接受 |
 
+## 最新状态（2026-10-06）
 
-2026-10-03 最新状态：首版69/69代码已合，P2-01维护#87已验收squash为 `6c22c87` 并用于首次关闭门发布。独立八命令全过、37探针与6/6变异通过；远端迁移至0026，18项控制关闭状态已核实，正式域名页面与公开状态读取通过。注册/外发/日历等继续关闭；真实Widget配对、新token/重放、Secrets、独立备份及其余P5-04 E3仍未完成，正式上线未放行。#42继续暂停，模型自动发布/Push首版不做（2026-10-04 所有者批准 ADR-0009：AI 草稿预填、人工一键批准由 P3-17 实施）；个人Cloudflare映射与原始资料保留本地，不重复派发已合维护卡。
+main `cea8145`；正式站点 https://hoyo.airo.cc 运行同一提交（2026-10-06 13:37 部署）。除暂停的 P3-13（#42）、首版不做的 P0-03a/03b 与 P3-09、待所有者确认范围的 F6-02 和可选 Push 外，任务卡代码全部合入（90 张中 82 张，另有 3 张 2026-10-06 起草、暂不派发的修正卡；2026-10-03 首版口径 69/69 不变）。最大迁移 0028。平台侧 Secrets、发信绑定、Queue 消费者与 DLQ、事件订阅、Cron、边缘限速均已配置；公开状态显示注册关闭、发信可用、日历与邮件能力开放、Push 关闭。P5-04 的 E3 取证与开放注册仍未完成。2026-10-06 整理时发现的偏差，所有者当日裁定：统计信标与静态页 Referrer-Policy 按现状修订合同（ADR-0021、0022），#89 的三处界面调整追认（ADR-0023）；日历区域的客户端说法、"即将截止"卡、续租状态与退订头 DKIM 取证记为已知问题，暂不处理。详见 [BUILD_PLAN 进度与后续计划](BUILD_PLAN.md)。

@@ -9,7 +9,7 @@
 - 继续加载时使用原筛选及 `cursor=encodeURIComponent(nextCursor)`。每页是稳定节点身份序的有界扫描结果，前端按时间分组；空页也必须继续检查 `nextCursor`。只有它为 `null` 才加载完毕。换代、跨北京时间日或换筛选使用旧游标时返回 `409 conflict`，清空后重新加载，不跨代拼接。
 - `GET /api/v2/events/{eventId}`：使用节点的 `eventId`，不是 Milestone `id`。缺少本代事件返回 404。`importantNodeId` 只选择实际存在、尚未到计划时刻/日期或待定的节点；没有当前安排时为 null，不虚构“实际进行中”。
 - `GET /api/v2/events/{eventId}/articles`（P3-22 / ADR-0014）：该事件依据的官方公告原文，见下文「公告原文」。
-- `GET /api/v2/status`：保留原有注册和全局邮件可用字段；公开来源状态、缺口聚合、代次、客户端实测范围。P5-01 的四种能力全部 `unknown`。
+- `GET /api/v2/status`：保留原有注册和全局邮件可用字段；公开来源状态、缺口聚合、代次、客户端实测范围。能力四项由 P5-01 在状态路由（`accounts/admission/status.ts`）用 `publicOperationalCapabilities` 按运行开关推导；本模块 `readPublicStatus` 只给 `unknown` 占位。
 - 不传 Cookie 或私人参数；服务端公开路由不读取 Cookie、不鉴权、不建身份、不续会话。
 
 `PublicScheduleNode` 沿用样例节点的 `id/title/game/eventType/nodeType/status/time/evidence/noticePublishedAt`，新增 `eventId`；未知公告发布时间为 null，`change` 缺失时为 null（样例为 undefined）。真实列表有独立 `recentChanges` 和分页字段，不能强转成 `synthetic: true` 的 `ScheduleSnapshot`。
@@ -41,7 +41,7 @@
 
 没有完整代次：catalog/status 的 `publication=null`；events/detail 返回 503。events/detail 查询失败、行超字节保护、详情超节点/字节保护明确不可用。
 
-`/status` 各项独立读取。来源查询失败或超限时 `sources=null`；成功无来源为 []，成功有来源则逐来源一行。待审查询失败、超过保护值或包含无法归属候选时，所有可能受影响游戏的 `reviewGaps[].count=null`，不用截断值冒充精确数；其他聚合保留。注册、邮件按各自既有开关读取，读取失败分别关闭，不受公开聚合失败牵连，接口仍返回 200。能力 schema 接受 open/closed/unknown，本卡均 unknown。
+`/status` 各项独立读取。来源查询失败或超限时 `sources=null`；成功无来源为 []，成功有来源则逐来源一行。待审查询失败、超过保护值或包含无法归属候选时，所有可能受影响游戏的 `reviewGaps[].count=null`，不用截断值冒充精确数；其他聚合保留。注册、邮件按各自既有开关读取，读取失败分别关闭，不受公开聚合失败牵连，接口仍返回 200。能力 schema 接受 open/closed/unknown，本卡均 unknown（P5-01 起由状态路由按运行开关覆盖）。
 
 没有调用整代 `readCurrentPublicSnapshot().all()`，因为那会令单次读量随整代增长。本模块以相同 `state=current` 为权威、用索引分片读取，并在输出前再次核对代次身份；未改共享快照构建器。已合入 P3-06 主线并核对同代读模型。
 
@@ -72,6 +72,8 @@ P3-23（2026-10-05）：`sources` 查询排除已下线来源名单（`json_each
 外部 CDN 缓存行为和生产部署未执行；这些本地证据不替代 P0/P5 放行。
 
 ## 第二轮变异与集成证据（2026-09-30）
+
+（历史记录：下文的 `check-mutations.mjs` 已在 #55 删除，命令不能再直接复跑。）
 
 `node apps/worker/src/public/check-mutations.mjs`：5 个定向基线各通过 1 条；依次落地 `< end → <= end`、近期变更 `> → >=`、移除证据时间比较、详情保留墓碑、跳过候选匹配的发布时间闸门。每次核对实际文件与 SHA-256 后运行对应测试，全部因 AssertionError 退出 1；finally 恢复原始文件并复核 SHA-256。没有把编译失败算作击杀。工具不得与编辑/测试并行。
 

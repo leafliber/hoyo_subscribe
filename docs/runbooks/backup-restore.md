@@ -12,10 +12,10 @@
 
 | 组 | 内容 |
 | --- | --- |
-| 正式事实与证据 | sources/articles/article_versions、events/milestones、evidence、候选/抽取、event_revisions；内容 hash 用现有 articleContentHash 重算，证据外键和 block_ref 校验 |
+| 正式事实与证据 | sources/articles/article_versions、events/milestones、evidence、候选/抽取、event_revisions、AI 草稿 `ai_drafts`（0027）、版本时间表 `game_version_suggestions`/`game_versions`（0028）；内容 hash 用现有 articleContentHash 重算，证据外键和 block_ref 校验 |
 | UID/版本与公共输出 | Feed namespace、节点 ID、三个业务版本、Feed view_revision、投影/更正/快照及缩水守卫历史；不重置 namespace，不制造新的全局取号 |
 | 身份与撤销 | users、会话/认证/最近认证、恢复凭证与轮换、订阅、email_channels、consent_events、suppressions、Push 绑定表 |
-| 必要运行状态 | jobs、两种 outbox、occurrences、deliveries、反馈、日池账本、公平游标、活动写失败、配额/预占、system_state、admin_sessions、audit_log |
+| 必要运行状态 | jobs、两种 outbox、occurrences、deliveries、反馈、日池账本、Workers AI 日账本 `ai_usage_days`（0027）、公平游标、活动写失败、配额/预占、system_state、admin_sessions、audit_log |
 
 D1 的内部 `_cf_KV` 与 `d1_migrations` 不作为应用事实备份；应用迁移文件名和 SHA-256 列表在认证加密包内，导入目标的迁移登记由所有者核实。DO alarm 和 Queue/DLQ 不在 D1 SQL 里，必须按后面的独立恢复步骤处理，不能宣称已备份它们。
 
@@ -51,7 +51,7 @@ CLI 的 `--master-file` 是原始字节，不是 Wrangler 注入用的 hex 文�
 
 ```sh
 umask 077
-CI=1 WRANGLER_SEND_METRICS=false pnpm exec wrangler d1 export "$BACKUP_DATABASE" --remote --output "$BACKUP_DATA/export.sql"
+CI=1 WRANGLER_SEND_METRICS=false WRANGLER_HIDE_BANNER=true pnpm exec wrangler d1 export "$BACKUP_DATABASE" --remote --config "$P504_DEPLOY_CONFIG" --output "$BACKUP_DATA/export.sql"
 ```
 
 记录请求阻塞起止、失败/超时、导出字节数、迁移号与冻结点（不记录完整 URL/个人内容）。这是全量 schema+data 导出，不能只导事件表。
@@ -71,7 +71,7 @@ CI=1 WRANGLER_SEND_METRICS=false pnpm exec tsx scripts/backup/cli.mjs retention 
 
 ### 1. 隔离并关外发
 
-先从负载入口摘除待恢复库，停旧执行器/在途请求，断开真实邮件、Push、模型、来源、Queue 消费和 DO 唤醒；核实不会有旧 isolate 对新库写回。不是只依赖导出里的布尔开关。所有者持有的 `current.json` 必须有 `isolated:true`、`outboundDetached:true`，并由操作者在当前事故冻结点确认。工具自身无网络、无平台绑定。即使输入备份旧开关为 true，输出所有 contracts 运行门关闭，`read_only=true`，每个来源门关闭。
+先从负载入口摘除待恢复库，停旧执行器/在途请求，断开真实邮件、Push、模型、来源、Queue 消费和 DO 唤醒；核实不会有旧 isolate 对新库写回。不是只依赖导出里的布尔开关。所有者持有的 `current.json` 必须有 `isolated:true`、`outboundDetached:true`，并由操作者在当前事故冻结点确认。工具自身无网络、无平台绑定。即使输入备份旧开关为 true，输出所有 contracts 运行门关闭（含 P3-25 的 `review_skip_enabled`），`read_only=true`，每个来源门关闭。
 
 ### 2. 校验 Schema、密文、证据
 
@@ -137,7 +137,7 @@ CI=1 WRANGLER_SEND_METRICS=false pnpm exec tsx scripts/backup/drill.mjs
 CI=1 WRANGLER_SEND_METRICS=false pnpm --filter @hoyo/worker exec vitest run src/executors/pipeline/runtime.test.ts src/executors/delivery/runtime.test.ts src/mail/feedback/feedback.test.ts src/storage/crypto/unsubscribe.test.ts
 ```
 
-专项脚本不在根 `pnpm test` 自动收集范围，须显式运行，不用根测试绿替代。本地 drill 实际启动公开 CLI 子进程，生成全迁移合成库→SQL→加密文件→校验→关闭门恢复 SQL→重新导入，并实际执行损坏密文/错钥/旧 epoch/输出覆盖拒绝。只提交脱敏 report，不提交原始库/SQL/密文/随机材料。恢复日后迁移变化必须在原分支 merge main 后重跑，不能拿旧演练结论代替兼容。
+专项脚本不在根 `pnpm test` 自动收集范围，须显式运行，不用根测试绿替代。（2026-10-06 文档整理：0027、0028 合入后应用表为 47 张，工具按迁移目录动态枚举、无需改动，但还没有重跑记录；下次带迁移的发布前补跑并登记。）本地 drill 实际启动公开 CLI 子进程，生成全迁移合成库→SQL→加密文件→校验→关闭门恢复 SQL→重新导入，并实际执行损坏密文/错钥/旧 epoch/输出覆盖拒绝。只提交脱敏 report，不提交原始库/SQL/密文/随机材料。恢复日后迁移变化必须在原分支 merge main 后重跑，不能拿旧演练结论代替兼容。
 
 ## 所有者目标环境证据模板
 

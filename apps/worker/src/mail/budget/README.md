@@ -20,7 +20,7 @@ unknown 等待 P4-07 反馈/对账，deferred 不重投；不增加 unknown 次�
 
 Delivery 先跑原认证优先发送与发生项展开，再运行预算批准。业务批次 ID 与本轮 deferred 组合持久保存在 `delivery:dispatch`；每轮工作槽来自 SEND_CONCURRENCY，墙钟来自 EXECUTOR_BATCH_WALL_LIMIT。预算拒绝不堵住后注册用户；下一轮重置 deferred，公平游标一直保留。新增到期项在下一批进入，失败发生项从批次排除，不能借 P4-02 的展开入口复活。
 
-P4-06 尚未提供 `SendDeps.unsubscribe` 时不批准新的业务邮件；运行期开关关闭时也不批准。生产仍须 P4-06 接真实退订入口，模板汉化和北京时间展示仍归 P4-06；本卡测试均注入合成 URL 与 MailProvider 替身。认证 floor 与 mail_sending_available 继续是两道独立门。
+P4-06 尚未提供 `SendDeps.unsubscribe` 时不批准新的业务邮件；运行期开关关闭时也不批准。生产仍须 P4-06 接真实退订入口（现状：P4-06 已在 `mailDependencies` 提供 `SendDeps.unsubscribe`，缺退订配置或开关关闭时仍不批准业务邮件），模板汉化和北京时间展示仍归 P4-06；本卡测试均注入合成 URL 与 MailProvider 替身。认证 floor 与 mail_sending_available 继续是两道独立门。
 
 跨日扫描按 outbox 的活动状态索引定位，每页 MATCH_PAGE；每封坏意图单独留 failed，暂时错误下一 watchdog 才重试。`delivery_budget_failed` 和 `delivery_dispatch_failed` 只输出固定原因码，供 P5-01 登记；不修改验收方维护文档。预算扫描的阶段故障单独写 `delivery:budget-backoff`，调度读失败写 `delivery:dispatch-backoff`；都不关闭认证核心开关。历史 usage_periods / outbox / mail_send jobs 仍按既有 P5 保留合同回收；批次用 P4-02 `pruneExpiredDispatchBatch` 清理，固定 coordinator 与公平游标不按日删除。
 

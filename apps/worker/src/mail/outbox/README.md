@@ -30,47 +30,49 @@ contracts/enums.ts 的 accepted 注释已按返工授权纠正为平台受理；
 - `AUTH_MAIL_FROM`、`BIZ_MAIL_FROM`：所有者核定地址，与 Wrangler 两个绑定各自的 allowed_sender_addresses 对齐；地址不进入模板。
 - `SITE_ORIGIN`：稳定 HTTPS origin。
 - 既有 `CRYPTO_MASTER_SECRET`、`CRYPTO_OTP_PEPPER`、`CRYPTO_UNSUBSCRIBE_KEY_ID`：只通过部署秘密注入。
+- （P5-01 起）全部外发总门 `outbound_enabled` 为 true。
+- （#90 起）`AUTH_MAILER`、`BIZ_MAILER` 两个发信绑定真的挂上（有 `send`）；先开开关、后绑服务时不会先生成验证码占额度。
 
-明确的 `E_RATE_LIMIT_EXCEEDED`、`E_DAILY_LIMIT_EXCEEDED`、`E_SENDER_NOT_VERIFIED`、`E_SENDER_DOMAIN_NOT_AVAILABLE` 会关闭开关；不自动重新开放、不换域试发。unknown 按所有者 2026-09-30 裁定只终止这一封，不关闭开关、不自动重发，保留 uncertain。`GET /api/v2/status` 暴露全局 `mail_sending_available`，申请/重发/换邮箱验证码在生成前检查，现有验证、会话、恢复及公共读路径不受此门控制。P5 管理界面上线前由所有者按下述命令手动恢复，本卡没有管理写 API。**部署本 PR 后、开关打开之前，认证申请、重发及换邮箱验证码入口一律返回暂不可用。**
+明确的 `E_RATE_LIMIT_EXCEEDED`、`E_DAILY_LIMIT_EXCEEDED`、`E_SENDER_NOT_VERIFIED`、`E_SENDER_DOMAIN_NOT_AVAILABLE` 会关闭开关；不自动重新开放、不换域试发。unknown 按所有者 2026-09-30 裁定只终止这一封，不关闭开关、不自动重发，保留 uncertain。`GET /api/v2/status` 暴露全局 `mail_sending_available`，申请/重发/换邮箱验证码在生成前检查，现有验证、会话、恢复及公共读路径不受此门控制。P5 管理界面上线前由所有者按下述命令手动恢复，本卡没有管理写 API。（P5-01 起优先在管理端「运行开关」页切换：选理由、条件写入、同批审计；下列命令只在管理端不可用时兜底，且不写审计。）**部署本 PR 后、开关打开之前，认证申请、重发及换邮箱验证码入口一律返回暂不可用。**
 
 ### 所有者手动开关（本卡未执行远端命令）
 
-先由所有者将 `apps/worker/wrangler.jsonc` 的 D1 占位 ID 替换为其部署环境的实际 ID，并完成上述变量/秘密配置与真实发送前置。以下从仓库根执行，`DB` 是 Wrangler 已有 D1 binding，不创建资源。`updated_at` 使用 UTC Unix 毫秒。
+真实 D1 ID 只放在源码外的私有部署配置里（2026-10-03 所有者隐私要求，不改仓库 `wrangler.jsonc` 的占位 ID），下列命令都带 `--config "$P504_DEPLOY_CONFIG"`（同 `docs/evidence/p5/owner-handoff.md`）；并完成上述变量/秘密配置与真实发送前置。以下从仓库根执行，`DB` 是 Wrangler 已有 D1 binding，不创建资源。`updated_at` 使用 UTC Unix 毫秒。
 
 关闭（阻止新的验证码生成及外发，不撤回已调用的邮件）：
 
 ```sh
-pnpm --filter @hoyo/worker exec wrangler d1 execute DB --remote --command "INSERT INTO system_state(key,value_json,updated_at) VALUES ('mail_sending_available','false',unixepoch()*1000) ON CONFLICT(key) DO UPDATE SET value_json='false',updated_at=excluded.updated_at;"
+pnpm --filter @hoyo/worker exec wrangler d1 execute DB --remote --config "$P504_DEPLOY_CONFIG" --command "INSERT INTO system_state(key,value_json,updated_at) VALUES ('mail_sending_available','false',unixepoch()*1000) ON CONFLICT(key) DO UPDATE SET value_json='false',updated_at=excluded.updated_at;"
 ```
 
 开启（确认发送前置与故障原因已处理；unknown 不重置、不退还其占用）：
 
 ```sh
-pnpm --filter @hoyo/worker exec wrangler d1 execute DB --remote --command "INSERT INTO system_state(key,value_json,updated_at) VALUES ('mail_sending_available','true',unixepoch()*1000) ON CONFLICT(key) DO UPDATE SET value_json='true',updated_at=excluded.updated_at;"
+pnpm --filter @hoyo/worker exec wrangler d1 execute DB --remote --config "$P504_DEPLOY_CONFIG" --command "INSERT INTO system_state(key,value_json,updated_at) VALUES ('mail_sending_available','true',unixepoch()*1000) ON CONFLICT(key) DO UPDATE SET value_json='true',updated_at=excluded.updated_at;"
 ```
 
 若执行器核心曾因确定性错误停止，`delivery:backoff` 的 failed 行也会使生成前闸门与公开状态保持关闭；不能只改 true 强行开放。修复核心故障后，**先**解除该行，再执行上述开启命令。优先用管理员接口 `POST /api/v2/admin/delivery/rearm`（同批审计、乐观并发，见 `shell/observability/README.md`）；无法使用时才手工执行：
 
 ```sh
-pnpm --filter @hoyo/worker exec wrangler d1 execute DB --remote --command "UPDATE jobs SET status='done',due_at=unixepoch()*1000,completed_at=unixepoch()*1000,updated_at=unixepoch()*1000,lease_version=lease_version+1 WHERE id='delivery:backoff';"
+pnpm --filter @hoyo/worker exec wrangler d1 execute DB --remote --config "$P504_DEPLOY_CONFIG" --command "UPDATE jobs SET status='done',due_at=unixepoch()*1000,completed_at=unixepoch()*1000,updated_at=unixepoch()*1000,lease_version=lease_version+1 WHERE id='delivery:backoff';"
 ```
 
 读取确认（仅固定开关、错误码与计数，不输出收件地址/验证码）：
 
 ```sh
-pnpm --filter @hoyo/worker exec wrangler d1 execute DB --remote --command "SELECT key,value_json,updated_at FROM system_state WHERE key='mail_sending_available'; SELECT id,status,last_error,attempts,due_at FROM jobs WHERE id IN ('delivery:backoff','delivery:occurrence-backoff');"
+pnpm --filter @hoyo/worker exec wrangler d1 execute DB --remote --config "$P504_DEPLOY_CONFIG" --command "SELECT key,value_json,updated_at FROM system_state WHERE key='mail_sending_available'; SELECT id,status,last_error,attempts,due_at FROM jobs WHERE id IN ('delivery:backoff','delivery:occurrence-backoff');"
 ```
 
-公开 `GET /api/v2/status` 的 `mail_sending_available` 还会核对服务端配置及核心退避行；仅数据库 true 不代表已具备可发条件。下一次认证提交会安排唤醒，Cron 也会恢复 alarm。不要直接重置 unknown 或批量重置所有 failed 单元。
+公开 `GET /api/v2/status` 的 `mail_sending_available` 还会核对服务端配置、发信绑定、外发总门及核心退避行；仅数据库 true 不代表已具备可发条件。下一次认证提交会安排唤醒，Cron 也会恢复 alarm。不要直接重置 unknown 或批量重置所有 failed 单元。
 
 ### unknown 的已知代价（所有者裁定；暂不实现替代暂停机制）
 
 - 平台只超时、不明确报错时不会自动停：后续申请仍生成验证码并外调，可能持续 unknown，用户需明确重发。
 - unknown 保留 uncertain，待 P4-07 反馈或对账；连续 unknown 会占满当日认证池并触发 `MAIL_AUTH_FLOOR` 降级，后续用户可能无法登录。损失限于当日池，次日额度恢复；本卡不提前实现 P4-04 的降级执行。
 - 外调仍按批次剩余时间超时。前一封慢可能让后一封仅剩很短时间并落 unknown；影响限于该封的占用与重发，本次未改超时份额。
-- 当前 `mail_provider_failed/provider_unknown` 只记录日志。P5-01 unknown 告警接通之前没有自动告警通知；本卡不按次数或比例暂停。
+- 当前 `mail_provider_failed/provider_unknown` 只记录日志。P5-01 unknown 告警接通之前没有自动告警通知；本卡不按次数或比例暂停。（P5-01 起另计 `mail_provider_unknown`，`GET /api/v2/admin/observability` 显示告警；仍没有主动通知。）
 
-业务批准调度尚未接通。P4-04 必须先在 P4-02 批准事务中预留预算，再接调度；不能把 `period_key = OUTBOX_UNRESERVED_PERIOD_KEY` 改成非空就冒充预算。未调用的跨日重新预留、新调用预算、日池降级仍由 P4-04 完成。P4-06 接入 `MailContentDeps.unsubscribe`，提供真正可用的正文确认/one-click URL；未接入时业务模板失败关闭，不发送虚假的退订入口。测试注入的 URL 全是合成样例。
+业务批准调度尚未接通（现状：P4-04 已在批准事务内预留预算并接上调度，P4-06 已接退订）。P4-04 必须先在 P4-02 批准事务中预留预算，再接调度；不能把 `period_key = OUTBOX_UNRESERVED_PERIOD_KEY` 改成非空就冒充预算。未调用的跨日重新预留、新调用预算、日池降级仍由 P4-04 完成。P4-06 接入 `MailContentDeps.unsubscribe`，提供真正可用的正文确认/one-click URL；未接入时业务模板失败关闭，不发送虚假的退订入口。测试注入的 URL 全是合成样例。
 
 认证 binding 的错误枚举和结构化 send 对齐 [Cloudflare Workers API](https://developers.cloudflare.com/email-service/api/send-emails/workers-api/)（2026-09-30 读取）。仓库锁定的生成类型仍是旧 EmailMessage 签名，因此适配边界使用窄接口断言，不升级依赖、不调用 REST 兜底。需要所有者在真实环境验证原生绑定与退订 DKIM，不能用本地替身通过来替代。
 
@@ -80,7 +82,7 @@ DeliveryDO/main 串行整个异步工作单元。每个 alarm 的发送尝试和
 
 最保守的仅 watchdog 唤醒算式：一天可恢复 `86400/WATCHDOG_INTERVAL × SEND_CONCURRENCY × MATCH_PAGE` 个过期租约（当前 5760），正常外发/展开会靠连续 alarm 继续推进。慢供应商可能消耗剩余批次墙钟并留下 unknown，后续批次继续处理其他邮件；不声称固定送达 SLA。大量单用户合并条目的读取成本与生产积压仍需 P5-04 负载证据。
 
-每条发送记录只复用一条 jobs，不逐重试追加历史。`pruneMailJobPage` 按 MAIL_METADATA_TTL/MATCH_PAGE 清理已完成元数据；P5 调用直到完成并受其墙钟约束。未知、deferred 和未完成任务保留待对账，不假装它们已送达。mail_outbox/Delivery 自身的容量和历史回收沿既有 P5 合同；本卡不提前实现其回收策略。
+每条发送记录只复用一条 jobs，不逐重试追加历史。`pruneMailJobPage` 按 MAIL_METADATA_TTL/MATCH_PAGE 清理已完成元数据；P5 调用直到完成并受其墙钟约束（现由 `scheduled/reclaim.ts` 调用）。未知、deferred 和未完成任务保留待对账，不假装它们已送达。mail_outbox/Delivery 自身的容量和历史回收沿既有 P5 合同；本卡不提前实现其回收策略。
 
 发生项起步与 nextAlarm 共用 `idx_occurrences_unexpanded_expiry` 部分索引，以 expires_at 范围排除过期历史，再排序当前未失效、未展开集合。真实 D1 基准分别加入已展开、已失效、已过期各 2000 条，验证两条生产 SQL 的 rows_read 不增长；成本仍随当前活跃集合变化。迁移暂取 main 下一个编号 0019；若 P3-06 先合入，后合入方须改号。
 

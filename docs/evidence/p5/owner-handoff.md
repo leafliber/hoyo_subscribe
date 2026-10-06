@@ -1,5 +1,7 @@
 # P5-04 所有者取证与关闭门部署清单
 
+**2026-10-06 现状（验收方经 Cloudflare 连接器与公开接口只读核对，未看取值）**：正式站点运行 main `cea8145`（2026-10-06 13:37 部署，版本 tag 即合入短 SHA）。首次发布之后所有者已自行完成：五个 Secret、Workers AI 绑定、两个 send_email 绑定与发件变量、反馈变量、Queue 唯一消费者切换为本 Worker 并配 DLQ、两个发件域的事件订阅、Cron、认证与管理员会话入口的边缘限速，远端迁移到 0028；并已打开发信（`mail_sending_available` 为 true）与日历、邮件席位、常规邮件能力，注册仍关闭。下文 2026-10-03 的记录保留原样；"之后每次发布的顺序"一节是 #97 起实际采用的步骤；**E3 取证表没有新的登记**，配置存在不代表该项取证完成。
+
 本清单记录首次关闭门发布结果及后续待办。**2026-10-03 所有者明确委托验收方执行源码外首次部署步骤1–4，并要求 #87 审核后发布；已完成迁移、关闭初始化及部署，未配置秘密、未发真实邮件。**正式 origin 为 https://hoyo.airo.cc。注册/外发继续关闭，未取得的 E3 不作通过；此授权不扩大为其他平台改动、收费产品、权限或正式开放。
 
 ## 2026-10-03 所有者已提供的首次部署信息
@@ -9,10 +11,12 @@
 | Worker | 已于2026-10-03发布提交 `6c22c87`；实际名称及平台版本 ID 只留本地私有记录 |
 | D1 | 远端空库已应用0001–0026并核对26项记录；初始化18项关闭控制，发布前账号0。名称、UUID及账户映射只留私有配置，绑定仍为 `DB` |
 | 正式域名 | https://hoyo.airo.cc 已作为该 Worker 的自定义域名发布；页面及公开状态读取通过 |
-| Turnstile | 已有组件；公开 Site Key 已由所有者提供，仅保存在本地构建/部署环境。允许主机名包含 `hoyo.airo.cc` 尚待所有者确认，secret 配对和目标实测尚未完成 |
+| Turnstile | 已有组件；公开 Site Key 已由所有者提供，仅保存在本地构建/部署环境。允许主机名包含 `hoyo.airo.cc` 尚待所有者确认，secret 配对和目标实测尚未完成。2026-10-06 核对：允许列表含 `airo.cc`，`TURNSTILE_SECRET_KEY` 已配置；真实新 token 成功/重放拒绝仍未取证 |
 | 备份 | 所有者选择本地备份，但存放位置与独立副本尚未准备。仍须按备份手册落实加密磁盘、独立离线副本、解密/业务恢复材料与当前 epoch 分离保管 |
 
-**眼下需要所有者完成：**确认已有 Turnstile 组件允许正式域名；在已部署 Worker 中按 DEPLOYMENT_PREREQUISITES 配置 Secret，值不发到对话或 GitHub；准备本地加密备份、独立副本和分离保管材料。无需重建资源、重跑首次初始化或重发 P2-01 实现提示。
+（2026-10-03 记录）**眼下需要所有者完成：**确认已有 Turnstile 组件允许正式域名；在已部署 Worker 中按 DEPLOYMENT_PREREQUISITES 配置 Secret，值不发到对话或 GitHub；准备本地加密备份、独立副本和分离保管材料。无需重建资源、重跑首次初始化或重发 P2-01 实现提示。
+
+**2026-10-06 仍需所有者完成**：Secret 与允许列表已配置，剩下的是取证与备份——Turnstile 真实新 token 成功/重放拒绝、认证域送达时延与反馈、两个退订头的 DKIM `h=` 覆盖、DO/Queue/Cron 实际行为、同窗口计费与用量（见下方 E3 表），以及本地加密备份介质、独立离线副本与分离保管。
 
 P2-01 维护 #87 已验收并 squash 为 `6c22c87`，见 [卡末复核](../../tasks/P2.md)。hostname/action 绑定、畸形响应和前端 token 清理的代码缺口关闭；真实 Widget 配对和新 token/重放仍未取证，正式认证继续关闭。首版仍按69/69代码卡统计，不把维护或平台验证伪计为新卡。
 
@@ -43,6 +47,30 @@ CI=1 WRANGLER_SEND_METRICS=false pnpm --filter @hoyo/web build
 - 范围：没有注入秘密、真实发信、配置Queue消费者或Cron。两个DO类已声明，不代表alarm/发送链已实测。来源、计费、独立备份恢复、真实认证与客户端证据继续待办。
 
 发布执行使用真实TTY并设置CI=false：锁定Wrangler的非TTY路径会自动覆盖冲突DNS；不能用无人值守默认yes代替冲突检查。首次终端断言失败时尚未触网，修正命令传入方式后成功，未发生域名覆盖提示。完整验收命令仍统一CI=1。账户/资源映射、版本ID、完整平台输出及本地构建变量留私有目录，GitHub只登记本节脱敏事实。
+
+## 之后每次发布的顺序（#97 起实际采用）
+
+首次发布之后的每次部署都由所有者在自己的终端执行，步骤如下（#97 `c700b34`、#98 `5a9302a`、#99 `cea8145` 的部署指令均按此给出，平台上这三次部署的版本 tag 与合并短 SHA 一致）。所有 wrangler 命令在 `apps/worker` 下运行并带 `CI=1 WRANGLER_SEND_METRICS=false WRANGLER_HIDE_BANNER=true`（本机代理会挂住 wrangler 的版本检查，见 ENGINEERING §3），正式部署那一步除外（见第 6 步）。
+
+1. 主检出 `git status -sb` 干净，`git pull --ff-only`，确认 `git log -1` 是要发布的合并提交。
+2. 检查两个私有变量都在：`: "${PUBLIC_TURNSTILE_SITE_KEY:?…}" "${P504_DEPLOY_CONFIG:?…}"`，再 `export PUBLIC_TURNSTILE_SITE_KEY`。值不发给 Agent。
+3. **先构建网页**：`CI=1 WRANGLER_SEND_METRICS=false pnpm --filter @hoyo/web build`。私有配置的 `assets.directory` 指向主检出的 `apps/web/dist`，网页与 Worker 在同一次 `wrangler deploy` 里上线，不先构建就会把旧网页一起发出去。
+4. `pnpm exec wrangler d1 migrations list DB --remote --config "$P504_DEPLOY_CONFIG"`：有待应用的迁移就先停，按[备份恢复手册](../../runbooks/backup-restore.md)先备份，再 `migrations apply`。
+5. 试运行：`pnpm exec wrangler deploy --dry-run --config "$P504_DEPLOY_CONFIG"`。私有配置要与仓库 `apps/worker/wrangler.jsonc` 的非私有部分保持一致，2026-10-06 起包括 `observability` 块（ADR-0024）。
+6. 正式部署，套交互终端保护，版本 tag 用合并短 SHA：
+
+```sh
+(
+  set -eu
+  test -t 0
+  test -t 1
+  CI=false WRANGLER_SEND_METRICS=false WRANGLER_HIDE_BANNER=true \
+    pnpm exec wrangler deploy --config "$P504_DEPLOY_CONFIG" --tag <合并短SHA> --message "<卡号与一句话说明>"
+)
+# 域名冲突、覆盖或替换提示时选否并停止；不自动确认。
+```
+
+7. 部署后用公开接口核对，例如 `curl -s https://hoyo.airo.cc/api/v2/status` 的来源列表与能力；只读平台核对见 DEPLOYMENT_PREREQUISITES。本次没有迁移时才能直接回滚：`pnpm exec wrangler rollback --config "$P504_DEPLOY_CONFIG" --message "回滚 <SHA>"`；有迁移的发布回滚须先按手册评估数据。
 
 ## 先准备证据，不先开放能力
 

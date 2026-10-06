@@ -13,6 +13,16 @@
   // 升级测试运行时时一并评估此日期。
   "compatibility_date": "2026-08-01",
 
+  // 2026-10-06 所有者在面板开启 Workers Logs（含调用日志），这里同步，保持本地开发与线上一致（ADR-0024）。
+  // 源码外的正式部署配置要写同样的块。调用日志会记下完整请求 URL 与请求元数据，
+  // 个人 Feed 与退订路径里的 token 因此进入 Workers Logs（保留 7 天）。
+  "observability": {
+    "logs": {
+      "enabled": true,
+      "invocation_logs": true
+    }
+  },
+
   // P5-05：网页与 Worker 同项目；动态能力路径始终先进 Worker。
   // 不加 ASSETS 绑定：静态命中由平台直达，未知路径交给现有 Worker 返回 404。
   "assets": {

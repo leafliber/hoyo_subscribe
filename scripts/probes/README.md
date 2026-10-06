@@ -3,6 +3,7 @@
 > 任务卡 P0-01。四个探针各自独立可跑，输出结构化 JSON 到 `docs/evidence/p0/<probe>-<YYYYMMDDTHHMMSS>Z.json`。
 > 证据字段含义、命名规范与秘密政策见 `docs/evidence/p0/README.md`；目标环境操作见 `docs/evidence/p0/OWNER_CHECKLIST.md`。
 > P0-02 新增 `source-samples` 采集器（见下表末行），同样遵循本文件的安全边界。
+> 2026-10-06 注：米游社来源已按 ADR-0016 下线，下表的"四个官方来源"是 P0 时的登记范围；现在只需补采三个公告来源时用 `--only <source_id>`。
 
 ## 探针总览
 

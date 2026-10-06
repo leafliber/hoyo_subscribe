@@ -3,6 +3,55 @@
 > **这份文件不是合同**，是把主方案 v2.1 与前端 v1.0 中跨阶段反复使用的枚举、公式与边界集中到一处，避免执行者每次通读 160 KB。
 > 每条都标注了合同出处。**有任何歧义，回到出处原文**；本文件与原文冲突时以原文为准，并同时修正本文件。
 
+## 0. 已生效的合同修订（ADR）
+
+两份合同的正文自 2026-09-22 导入后不改写；已接受的 ADR 是增补或修订，**被修订的章节以 ADR 为准**。下表按合同章节列出修订它的 ADR 与现行规则（2026-10-06 整理）。部分 ADR 自己的"受影响的合同"表没有点名某一节，但决策正文改到了它，也一并列入。0002 已被 0003 取代，0004 为预留编号，均不列。
+
+**主方案 v2.1**
+
+| 章节 | ADR | 现行规则 |
+| --- | --- | --- |
+| §1.2 本版明确改变的合同 | 0003 | "可持续邮件预算"改为纯 UTC 日额度，不再有月预算与日平滑 |
+| §3.1 来源适配 | 0001、0016 | 生产只登记三个游戏内公告来源（`level` + 登出态哑 `uid`），同一响应读 `data.list` 与 `data.pic_list`；米游社下线 |
+| §3.2 采集与版本 | 0016、0019 | 图文资讯条目外部 ID 加 `pic-` 前缀；标题为空且正文没有可读文字的图文资讯条目不入库 |
+| §3.3 Event / Milestone 合同 | 0011、0013、0019 | `deterministic_derived` 新增版本锚点推导与按同篇日期补全年份；斜线、横线两种完整时刻都算 `official_explicit`（见本文 §1） |
+| §3.4 规则、模型与人工三条发布路径 | 0009、0010、0018 | AI 草稿只做预填，管理员按看到的草稿版本采用并批准；「跳过审核」开启时，合格的新草稿由系统按模型路径批准 |
+| §3.5 模型预算与降级 | 0009、0010 | 草稿模型 glm-5.3-flash，按实际输入预占，日累计不超过 `AI_SOFT_DAY`；模型抽取的计费 profile 仍未配置（P3-09 未做） |
+| §3.6 发布一致性 | 0011、0018 | 版本时间表、补全年份的变化不自动改已发布事件；系统批准的发布不加人工锁，疑似重复留给人工 |
+| §8.1 逻辑数据契约 | 0003、0005、0007、0009、0011 | 管理员审计、系统审计各保留 180 天；新增 `ai_drafts`、`ai_usage_days`（0027）与版本时间表（0028）；`usage_periods` 不含 envelope/carry |
+| §8.2 API 分组 | 0009、0011、0014 | 新增公开 `GET /api/v2/events/{eventId}/articles`；admin 下新增 `review/adopt-draft`、`versions` 等（预览接口见 D2；完整清单见本文 §12） |
+| §8.3 安全、秘密与日志 | 0021、0022、0024 | 允许 Cloudflare 边缘自动注入的 Web Analytics 信标出现在全部页面（含认证与退订页面），站点自身代码仍不引入第三方追踪代码；静态页面 Referrer-Policy 为 `strict-origin-when-cross-origin`（`apps/web/public/_headers`），Worker 响应仍为 no-referrer；平台调用日志（Workers Logs）已开，会记下带 token 的完整 URL，接受与否待所有者确认 |
+| §9.1 唯一预算口径 | 0003 | 只有 UTC 日池：认证 90（其中注册 10）、基础 50、紧急 120，池间不互借 |
+| §9.2 按月剩余自动平滑 | 0003 | 删去 envelope、carry、E=1、软线 S、月末片段；两个 floor 按当日剩余 ≤20 触发；恢复入口仍不依赖发信预算 |
+| §9.3 初值的数量关系 | 0003 | 认证量按日估算，不超过 `MAIL_AUTH_DAY`；按月的算例作废 |
+| §10.1 观测与开关 | 0003、0009、0018、0024 | 新增 `review_skip_enabled`（默认关）；`model_enabled` 控制 AI 草稿；月额、envelope 指标作废（开关全表见本文 §13）；平台侧开启 Workers Logs |
+| §10.3 合并后的验收矩阵 | 0003 | 月末片段、envelope/carry、认证软线相关用例作废 |
+| §10.5 仓库、配置与迁移 | 0003 | 禁止项改为"不得恢复月度池、envelope、carry、认证软线"（AGENTS.md §3） |
+| 附录 A.1 产品、来源与后台 | 0012、0016 | `API_BODY_MAX_BYTES` 仍为 8 KiB，候选另有 `CANDIDATE_MAX_BYTES`；`SOURCE_LIMIT_PROFILE` 只保留三个来源 |
+| 附录 A.3 日历、通知有效期与模型 | 0006、0009、0010、0012、0013、0015 | `PUBLIC_CACHE_FRESH` 3600；私人预览限流 60 秒 30 次；AI 草稿参数（单次最大预占 1,238）；候选上限 32 KiB；补全年份窗口 −30/+330 天 |
+| 附录 A.4 邮件与 Push | 0003 | 席位 100、常规 40；日池合计 260，不超过平台 1,000；两个 floor 各 20；删去五个 `*_MONTH` |
+| 附录 A.5 保留与配置依赖 | 0003、0005、0006、0007、0009、0010、0012、0013 | 邮件等式改为日模型；新增两项审计 TTL，以及 AI、预览限流、候选字节、补全年份窗口的等式（全表见本文 §11） |
+
+**前端 v1.0**
+
+| 章节 | ADR / 补充合同 | 现行规则 |
+| --- | --- | --- |
+| §1.3 首版范围 | 0011 | 管理端拆为 `/admin/`、`/admin/versions/`、`/admin/settings/` 三页，不进普通导航 |
+| §4.1 页面骨架 | 0017、0020 | 筛选行为"游戏、临近截止、筛选"；时间轴自上而下：回看昨天（主轴第一行）→ 当前范围逐日 → "已显示完{档位}"与"显示更多"；时间待定在时间轴下方单独成卡 |
+| §4.2 筛选 | 0017 | 时间范围移入「筛选」弹层，按钮显示当前档位与筛选计数；清除时恢复默认档 |
+| §4.3 条目与排序 | 0015、0017、0020 | 先后顺序统一用 contracts `compareScheduleNodes`；全天条目排在当天精确条目之后；结束节点叫"活动结束"；用官方游戏图标；今天总在轴上 |
+| §4.4 时间与状态呈现 | 0011、0013 | 推导出的时间在详情里写明推导依据（版本锚点、补全年份） |
+| §4.5 数据状态与空结果 | 0015 | 公开读取为 `no-cache`；页面开满 1 小时显示"内容可能已过时/当前离线"与信息获取时间，并给刷新按钮 |
+| §5 事件详情 | 0014、0015、0017 | "查看官方公告"打开本站存档的原文弹窗；删去说明句；时间线用同一先后规则 |
+| §9.1 日历订阅 | 0023 | 界面统一称"订阅链接 / 链接"；四项事实为 链接状态 / 使用的设置 / 内容输出 / 日历应用拉取，客户端情况在"查看订阅步骤"里说明；含义不变 |
+| §11.1 视觉方向 | 0015、0020 | 游戏色只用于已选胶囊；截止 24 小时内为高危、72 小时内为临近；已过条目用次要文字色 |
+| §11.3 错误与重试 | 0023 | 不设全站故障横幅；故障由各功能区状态区与服务状态页说明，本节的反馈要求对这些状态区照样适用 |
+| §12.2 对接责任 | D2、D3、0014 | 权威预览与展示状态字段由 D2、D3 定义；公开读取增加原文子资源 |
+| §13 D1′ 行 | F1-02 卡 D1′；0017、0020、0023 | 默认近 3 天；首页五档：今天 / 近3天 / 近7天 / 近30天 / 全部（旧链接 `range=90d` 按"全部"读，contracts 与公开接口保留 `90d`）；昨天在主轴顶部、默认折叠 |
+| §13.2 D2 的处理原则 | D2；0006、0008、0015 | 浏览器用 `/api/v2/calendar/nodes` 自己算；启用以 `/api/v2/me/calendar/preview` 为准并核对订阅版本与发布代次；极大 blocked 集合可能取不全；续页游标有效 1 小时 |
+| §13.3 D3 的最小语义清单 | D3 | 服务端只给事实，浏览器用 contracts 纯函数推导置灰；操作结果分四种；`GET /api/v2/me` 汇总 |
+| §14.1 体验与交互验收矩阵 | 0015 | U02 读作"活动结束与奖励截止"，验收语义不变 |
+
 ## 1. 枚举（§3.3）
 
 | 维度 | 取值 |
@@ -17,16 +66,20 @@
 | 会话状态 | `pending` / `active` / `revoked`（§4.5） |
 | 发送状态 | `pending` / `leased` / `calling_provider` / `accepted` / `retry_wait` / `unknown` / `deferred` / `bounced` / `failed` / `complained` / `rejected` / `skipped` / `superseded` / `expired`（§7.4） |
 
-**只有精确、证据通过的明确时间或确定性推导可用于提醒**；预计与未知时间可在 Web 标注但不冒充精确提醒（§3.3）。
+**只有证据通过、依据为 `official_explicit` 或 `deterministic_derived` 且 precision 为 `datetime` 的时间可用于提醒**（contracts `time.ts`）；预计与未知时间可在 Web 标注但不冒充精确提醒（§3.3）。只推出日期的推导（版本更新锚点、只写日期的补全年份）不进精确提醒。
 
 ADR-0011（P3-19）版本锚点的确定性推导，唯一定义在 contracts `deriveVersionTime`：
 
 | 原始表达（必须整体就是锚点） | 推导结果 | 用到的确认值 |
 | --- | --- | --- |
-| `X.Y版本更新后` / `更新完成后` / `更新开始后` / `上线后` / `开启后`（可带前缀"自"） | 更新开始当天的日期（北京时间），precision `date`，不推出几点 | 该版本的更新开始 |
+| `X.Y版本更新后` / `更新完成后` / `更新开始后` / `上线后` / `开启后` / `上线起`（可带前缀"自"），以及 `X.Y版更后`（后两种为 ADR-0013 新增） | 更新开始当天的日期（北京时间），precision `date`，不推出几点 | 该版本的更新开始 |
 | `X.Y版本结束` / `结束前` / `结束时` | 版本结束时刻，precision `datetime`，可用于提醒 | 该版本的结束：官方写明的时刻，或紧接着的下一版本（小版本+1，没有时大版本+1 的 .0）已确认的更新开始 |
 
 两者的 `time_basis` 都是 `deterministic_derived`，原始表达原样保留；只推导依据为 `unresolved` 的未定节点。`结束后`、夹带其他文字的表达和官方"预计"（`official_estimate`）的锚点都不推导。确认值只来自管理端版本时间表，未确认时保持 `unknown`。人工写入或批准时，版本锚点节点必须与推导一致（`version_derivation_mismatch`）。公开详情的时间依据里要写明推导依据（前端 §4.4）。
+
+ADR-0013（P3-21）补全年份，唯一定义在 contracts `completeYear`：原始表达整体为"M月D日"（可带 `HH:MM(:SS)` 与"(UTC+8)""（服务器时间）"注记）的未定节点，参照日期依次取正文里最早的四位年份日期、所属版本（标题唯一，否则全文唯一的版本号）已确认的更新开始、公告发布日期；取落在参照日期前 `beforeDays`（30）天到后 `afterDays`（330）天之内的唯一年份（`YEAR_COMPLETION_WINDOW`），没有符合的或没有参照时保持未定。只写日期的补成日期，写了时刻的按北京时间补成精确时刻；`time_basis` 为 `deterministic_derived`，原文保留；官方"预计"不补。推导与版本锚点同在读取时进行，人工写入或批准时同样核对（`version_derivation_mismatch`）。
+
+官方明确时间（`official_explicit`）的完整写法："YYYY/MM/DD HH:MM(:SS)"与"YYYY-MM-DD HH:MM(:SS)"（后者为 ADR-0019 新增），按 UTC+8 解析并做往返校验，分隔符前后必须一致；解析函数在 Worker `extraction/time.ts`，草稿构建与候选证据校验共用。规则白名单模板仍只认斜线写法，规则路径数正文日期时把横线写法算进去、多出的日期转人工。
 
 ## 2. 凭证与授权边界（§1.3）
 
@@ -120,6 +173,8 @@ SEQUENCE = public_ical_revision(milestone) + view_revision(feed)
 ```
 
 理由：完整快照下"少输出一条"等于**向客户端下达删除指令**。客户端对 5xx 的常规行为是保留上一次成功结果，正是需要的兜底。守卫只拦无法解释的收缩；用户自行缩小筛选（`view_revision` 变化）或事实确实取消（公共代次有证据）照常输出。
+
+实现：contracts `feedShrinkBlocked`；#90 起以快照节点的内容代次戳 `content_generation` 判断哪些节点原样属于上次输出的那一代，判定式不变。
 
 前端表现（前端 §9.1、U21a）：显示"本次输出未通过完整性检查，已暂停更新以保护你现有的日历内容"，给出上次成功时间与条目数、重试与联系入口；**不得显示为普通网络错误，不得建议重置地址或重新订阅**。
 
@@ -334,7 +389,52 @@ pending 期限重合，没有问题。**若把 `AUTH_COMPLETION_TTL` 调得比 `
 
 ## 11. 附录 A.5 启动等式（`pnpm params:verify` 必须实现全部）
 
-P5-02 查询预算：`RECLAIM_QUERY_BUDGET` 为安全整数、至少容纳 `9 × MATCH_PAGE + 6` 条（一页最坏语句数及状态读取/提交），且小于 D1 每调用 1000 条平台上限（所有者在 #78 提案后批准 800）；与执行器墙钟同时约束。
+`pnpm params:verify` 与 Worker 启动路径执行同一份校验（`packages/contracts/src/params/verify.ts`），任一不成立即非零退出、拒绝启动。2026-10-06（main `cea8145`）共 **36 条数值等式**，全部成立；另有 1 条语义条款由实现保证。新增等式时同步本表（AGENTS.md §4 允许的例外）。
+
+| 组 | 等式 ID | 内容 | 依据 |
+| --- | --- | --- | --- |
+| 邮件（纯日额度） | `mail-total-day-sum` | `MAIL_TOTAL_DAY = MAIL_AUTH_DAY + MAIL_BASE_DAY + MAIL_URGENT_DAY` | ADR-0003 |
+| 邮件（纯日额度） | `mail-total-day-within-platform-limit` | `MAIL_TOTAL_DAY <= PLATFORM_MAIL_DAY_LIMIT`（平台实测日上限） | ADR-0003 |
+| 邮件（纯日额度） | `mail-signup-auth-day-subset` | `MAIL_SIGNUP_AUTH_DAY <= MAIL_AUTH_DAY` | ADR-0003 |
+| 邮件（纯日额度） | `mail-auth-floor-below-day` | `MAIL_AUTH_FLOOR < MAIL_AUTH_DAY`（floor 必须真正触得到） | ADR-0003 |
+| 邮件（纯日额度） | `mail-urgent-floor-below-day` | `MAIL_URGENT_FLOOR < MAIL_URGENT_DAY` | ADR-0003 |
+| 邮件（池容量） | `mail-routine-seats-within-seats` | `MAIL_ROUTINE_SEATS_MAX <= MAIL_SEATS_MAX` | §7.5 |
+| 邮件（池容量） | `mail-base-day-covers-routine-seats` | `MAIL_BASE_DAY >= MAIL_ROUTINE_SEATS_MAX × MAIL_USER_BASE_DAY` | §9.1 |
+| 邮件（池容量） | `mail-urgent-day-covers-seats-plus-floor` | `MAIL_URGENT_DAY >= MAIL_SEATS_MAX + MAIL_URGENT_FLOOR`（本文 §7.3） | §9.1 |
+| 认证时序 | `preauth-min-ttl-safe` | `PREAUTH_MIN_TTL >= OTP_TTL + AUTH_COMPLETION_TTL + PREAUTH_MARGIN`（本文 §8） | §4.3 |
+| 认证时序 | `otp-cookie-covers-late-challenge` | OTP 绑定 Cookie 截止 >= 最晚挑战截止 + `AUTH_COMPLETION_TTL` + `PREAUTH_MARGIN` | §4.3 |
+| 会话时序 | `session-absolute-lower-above-idle` | `SESSION_ABSOLUTE_TTL - SESSION_ABSOLUTE_JITTER > SESSION_IDLE_TTL` | §4.5 |
+| 会话时序 | `session-idle-above-renew-interval` | `SESSION_IDLE_TTL > SESSION_RENEW_INTERVAL` | §4.5 |
+| 会话时序 | `session-idle-above-expiry-notice` | `SESSION_IDLE_TTL > SESSION_EXPIRY_NOTICE` | §4.5 |
+| 其余 | `delivery-dedupe-above-occurrence-ttls` | `DELIVERY_DEDUPE_TTL >` 业务发生项最大有效期（重试余量由调度实现另行加算） | 附录 A.5 |
+| 其余 | `feed-shrink-guard-ratio-open-interval` | `0 < FEED_SHRINK_GUARD_RATIO < 1` | §6.5 |
+| 预留与容量 | `mail-auth-reserved-within-pending` | `MAIL_AUTH_RESERVED_PENDING <= MAIL_PENDING_MAX` | 附录 A.5 |
+| 预留与容量 | `mail-pending-within-record` | `MAIL_PENDING_MAX <= MAIL_RECORD_MAX` | 附录 A.5 |
+| 预留与容量 | `mail-unmatched-within-feedback` | `MAIL_UNMATCHED_MAX <= MAIL_FEEDBACK_MAX` | 附录 A.5 |
+| 预留与容量 | `delivery-pending-within-record` | `DELIVERY_PENDING_MAX <= DELIVERY_RECORD_MAX` | 附录 A.5 |
+| 预留与容量 | `push-active-within-total` | `PUSH_ACTIVE_MAX <= PUSH_TOTAL_MAX` | 附录 A.5 |
+| 预留与容量 | `push-pending-within-total` | `PUSH_PENDING_MAX <= PUSH_TOTAL_MAX` | 附录 A.5 |
+| 预留与容量 | `push-critical-reserved-within-send-day` | `PUSH_CRITICAL_RESERVED_DAY <= PUSH_SEND_DAY` | 附录 A.5 |
+| 预留与容量 | `push-test-day-within-send-day` | `PUSH_TEST_DAY <= PUSH_SEND_DAY` | 附录 A.5 |
+| 模型用量（Neurons/日） | `ai-soft-below-hard` | `AI_SOFT_DAY < AI_HARD_DAY` | 附录 A.3 |
+| 模型用量（Neurons/日） | `ai-hard-within-included` | `AI_HARD_DAY < AI_INCLUDED_DAY`（账户共用的每日免费额度） | ADR-0009；ENGINEERING §4.1 |
+| 模型用量（Neurons/日） | `ai-draft-reservation-within-soft` | `AI_DRAFT_RESERVATION <= AI_SOFT_DAY`；profile 各数值合法 | ADR-0009、ADR-0010 |
+| D1 工程上限 | `public-snapshot-chunk-within-d1` | `API_BODY_MAX_BYTES < chunkBytes / 2`；`2 < chunkBytes <= singleValueBytes / 2`；`queryLimit > 18` | P3-06；ENGINEERING §5.4 |
+| D1 工程上限 | `candidate-bytes-within-d1` | `API_BODY_MAX_BYTES <= CANDIDATE_MAX_BYTES < chunkBytes / 2` | ADR-0012 |
+| 时间推导 | `year-completion-window-single-year` | `YEAR_COMPLETION_WINDOW` 两端为正安全整数且 `beforeDays + afterDays < 365` | ADR-0013 |
+| 来源上限 | `source-response-caps-within-ceiling` | 每来源 `responseCapsBytes > 0` 且 `<= responseCapCeilingBytes` | P3-08 |
+| 公共读保护 | `public-read-bounds` | `PUBLIC_READ_LIMITS` 为正整数；`recentChanges <= scanPage <= detailNodes`；`nodeBytes × (recentChanges + 1) < responseBytes <= FEED_RESPONSE_MAX_BYTES`；`queryBytes <= nodeBytes` | P3-14 |
+| 私人预览限流 | `calendar-preview-rate-bounds` | 两参数为正安全整数；`CALENDAR_PREVIEW_RATE_WINDOW < PUBLIC_CACHE_FRESH` | ADR-0006 |
+| 回收维护 | `reclaim-query-budget` | `RECLAIM_QUERY_BUDGET` 为安全整数，`>= 9 × MATCH_PAGE + 6` 且低于 D1 每调用 1,000 条 | P5-02 |
+| 系统审计 | `system-audit-retention` | `SYSTEM_AUDIT_TTL` 为正安全整数，×1000 后仍为安全整数 | ADR-0007 |
+| 观测 | `observability-capacity-ratio` | `0 < OBS_CAPACITY_WARN_RATIO < 1` | P5-01 |
+| 观测 | `feedback-maintenance-bounds` | `FEEDBACK_MAINTENANCE_ROUNDS` 为正整数且 `FEEDBACK_MAINTENANCE_ROUNDS × FEEDBACK_BATCH <= MAIL_FEEDBACK_MAX` | P5-01 |
+
+语义条款 `mail-digest-window-forward-only`：`MAIL_DIGEST_WINDOW` 只用于提前发送；合并后任一条的实际发送时间不得晚于其自身 `expires_at`（P4-02 调度实现保证，不在数值校验内）。
+
+### 11.1 各等式的来由与边界（原登记保留）
+
+P5-02 查询预算：`RECLAIM_QUERY_BUDGET` 为安全整数、至少容纳 `9 × MATCH_PAGE + 6` 条（一页最坏语句数及状态读取/提交），且小于 D1 每调用 1000 条平台上限（所有者在 #78 提案后批准 800）；与执行器墙钟同时约束。#90 起流水线清理与旧代回收也共用这份预算，用尽按有界推迟降级并告警。
 
 P5-02 / ADR-0007：`SYSTEM_AUDIT_TTL` 为独立正安全整数，乘 1000 后仍为安全整数；系统审计期限从 `created_at` 计算，历史行先校正后清理。
 
@@ -400,25 +500,67 @@ P5-01 所有者 2026-10-02 批准的观测依赖：`0 < OBS_CAPACITY_WARN_RATIO 
 
 P3-15 / ADR-0006 启动校验 `calendar-preview-rate-bounds`：`CALENDAR_PREVIEW_RATE_WINDOW` 与
 `CALENDAR_PREVIEW_RATE_LIMIT` 均为正安全整数，且 `CALENDAR_PREVIEW_RATE_WINDOW < PUBLIC_CACHE_FRESH`。
-首屏与续页共用每会话、每 isolate 的限额；窗口小于新鲜期为等待后的续页留余量，不代替最大分页测量。
+首屏与续页共用每会话、每 isolate 的限额；窗口小于新鲜期为等待后的续页留余量，不代替最大分页测量。当前取值 60 < 3600（ADR-0015 起 `PUBLIC_CACHE_FRESH` 为 3600）；公开读取与公开预览的 HTTP 缓存为 `no-cache`。
 
-## 12. API 分组速查（§8.2）
+## 12. API 分组速查（§8.2；2026-10-06 按 Worker 实际路由核对）
 
 | 路径组 | 要点 |
 | --- | --- |
-| `/api/v2/catalog、events、status` | GET 公开；不创建身份；`/status` 公布全局 `registration_open`，**不提供按邮箱查询是否注册** |
+| `/api/v2/catalog`、`/api/v2/events`、`/api/v2/events/{eventId}`、`/api/v2/status` | GET 公开；不创建身份、不读 Cookie；`/status` 公布全局 `registration_open`、`mail_sending_available`、来源与能力状态，**不提供按邮箱查询是否注册** |
+| `/api/v2/events/{eventId}/articles` | GET 公开（ADR-0014）：该事件本代已发布节点所依据的官方公告正文版本；超过 `PUBLIC_READ_LIMITS.responseBytes` 返回 503 而不截断 |
+| `/api/v2/calendar/nodes` | GET 公开节点数据（D2 §2），浏览器按草稿自己算预览 |
 | `/api/v2/auth/preauth` | POST 同源初始化预认证 Cookie/CSRF |
 | `/api/v2/auth/challenges`（+ `resend` / `verify`） | 用途、预占、限额、浏览器绑定 |
 | `/api/v2/auth/complete` | 原 preauth + 操作键领取未激活的短期完成结果 |
 | `/api/v2/auth/activate、renew、logout` | pending 激活 / 低频续期 / 仅撤销当前会话 |
-| `/api/v2/auth/recovery` | `emergency_stop` 幂等且**不消费**；`recover_login` 一次消费并立即交付新码 |
-| `/api/v2/me、me/sessions` | 本人资料 / 脱敏会话；DELETE 指定本人会话 |
+| `/api/v2/auth/recovery`、`/api/v2/auth/recovery/code` | `emergency_stop` 幂等且**不消费**；`recover_login` 一次消费并立即交付新码；`recovery/code` 读取与确认保存新恢复码 |
+| `/api/v2/me、me/sessions`、`me/sessions/{id}` | 本人资料（只给事实，D3 §1.2）/ 脱敏会话；DELETE 指定本人会话 |
 | `/api/v2/me/subscription` | GET/PATCH；`expected_revision`；所有者服务端派生 |
-| `/api/v2/me/calendar` | GET 专用 URL；enable/disable/reset 为 POST；**统一会话权限，不额外要求 OTP** |
+| `/api/v2/me/calendar`（+ `enable` / `disable` / `reset`）、`/api/v2/me/calendar/preview` | GET 专用 URL；三个动作为 POST，**统一会话权限，不额外要求 OTP**；启用另带 `expected_revision`、`publication_generation` 核对（D2 §5）；私人预览受 ADR-0006 限流，极大 blocked 集合见 ADR-0008 |
 | `/feeds/u/{token}.ics` | GET/HEAD；只读能力鉴权；304 同样授权；无交互挑战 |
 | `/api/v2/me/email-channel` | GET/PUT；两层同意；子名额满时**只拒绝第二层**；不能借此更换收件地址 |
 | `/unsubscribe/{token}`、`/email/one-click/{token}` | GET 仅展示；POST 退订；one-click 无登录依赖、不重定向 |
-| `/api/v2/me/push-bindings`、`/api/v2/push-bindings/{id}/activate、processed` | 本人归属 vs receipt 窄能力 |
-| `/api/v2/me/email-change、recovery-code、delete` | 用途限定的最近认证 |
+| `/api/v2/me/recent-auth/challenges`（+ `verify`）、`/api/v2/me/recent-auth/recovery` | 用途限定的最近认证（OTP 或恢复码） |
+| `/api/v2/me/email-change、recovery-code、delete` | 凭最近认证执行 |
 | `/api/v2/me/export` | 本人配置及必要数据，不导出秘密 |
-| `/api/v2/admin/*` | 独立管理员会话与审计 |
+| `/api/v2/me/push-bindings`、`/api/v2/push-bindings/{id}/activate、processed` | 本人归属 vs receipt 窄能力——**P6 未实现，Worker 没有挂载** |
+| `/api/v2/admin/session/bootstrap、access、logout` | 管理员会话：引导秘密或 Access 换短期会话；与用户会话隔离 |
+| `/api/v2/admin/review/queue`、`candidates/{id}`、`create`、`revise`、`reject`、`adopt-draft`、`approve`、`correct`、`associate`、`retract` | 候选审核与 AI 草稿采用；每个写操作带理由、`updated_at` 条件写入并审计 |
+| `/api/v2/admin/versions`（+ `confirm` / `clear`） | 版本时间表（ADR-0011） |
+| `/api/v2/admin/controls` | GET/PUT 运行开关（本文 §13） |
+| `/api/v2/admin/observability`（+ `platform`）、`/api/v2/admin/sources/resume`、`/api/v2/admin/delivery/rearm` | 观测视图与平台事实录入；来源维护、投递终态的人工解除（#90） |
+| `/api/v2/admin/reclaim`（+ `confirm/{id}`、`resume`） | 回收清单复核与恢复（P5-02） |
+
+## 13. 运行开关（§10.1；P5-01，ADR-0009、ADR-0018）
+
+唯一定义在 contracts `OPERATIONAL_CONTROLS`（`packages/contracts/src/observability/index.ts`）。值存 `system_state`，只接受 JSON boolean；管理端写入必须管理员会话、绑定 CSRF、闭合理由（`OperationalReasonSchema`）、`expected_updated_at` 条件写入与同批审计（实现说明见 `apps/worker/src/shell/observability/README.md`）。
+
+| 开关（`system_state` 键） | 控制什么 | 没有记录时 |
+| --- | --- | --- |
+| `registration_open` | 新账号注册准入 | 未知 → 关闭 |
+| `mail_sending_available` | 全部邮件外发（认证与业务）。公开状态同名字段另核对发信配置、发信绑定与核心退避行 | 未知 → 关闭 |
+| `outbound_enabled` | 全部外发总门：邮件、Push、模型调用、来源请求 | 未知 → 关闭 |
+| `email_seats_open` / `email_routine_enabled` / `business_mail_enabled` | 新邮件席位、常规提醒层、业务邮件；关闭不改用户同意 | 未知 → 关闭 |
+| `push_enabled` | Web Push（未实现） | 未知 → 关闭 |
+| `model_enabled` | AI 草稿调用（P3-17 起）；还要求外发总门开、`read_only` 关 | 未知 → 关闭 |
+| `automatic_publication_enabled` | 规则路径（白名单模板）已批准候选的自动发布；跳过审核不经此门 | 未知 → 关闭 |
+| `review_skip_enabled` | 「跳过审核」（ADR-0018）：只在 AI 草稿可用时生效 | **合同默认 false**（`OPERATIONAL_CONTROL_DEFAULTS`，首次部署后才加的开关）；读取出错仍是未知 |
+| `account_reclaim_enabled` / `seat_reclaim_enabled` | 账号、席位回收的运营门；不替代活动水位可靠性门 `reclaim_paused` | 未知 → 关闭 |
+| `read_only` | 维护只读：只限制扩大与修改，退订、停用、撤销、删除与管理员恢复操作保留 | 未知 → 按未配置处理 |
+| `calendar_enabled` | 日历启用（D3）；不影响已有个人 Feed 的读取与停用 | 未知 → 关闭 |
+| `source:<source_id>`（`source_enabled`） | 逐来源抓取；还要求外发总门开、`read_only` 关 | 未知 → 关闭 |
+
+读取失败一律是未知（`unknown`），执行时失败关闭；默认值只能是 false，不能借默认值打开任何能力。公开 `GET /api/v2/status` 只导出 `registration_open`、`mail_sending_available` 与 `capabilities`（calendar / email_seats / routine_email / push）的 open / closed / unknown，不输出预算或私人数据。首次关闭门初始化（2026-10-03）写入的"18 项"是当时 13 个全局开关、4 个来源开关与 `reclaim_paused`。
+
+## 14. 来源注册表（§3.1；ADR-0001、ADR-0016、ADR-0019）
+
+| source_id | 游戏 | 抓取内容 |
+| --- | --- | --- |
+| `genshin-ann` | 原神 | 游戏内公告 API `getAnnList` / `getAnnContent`：公告目录 `data.list` 与图文资讯目录 `data.pic_list`（外部 ID 加 `pic-` 前缀） |
+| `hsr-ann` | 崩坏：星穹铁道 | 同上（跃迁在 `pic_list`） |
+| `zzz-ann` | 绝区零 | 同上（调频在 `pic_list`） |
+
+- 请求参数沿用 P0-02 核验的参数集（含 ADR-0001 的登出态哑 `uid` 与 `level`），不自行调整；生产响应上限取 `SOURCE_LIMIT_PROFILE`，读取 `pic_list` 不改变上限。
+- 米游社官方资讯（`miyoushe-news`）2026-10-05 下线（ADR-0016）：不再注册，遗留数据按 `RETIRED_SOURCE_IDS` 隔离——轮询待办直接结束、公开状态不列、历史文章不能再用于抽取与发布。
+- 图文资讯里标题去噪后为空、正文没有可读文字的条目不入库（ADR-0019）；补上标题后按变更入库。
+- 公告列表的 `start_time` / `end_time` 是展示窗口，**不得当作活动时间**（§3.1）。

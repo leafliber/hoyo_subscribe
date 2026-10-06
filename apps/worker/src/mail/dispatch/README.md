@@ -19,7 +19,7 @@
 
 已过期、尚未关联 outbox 的 Delivery 由 `expireDispatchCandidates` 每次最多处理 `MATCH_PAGE`，保留 expired 原因；已关联 outbox 的生命周期归 P4-03。Delivery 去重记录和 MailOutbox 的清理由 P5 按既有保留合同处理，不在此删除。
 
-`pruneExpiredDispatchBatch` 提供按批次 ID 的清理原语：达到 `MAIL_METADATA_TTL`、所有发生项过期且无未完成 Delivery 后才删除批次 Job。发生项展开 Job 保留，防止重新展开；公平游标固定按池/优先级保留，永不因批次或 UTC 日边界重置。P5 负责有界扫描和调用，P4-03/执行器负责墙钟与唤醒接线。本卡未接入生产定时器。
+`pruneExpiredDispatchBatch` 提供按批次 ID 的清理原语：达到 `MAIL_METADATA_TTL`、所有发生项过期且无未完成 Delivery 后才删除批次 Job。发生项展开 Job 保留，防止重新展开；公平游标固定按池/优先级保留，永不因批次或 UTC 日边界重置。P5 负责有界扫描和调用，P4-03/执行器负责墙钟与唤醒接线。本卡未接入生产定时器（现状：由 `scheduled/reclaim.ts` 调用）。
 
 ## 原子性与规模
 

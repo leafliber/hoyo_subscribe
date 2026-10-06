@@ -118,7 +118,7 @@ node scripts/probes/save-from-url.mjs model-echo "http://127.0.0.1:8793/probe?ru
 **操作手册：[EMAIL_SETUP_RUNBOOK.md](EMAIL_SETUP_RUNBOOK.md)**（平台资格 → 发件域 → 真实收件人 → 退订头/DKIM → 抑制）
 **登记表：[platform-facts.md](platform-facts.md)**（每格要么实测值，要么"未取得"，不留空）
 
-判定：第 1 节表格填满 + 至少两种不同邮箱服务商拿到 messageId 与 Queue 事件关联 → G-P0-MAIL 开。
+判定：第 1 节表格填满 + 至少两种不同邮箱服务商拿到 messageId 与 Queue 事件关联 → G-P0-MAIL 开。（实际：G-P0-MAIL 于 2026-09-29 以单一服务商的证据开启，所有者决定第二家暂缓、不得外推，见 BUILD_PLAN 门禁表。）
 
 ## §E 日历客户端实测（P0-04）· 材料已就绪，**建议最先做**
 

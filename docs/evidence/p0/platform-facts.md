@@ -1,7 +1,9 @@
 # P0 · 平台事实登记表
 
 > 每一格要么是**实测值**，要么是 `未取得`。**不允许留空、不允许写推测值。**
-> 本轮填写：2026-09-22，由 Cloudflare MCP（账户 `0494fd40…ba30`，Leafliber@163.com's Account）**只读 API 查询**取得。
+> 本轮填写：2026-09-22，由 Cloudflare MCP（所有者的账户；账户 ID 与账户名已移出仓库）**只读 API 查询**取得。
+>
+> **2026-10-06 脱敏**：按所有者 2026-10-03 的隐私要求，删去本文里的账户 ID 片段、账户名、发件子域 ID、Queue ID、事件订阅 ID 与两条测试邮件的 messageId，原值只留所有者私有记录；git 历史不改写。
 > 取值方式一律 `GET`，未创建、未修改、未部署任何资源。
 > **2026-09-28 补充**：验收方经所有者授权（收件 `leaf@airo.cc`、发件 `yoho-sub@hoyo.airo.cc`）发送 1 封测试邮件，其余仍为只读查询；同样未创建、未修改任何资源。
 
@@ -38,8 +40,8 @@
 
 | 事实 | 值 |
 | --- | --- |
-| 站点 origin | **2026-10-02 所有者指定 `https://hoyo.airo.cc`**；尚未完成线上部署/绑定核验 |
-| 发件子域 | **两个，按用途分开**：认证 `auth.hoyo.airo.cc`（2026-09-28 创建，id `00d5aa64a69b4708b99f4aa292aed2e4`，退信域 `cf-bounce.auth.hoyo.airo.cc`）；业务 `hoyo.airo.cc`（2026-09-22 创建，退信域 `cf-bounce.hoyo.airo.cc`）。DKIM selector 都是 `cf-bounce` |
+| 站点 origin | **2026-10-02 所有者指定 `https://hoyo.airo.cc`**；尚未完成线上部署/绑定核验（2026-10-03 起已部署，现状见 `CONCLUSIONS.md` §1 末的 2026-10-06 后续） |
+| 发件子域 | **两个，按用途分开**：认证 `auth.hoyo.airo.cc`（2026-09-28 创建，子域 ID 已移出仓库，退信域 `cf-bounce.auth.hoyo.airo.cc`）；业务 `hoyo.airo.cc`（2026-09-22 创建，退信域 `cf-bounce.hoyo.airo.cc`）。DKIM selector 都是 `cf-bounce` |
 | 认证域 Email preview 已关闭 | ✅ `auth.hoyo.airo.cc` 的 `preview_enabled = false`。业务域 `hoyo.airo.cc` 仍为 `true`（原文留存约 7 天、可经 API 取回，便于排查；合同只要求关认证域） |
 | 两用途"静默丢弃受抑制收件人"已关闭 | ✅ 两个子域的 `drop_suppressed_recipients` 都是 `false` |
 | DNS 已 verified | ✅ 两个子域的 `dns/status` 都是 `ready`：各自的 `cf-bounce` MX（route1–3）与 SPF、DKIM、`_dmarc`（`p=reject`） |
@@ -52,7 +54,7 @@
 
 | 收件邮箱类型 | 发件子域 | messageId | 反馈 Queue 是否收到事件 | 事件序列 | 收件服务器接受 | 进收件箱/垃圾箱 |
 | --- | --- | --- | --- | --- | --- | --- |
-| 阿里企业邮（`leaf@airo.cc`） | `hoyo.airo.cc` | `<K1KCchFjlnFJ7q4wNOAxp8ti2FA1zAcdTOlf@hoyo.airo.cc>` | **未取得**：账户里还没有 Queue 与事件订阅 | 发送 API 返回 `queued`（05:19:12Z）；GraphQL `emailSendingAdaptive` 显示 `delivered` | ✅ `delivered` | ✅ 所有者 2026-09-28 确认已收到（收件箱还是垃圾箱未说明） |
+| 阿里企业邮（`leaf@airo.cc`） | `hoyo.airo.cc` | （messageId 已移出仓库） | **未取得**：账户里还没有 Queue 与事件订阅 | 发送 API 返回 `queued`（05:19:12Z）；GraphQL `emailSendingAdaptive` 显示 `delivered` | ✅ `delivered` | ✅ 所有者 2026-09-28 确认已收到（收件箱还是垃圾箱未说明） |
 
 同一次实测取得的其他事实：
 
@@ -71,10 +73,10 @@
 
 | 资源 | 值 |
 | --- | --- |
-| Queue | `hoyo-mail-events`（`298784a98e974ad0aa7eceb293bebc5a`），当前消费者为 HTTP pull（取证用；P4-07 上线时换成 Worker 消费者） |
-| 事件订阅 | `hoyo-mail-events-hoyo-airo-cc`（`c1c84820b159438d9670f3dd74a07a95`）：来源 `email.sending`、域 `hoyo.airo.cc`，六类事件全开 |
-| 认证域的事件订阅 | **未建**。订阅按发件域建，认证域 `auth.hoyo.airo.cc` 的退信与投诉也要进同一个 Queue（§7.5、§7.7）；上线前经所有者批准再建 |
-| 第二封测试 | 发件 `hoyo-sub@hoyo.airo.cc` → `leaf@airo.cc`，2026-09-28T12:50:45Z 发出，messageId `<peL3Jr9nVcZeqAT08LcMA4PFONudMVndkkPu@hoyo.airo.cc>`，发送 API 返回 `queued` |
+| Queue | `hoyo-mail-events`（Queue ID 已移出仓库），当前消费者为 HTTP pull（取证用；P4-07 上线时换成 Worker 消费者）。2026-10-06 只读核对：唯一消费者已切换为正式 Worker，DLQ 已建 |
+| 事件订阅 | 业务域的事件订阅（名称与 ID 已移出仓库）：来源 `email.sending`、域 `hoyo.airo.cc`，六类事件全开 |
+| 认证域的事件订阅 | **未建**。订阅按发件域建，认证域 `auth.hoyo.airo.cc` 的退信与投诉也要进同一个 Queue（§7.5、§7.7）；上线前经所有者批准再建。2026-10-06 只读核对：已建并启用 |
+| 第二封测试 | 发件 `hoyo-sub@hoyo.airo.cc` → `leaf@airo.cc`，2026-09-28T12:50:45Z 发出，messageId 已移出仓库，发送 API 返回 `queued` |
 
 发件地址以所有者确认的 `hoyo-sub@hoyo.airo.cc` 为准（第一封用的 `yoho-sub` 是笔误）。
 

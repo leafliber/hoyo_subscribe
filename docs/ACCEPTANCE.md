@@ -246,6 +246,7 @@
 | A-P5-BACKUP | 恢复顺序按 §10.2；旧备份**不复活**账号权限、退订状态、恢复码与历史通知；无可信撤销清单时邮件/Push 默认暂停、旧 Feed token 默认撤销；密钥轮换；DO 唤醒丢失、旧租约、Queue DLQ 演练 |
 | A-P5-RELEASE | 冷热请求与外发负载；账单对账（E3）；容量回收实测；独立备份恢复演练完成；已知限制公开 |
 | A-P5-SITE | 站点静态资源与 Worker 同项目（P5-05）：本地 `wrangler dev` 冒烟逐条断言——页面返回静态 HTML；`/events/<任意 ID>` 返回详情壳页且地址不变；`/api/*`、`/feeds/*`、`/unsubscribe/*`、`/email/one-click/*` 都进 Worker，不被静态规则或 `_redirects` 截走；未知路径 404 而不是首页；`pnpm build` 先构建网页再 dry-run；不部署、不动任何 Cloudflare 资源 |
+| A-P5-SEAT-VIEW | 邮件通道的后台续租状态（P5-06，暂不派发）：取值在 contracts 定义一次，Worker 与页面共用；Cron 维护游标 `reclaim:maintenance_cursor` 的 `updated_at` 在约定窗口内才为运行中并带最近扫描时间，读取失败、从未运行或超时为未知；窗口由注册表现有参数推出；账号页按北京时间显示，未知仍显示"未知"；无迁移，不改续租与回收逻辑 |
 | A-P6-BIND | 归属账号的 pending 绑定；精确 HTTPS 推送域名/端点/密钥校验；可见激活 + receipt 确认后才 active；同 endpoint 同 owner 幂等、不同 owner 冲突**不 UPSERT 抢占**；receipt 不能取邮箱/改账号/管别的设备 |
 | A-P6-SEND | 测试/激活/重试均计预算；404/410 停用端点；401/403 先查 VAPID 配置**不批量删除用户**；临时错误退避；不发静默心跳；接口不成为任意 Webhook/SSRF 入口 |
 | A-P6-CLIENT | 桌面、Android、iOS 主屏幕 Web App 及目标网络**分别**验收（E2/E3） |
@@ -270,6 +271,8 @@
 | A-F1-POLISH | ADR-0015 日程界面简化（F1-07）：公开页面不再出现解释"如何展示"的说明句；游戏标识是随站点发布的官方应用图标（`/game-icons/*.png`，空 alt、对读屏隐藏、与名称同现），页面不向第三方请求；游戏色只用于已选胶囊浅底与描边且避开红橙琥珀；`deadlineUrgency` 不足 24 小时为高危、不足 72 小时为临近（严格小于），卡片与时间轴剩余时间一致且随时间推进更新，不存在第四档；限时活动结束节点叫"活动结束"且与"奖励领取截止"分开；时间待定默认折叠、展开状态随重绘保留；日期标记与条目同一网格、无整宽边框，日程区列表无内边距空隙、轨道跨日连续，全天条目归当天且不参与精确排序；`PUBLIC_CACHE_FRESH` 为 3600，公开读取与公开预览 `Cache-Control: no-cache`，过时条幅只写"内容可能已过时/当前离线"与信息获取时间并带可用的刷新按钮 |
 | A-F1-BROWSE | ADR-0017 浏览顺序与续读（F1-08）：首页时间线从上到下为回看昨天 → 当前范围逐日 → 末行 → 时间待定（ADR-0020 起时间待定在时间轴下方单独的卡片，见 A-F1-TIMELINE）；按日分组、时间待定、近期重要变更与详情时间线共用 contracts `compareScheduleNodes`（有日期按日期与时刻、同一天全天在后，未知的开始最前、未知的结束类最后，同位置开始 → 阶段 → 结束 → 奖励截止），详情变更记录跟随时间线；末行写"已显示完{档位}"（全部为"已显示完全部日程"），读屏同句；加载提示在时间线标题行，首次加载与续页期间不出现末行；时间范围在「筛选」弹层，按钮显示当前档位，"清除这些条件"恢复默认档位；"显示更多"逐档读取下一档，读取中已显示条目数从不减少、按钮保留且标为不可用，下一档分页读完才整体换上，最后一天的视口位置不变、新日期接在其后，地址与按钮档位更新，最大一档后无按钮且焦点留在末行，只重读日程不重读目录与状态 |
 | A-F1-TIMELINE | ADR-0020 时间轴整合（F1-09）：当前范围不为空但今天没有条目时，时间轴第一天是今天，写"暂无安排"并带"现在"时刻线（当前北京时刻）；今天只有全天条目时时刻线单独成列表、排在全天条目之前；时间轴卡片内只有回看昨天 → 当前范围逐日 → 末行，时间待定是紧接其后的单独卡片、默认折叠且展开状态随重绘保留；回看昨天折叠时是与条目同一网格的一行，轨道从其图标处起，与今天的日期点在同一条竖线上；展开后昨天按普通日期段落（日期标记、条目）画出、不是独立列表，整段在今天之上；`[data-region="days"]` 只含当前范围；日期点是实心圆角方块（控件边框色、10 px），不被条目圆点规则覆盖；已过条目的标题用次要文字色、不降不透明度 |
+| A-F1-DEADLINE-BASIS | "即将截止"卡（F1-10，暂不派发）：只收 contracts 判定为精确截止的节点（`isDeadline` 且 `precision === "datetime"` 且 `time_basis` 为 `official_explicit` 或 `deterministic_derived`）；官方预计的截止不进卡片、留在时间轴并带"官方预计"；判定只在 contracts，单元测试覆盖四种依据与三种精度；`deadlineUrgency` 档位不变 |
+| A-F3-CAL-CLAIMS | 日历区域的客户端说法（F3-06，暂不派发）：客户端支持清单只在 contracts 定义一次，公开状态 `calendarClients` 与页面共用，取值不变；只有 Mac 上的 Apple 日历标"已实测"，iPhone、Google、Outlook 标"未实测"；webcal 快捷入口写明只适用于 Mac 上的 Apple 日历；区域开头与首次保存引导不承诺未实测客户端的行为，同步情况以"日历应用拉取"事实为准；不新增第三方请求 |
 | A-F6-REVIEW | 管理审核页面（F6-01）：引导秘密只出现在 bootstrap 请求体里，提交后不留在输入框、地址与浏览器存储；队列翻到底；正文与证据按文本渲染，注入的标签不执行；写操作带已读的 `updated_at`，409 不覆盖并重新读取；批准等操作后如实显示 `publication.outcome`，"已批准、未发布"可重试；字段级 400 显示在对应字段；退出后管理员会话失效、同一 Cookie 访问管理接口得 401；页面须收到明确 `logged_out: true` 才显示已退出，HTTP 200 空对象/false/类型不符不假成功；队列创建时间固定北京时间 UTC+8 并标明，非东八区浏览器同结果；不进普通导航 |
 | A-F6-OPS | 运维页（F6-02）：告警按后端 `alerts` 展示，`unknown` 与读取失败（`null`）不显示成正常；只有维护中的来源可解除，仅列表来源不可解除；来源解除与投递终态解除都带上次读到的 `updated_at` 和闭合原因，不发送自由文本，每次都需人工确认；只有收到 `resumed: true` / `rearmed: true` 才显示成功，200 空对象或 false 不假成功；409 不自动重发并重新读取；解除 `delivery:backoff` 后不自动打开任何运行开关，并列显示邮件开关值与公开状态的实际可用；`last_error` 只作文本；时间固定北京时间并标明；不做批量、定时或自动解除 |
 
@@ -283,35 +286,35 @@
 | U04 | 改期、取消、本站撤回 | F1-03 | `tests/e2e/event-detail.spec.ts` |
 | U05 | 筛选无结果 vs 来源故障 | F1-02,F1-04 | `tests/e2e/schedule.spec.ts` |
 | U06 | 改浏览筛选不影响云配置 | F1-02 | `tests/e2e/schedule.spec.ts` |
-| U07 | 隐藏结束节点但选结束提醒 | F2-02 | `tests/e2e/preview.spec.ts` + L1 |
+| U07 | 隐藏结束节点但选结束提醒 | F2-02 | `tests/e2e/calendar-preview.spec.ts` + L1 |
 | U08 | 隐藏整个事件类型但选该类型提醒 | F2-02 | 同上 |
 | U09 | 关闭日历提醒只影响日历 | F2-01 | `tests/e2e/subscription.spec.ts` |
 | U09a | 一条规则都不选但开着变更消息 | F2-01 | 同上 + A-P2-SUB |
 | U10 | 取消最后一条规则 | F2-01 | 同上 |
 | U11 | 草稿与已保存不同时启用通道 | F2-03 | `tests/e2e/save.spec.ts` |
-| U12 | 游客配置后登录已有账号；差异选择、站内返回、成功保存续期及身份边界 | F3-05 | `tests/e2e/subscription-flow.spec.ts`（94 项已复核；完整日历主流程待补） |
+| U12 | 游客配置后登录已有账号；差异选择、站内返回、成功保存续期及身份边界 | F3-05 | `tests/e2e/subscription-flow.spec.ts`；真实本地首次保存全链 `apps/web/src/features/subscription/testing/local-flow.mjs`（#71 合入时 22/22，#87 起需随 F3-05 合入后维护修夹具才能在 main 上复跑） |
 | U13 | OTP 重发 / preauth 丢失 / 响应丢失 | F3-01 | `tests/e2e/auth.spec.ts` + A-P2-OTP |
 | U14 | 会话名额已满 | F3-01 | `tests/e2e/auth.spec.ts` + A-P2-SESSION |
 | U14a | 只用外部日历、长期不访问网页；身份失效后不接收旧账号异步结果；显式导出/管理其他会话完成后续期、被动读取不续期 | F3-03 | `tests/e2e/account-management.spec.ts`（#59 已接入） + A-P5-RECLAIM |
 | U15 | 首次启用长期通道前保存恢复码；身份失效/切换及服务端 no_session/session_expired 时清除明文、证明和旧响应 | F3-02 | `tests/e2e/recovery.spec.ts`（#60 已接入） |
-| U15a | 新账号尚未保存过订阅、受限恢复保存准入 | F3-05 | `tests/e2e/subscription-flow.spec.ts`（整卡尚未完成） |
+| U15a | 新账号尚未保存过订阅、受限恢复保存准入 | F3-05 | `tests/e2e/subscription-flow.spec.ts`（F3-05 已随 #71 合入 `64dd5ea`） |
 | U16 | 两设备同时保存 | F2-03 | `tests/e2e/save.spec.ts` + A-P2-SUB |
 | U17 | 保存响应丢失后重新读取 | F2-03 | 同上 |
 | U18 | 离线修改、恢复网络、切换账号 | F2-04 | `tests/e2e/draft.spec.ts` |
 | U19 | 导入偏好只生成草稿 | F2-04 | 同上 |
 | U20 | 日历启用、复制、重置 | F3-04 | `tests/e2e/calendar.spec.ts` |
-| U21 | 不支持/未验证客户端或预览不完整 | F2-02,F3-04 | 同上 |
+| U21 | 不支持/未验证客户端或预览不完整 | F2-02,F3-04 | `tests/e2e/calendar-preview.spec.ts`（F2-02）；F3-04 的日历区域部分在 `tests/e2e/calendar.spec.ts` |
 | U21a | **输出被完整性守卫拦截** | F3-04 | `tests/e2e/calendar.spec.ts` + A-P3-ICS |
 | U22 | 邮件关闭/租期/抑制/全站限额；显式完成操作续期；保存版本前进后迟到 GET/PUT 不沿用旧快照 | F4-01 | `tests/e2e/email.spec.ts` |
 | U22a | **邮件名额已满（最常见拒绝）**；容量呈现与跳转同一日历确认控制器已复核，不自动开通 | F4-02、F3-04 | `tests/e2e/email-capacity.spec.ts`；2026-10-03 calendar/capacity联合78项通过 |
 | U22b | 只开席位不开常规提醒邮件 | F4-01 | 同上 |
-| U23 | Push 允许权限但激活未完成 | F5-01 | `tests/e2e/push.spec.ts` |
+| U23 | Push 允许权限但激活未完成 | F5-01 | `tests/e2e/push.spec.ts`（F5-01 未做，文件尚不存在） |
 | U24 | 两种退出方式，其中一个动作失败 | F3-03 | `tests/e2e/account-management.spec.ts`（#59 已接入） |
 | U25 | 恢复登录或紧急停用 | F3-02 | `tests/e2e/recovery.spec.ts` |
 | U26 | GET 打开旧退订链接后确认 | F4-03 | `tests/e2e/unsubscribe.spec.ts` + A-P4-UNSUB |
 | U27 | 修改额度用尽后仍可停用服务 | F1-04,F3-03 | `tests/e2e/account.spec.ts` |
 | U28 | 手机、键盘、缩放、读屏 | F1-01 全轮复查 | `tests/e2e/a11y.spec.ts` |
-| U29 | 账号删除进行中；换邮箱后在登录页显式激活新会话 | F3-03,F4-04,F4-05 | `tests/e2e/account-management.spec.ts` + `tests/e2e/account.spec.ts` + `tests/e2e/account-maintenance.spec.ts`；真实本地 `apps/web/src/features/auth/testing/email-change-flow.mjs`（F4-05） |
+| U29 | 账号删除进行中；换邮箱后在登录页显式激活新会话 | F3-03,F4-04,F4-05 | `tests/e2e/account-management.spec.ts` + `tests/e2e/account.spec.ts` + `tests/e2e/account-maintenance.spec.ts`；F4-05 计划的真实本地脚本 `email-change-flow.mjs` 经验收方判断不再交付（2026-10-06 关闭）：服务端闭环由 `apps/worker/src/accounts/lifecycle/lifecycle.test.ts` 的真实 D1 用例覆盖（换邮箱 → 同批回执 → 激活），界面由上列标准 E2E 覆盖 |
 
 前端交付另需 **E2 证据**：桌面与手机的实际页面截图（不是效果图）、执行过的测试与结果、剩余问题与回退点（前端 §14.3）。
 
@@ -327,6 +330,7 @@
 - **P5**：负载、容量回收、账单对账（E3）、独立备份恢复演练完成，已知限制已公开。
 - **P6**：账号归属、可见激活、端点与租期、目标浏览器/网络验收（E2/E3）通过；未通过可不开放，但**不得借此掩盖尚未验收的日历主通道**。
 - **F1–F5**：对应 U 编号全绿；核心页面验收后先固定组件与 token 再扩展；原型代码进入正式实现前重查权限、缓存、错误、状态与测试。
+- **F6**：A-F6-REVIEW 全绿（F6-01）；A-F6-OPS 待 F6-02。管理端三页（审核、版本时间表、运行开关）另按 A-P3-VERSION、A-P3-CONTROLS、A-P3-REVIEW-SKIP 复核。
 
 ## 6. 拒收条件（命中任一即整张卡退回）
 

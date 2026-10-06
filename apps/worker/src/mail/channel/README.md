@@ -20,9 +20,9 @@
 
 ## 后续接线与保留规则
 
-- `renewEmailSeat(db, userId, now)` 是 P5-02 后台扫描的有界单用户续租原语。取 users 三种真实活动水位的最大值，截止时间由活动时刻加 `MAIL_SEAT_LEASE` 推导，CAS 核对活动与通道版本。发送、投递反馈、GET 和仍能登录都不是活动。这个原语不依赖网页访问，不释放沉睡席位，也不替 P5-02 实施回收。GET 的 `lease.background_processing = 'unknown'` 表示调度尚未接线；不能宣传为已经运行。
-- P4-06 接入退订能力后，向 `makeEmailChannelRoutes` 提供 `sendingAvailable`（需同时覆盖业务发送配置、现有发送开关与业务退订可用性），默认 `false` 如实表示当前业务发送链未开放。预算事实复用 P4-04 的日账本与 contracts 判定；不发送测试信。
-- P5-01 的能力开放开关尚未定义，本卡不另造 `system_state` 键。未来由该卡提供已审定的事实与写入守卫。
+- `renewEmailSeat(db, userId, now)` 是 P5-02 后台扫描的有界单用户续租原语。取 users 三种真实活动水位的最大值，截止时间由活动时刻加 `MAIL_SEAT_LEASE` 推导，CAS 核对活动与通道版本。发送、投递反馈、GET 和仍能登录都不是活动。这个原语不依赖网页访问，不释放沉睡席位，也不替 P5-02 实施回收。GET 的 `lease.background_processing = 'unknown'` 表示调度尚未接线；不能宣传为已经运行。（2026-10-06 现状：P5-02 起每次 Cron 维护逐页调用本原语；但 `view.ts` 仍把 `background_processing` 固定为 `'unknown'`，网页因此显示"后台续租状态未知"，这一字段待另行修正。）
+- P4-06 接入退订能力后，向 `makeEmailChannelRoutes` 提供 `sendingAvailable`（需同时覆盖业务发送配置、现有发送开关与业务退订可用性），默认 `false` 如实表示当前业务发送链未开放。（现状：Worker 入口已提供，等于发信可用 ∧ `business_mail_enabled` ∧ 退订可用。）预算事实复用 P4-04 的日账本与 contracts 判定；不发送测试信。
+- P5-01 的能力开放开关尚未定义，本卡不另造 `system_state` 键。未来由该卡提供已审定的事实与写入守卫。（现状：开启席位、常规层分别受 `email_seats_open`、`email_routine_enabled` 约束，先预检，再在提交守卫里复查。）
 - 同意/撤销历史按参数注册表 `CONSENT_AUDIT_AFTER_CLOSE` 的关闭后保留期交 P5-02 清理；本卡不删历史。账号删除仍沿用既有分页清理，额度消耗不退款。
 - 不新增迁移。容量读取扫描当前 `email_channels`（每账号至多一行）；同意读取用既有 user/binding 索引按用户与当前绑定缩小范围，不扫描整个事件历史。请求绑定参数数与用户/历史数量无关。
 
