@@ -18,13 +18,15 @@
 | §3.4 规则、模型与人工三条发布路径 | 0009、0010、0018 | AI 草稿只做预填，管理员按看到的草稿版本采用并批准；「跳过审核」开启时，合格的新草稿由系统按模型路径批准 |
 | §3.5 模型预算与降级 | 0009、0010 | 草稿模型 glm-5.3-flash，按实际输入预占，日累计不超过 `AI_SOFT_DAY`；模型抽取的计费 profile 仍未配置（P3-09 未做） |
 | §3.6 发布一致性 | 0011、0018 | 版本时间表、补全年份的变化不自动改已发布事件；系统批准的发布不加人工锁，疑似重复留给人工 |
-| §8.1 逻辑数据契约 | 0003、0005、0007、0009、0011 | 管理员审计、系统审计各保留 180 天；新增 `ai_drafts`、`ai_usage_days`（0027）与版本时间表（0028）；`usage_periods` 不含 envelope/carry |
-| §8.2 API 分组 | 0009、0011、0014 | 新增公开 `GET /api/v2/events/{eventId}/articles`；admin 下新增 `review/adopt-draft`、`versions` 等（预览接口见 D2；完整清单见本文 §12） |
+| §7.8 可选 Web Push | 0025 | 推送服务登记表（FCM、Mozilla、Apple 精确主机，WNS 单标签子域），登记与外发前各校验一次、不跟随重定向；登记与可见激活分两步（`POST` 交付一次 receipt token，页面存好后 `PATCH activate` 发激活通知）；状态 pending / active / paused / gone，暂停后恢复须重新验证；401/403 自动关闭 `push_enabled`、不动绑定；408/429/5xx 按 `WATCHDOG_INTERVAL` 翻倍退避；业务通知与邮件共用兴趣匹配、不分两层 |
+| §8.1 逻辑数据契约 | 0003、0005、0007、0009、0011、0025 | 管理员审计、系统审计各保留 180 天；新增 `ai_drafts`、`ai_usage_days`（0027）与版本时间表（0028）；`usage_periods` 不含 envelope/carry；0029 为 `push_bindings` 增加激活、测试、暂停事实，新增 `push_messages`（Push"实际哪一条"）与 `users.push_revocation_version` 触发器 |
+| §8.2 API 分组 | 0009、0011、0014、0025 | 新增公开 `GET /api/v2/events/{eventId}/articles`；admin 下新增 `review/adopt-draft`、`versions` 等（预览接口见 D2；完整清单见本文 §12）；Push 路由已挂载（本文 §12） |
 | §8.3 安全、秘密与日志 | 0021、0022、0024 | 允许 Cloudflare 边缘自动注入的 Web Analytics 信标出现在全部页面（含认证与退订页面），站点自身代码仍不引入第三方追踪代码；静态页面 Referrer-Policy 为 `strict-origin-when-cross-origin`（`apps/web/public/_headers`），Worker 响应仍为 no-referrer；平台调用日志（Workers Logs）已开，会记下带 token 的完整 URL，接受与否待所有者确认 |
 | §9.1 唯一预算口径 | 0003 | 只有 UTC 日池：认证 90（其中注册 10）、基础 50、紧急 120，池间不互借 |
 | §9.2 按月剩余自动平滑 | 0003 | 删去 envelope、carry、E=1、软线 S、月末片段；两个 floor 按当日剩余 ≤20 触发；恢复入口仍不依赖发信预算 |
 | §9.3 初值的数量关系 | 0003 | 认证量按日估算，不超过 `MAIL_AUTH_DAY`；按月的算例作废 |
-| §10.1 观测与开关 | 0003、0009、0018、0024 | 新增 `review_skip_enabled`（默认关）；`model_enabled` 控制 AI 草稿；月额、envelope 指标作废（开关全表见本文 §13）；平台侧开启 Workers Logs |
+| §9.4 存量、日额度与回收 | 0025 | Push 租期 `PUSH_LEASE` 由激活、真实处理回执（按 `PUSH_RECEIPT_WRITE_INTERVAL` 合并）、测试与续期续上；到期暂停，暂停或失效超过 `PUSH_STALE_GRACE` 清理，激活过期的 pending 即清理 |
+| §10.1 观测与开关 | 0003、0009、0018、0024、0025 | 新增 `review_skip_enabled`（默认关）；`model_enabled` 控制 AI 草稿；月额、envelope 指标作废（开关全表见本文 §13）；平台侧开启 Workers Logs；公开能力 `push` 另核对部署配置（VAPID 等），推送服务 401/403 时系统自动关闭 `push_enabled` |
 | §10.3 合并后的验收矩阵 | 0003 | 月末片段、envelope/carry、认证软线相关用例作废 |
 | §10.5 仓库、配置与迁移 | 0003 | 禁止项改为"不得恢复月度池、envelope、carry、认证软线"（AGENTS.md §3） |
 | 附录 A.1 产品、来源与后台 | 0012、0016 | `API_BODY_MAX_BYTES` 仍为 8 KiB，候选另有 `CANDIDATE_MAX_BYTES`；`SOURCE_LIMIT_PROFILE` 只保留三个来源 |
@@ -44,6 +46,8 @@
 | §4.5 数据状态与空结果 | 0015 | 公开读取为 `no-cache`；页面开满 1 小时显示"内容可能已过时/当前离线"与信息获取时间，并给刷新按钮 |
 | §5 事件详情 | 0014、0015、0017 | "查看官方公告"打开本站存档的原文弹窗；删去说明句；时间线用同一先后规则 |
 | §9.1 日历订阅 | 0023 | 界面统一称"订阅链接 / 链接"；四项事实为 链接状态 / 使用的设置 / 内容输出 / 日历应用拉取，客户端情况在"查看订阅步骤"里说明；含义不变 |
+| §9.3 本浏览器通知 | 0025 | 订阅页"浏览器通知"卡片只在能力开放或本人已有绑定时出现；点击"在当前浏览器开启通知"后才申请权限、登记、发激活通知；权限与绑定状态分开显示；绑定属于其他账号时用户可明确选择为当前账号重新订阅（新端点），不认领他人绑定；iPhone/iPad 需添加到主屏幕（新增 `manifest.webmanifest`） |
+| §10.1、§10.2 账号页与退出 | 0025 | 账号页"浏览器通知"分区列出本账号全部浏览器（本浏览器按本机绑定 ID 标出）；"退出并暂停本浏览器通知"只在本浏览器有本账号可暂停的通知时出现，先暂停（用当前会话）再退出，逐项报告 |
 | §11.1 视觉方向 | 0015、0020 | 游戏色只用于已选胶囊；截止 24 小时内为高危、72 小时内为临近；已过条目用次要文字色 |
 | §11.3 错误与重试 | 0023 | 不设全站故障横幅；故障由各功能区状态区与服务状态页说明，本节的反馈要求对这些状态区照样适用 |
 | §12.2 对接责任 | D2、D3、0014 | 权威预览与展示状态字段由 D2、D3 定义；公开读取增加原文子资源 |
@@ -93,6 +97,8 @@ ADR-0013（P3-21）补全年份，唯一定义在 contracts `completeYear`：原
 | 恢复码 | 紧急停用（**不消费**）/ 恢复登录（消费一次） | 不证明新邮箱所有权 |
 
 退出本机、关闭邮件、暂停浏览器通知、停用日历、删除账号是**五个不同操作**，互不连带。
+
+Push receipt token 由服务器生成，只在登记响应里出现一次，库里只存 SHA-256；激活还要本轮随机挑战（只出现在端到端加密的激活通知里），业务处理回执还要消息 ID（ADR-0025）。
 
 ## 3. 订阅配置模型（§5.1）
 
@@ -523,7 +529,8 @@ P3-15 / ADR-0006 启动校验 `calendar-preview-rate-bounds`：`CALENDAR_PREVIEW
 | `/api/v2/me/recent-auth/challenges`（+ `verify`）、`/api/v2/me/recent-auth/recovery` | 用途限定的最近认证（OTP 或恢复码） |
 | `/api/v2/me/email-change、recovery-code、delete` | 凭最近认证执行 |
 | `/api/v2/me/export` | 本人配置及必要数据，不导出秘密 |
-| `/api/v2/me/push-bindings`、`/api/v2/push-bindings/{id}/activate、processed` | 本人归属 vs receipt 窄能力——**P6 未实现，Worker 没有挂载** |
+| `/api/v2/me/push-bindings`（GET/POST）、`me/push-bindings/{id}`（PATCH `pause`/`activate`、DELETE）、`me/push-bindings/{id}/test`、`/renew` | 本人管理（ADR-0025）：active 非受限会话 + CSRF；POST 只交付一次 receipt token 不外发；暂停与删除是终止路径 |
+| `/api/v2/push-bindings/{id}/activate、processed` | receipt 窄能力：不读 Cookie、不做 CSRF、同源 Origin；凭证/挑战/消息 ID 不符一律 404；只能确认本浏览器接收 |
 | `/api/v2/admin/session/bootstrap、access、logout` | 管理员会话：引导秘密或 Access 换短期会话；与用户会话隔离 |
 | `/api/v2/admin/review/queue`、`candidates/{id}`、`create`、`revise`、`reject`、`adopt-draft`、`approve`、`correct`、`associate`、`retract` | 候选审核与 AI 草稿采用；每个写操作带理由、`updated_at` 条件写入并审计 |
 | `/api/v2/admin/versions`（+ `confirm` / `clear`） | 版本时间表（ADR-0011） |
@@ -541,7 +548,7 @@ P3-15 / ADR-0006 启动校验 `calendar-preview-rate-bounds`：`CALENDAR_PREVIEW
 | `mail_sending_available` | 全部邮件外发（认证与业务）。公开状态同名字段另核对发信配置、发信绑定与核心退避行 | 未知 → 关闭 |
 | `outbound_enabled` | 全部外发总门：邮件、Push、模型调用、来源请求 | 未知 → 关闭 |
 | `email_seats_open` / `email_routine_enabled` / `business_mail_enabled` | 新邮件席位、常规提醒层、业务邮件；关闭不改用户同意 | 未知 → 关闭 |
-| `push_enabled` | Web Push（未实现） | 未知 → 关闭 |
+| `push_enabled` | Web Push 登记与外发（ADR-0025）；还要求外发总门开、`read_only` 关、部署配置齐备。推送服务 401/403 时系统自动置 false 并写系统审计 | 未知 → 关闭 |
 | `model_enabled` | AI 草稿调用（P3-17 起）；还要求外发总门开、`read_only` 关 | 未知 → 关闭 |
 | `automatic_publication_enabled` | 规则路径（白名单模板）已批准候选的自动发布；跳过审核不经此门 | 未知 → 关闭 |
 | `review_skip_enabled` | 「跳过审核」（ADR-0018）：只在 AI 草稿可用时生效 | **合同默认 false**（`OPERATIONAL_CONTROL_DEFAULTS`，首次部署后才加的开关）；读取出错仍是未知 |

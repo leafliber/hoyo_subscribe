@@ -152,6 +152,8 @@
 | 当前浏览器对应哪条绑定 | 本浏览器持有的绑定 ID；**不按 endpoint 认领** | P6-01 |
 | 允许的重试动作与可重试时间 | 额度与状态 | P6-02 |
 
+**现状（2026-10-06，ADR-0025；待验收）**：已实现。`GET /api/v2/me/push-bindings` 返回 contracts `PushChannelViewSchema`：`server_time`、部署是否配置、VAPID 公钥、能力 open/closed/unknown、会话与恢复码事实、订阅状态、名额与日额余量（取不到为 `unknown`）、本人各绑定（状态 pending/active/paused/gone、暂停原因、激活截止与次数与最近结果、激活时间、租期、最近测试与是否收到、失效时间）。不含端点、密钥或任何凭证。浏览器用 contracts `derivePushActions` 推导置灰（受阻原因是 `ACTION_BLOCK_REASONS` 加 `state_mismatch`、`activation_expired`、`attempts_exhausted`、`cooldown`，冷却给 `retry_at`）；写入被拒返回同一 `blocked_reason`。当前浏览器按本机 IndexedDB 保存的绑定 ID 判断。
+
 ### 2.9 组合与危险操作
 
 按 §1.3 的四种结果呈现；未知时按 §3 核对。组合操作（如"退出并暂停本浏览器通知"）逐项请求、逐项核对、
@@ -184,7 +186,7 @@
 | 新码生成、保存确认 | 按 P2-05 的规则 | `GET /api/v2/me` 的恢复码状态 |
 | Feed 启用 / 停用 / 重置 | 停用能；启用、重置**不能**（会换 token） | `GET /api/v2/me/calendar` 核对地址状态与代次（前端 §9.1） |
 | 邮件同意 / 关闭 | 关闭能 | `GET /api/v2/me/email-channel` |
-| Push 绑定操作 | 按 P6 合同 | `GET /api/v2/me/push-bindings` |
+| Push 绑定操作 | 暂停、删除能（幂等，已停止的不重复写）；登记能（同 endpoint 同 owner 只轮换本浏览器 receipt）；发激活、测试**不能**直接重放（会再发一条通知并计预算，受冷却约束）；续期带 `expected_version` | `GET /api/v2/me/push-bindings` 核对绑定状态、激活次数与最近测试（ADR-0025） |
 | 换邮箱、删除账号、轮换恢复码 | **不能** | `GET /api/v2/me`（删除后为 401，或显示 deleting） |
 
 ## 4. 分工（2026-09-30 审定后已写进各卡）
@@ -200,7 +202,7 @@
 | P3-14（已合入） | §2.1 来源状态、发布代次、缺口聚合 |
 | P4-05 / P4-07 | §2.7 邮件视图：只给事实，名额余量给精确整数 |
 | P5-01（`71f49a4` 已合入） | §2.1 能力开放状态 |
-| P6-01 / P6-02 | §2.8 Push 视图：只给事实 |
+| P6-01 / P6-02 | §2.8 Push 视图：只给事实（2026-10-06 已实现，ADR-0025，待验收）；§2.10 账号摘要的 Push 一行改为按状态计数 |
 
 ## 5. 所有者审定结果（2026-09-30）
 

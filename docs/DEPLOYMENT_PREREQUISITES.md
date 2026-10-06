@@ -27,8 +27,9 @@
 | `CRYPTO_UNSUBSCRIBE_KEY_ID` | P1-06 / P1-08 | 退订 token 的 key_id | 同上 |
 | `TURNSTILE_SECRET_KEY` | P2-01 | Turnstile 服务端 siteverify（[R09]） | 第 4 步失败关闭 |
 | `ADMIN_BOOTSTRAP_SECRET`（P3-10 合入后生效） | P3-10 | 管理员引导交换：只经 HTTPS POST 请求体提交，换取短期管理员会话。用 CSPRNG 生成 `SECRET_BITS` 位，存小写 hex；不进 URL、仓库、日志或前端环境变量 | 引导入口统一拒绝，管理员无法登录 |
+| `PUSH_VAPID_PRIVATE_JWK`（P6 合入后生效，ADR-0025） | P6-01 / P6-02 | Web Push 的 VAPID 私钥（ECDSA P-256 的 JWK）。**独立于根秘密，不从 `CRYPTO_MASTER_SECRET` 派生**。按 §10.2「分开保管」，所有者生成时在仓库外的加密离线位置留一份（与 `.hbk` 备份不同介质；灾备恢复或重建 Worker 时用它重新注入同一把），再从这份文件注入：仓库根执行 `node scripts/push/generate-vapid.mjs --out "$VAPID_FILE"`（权限 0600 新建；目标已存在或在仓库内即拒绝），再在 `apps/worker` 执行 `pnpm exec wrangler secret put PUSH_VAPID_PRIVATE_JWK --config "$P504_DEPLOY_CONFIG" < "$VAPID_FILE"`。私钥不进仓库、备份包、对话或截图；脚本在 stderr 打印公钥供核对。**投入使用后不要轮换**：浏览器订阅与公钥绑定，换钥会让全部现有订阅失效，且目前没有换钥流程（ADR-0025「回退」） | Push 视为未配置：公开能力不显示开放，登记与一切 Push 外发失败关闭；其余功能不受影响 |
 
-生成方式见 `docs/ENGINEERING.md` §4；**九个用途各自独立，不得复用同一份材料**（P2-01 新增第 9 个 `preauth-cookie`）。
+生成方式见 `docs/ENGINEERING.md` §4；**九个用途各自独立，不得复用同一份材料**（P2-01 新增第 9 个 `preauth-cookie`）。`PUSH_VAPID_PRIVATE_JWK` 不属于这九个派生用途，是单独的一份密钥材料（ADR-0025）。
 
 **2026-10-06 核对**：上表五个 Secret 均已在正式 Worker 中配置（只核对名称，未核对取值与配对；Turnstile 真实新 token 成功/重放拒绝的取证仍未登记）。
 
@@ -66,7 +67,8 @@
 | 管理员 Access 入口 `ADMIN_ACCESS_ISSUER`、`ADMIN_ACCESS_AUD`（可选，P3-10 合入后生效） | P3-10 | §8.3 | 前者形如 `https://<team>.cloudflareaccess.com`，后者是管理员应用的 Audience。两项都配了才开启 Access 换会话入口，缺一即关闭。Access 应用**只保护 `/api/v2/admin/*`**，不得给 `/feeds/u/*` 加交互登录墙。2026-10-06 核对：未配置（可选；Access 换会话入口关闭，管理员经引导秘密登录） |
 | 管理员入口的边缘限速（P3-10 合入后生效） | P3-10 | §8.3、[R16] | 代码里的近似限速只挡单个 isolate 内的突发。`/api/v2/admin/session/*` 要在边缘另配按 IP 的限速。**2026-10-06 核对：已由上面同一条区域规则覆盖** |
 | 登录页 Turnstile 站点密钥 `PUBLIC_TURNSTILE_SITE_KEY`（F3-01 合入后生效） | F3-01 | §4.2 | 构建期的公开变量，与 Worker 的 `TURNSTILE_SECRET_KEY` 配对，站点域名要在 Turnstile 的允许列表里。没配时登录页失败关闭，无法申请验证码。2026-10-06 核对：已有组件的允许列表含 `airo.cc`；构建变量本身只在所有者本地构建环境，未核对 |
-| 正式 D1 应用迁移 | P1-04 起各卡；本批 P3-10 | §8.1；`ENGINEERING.md` §6 | 上线前、以及之后每次带迁移的发布前，按编号顺序把 `migrations/` 应用到正式 D1。2026-10-03 首次远端0001–0026已应用并逐项查验；P3-17 新增 0027（AI 草稿与 Workers AI 日账本），部署 P3-17 前必须先远端应用；P3-19 新增 0028（版本时间表），部署 P3-19 前必须先远端应用；此前最新为 0026（P5-02，生命周期/系统审计清理索引，#78 已 squash `13ddad2`）；0025 为日池首次耗尽观测触发器，0024 为管理员审计到期清理部分索引。代码先于迁移上线时，依赖新表或新索引的路径会报错。**0027、0028 已于 2026-10-04 远端应用**（分别在 P3-17、P3-19 部署前），之后各次部署均无迁移；下一个迁移号 0029 |
+| 正式 D1 应用迁移 | P1-04 起各卡；本批 P3-10 | §8.1；`ENGINEERING.md` §6 | 上线前、以及之后每次带迁移的发布前，按编号顺序把 `migrations/` 应用到正式 D1。2026-10-03 首次远端0001–0026已应用并逐项查验；P3-17 新增 0027（AI 草稿与 Workers AI 日账本），部署 P3-17 前必须先远端应用；P3-19 新增 0028（版本时间表），部署 P3-19 前必须先远端应用；此前最新为 0026（P5-02，生命周期/系统审计清理索引，#78 已 squash `13ddad2`）；0025 为日池首次耗尽观测触发器，0024 为管理员审计到期清理部分索引。代码先于迁移上线时，依赖新表或新索引的路径会报错。**0027、0028 已于 2026-10-04 远端应用**（分别在 P3-17、P3-19 部署前），之后各次部署均无迁移。**P6（ADR-0025）新增 0029**（Push 激活/测试/暂停列、`push_messages`、`users.push_revocation_version` 与触发器），部署 P6 前必须先远端应用；下一个迁移号 0030 |
+| **可选 Web Push（P6 / F5-01 合入后生效，ADR-0025）** | P6-01 / P6-02 / F5-01 | §7.8、§10.1 | 部署前先远端应用迁移 **0029**（只增列、增表、增索引与触发器），应用前按 [备份恢复手册](runbooks/backup-restore.md) 先备份（手册要求的本地演练已于 2026-10-06 针对 0029 补跑通过）。再注入 §1 的 `PUSH_VAPID_PRIVATE_JWK`，网页与 Worker 一起部署（网页新增 `/sw.js` 与 `/manifest.webmanifest`，都是静态资源，无需新增路由）。**`push_enabled` 默认关闭**：是否开启由所有者在「运行开关」页决定，同时需外发总闸开、只读关。建议先按 `docs/evidence/p6/README.md` 完成 P6-03 的目标浏览器与网络取证；中国大陆网络下依赖 Google 推送服务的浏览器可能收不到。推送服务对本站身份返回 401/403 时，系统会自动关闭 `push_enabled` 并写系统审计，核对 VAPID 配置后再打开。不新增收费产品；外发以 `PUSH_SEND_DAY` 封顶。**建议**把 `/api/v2/push-bindings/`（Service Worker 回执入口，不需会话、凭证不符一律 404 且不写库）加入现有按 IP 的边缘限速规则，挡住刷读库的突发。**回滚**：`push_enabled` 从未打开过时可直接回滚代码，0029 留在库里、旧代码不读写；打开过之后不要直接回滚——旧代码的邮件调度不区分渠道，会把未完成的 Push 投递当成待发邮件，旧回收会在租期到期约 30 秒后就删除暂停的绑定——先关 `push_enabled`，按 ADR-0025「回退」处理 |
 | 站点静态资源随 Worker 部署（P5-05 合入后生效） | P5-05 | §2.1 | 网页构建产物与 Worker 同一个项目部署（`wrangler.jsonc` 的 `assets`）。站点域名的路由要让静态页面、`/api/*`、`/feeds/*`、`/unsubscribe/*`、`/email/one-click/*` 都进这个 Worker 项目；详情直达靠构建产物里的唯一 `_redirects`；#65 已修正目录目标并通过本地平台 23 项冒烟，已合入 `3b8c643`；2026-10-03 已以 `6c22c87` 发布，线上页面/详情直达及关闭状态检查通过。不要另加平台侧的重写规则。之后每次部署网页与 Worker 同一次 `wrangler deploy` 上线，当前为 `cea8145` |
 
 ## 3. 待取得的实测值
