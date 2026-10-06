@@ -93,7 +93,7 @@ CI=1 WRANGLER_SEND_METRICS=false pnpm exec wrangler d1 migrations apply DB --rem
 | DO | PipelineDO/main、DeliveryDO/main 请求/时长/存储、alarm/watchdog、发送所在运行时、旧租约拒绝 | 没运行的 DO 行为保持未知，不能拿类声明当证据 |
 | Queue | 操作量、重试、重复、未匹配、DLQ 积压/保留期/重驱，唯一消费者切换时间 | 重试是操作量组成部分，不与总量重复相加；DLQ 不当发信队列 |
 | 邮件日池 | 同一 UTC 日 usage_periods 四用途全局行 + outbox/可信反馈终态；跨日接受按 messageId 私下关联后聚合；平台账户/其他应用/本应用接受量与日权限 | 区分 settled/reserved/uncertain；明确拒绝也 settled；跨日/unknown 差额逐项解释，不擅自退款 |
-| 官方来源 | 目标 Worker 对已批准来源可达性、载荷/截断/游标及最后成功；米游社继续维护 | 遇访问控制停止，不伪装 UA 或换聚合后端；跨年样本仍缺则公开限制 |
+| 官方来源 | 目标 Worker 对已批准来源可达性、载荷/截断/游标及最后成功；米游社来源已下线（ADR-0016），不再取证 | 遇访问控制停止，不伪装 UA 或换聚合后端；跨年样本仍缺则公开限制 |
 | 邮件实际体验 | 认证绑定路径发送/接受/送达/反馈时间；业务退订头有效签名覆盖 | 仅已授权地址，原始头和关联 ID 留私有位置；accepted 不当送达 |
 | 独立备份 | 本地加密磁盘 + 独立离线副本真实到位、读回 verify、当前份数/周期、密钥及当前 epoch 分离 | 依 [备份恢复手册](../../runbooks/backup-restore.md)；Time Travel 不替代；VAPID 首版不适用 |
 | 目标恢复 | 导出阻塞、导出/恢复耗时、旧会话/恢复码/Feed/通知不复活、最新撤销与 SEQUENCE 高水位、DO/Queue/DLQ恢复 | unresolvedAccounts 非零不开放账号；无高水位 Feed 保持停用并明确迁移 |
