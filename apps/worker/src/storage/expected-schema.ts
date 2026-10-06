@@ -1,3 +1,4 @@
+// P6 获准跨卡：登记 0029 Push 激活/测试/暂停列、push_messages 与安全暂停触发器（ADR-0025）。
 // P3-19 获准跨卡：登记 0028 版本时间建议与确认表（ADR-0011）。
 // P3-17 获准跨卡：登记 0027 AI 草稿与 Workers AI 日账本（ADR-0009）。
 // P3-10 返工获准跨卡：登记 0024 管理员审计到期部分索引。
@@ -20,6 +21,10 @@ import {
   TIME_BASES,
   TIME_PRECISIONS,
 } from "../../../../packages/contracts/src/enums";
+import {
+  PUSH_MESSAGE_PURPOSES,
+  PUSH_MESSAGE_STATUSES,
+} from "../../../../packages/contracts/src/push";
 import { AI_DRAFT_STATUSES } from "../extraction/model/store";
 
 /** 各表列全集（与 CREATE TABLE 逐列一致；不含系统 rowid）。 */
@@ -217,6 +222,7 @@ export const EXPECTED_TABLES: Record<string, readonly string[]> = {
   // 数据组 4：用户
   users: [
     "calendar_revocation_version",
+    "push_revocation_version", // P6：安全暂停/删除账号的同批效果，触发器暂停全部绑定（ADR-0025）。
     "id",
     "order",
     "status",
@@ -435,6 +441,40 @@ export const EXPECTED_TABLES: Record<string, readonly string[]> = {
     "lease_expires_at",
     "activated_at",
     "last_processed_at",
+    "created_at",
+    "updated_at",
+    // 0029（ADR-0025）：可见激活、测试与暂停事实。
+    "push_service",
+    "activation_deadline",
+    "activation_attempts",
+    "activation_sent_at",
+    "activation_outcome",
+    "activation_challenges_json",
+    "last_test_at",
+    "last_test_outcome",
+    "last_test_received_at",
+    "paused_reason",
+    "gone_at",
+  ],
+  // 0029（ADR-0025）：Push 实际外发记录。
+  push_messages: [
+    "id",
+    "binding_id",
+    "user_id",
+    "purpose",
+    "critical",
+    "priority",
+    "delivery_id",
+    "period_key",
+    "status",
+    "attempts",
+    "next_attempt_at",
+    "lease_version",
+    "lease_expires_at",
+    "last_http_status",
+    "reason",
+    "expires_at",
+    "accepted_at",
     "created_at",
     "updated_at",
   ],
@@ -758,6 +798,13 @@ export const EXPECTED_INDEXES: Record<string, ExpectedIndex> = {
   idx_calendar_feeds_poll: { table: "calendar_feeds", columns: ["last_feed_poll_at"] },
   idx_push_bindings_owner: { table: "push_bindings", columns: ["user_id", "state"] },
   idx_push_bindings_lease: { table: "push_bindings", columns: ["lease_expires_at"] },
+  idx_push_bindings_state: { table: "push_bindings", columns: ["state", "activation_deadline"] },
+  idx_push_messages_due: { table: "push_messages", columns: ["status", "next_attempt_at"] },
+  idx_push_messages_binding: {
+    table: "push_messages",
+    columns: ["binding_id", "purpose", "created_at"],
+  },
+  idx_push_messages_expiry: { table: "push_messages", columns: ["expires_at"] },
   idx_jobs_due: { table: "jobs", columns: ["status", "due_at"] },
   idx_jobs_lease_expiry: { table: "jobs", columns: ["lease_expires_at"] },
   idx_outbox_dispatch: { table: "outbox", columns: ["dispatch_state", "created_at"] },
@@ -845,6 +892,7 @@ export const EXPECTED_UNIQUE_CONSTRAINTS: Record<string, readonly string[][]> = 
   suppressions: [["address_key"]],
   calendar_feeds: [["namespace"], ["token_hash"]],
   push_bindings: [["endpoint_hash"], ["receipt_token_hash"]],
+  push_messages: [["delivery_id"]],
   outbox: [["dedupe_key"]],
   occurrences: [["milestone_id", "schedule_revision", "kind"]],
   mail_outbox: [["idempotency_key"]],
@@ -858,6 +906,7 @@ export const EXPECTED_TRIGGERS: readonly string[] = [
   "trg_observe_mail_depletion_update",
   "trg_feed_activity_merge",
   "trg_feed_revoke",
+  "trg_push_revoke",
   "trg_article_versions_immutable",
   "trg_account_email_change_invalidate",
   "trg_account_delete_invalidate",
@@ -901,6 +950,14 @@ export const EXPECTED_ENUM_CHECKS: Record<string, EnumCheckSource> = {
   },
   "deliveries.status": { values: DELIVERY_STATUSES, source: "contracts:DELIVERY_STATUSES" },
   "mail_outbox.status": { values: DELIVERY_STATUSES, source: "contracts:DELIVERY_STATUSES" },
+  "push_messages.purpose": {
+    values: PUSH_MESSAGE_PURPOSES,
+    source: "contracts:PUSH_MESSAGE_PURPOSES（ADR-0025）",
+  },
+  "push_messages.status": {
+    values: PUSH_MESSAGE_STATUSES,
+    source: "contracts:PUSH_MESSAGE_STATUSES（ADR-0025）",
+  },
   // 以下为合同正文枚举但尚未收编进 packages/contracts 的字面值（标注出处；
   // 后续任务卡（P1-03/P1-07）收编时应改为 contracts 引用）。
   "usage_periods.pool": {

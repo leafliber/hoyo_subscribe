@@ -1,6 +1,8 @@
 import { WATCHDOG_INTERVAL } from "@hoyo/contracts";
 // P4-03 获准跨卡：替换占位；唯一 DeliveryDO/main，整个异步工作单元串行化。
 import { mailDependencies } from "../mail/provider/environment";
+// P6（ADR-0025）获准接线：同一串行 DO 里追加有预算的 Push 业务外发。
+import { pushDependencies } from "../push/environment";
 import { logEvent } from "../shell/logger";
 import { DeliveryRuntime } from "./delivery/runtime";
 export class DeliveryDO {
@@ -10,7 +12,7 @@ export class DeliveryDO {
     private readonly state: DurableObjectState,
     env: Env,
   ) {
-    this.runtime = new DeliveryRuntime(mailDependencies(env));
+    this.runtime = new DeliveryRuntime(mailDependencies(env), pushDependencies(env));
   }
   private exclusive<T>(work: () => Promise<T>): Promise<T> {
     const next = this.tail.then(work);

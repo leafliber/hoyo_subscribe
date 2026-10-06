@@ -270,3 +270,11 @@
     width: 100%;
   }
 }
+
+/* F5-01：浏览器通知列表沿用登录设备的样式；一个绑定可有多个动作。 */
+.push-binding-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: var(--space-2);
+}

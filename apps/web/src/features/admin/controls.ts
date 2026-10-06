@@ -48,7 +48,10 @@ const LABELS: Record<string, { name: string; desc: string; danger?: boolean }> =
   email_routine_enabled: { name: "常规提醒邮件", desc: "常规提前提醒与新活动邮件。" },
   calendar_enabled: { name: "开放日历订阅", desc: "允许用户启用个人日历订阅。" },
   automatic_publication_enabled: { name: "自动发布", desc: "规则抽取的候选无需人工审核即可发布。" },
-  push_enabled: { name: "浏览器推送", desc: "首版未实现。" },
+  push_enabled: {
+    name: "浏览器通知（Web Push）",
+    desc: "允许用户在浏览器开启通知并外发；还需部署 VAPID 密钥并打开外发总闸。推送服务拒绝本站身份（401/403）时系统会自动关闭此开关，核对 VAPID 配置后再打开。",
+  },
   model_enabled: {
     name: "AI 草稿（模型抽取）",
     desc: "用 Workers AI 为待审公告预填草稿，人工批准后才发布；需同时打开外发总闸、关闭只读模式。",

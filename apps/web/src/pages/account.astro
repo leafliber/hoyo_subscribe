@@ -27,6 +27,7 @@ const otpNote = `验证码 ${OTP_DIGITS} 位，${OTP_TTL / 60} 分钟内有效�
       <nav class="account-nav" aria-label="账号页目录">
         <a href="#account-info"><Icon name="user" />账号信息</a>
         <a href="#account-devices"><Icon name="monitor" />登录设备</a>
+        <a href="#account-push"><Icon name="bell" />浏览器通知</a>
         <a href="#account-security"><Icon name="key" />恢复码</a>
         <a href="#account-data"><Icon name="download" />数据导出</a>
         <a href="#account-danger"><Icon name="trash" />删除账号</a>
@@ -41,6 +42,7 @@ const otpNote = `验证码 ${OTP_DIGITS} 位，${OTP_TTL / 60} 分钟内有效�
               <dt>登录有效期</dt><dd id="account-expiry">未知</dd>
               <dt>订阅设置</dt><dd id="account-subscription">未知</dd>
               <dt>邮件通知</dt><dd id="account-mail">未知</dd>
+              <dt>浏览器通知</dt><dd id="account-push-summary">未知</dd>
               <dt>邮件名额租期</dt><dd id="account-lease">未知</dd>
               <dt>账号回收</dt><dd id="account-reclaim">未知</dd>
             </dl>
@@ -100,6 +102,17 @@ const otpNote = `验证码 ${OTP_DIGITS} 位，${OTP_TTL / 60} 分钟内有效�
           </div>
         </section>
 
+        <section id="account-push" class="card account-section" aria-labelledby="account-push-title">
+          <div class="card-header"><h2 id="account-push-title">浏览器通知</h2></div>
+          <div class="card-body">
+            <dl class="kv"><dt>本浏览器权限</dt><dd id="account-push-permission">未知</dd></dl>
+            <ul id="account-push-list" class="account-sessions"></ul>
+            <p id="account-push-status" class="field-hint" role="status">正在读取浏览器通知…</p>
+            <p class="field-hint">浏览器通知和登录设备分开管理：退出某台设备的登录不会关闭它的浏览器通知；要停止某个浏览器的通知，请在这里暂停或删除。验证通过也不承诺以后每条都送达。</p>
+            <div class="button-row"><a id="account-push-enable" class="button button--secondary" href="/subscription#push-channel" hidden><Icon name="bell" />在当前浏览器开启通知</a></div>
+          </div>
+        </section>
+
         <section id="account-security" class="card account-section" aria-labelledby="account-data-title">
           <div class="card-header"><h2 id="account-data-title">恢复码</h2></div>
           <div class="card-body">
@@ -126,7 +139,6 @@ const otpNote = `验证码 ${OTP_DIGITS} 位，${OTP_TTL / 60} 分钟内有效�
             <p id="account-deletion" class="result-message callout callout--warning" role="status"></p>
           </div>
         </section>
-        <dl hidden><dt>本浏览器权限</dt><dd id="account-push-permission">未知</dd></dl>
       </div>
     </div>
   </div>

@@ -27,6 +27,8 @@ const siteName = "HoYo日历";
     <meta name="referrer" content="strict-origin-when-cross-origin" />
     {noindex && <meta name="robots" content="noindex, nofollow" />}
     <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <!-- F5-01：iPhone / iPad 只有添加到主屏幕的网页应用能接收浏览器通知，需要应用清单。 -->
+    <link rel="manifest" href="/manifest.webmanifest" />
     <title>{title} · {siteName}</title>
   </head>
   <body>

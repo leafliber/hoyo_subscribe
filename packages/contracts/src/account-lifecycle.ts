@@ -102,7 +102,17 @@ export const AccountSummarySchema = z.strictObject({
       z.strictObject({ state: z.literal("unknown") }),
       z.strictObject({ state: z.enum(["enabled", "disabled"]), routine_enabled: z.boolean() }),
     ]),
-    push: z.strictObject({ state: z.literal("unknown") }),
+    // P6（ADR-0025）：Push 一行只给计数事实；读取失败仍是 unknown。
+    push: z.union([
+      z.strictObject({ state: z.literal("unknown") }),
+      z.strictObject({
+        state: z.enum(["none", "active", "inactive"]),
+        pending: z.int().nonnegative(),
+        active: z.int().nonnegative(),
+        paused: z.int().nonnegative(),
+        gone: z.int().nonnegative(),
+      }),
+    ]),
   }),
   reclaim_grace_until: z.int().nullable(),
   recent_auth: AccountRecentAuthSchema,

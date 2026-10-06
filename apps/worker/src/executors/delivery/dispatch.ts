@@ -1,3 +1,4 @@
+// P6（ADR-0025）获准跨卡：邮件编排的"仍有待发"判断只看 channel=email，Push Delivery 不触发邮件批次。
 // P4-04 · 只新增业务批次编排；批次/预算等待独立于认证与发生项展开。
 
 import { SEND_CONCURRENCY, utcDayPeriod, WATCHDOG_INTERVAL } from "@hoyo/contracts";
@@ -79,7 +80,7 @@ export async function runDispatchPass(
           .run();
         const fresh = await db
           .prepare(`SELECT d.id FROM deliveries d JOIN occurrences o ON o.id=d.occurrence_id
-          WHERE d.status='pending' AND d.mail_outbox_ref IS NULL AND o.due_at<=? AND d.expires_at>?
+          WHERE d.status='pending' AND d.mail_outbox_ref IS NULL AND d.channel='email' AND o.due_at<=? AND d.expires_at>?
           AND NOT EXISTS (SELECT 1 FROM jobs WHERE id IN ('occurrence:'||o.id||':start','occurrence:'||o.id||':email') AND status='failed')
           AND d.occurrence_id NOT IN (SELECT value FROM json_each((SELECT json_extract(payload_json,'$.occurrenceIds') FROM jobs WHERE id=?))) LIMIT 1`)
           .bind(now(), now(), round.batchId)
@@ -141,7 +142,7 @@ export async function nextDispatchAlarm(db: D1Database, now: number): Promise<nu
   // pending 索引排除历史；未来候选不能自行触发。
   const pending = await db
     .prepare(`SELECT d.id FROM deliveries d JOIN occurrences o ON o.id=d.occurrence_id
-    WHERE d.status='pending' AND d.mail_outbox_ref IS NULL AND o.due_at<=?
+    WHERE d.status='pending' AND d.mail_outbox_ref IS NULL AND d.channel='email' AND o.due_at<=?
     AND NOT EXISTS (SELECT 1 FROM jobs WHERE id IN ('occurrence:'||o.id||':start','occurrence:'||o.id||':email') AND status='failed') LIMIT 1`)
     .bind(now)
     .first();

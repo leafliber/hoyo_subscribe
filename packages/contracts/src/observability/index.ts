@@ -72,6 +72,12 @@ export const OBS_METRICS = [
   "delivery_dispatch_failed",
   "feedback_maintenance_failed",
   "dispatch_budget_skipped",
+  // P6（ADR-0025）：Push 外发调用、结果不明、端点失效、VAPID/配置被拒、预算不足跳过。
+  "push_call",
+  "push_unknown",
+  "push_endpoint_gone",
+  "push_auth_rejected",
+  "push_budget_skipped",
 ] as const;
 export const ObsMetricSchema = z.enum(OBS_METRICS);
 export type ObsMetric = z.infer<typeof ObsMetricSchema>;
@@ -109,7 +115,17 @@ export function capabilityFact(
   if (facts.includes(false)) return "closed";
   return facts.every((v) => v === true) ? "open" : "unknown";
 }
-export function publicOperationalCapabilities(facts: ControlFacts) {
+/**
+ * 部署环境事实（不是运行开关）：Push 需要 VAPID 密钥、站点源与字段密钥都已注入（ADR-0025）。
+ * 缺省为 unknown，Push 因而不会显示开放。
+ */
+export interface DeploymentFacts {
+  readonly push_configured?: ControlFact;
+}
+export function publicOperationalCapabilities(
+  facts: ControlFacts,
+  deployment: DeploymentFacts = {},
+) {
   const writable =
     facts.read_only === "unknown" || facts.read_only === undefined ? "unknown" : !facts.read_only;
   return {
@@ -122,7 +138,12 @@ export function publicOperationalCapabilities(facts: ControlFacts) {
       facts.mail_sending_available,
       writable,
     ),
-    push: capabilityFact(facts.push_enabled, facts.outbound_enabled, "unknown", writable),
+    push: capabilityFact(
+      facts.push_enabled,
+      facts.outbound_enabled,
+      deployment.push_configured ?? "unknown",
+      writable,
+    ),
   };
 }
 export function observedMailPools(ledger: MailDayLedgerSnapshot) {

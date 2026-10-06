@@ -33,7 +33,7 @@
 - mail_sending_available：复用原键，控制全部邮件外发；全部外发总门另覆盖 Push/模型/来源请求。
 - outbound_enabled：全部外发；缺失关闭。
 - email_seats_open / email_routine_enabled / business_mail_enabled：新名额、常规层、业务邮件分别控制；关闭不修改用户同意。
-- push_enabled / model_enabled / automatic_publication_enabled：独立门；未实现的 Push/模型不得宣称已可用。（P3-17 起 `model_enabled` 控制 AI 草稿调用，还要求外发总门开、`read_only` 关；`automatic_publication_enabled` 只控制规则路径已批准候选的自动发布，「跳过审核」不经此门。）
+- push_enabled / model_enabled / automatic_publication_enabled：独立门；未实现的模型不得宣称已可用。（ADR-0025 起 Push 已实现：公开能力另核对部署配置（VAPID 等）；推送服务对本站身份返回 401/403 时系统自动把 `push_enabled` 置 false 并写系统审计，绑定不动，核对 VAPID 配置后由管理员重新打开。指标新增 `push_call`、`push_unknown`、`push_endpoint_gone`、`push_auth_rejected`、`push_budget_skipped`。）（P3-17 起 `model_enabled` 控制 AI 草稿调用，还要求外发总门开、`read_only` 关；`automatic_publication_enabled` 只控制规则路径已批准候选的自动发布，「跳过审核」不经此门。）
 - review_skip_enabled（P3-25，ADR-0018）：「跳过审核」，只在 AI 草稿可用时生效。首次部署后才加，没有记录时按合同默认值读作关闭（`OPERATIONAL_CONTROL_DEFAULTS`，只能是 false），读取出错仍是 unknown；管理端以版本 0 写入首行。
 - source:<注册表 source_id>：逐来源 boolean；仍保留访问控制维护锁，不自动解除。
 - account_reclaim_enabled / seat_reclaim_enabled：各自的运营门；不替代 reclaim_paused 的活动可靠性门，不实现回收。

@@ -3,6 +3,10 @@ import { expect, type Page, test } from "@playwright/test";
 import {
   type AccountSummary,
   buildApiErrorBody,
+  PUSH_USER_MAX,
+  type PushBindingView,
+  type PushChannelView,
+  pushLeaseExpiresAt,
   RECENT_AUTH_TTL,
   SESSION_ABSOLUTE_TTL,
   SESSION_IDLE_TTL,
@@ -34,6 +38,54 @@ const facts = (): AccountSummary => ({
   reclaim_grace_until: null,
   recent_auth: { email_change: null, recovery_code_rotate: null, account_delete: null },
 });
+// F5-01：合成的本人浏览器通知事实；绑定 ID 与凭证均为合成值。
+const PUSH_BINDING = "00000000-0000-4000-8000-0000000000a1";
+const pushBinding = (): PushBindingView => ({
+  id: PUSH_BINDING,
+  state: "active",
+  service: "mozilla",
+  binding_version: 4,
+  created_at: serverTime - SESSION_IDLE_TTL * second,
+  activated_at: serverTime - SESSION_IDLE_TTL * second,
+  activation: null,
+  lease_expires_at: pushLeaseExpiresAt(serverTime),
+  last_processed_at: serverTime,
+  last_test: null,
+  paused_reason: null,
+  gone_at: null,
+});
+const pushView = (bindings: PushBindingView[] = []): PushChannelView => ({
+  server_time: serverTime,
+  configured: true,
+  application_server_key: `B${"A".repeat(86)}`,
+  service: "open",
+  session_state: "active",
+  recovery_code_required: false,
+  recovery_code_saved: true,
+  subscription_state: "initialized",
+  remaining: {
+    user: PUSH_USER_MAX - bindings.length,
+    pending: 10,
+    active: 10,
+    total: 10,
+    new_today: 10,
+    test_today: 10,
+    send_today: 10,
+  },
+  bindings,
+});
+/** 本浏览器本机记录（与 Service Worker 共用的 IndexedDB），让页面认出"本浏览器"的绑定。 */
+async function thisBrowserHolds(page: Page, bindingId: string) {
+  await page.addInitScript((id) => {
+    const request = indexedDB.open("hoyo-push", 1);
+    request.onupgradeneeded = () => request.result.createObjectStore("binding");
+    request.onsuccess = () =>
+      request.result
+        .transaction("binding", "readwrite")
+        .objectStore("binding")
+        .put({ binding_id: id, receipt_token: "R".repeat(43) }, "current");
+  }, bindingId);
+}
 const fixtureSessions = () => [
   {
     id: "synthetic-current",
@@ -74,6 +126,8 @@ async function setup(page: Page, summary: Record<string, unknown> = facts()) {
     renewal: "success",
     renewed: true,
     requests: [] as string[],
+    push: pushView(),
+    pause: "success" as "success" | "reject",
   };
   await page.addInitScript(() => {
     document.addEventListener("hoyo:draft-identity", () => {
@@ -120,6 +174,27 @@ async function setup(page: Page, summary: Record<string, unknown> = facts()) {
               csrf_token: "synthetic-session-csrf",
             },
           });
+    }
+    if (path === "status") return route.fulfill({ json: { capabilities: { push: "open" } } });
+    if (path === "me/push-bindings") return route.fulfill({ json: state.push });
+    if (path.startsWith("me/push-bindings/") && req.method() === "PATCH") {
+      if (state.pause === "reject")
+        return route.fulfill({ status: 503, json: buildApiErrorBody("temporarily_unavailable") });
+      const id = path.split("/").at(-1);
+      state.push = {
+        ...state.push,
+        bindings: state.push.bindings.map((binding) =>
+          binding.id === id
+            ? {
+                ...binding,
+                state: "paused",
+                paused_reason: "user",
+                binding_version: binding.binding_version + 1,
+              }
+            : binding,
+        ),
+      };
+      return route.fulfill({ json: { result: "completed", outcome: null, state: state.push } });
     }
     if (path === "me/email-channel")
       return route.fulfill({
@@ -217,12 +292,9 @@ async function chooseLogout(page: Page, pause = false) {
   await page.getByRole("button", { name: "退出登录", exact: true }).click();
   const dialog = page.getByRole("dialog", { name: "选择退出方式" });
   await expect(dialog).toBeVisible();
-  if (pause) {
-    // Browser-notification pausing is not implemented, so the redesign no longer offers this
-    // choice; its handler still exists and must keep sending only the single logout request.
-    await expect(page.locator("#logout-pause")).toBeHidden();
-    await page.locator("#logout-pause").evaluate((button) => (button as HTMLButtonElement).click());
-  } else await dialog.getByRole("button", { name: "仅退出账号", exact: true }).click();
+  if (pause)
+    await dialog.getByRole("button", { name: "退出并暂停本浏览器通知", exact: true }).click();
+  else await dialog.getByRole("button", { name: "仅退出账号", exact: true }).click();
 }
 // The email-change card has its own "恢复码 ID/秘密" fields, so scope proof inputs to the dialog.
 const deleteDialog = (page: Page) => page.getByRole("dialog", { name: "确认删除账号" });
@@ -236,7 +308,7 @@ async function proof(page: Page) {
   await expect(dialog.getByRole("button", { name: "确认删除账号", exact: true })).toBeEnabled();
 }
 
-test("U14a 账号事实、会话滞后，未接入的 Push 不展示，加载和等待不续期", async ({
+test("U14a 账号事实、会话滞后，登录设备与浏览器通知分组展示，加载和等待不续期", async ({
   page,
 }, testInfo) => {
   const state = await setup(page);
@@ -248,9 +320,11 @@ test("U14a 账号事实、会话滞后，未接入的 Push 不展示，加载和
   // No server reclaim deadline: the page must not invent one from web-login frequency.
   await expect(page.locator("#account-reclaim")).toHaveText("正常使用中");
   await expect(page.locator("#account-lease")).toContainText("后台续租状态未知");
-  // The redesign drops the Push group (binding/pausing is not implemented) instead of listing it.
-  await expect(page.getByRole("heading", { name: "Push 绑定", exact: true })).toHaveCount(0);
-  await expect(page.locator("#account-push-permission")).toBeHidden();
+  // F5-01：登录会话与浏览器通知分组展示，不把"设备"当万能对象（前端 §10.1）。
+  await expect(page.getByRole("heading", { name: "登录设备", exact: true })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "浏览器通知", exact: true })).toBeVisible();
+  await expect(page.locator("#account-push-permission")).toBeVisible();
+  await expect(page.locator("#account-push-list")).toContainText("还没有在任何浏览器开启通知");
   await expect(page.locator("#account-sessions li")).toHaveCount(2);
   await expect(page.locator("#account-login")).toBeHidden();
   // A successful initial read is quiet: the facts themselves are the result.
@@ -286,7 +360,9 @@ for (const missing of ["user_id", "server_time", "recent_auth"] as const) {
   });
 }
 
-test("U24 退出方式独立按钮、取消与键盘焦点，不用预勾选，未接入的暂停不展示", async ({ page }) => {
+test("U24 退出方式独立按钮、取消与键盘焦点，不用预勾选；本浏览器无通知时不展示暂停", async ({
+  page,
+}) => {
   const state = await setup(page);
   await open(page);
   await page.locator("#account-logout").click();
@@ -305,25 +381,62 @@ test("U24 退出方式独立按钮、取消与键盘焦点，不用预勾选，�
   expect(state.writes).toEqual([]);
 });
 
-for (const pause of [false, true]) {
-  // pause=true drives the hidden (not implemented) pause handler directly; see chooseLogout.
-  test(`U24 ${pause ? "组合退出展示暂停未接入" : "仅退出不触碰通道"}，请求前失效身份`, async ({
+test("U24 仅退出不触碰通道，请求前失效身份", async ({ page }, testInfo) => {
+  const state = await setup(page);
+  await open(page);
+  await chooseLogout(page);
+  await expect(page.locator("#account-result")).toContainText("退出已确认");
+  await expect(page.locator("#account-result")).toContainText("未请求暂停");
+  await expect(page.locator("#account-email")).toHaveText("未知");
+  expect(state.writes.map((write) => write.path)).toEqual(["auth/logout"]);
+  expect(state.writes[0].invalidated).toBe(true);
+  expect(state.writes[0].csrf).toBe("synthetic-session-csrf");
+  await page.screenshot({ path: testInfo.outputPath("logout-result.png"), fullPage: true });
+});
+
+for (const pause of ["success", "reject"] as const) {
+  test(`U24 退出并暂停本浏览器通知：暂停先于退出、逐项报告（暂停${pause === "success" ? "成功" : "被拒"}）`, async ({
     page,
-  }, testInfo) => {
+  }) => {
+    await thisBrowserHolds(page, PUSH_BINDING);
     const state = await setup(page);
+    state.push = pushView([pushBinding()]);
+    state.pause = pause;
     await open(page);
-    await chooseLogout(page, pause);
+    await expect(page.locator("#account-push-list")).toContainText("本浏览器");
+    await chooseLogout(page, true);
     await expect(page.locator("#account-result")).toContainText("退出已确认");
     await expect(page.locator("#account-result")).toContainText(
-      pause ? "暂停未执行（能力尚未接入）" : "未请求暂停",
+      pause === "success" ? "本浏览器通知：已暂停。" : "本浏览器通知：暂停未执行",
     );
-    await expect(page.locator("#account-email")).toHaveText("未知");
-    expect(state.writes.map((write) => write.path)).toEqual(["auth/logout"]);
-    expect(state.writes[0].invalidated).toBe(true);
-    expect(state.writes[0].csrf).toBe("synthetic-session-csrf");
-    await page.screenshot({ path: testInfo.outputPath("logout-result.png"), fullPage: true });
+    await expect(page.locator("#account-result")).toContainText("邮件和外部日历：未请求关闭");
+    // 暂停用当前会话，必须在身份失效与退出之前；不按 endpoint 认领。
+    expect(state.writes.map((write) => `${write.method} ${write.path}`)).toEqual([
+      `PATCH me/push-bindings/${PUSH_BINDING}`,
+      "POST auth/logout",
+    ]);
+    expect(state.writes[0]).toMatchObject({
+      body: { action: "pause", expected_version: 4 },
+      csrf: "synthetic-session-csrf",
+      invalidated: false,
+    });
+    expect(state.writes[1].invalidated).toBe(true);
   });
 }
+
+test("U24 本浏览器有通知时提供组合退出；其他浏览器的绑定不算本浏览器", async ({ page }) => {
+  await thisBrowserHolds(page, "00000000-0000-4000-8000-0000000000ff");
+  const state = await setup(page);
+  state.push = pushView([pushBinding()]);
+  await open(page);
+  await expect(page.locator("#account-push-list")).toContainText("本浏览器接收验证通过");
+  await expect(page.locator("#account-push-list .badge")).toHaveCount(0);
+  await expect(page.locator("#account-push-list li.is-current")).toHaveCount(0);
+  await page.locator("#account-logout").click();
+  await expect(page.locator("#logout-pause")).toBeHidden();
+  await page.keyboard.press("Escape");
+  expect(state.writes).toEqual([]);
+});
 
 for (const mode of ["reject", "lost", "unknown", "malformed"]) {
   test(`U24 退出 ${mode} 独立核对会话并重读摘要`, async ({ page }) => {
@@ -565,6 +678,39 @@ for (const [name, path] of [
     await expect(page.locator("html")).not.toHaveAttribute("data-created-download", "true");
   });
 }
+
+test("U14a U24 身份失效后迟到的浏览器通知读取不画回账号页", async ({ page }) => {
+  const state = await setup(page);
+  state.push = pushView([pushBinding()]);
+  let entered = false;
+  let release: () => void = () => {};
+  const held = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  await page.route("**/api/v2/me/push-bindings", async (route) => {
+    entered = true;
+    await held;
+    await route.fallback();
+  });
+  await page.goto("/account");
+  await expect.poll(() => entered).toBe(true);
+  await page.evaluate(() => {
+    const channel = new BroadcastChannel("hoyo-draft-identity");
+    channel.postMessage("invalidate");
+    channel.close();
+  });
+  await expect(page.locator("#account-result")).toContainText("身份已变化");
+  const late = page.waitForResponse("**/api/v2/me/push-bindings");
+  release();
+  await late;
+  await page.evaluate(
+    () =>
+      new Promise<void>((resolve) => setTimeout(() => requestAnimationFrame(() => resolve()), 50)),
+  );
+  await expect(page.locator("#account-push-list li")).toHaveCount(0);
+  await expect(page.locator("#account-push-status")).toHaveText("浏览器通知状态未知，请刷新。");
+  await expect(page.locator("#account-push-summary")).toHaveText("未知");
+});
 
 const renewalOperations = [
   {

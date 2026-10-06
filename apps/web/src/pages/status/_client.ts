@@ -59,7 +59,7 @@ async function refresh() {
       ["日历", "启用个人日历订阅", capability[status.capabilities.calendar]],
       ["邮件新席位", "开启邮件通知", capability[status.capabilities.email_seats]],
       ["常规邮件", "常规提醒与新活动邮件", capability[status.capabilities.routine_email]],
-      ["浏览器推送", "首版未开放", capability[status.capabilities.push]],
+      ["浏览器通知", "在当前浏览器接收提醒（可选）", capability[status.capabilities.push]],
     ];
     const list = el(
       "ul",

@@ -52,6 +52,25 @@ export const HASH_ONLY_SECRET_STORAGE = [
       "带独立 pepper 的 MAC（绑定用途、challenge_id、email_key、地址版本、generation、验证码）",
     note: "验证表不存验证码原值；原值只存在于短期加密发信载荷（见 otp-mail-payload）。服务器在发送阶段能解密该载荷——这是短期受控密文，不是「不可读取」",
   },
+  {
+    id: "push-receipt-token",
+    citation: "§7.8",
+    stores: "receipt_token_hash（SHA-256；高熵随机 token，ADR-0025）",
+    note: "receipt 窄能力只确认本浏览器接收；明文只在创建/重新登记的响应里交给本浏览器一次，存在浏览器本机，不能取邮箱、改账号或管理其他设备",
+  },
+  {
+    id: "push-activation-challenge",
+    citation: "§7.8",
+    stores:
+      "activation_challenges_json（本轮已发出挑战的 SHA-256，至多 PUSH_ACTIVATION_ATTEMPTS 个）",
+    note: "挑战明文只出现在端到端加密的激活通知里；激活、暂停或期满即清空",
+  },
+  {
+    id: "push-endpoint-lookup",
+    citation: "§8.1",
+    stores: "endpoint_hash（SHA-256；同端点唯一键）",
+    note: "endpoint 唯一不授权：只用于同端点同所有者幂等、不同所有者冲突；端点本身另存受控密文（见 push-endpoint）",
+  },
 ] as const satisfies readonly HashOnlySecretEntry[];
 
 /** 只存 hash/MAC 的秘密类别类型。 */
@@ -98,6 +117,19 @@ export const CONTROLLED_CIPHERTEXT_STORAGE = [
     citation: "§4.1",
     why: "保存加密的已验证实际投递地址：已有身份再次登录时验证码只发数据库中已验证的实际地址，不按请求中的地址改投",
     clearRule: "换邮箱原子更新（§4.7）；删除账号清除（§9.6）；明文形态只存在于加密信封内",
+  },
+  {
+    id: "push-endpoint",
+    citation: "§8.1",
+    why: "发送 Web Push 必须向浏览器给出的端点发请求；端点是能力 URL，不进日志、导出或前端视图",
+    clearRule:
+      "绑定删除即清除；删除账号随绑定分页清理（§9.6）；暂停或失效超过 PUSH_STALE_GRACE 由回收清理",
+  },
+  {
+    id: "push-keys",
+    citation: "§8.1",
+    why: "RFC 8291 端到端加密需要浏览器的 p256dh 公钥与 auth 秘密；服务器不保存可解密载荷的私钥",
+    clearRule: "与 push-endpoint 同一行同时清除；同端点换了密钥时原子替换并要求重新激活",
   },
 ] as const satisfies readonly ControlledCiphertextEntryShape[];
 

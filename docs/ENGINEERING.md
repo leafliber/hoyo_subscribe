@@ -20,7 +20,7 @@
 │   │       │   ├── schedule/      公共筛选、时间轴、详情、公告原文弹窗、数据状态
 │   │       │   ├── subscription/  草稿、已保存快照、差异、预览、保存状态机
 │   │       │   ├── auth/          预认证、OTP、会话激活、恢复流程、账号页
-│   │       │   ├── channels/      日历、邮件（Push 未做）的状态与操作
+│   │       │   ├── channels/      日历、邮件、浏览器通知（Push，ADR-0025）的状态与操作
 │   │       │   ├── admin/         管理端：审核与 AI 草稿、版本时间表、运行开关
 │   │       │   └── info/          帮助与状态页样式
 │   │       ├── lib/           公共 API 访问、错误映射、按账号本机存储、安全 DOM 构建与格式化
@@ -37,7 +37,7 @@
 │           ├── publishing/    原子发布、三类版本、outbox
 │           ├── calendar/      公共快照、更正层、个人 ICS 组装、缩水守卫、预览、Feed 管理
 │           ├── mail/          发生项、调度、outbox、预算、通道、退订、反馈（含 Queue 消费）、抑制
-│           ├── push/          （可选 Push，未实现）
+│           ├── push/          可选 Web Push：绑定与 receipt、VAPID 与 RFC 8291 加密、业务展开与外发（ADR-0025）
 │           ├── executors/     PipelineDO / DeliveryDO 两个固定 DO 与执行器核心
 │           ├── scheduled/     Cron 入口与定时维护：清理、反馈、回收
 │           └── storage/       D1 访问层、条件提交原语、账本、字段加密

@@ -1,3 +1,4 @@
+// P6（ADR-0025）获准跨卡：候选只取 channel=email；Push Delivery 由 push/delivery.ts 外发，不能被邮件调度标成 skipped。
 import { AUDIENCE_SELECT } from "../occurrences/eligibility";
 import type { DispatchContext } from "./types";
 
@@ -55,7 +56,7 @@ export const CONTEXT_SQL = `SELECT json_object(
       .join(",")}) AS item
     FROM deliveries d INDEXED BY idx_deliveries_status JOIN occurrences o ON o.id = d.occurrence_id
     JOIN events e ON e.id = o.event_id JOIN users u ON u.id = d.user_id
-    WHERE d.status = 'pending' AND d.mail_outbox_ref IS NULL AND d.user_id = ?
+    WHERE d.status = 'pending' AND d.mail_outbox_ref IS NULL AND d.user_id = ? AND d.channel = 'email'
       AND d.occurrence_id IN (SELECT value FROM json_each(?)) ORDER BY d.id)))
 ) AS snapshot`;
 export function contextParams(

@@ -9,12 +9,15 @@ import {
 } from "./storage-policy";
 
 describe("A-P1-CRYPTO · 只存 hash/MAC 的秘密（§8.3）", () => {
-  it("类别与合同清单一一对应：会话 token、恢复码、Feed token 校验值、OTP 验证 MAC", () => {
+  it("类别与合同清单一一对应：会话 token、恢复码、Feed token 校验值、OTP 验证 MAC、Push receipt/挑战/端点查找键", () => {
     expect(HASH_ONLY_SECRET_STORAGE.map((entry) => entry.id)).toEqual([
       "session-token",
       "recovery-code",
       "feed-token-verification",
       "otp-verification-mac",
+      "push-receipt-token",
+      "push-activation-challenge",
+      "push-endpoint-lookup",
     ]);
   });
 
@@ -27,12 +30,14 @@ describe("A-P1-CRYPTO · 只存 hash/MAC 的秘密（§8.3）", () => {
 });
 
 describe("A-P1-CRYPTO · 受控密文例外（§8.3：有明确理由、必须可解密）", () => {
-  it("类别与合同清单一一对应：OTP 发信载荷、完成回执、Feed token 复制密文、投递地址", () => {
+  it("类别与合同清单一一对应：OTP 发信载荷、完成回执、Feed token 复制密文、投递地址、Push 端点与密钥", () => {
     expect(CONTROLLED_CIPHERTEXT_STORAGE.map((entry) => entry.id)).toEqual([
       "otp-mail-payload",
       "auth-completion-receipt",
       "feed-token-owner-copy",
       "delivery-email-address",
+      "push-endpoint",
+      "push-keys",
     ]);
   });
 

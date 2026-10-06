@@ -13,13 +13,23 @@ import { NEXT_OCCURRENCE_ALARM_SQL } from "../../mail/occurrences/expand";
 import { type SendDeps, sendOneMail } from "../../mail/outbox/send";
 import { MAIL_CLAIM_CANDIDATE_SQL, repairMailPage } from "../../mail/outbox/state";
 import { MAIL_AVAILABILITY_KEY } from "../../mail/provider/availability";
+import {
+  maintainPushMessages,
+  nextPushAlarm,
+  type PushSendDeps,
+  runPushPass,
+} from "../../push/delivery";
 import { logEvent } from "../../shell/logger";
 import { classifyPipelineFailure } from "../pipeline/failure";
 import { nextDispatchAlarm, runDispatchPass } from "./dispatch";
 import { runOccurrencePass } from "./occurrences";
 export class DeliveryRuntime {
   private now: () => number;
-  constructor(private readonly deps: SendDeps) {
+  /** P6（ADR-0025）：Push 依赖可缺省；缺省时本运行时只做邮件，行为与此前一致。 */
+  constructor(
+    private readonly deps: SendDeps,
+    private readonly push?: PushSendDeps,
+  ) {
     this.now = deps.now ?? Date.now;
   }
   async tick(): Promise<void> {
@@ -66,6 +76,13 @@ export class DeliveryRuntime {
           await this.recordFailure(error, "dispatch");
         }
     }
+    // P6：Push 是独立单元，失败只退避 Push 自身，不改变认证与邮件的闸门。
+    if (this.push && this.now() < deadline && !(await this.budgetBackoff("push")))
+      try {
+        await runPushPass(this.push, this.now, deadline);
+      } catch (error) {
+        await this.recordFailure(error, "push");
+      }
   }
   private async occurrenceBackoff() {
     return this.deps.db
@@ -75,7 +92,7 @@ export class DeliveryRuntime {
       .bind(this.now())
       .first<{ due_at: number; status: string }>();
   }
-  private async budgetBackoff(scope: "budget" | "dispatch") {
+  private async budgetBackoff(scope: "budget" | "dispatch" | "push") {
     return this.deps.db
       .prepare("SELECT due_at,status FROM jobs WHERE id=? AND (status='failed' OR due_at>?)")
       .bind(`delivery:${scope}-backoff`, this.now())
@@ -83,7 +100,7 @@ export class DeliveryRuntime {
   }
   private async recordFailure(
     error: unknown,
-    scope: "executor" | "occurrences" | "budget" | "dispatch" = "executor",
+    scope: "executor" | "occurrences" | "budget" | "dispatch" | "push" = "executor",
   ): Promise<void> {
     const failure = classifyPipelineFailure(error);
     logEvent("error", "delivery_tick_failed", { reason_code: failure.reason });
@@ -135,6 +152,13 @@ export class DeliveryRuntime {
         if (!budget) return;
       }
     }
+    // P6：Cron 也做 Push 维护（租约过期转 unknown、过期未发转 expired），外发暂停时同样收尾。
+    if (this.push && !(await this.budgetBackoff("push")))
+      try {
+        await maintainPushMessages(this.push.db, this.now());
+      } catch (error) {
+        await this.recordFailure(error, "push");
+      }
   }
 
   async nextAlarm(): Promise<number | null> {
@@ -182,6 +206,15 @@ export class DeliveryRuntime {
       )
       .first<{ due: number | null }>();
     if (lease?.due != null) due.push(lease.due);
+    if (this.push) {
+      const pushBackoff = await this.budgetBackoff("push");
+      if (pushBackoff) {
+        if (pushBackoff.status !== "failed") due.push(pushBackoff.due_at);
+      } else {
+        const push = await nextPushAlarm(this.push, now);
+        if (push !== null) due.push(push);
+      }
+    }
     const occurrenceBackoff = await this.occurrenceBackoff();
     if (occurrenceBackoff) {
       if (occurrenceBackoff.status !== "failed") due.push(occurrenceBackoff.due_at);

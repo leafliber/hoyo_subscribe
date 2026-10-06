@@ -57,6 +57,15 @@ test("A-P5-BACKUP full SQL export / authenticated encryption / verified isolated
     assert.equal(rows(restored, "auth_challenges")[0].receipt_ciphertext, null);
     assert.equal(rows(restored, "email_channels")[0].enabled, 0);
     assert.equal(rows(restored, "calendar_feeds")[0].state, "disabled");
+    // P6 (ADR-0025): restored push bindings stay paused, receipts revoked, ciphertexts still valid.
+    assert.deepEqual(
+      (({ state, paused_reason, receipt_token_hash }) => ({
+        state,
+        paused_reason,
+        receipt_token_hash,
+      }))(rows(restored, "push_bindings")[0]),
+      { state: "paused", paused_reason: "restore", receipt_token_hash: null },
+    );
     assert.notEqual(
       rows(restored, "calendar_feeds")[0].token_hash,
       payload.tables.find((t) => t.name === "calendar_feeds").rows[0].token_hash,
@@ -99,6 +108,10 @@ test("A-P5-BACKUP schema, missing evidence and field ciphertext corruption fail 
     (p) => {
       p.tables.find((t) => t.name === "users").rows[0].email_ciphertext.blob =
         Buffer.from("corrupt").toString("base64");
+    },
+    (p) => {
+      // Moving a push endpoint ciphertext to another record id must fail AAD authentication.
+      p.tables.find((t) => t.name === "push_bindings").rows[0].id = "synthetic-moved-binding";
     },
   ]) {
     const p = await fixture();

@@ -1,3 +1,4 @@
+// P6（ADR-0025）获准接线：挂载 Push 本人管理与 receipt 路由，安全暂停与账号生命周期挂入 Push 效果。
 import { makeReclaimRoutes } from "./accounts/reclaim/routes";
 import { runScheduledMaintenance } from "./scheduled/reclaim";
 // P3-10 获准跨卡：组合两域鉴权器并挂管理员会话与审核路由；不创建平台资源。
@@ -47,6 +48,9 @@ import { environmentMailAvailable } from "./mail/provider/environment";
 import { unsubscribeAvailable, unsubscribeKeys } from "./mail/unsubscribe/environment";
 import { makeUnsubscribeRoutes } from "./mail/unsubscribe/routes";
 import { publicRoutes } from "./public/routes";
+import { type PushEnvironment, pushConfiguration } from "./push/config";
+import { pushLifecycleHook, pushSafetyPauseHook } from "./push/hooks";
+import { makePushRoutes } from "./push/routes";
 import { scheduled } from "./scheduled";
 import { maintainFeedback } from "./scheduled/feedback";
 import { applySecurityHeaders } from "./shell/headers";
@@ -77,6 +81,8 @@ interface ShellSecrets {
   /** Turnstile siteverify 秘密（P2-02：仅申请验证码端点需要；未注入时该端点失败关闭）。 */
   readonly TURNSTILE_SECRET_KEY?: string;
   readonly SITE_ORIGIN?: string;
+  /** P6（ADR-0025）：VAPID 私钥 JWK，独立于根秘密；未注入时 Push 失败关闭。 */
+  readonly PUSH_VAPID_PRIVATE_JWK?: string;
 }
 
 /** 每隔离实例缓存一次的密钥环（构造含 HKDF 派生，不逐请求重建）。 */
@@ -134,7 +140,7 @@ function getShell(env: Env): Shell {
       csrfKey: () => getKeyring(env as Env & ShellSecrets).then((ring) => ring.csrf()),
       routes: withOperationalControls([
         ...makeObservabilityRoutes(),
-        ...makeReclaimRoutes([calendarLifecycle, emailLifecycleHook]),
+        ...makeReclaimRoutes([calendarLifecycle, emailLifecycleHook, pushLifecycleHook]),
         ...makeAdminSessionRoutes({
           keys: () => getKeyring(env as Env & ShellSecrets),
           config: env as Env & AdminConfiguration,
@@ -163,7 +169,7 @@ function getShell(env: Env): Shell {
         // P2-05：public 恢复动作与 active 会话的新码交付；通道暂停效果由各通道卡挂入。
         ...makeRecoveryRoutes({
           keys: () => getKeyring(env as Env & ShellSecrets),
-          pauseHooks: [pauseCalendar, emailSafetyPauseHook],
+          pauseHooks: [pauseCalendar, emailSafetyPauseHook, pushSafetyPauseHook],
         }),
         ...makeCalendarRoutes(() => getKeyring(env as Env & ShellSecrets)),
         ...makeUnsubscribeRoutes({ keys: () => unsubscribeKeys(env as Env & ShellSecrets) }),
@@ -174,9 +180,13 @@ function getShell(env: Env): Shell {
             (await controlsAllow(env.DB, "business_mail_enabled")) &&
             (await unsubscribeAvailable(env as Env & ShellSecrets)),
         }),
+        ...makePushRoutes({
+          keys: () => getKeyring(env as Env & ShellSecrets),
+          config: (routeEnv) => pushConfiguration(routeEnv as Env & PushEnvironment),
+        }),
         ...makeSubscriptionRoutes(),
         ...makeLifecycleRoutes({
-          hooks: [calendarLifecycle, emailLifecycleHook],
+          hooks: [calendarLifecycle, emailLifecycleHook, pushLifecycleHook],
           mail: mailAdmissionHook,
           keys: () => getKeyring(env as Env & ShellSecrets),
           rateGate: authRateGate,

@@ -38,7 +38,7 @@ CI=1 WRANGLER_SEND_METRICS=false pnpm exec tsx scripts/backup/cli.mjs policy
 | 业务字段密钥恢复材料 | 独立保管现有 CRYPTO_MASTER_SECRET 的原始字节恢复材料；只在离线验证时读取；不进备份包 |
 | 退订验证密钥与 key_id 接受集合 | 独立保管相应派生材料/当前与兼容旧 ID 的保管记录；正常 ID 轮换保留原根。现有应用用同一根按 HKDF 域隔离派生，不谎称部署已有独立 secret 注入口，也不在本卡改它 |
 | 当前恢复 epoch 与事故冻结记录 | **在旧快照之外**保存单调递增整数、变更记录与当前撤销证据；不可从旧库最大值单独生成并称作当前值。恢复前由所有者核实外部高水位后前移并保存；脚本要求大于备份内所有 users.recovery_epoch |
-| VAPID | 首版未启用，**不适用**；存在非空 Push 绑定时本工具拒绝假装完成字段校验，须 P6 的真实加密格式接入后重测 |
+| VAPID 私钥 | 所有者生成时写到仓库外的加密离线位置（`scripts/push/generate-vapid.mjs --out`），与 `.hbk` 不同介质，不进备份包。灾备恢复或重建 Worker 必须重新注入**同一把**：换钥会让全部浏览器订阅失效，且目前没有换钥流程（ADR-0025）。Push 绑定的端点与密钥是字段密文，随备份包走、由字段恢复材料校验 |
 
 CLI 的 `--master-file` 是原始字节，不是 Wrangler 注入用的 hex 文本；转换只能由所有者在私有环境做，禁止 shell 历史中写 secret、禁止 `set -x`。备份密钥与字段恢复材料须不同文件且不同于数据目录。根秘密是多个用途的恢复根，不能声称改根只影响字段加密。正常退订密钥轮换用已有 `CRYPTO_UNSUBSCRIBE_KEY_ID` / `CRYPTO_UNSUBSCRIBE_ACCEPTED_KEY_IDS`；旧链接仍要实际关闭当前邮件。灾难撤销移除旧 ID 时旧链接应明确 410。更换根涉及 email lookup、退订兼容等跨模块迁移，本卡不提供可部署根轮换。`rotateFields` 只证明离线逐字段重新加密/旧钥失败，不可单独部署其结果。
 
@@ -75,7 +75,7 @@ CI=1 WRANGLER_SEND_METRICS=false pnpm exec tsx scripts/backup/cli.mjs retention 
 
 ### 2. 校验 Schema、密文、证据
 
-用匹配备份迁移链的代码 `verify`。不同迁移版本先在原代码版本隔离解包，再受控应用缺失迁移并重新演练；不要编辑清单绕过校验，不执行回滚 DROP。密文认证、字段 AAD、Feed token/hash、正式证据 hash/引用、schema/索引和 SQLite 完整性均必须通过。非空 Push 当前拒绝，不能抹去数据来过检查。
+用匹配备份迁移链的代码 `verify`。不同迁移版本先在原代码版本隔离解包，再受控应用缺失迁移并重新演练；不要编辑清单绕过校验，不执行回滚 DROP。密文认证、字段 AAD、Feed token/hash、正式证据 hash/引用、schema/索引和 SQLite 完整性均必须通过。Push 绑定的端点与密钥密文同样按字段 AAD（记录类型 `push-endpoint` / `push-keys` + 绑定 ID）校验，搬移或篡改即失败关闭（ADR-0025）；不能抹去数据来过检查。
 
 ### 3. 使用外部当前 epoch 废止旧认证
 
@@ -105,7 +105,7 @@ CI=1 WRANGLER_SEND_METRICS=false pnpm exec tsx scripts/backup/cli.mjs restore --
 
 ### 4. 对账撤销、版本与通知
 
-无可信撤销清单：所有邮件席位与常规层关闭，Push 关闭，旧 Feed token 换成不可知随机值的 hash 并清空密文，旧恢复码不可用。不推断默认同意、不自动恢复任何发送。
+无可信撤销清单：所有邮件席位与常规层关闭，Push 关闭（不论撤销清单是否可信，全部未失效的 Push 绑定都转为暂停，原因 `restore`，并清空回执凭证与激活挑战；只能由用户在浏览器里重新验证），旧 Feed token 换成不可知随机值的 hash 并清空密文，旧恢复码不可用。不推断默认同意、不自动恢复任何发送。
 
 `revocationsComplete=true` 时，`activeIdentities` 必须是冻结点全部可恢复活动身份的精确白名单，条目为 `{id,email_binding_id,email_version,email_key}`。仅标记“active”不够；邮箱变更、删除、安全停用、平台投诉/抑制、两层同意及其版本必须在独立清单复核。工具比较完整绑定，缺失/变更记为 `unresolvedAccounts`；不把未知状态伪造成删除或重新激活。只要计数非零，**整个恢复库仍不得开放登录、账号控制或认证发信**。所有者须从可信现状补齐这些账户的数据/终止事实，按已有生命周期语义处理，重新备份并重跑；无法取证时保持账号恢复未放行，公开读可先恢复。不可通过手改 Complete 或忽略报告放行。
 
@@ -137,7 +137,7 @@ CI=1 WRANGLER_SEND_METRICS=false pnpm exec tsx scripts/backup/drill.mjs
 CI=1 WRANGLER_SEND_METRICS=false pnpm --filter @hoyo/worker exec vitest run src/executors/pipeline/runtime.test.ts src/executors/delivery/runtime.test.ts src/mail/feedback/feedback.test.ts src/storage/crypto/unsubscribe.test.ts
 ```
 
-专项脚本不在根 `pnpm test` 自动收集范围，须显式运行，不用根测试绿替代。（2026-10-06 文档整理：0027、0028 合入后应用表为 47 张，工具按迁移目录动态枚举、无需改动，但还没有重跑记录；下次带迁移的发布前补跑并登记。）本地 drill 实际启动公开 CLI 子进程，生成全迁移合成库→SQL→加密文件→校验→关闭门恢复 SQL→重新导入，并实际执行损坏密文/错钥/旧 epoch/输出覆盖拒绝。只提交脱敏 report，不提交原始库/SQL/密文/随机材料。恢复日后迁移变化必须在原分支 merge main 后重跑，不能拿旧演练结论代替兼容。
+专项脚本不在根 `pnpm test` 自动收集范围，须显式运行，不用根测试绿替代。（2026-10-06 文档整理：0027、0028 合入后应用表为 47 张，工具按迁移目录动态枚举、无需改动，但还没有重跑记录；下次带迁移的发布前补跑并登记。2026-10-06 P6 带迁移 0029 发布前补跑：`backup.test.mjs` 12/12；`drill.mjs` 9 步通过，48 张表、6 处受控密文（含 Push 端点与密钥），损坏密文、错钥、旧 epoch、输出覆盖 4 项均失败关闭，目标环境未执行；第三条 Worker 专项 4 个文件 98/98。）本地 drill 实际启动公开 CLI 子进程，生成全迁移合成库→SQL→加密文件→校验→关闭门恢复 SQL→重新导入，并实际执行损坏密文/错钥/旧 epoch/输出覆盖拒绝。只提交脱敏 report，不提交原始库/SQL/密文/随机材料。恢复日后迁移变化必须在原分支 merge main 后重跑，不能拿旧演练结论代替兼容。
 
 ## 所有者目标环境证据模板
 
@@ -145,7 +145,7 @@ CI=1 WRANGLER_SEND_METRICS=false pnpm --filter @hoyo/worker exec vitest run src/
 | --- | --- | --- |
 | 导出 | 时间、部署 commit/迁移、冻结区间、字节、请求阻塞/错误、耗时、包含量影响 | 未执行，需所有者 |
 | 独立存放 | 介质/保管责任人、复制与读回校验时间、仅密文摘要、份数/下次截止 | 未执行，需所有者；不公开实际敏感路径 |
-| 分离保管 | 字段、退订、备份解密、当前 epoch 分别已存；VAPID N/A | 未执行，需所有者，不填 secret |
+| 分离保管 | 字段、退订、备份解密、当前 epoch、VAPID 私钥分别已存 | 未执行，需所有者，不填 secret |
 | 当前安全事实 | 冻结点撤销/身份/抑制/码消费/版本高水位来源与覆盖，审核人 | 未执行，缺失按关闭门处理 |
 | 恢复 | 隔离、校验、epoch、对账、公共读/账号控制、最后发送各阶段耗时/结论 | 本地合成已测；目标环境未执行 |
 | 故障 | 实际 DO alarm 丢失与 watchdog、旧租约拒绝、真实 Queue DLQ 转移/重驱、密钥兼容 | 本地已有模拟/运行时证据；目标平台未执行 |

@@ -13,6 +13,7 @@ import {
 import { el } from "../../lib/dom";
 import { CalendarChannelLifecycle } from "../channels/calendar/lifecycle";
 import { EmailChannelLifecycle } from "../channels/email/lifecycle";
+import { PushChannelLifecycle } from "../channels/push/lifecycle";
 import { SubscriptionCloudFlow } from "./cloud-flow";
 import { SubscriptionDraftController } from "./draft/controller";
 import { CalendarPreview } from "./preview/controller";
@@ -171,6 +172,7 @@ if (form instanceof HTMLFormElement) {
 
   let drafts: SubscriptionDraftController | undefined;
   let email: EmailChannelLifecycle | undefined;
+  let push: PushChannelLifecycle | undefined;
   let flow: SubscriptionCloudFlow | undefined;
   let calendar: CalendarChannelLifecycle | undefined;
   let calendarEnabled = false;
@@ -255,6 +257,7 @@ if (form instanceof HTMLFormElement) {
           savePhase = phase;
           flow?.update(phase, snapshot);
           email?.update(phase, snapshot);
+          push?.update(phase, snapshot);
           calendar?.update(phase, snapshot);
           const saved = snapshot?.config;
           lastSnapshot = snapshot;
@@ -334,6 +337,7 @@ if (form instanceof HTMLFormElement) {
     readIdentity: () => (flow ? flow.identify() : Promise.resolve({ status: "unknown" })),
     reset() {
       email?.invalidate();
+      push?.invalidate();
       flow?.invalidate();
       calendar?.invalidate();
       identityGeneration += 1;
@@ -473,6 +477,10 @@ if (form instanceof HTMLFormElement) {
       current: () => drafts?.current() ?? false,
     });
   }
+  // F5-01：本浏览器通知卡片只在 Push 能力开放、或本人已有绑定时出现。
+  const pushRoot = document.getElementById("push-channel");
+  if (pushRoot)
+    push = new PushChannelLifecycle(pushRoot, { current: () => drafts?.current() ?? false });
   flow = new SubscriptionCloudFlow({
     current: () => drafts?.current() ?? false,
     gateChanged: updateSaveGate,
@@ -481,6 +489,7 @@ if (form instanceof HTMLFormElement) {
     calendar?.destroy();
     calendar = undefined;
     email?.invalidate();
+    push?.invalidate();
     flow?.invalidate();
     preview?.destroy();
     preview = undefined;
