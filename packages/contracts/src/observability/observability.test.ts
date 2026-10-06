@@ -26,7 +26,7 @@ describe("A-P5-OBS 观测合同", () => {
     expect(capabilityFact(true, "unknown")).toBe("unknown");
     expect(capabilityFact(false, "unknown")).toBe("closed");
   });
-  it("公开只含四种能力事实，模型和 Push 未实现不冒充开放", () => {
+  it("公开只含四种能力事实；Push 缺部署配置事实时不冒充开放", () => {
     expect(publicOperationalCapabilities({})).toEqual({
       calendar: "unknown",
       email_seats: "unknown",
@@ -40,6 +40,17 @@ describe("A-P5-OBS 观测合同", () => {
         read_only: false,
       }).push,
     ).toBe("unknown");
+    const opened = { push_enabled: true, outbound_enabled: true, read_only: false } as const;
+    // A-P6-BIND：开关、外发总闸、部署配置、非只读四项都成立才开放；任一为 false 即关闭。
+    expect(publicOperationalCapabilities(opened, { push_configured: true }).push).toBe("open");
+    expect(publicOperationalCapabilities(opened, { push_configured: false }).push).toBe("closed");
+    expect(
+      publicOperationalCapabilities({ ...opened, push_enabled: false }, { push_configured: true })
+        .push,
+    ).toBe("closed");
+    expect(
+      publicOperationalCapabilities({ ...opened, read_only: true }, { push_configured: true }).push,
+    ).toBe("closed");
     expect(
       publicOperationalCapabilities({ calendar_enabled: true, read_only: false }).calendar,
     ).toBe("open");

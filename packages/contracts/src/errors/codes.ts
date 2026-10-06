@@ -15,6 +15,7 @@
 //   不得解析 message 文案反推行为。
 
 import type { CalendarPreviewConflictReason } from "../calendar-preview";
+import type { PushConflictReason } from "../push";
 
 /** 七类错误码（§8.2 末段原文顺序；集合与顺序都是合同）。 */
 export const API_ERROR_CODES = [
@@ -94,10 +95,11 @@ export interface UnauthorizedErrorDetail {
 /**
  * conflict 的结构化细节。差异展示需要云端当前状态，属 P2 业务负载
  * （如 expected_revision 不匹配时的当前 revision），外壳只定形状。
+ * P6（ADR-0025）：Push 端点归属其他账号、绑定版本或状态已变化各有一个闭合原因。
  */
 export interface ConflictErrorDetail {
   readonly code: "conflict";
-  readonly reason?: CalendarPreviewConflictReason;
+  readonly reason?: CalendarPreviewConflictReason | PushConflictReason;
 }
 
 /**
