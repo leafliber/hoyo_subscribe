@@ -203,7 +203,10 @@ export function renderNode(node: PublicScheduleNode, now: number) {
   );
 }
 
-/** 「现在」标记：只在今天的精确时间列表里，放在第一条未到时间的条目之前；读屏忽略。 */
+/**
+ * 「现在」标记：在今天的精确时间列表里，放在第一条未到时间的条目之前；读屏忽略。
+ * 今天没有精确时间的条目（没有安排或只有全天条目）时单独成列表，时刻线不消失（F1-09）。
+ */
 export function nowMarker(now: number): HTMLElement {
   return el(
     "li",
@@ -217,13 +220,14 @@ export function nowMarker(now: number): HTMLElement {
 /**
  * 一天：日期是时间轴上的一个标记行（日期在时间列、轨道上一个日期点），轨道跨日连续不截断。
  * 只有日期的条目接在当天精确时间之后，各自标"全天"，不排进精确时间序列。
+ * 今天总带「现在」标记；今天没有安排时也画出这一天（F1-09）。
  */
 function renderDay(day: ScheduleDay<PublicScheduleNode>, today: string, now: number) {
   const label = dayLabel(day.date, today);
   const start = beijingDayStart(day.date);
   const total = day.timed.length + day.dateOnly.length;
   const rows: HTMLElement[] = day.timed.map((node) => renderNode(node, now));
-  if (day.date === today && rows.length) {
+  if (day.date === today) {
     const next = day.timed.findIndex(
       (node) => node.time.precision === "datetime" && node.time.utc_ms > now,
     );
@@ -249,9 +253,9 @@ function renderDay(day: ScheduleDay<PublicScheduleNode>, today: string, now: num
       ),
       el("span", { class: "node-rail day-rail", "aria-hidden": "true" }),
       " ",
-      el("span", { class: "day-count" }, `${total} 项`),
+      el("span", { class: "day-count" }, total ? `${total} 项` : "暂无安排"),
     ),
-    day.timed.length ? el("ul", { class: "timed-list" }, ...rows) : null,
+    rows.length ? el("ul", { class: "timed-list" }, ...rows) : null,
     day.dateOnly.length
       ? el("ul", { class: "date-only" }, ...day.dateOnly.map((node) => renderNode(node, now)))
       : null,
@@ -492,67 +496,69 @@ export function renderResults(state: ScheduleLoadState, filters: BrowseFilters) 
     (total, day) => total + day.timed.length + day.dateOnly.length,
     0,
   );
+  // 回看昨天接在主时间轴上（F1-09，ADR-0020）：折叠时是轨道上的一行，展开后昨天的日期段落与下方
+  // 同一网格、同一条轨道，出现在今天之上；不再是另开的一段列表。
   timeline.append(
     el(
       "details",
       { class: "yesterday-band", "data-region": "yesterday", "data-disclosure": "yesterday" },
       el(
         "summary",
-        {},
-        icon("history"),
-        el("span", {}, `回看昨天（${dateOnlyLabel(view.yesterday.date)}）`),
-        el("span", { class: "day-count" }, `${yesterdayCount} 项`),
-      ),
-      el(
-        "div",
-        { class: "band-content" },
-        ...view.yesterday.groups.map((day) =>
-          el(
-            "div",
-            { class: "schedule-day", "data-date": day.date },
-            el(
-              "ul",
-              { class: "node-list" },
-              ...[...day.timed, ...day.dateOnly].map((node) => renderNode(node, now)),
-            ),
-          ),
+        { class: "rail-toggle" },
+        el("span", { class: "rail-toggle-time" }),
+        el("span", { class: "node-rail toggle-rail", "aria-hidden": "true" }, icon("history")),
+        el(
+          "span",
+          { class: "rail-toggle-text" },
+          `回看昨天（${dateOnlyLabel(view.yesterday.date)}）`,
+          el("span", { class: "day-count" }, `${yesterdayCount} 项`),
         ),
-        !view.yesterday.groups.length &&
-          el(
-            "p",
-            { class: "data-note" },
-            state.phase === "ready" ? "昨天没有符合当前筛选的安排。" : "昨天的安排仍在加载。",
-          ),
       ),
+      ...view.yesterday.groups.map((day) => renderDay(day, today, now)),
+      !view.yesterday.groups.length &&
+        el(
+          "p",
+          { class: "data-note band-note" },
+          state.phase === "ready" ? "昨天没有符合当前筛选的安排。" : "昨天的安排仍在加载。",
+        ),
     ),
   );
-  // 从上到下按时间先后（ADR-0017）：昨天 → 当前范围逐日 → 末行 → 时间待定。
+  // 今天总在时间轴上（F1-09）：今天没有安排时补一个空的今天，带「现在」时刻线。
+  const days =
+    view.empty || view.days.some((day) => day.date === today)
+      ? view.days
+      : [
+          ...view.days.filter((day) => day.date < today),
+          { date: today, timed: [], dateOnly: [] },
+          ...view.days.filter((day) => day.date > today),
+        ];
+  // 从上到下按时间先后（ADR-0017）：昨天 → 今天 → 当前范围逐日 → 末行；时间待定在下方单独的卡片。
   timeline.append(
     el(
       "div",
       { "data-region": "days", class: "days" },
-      ...view.days.map((day) => renderDay(day, today, now)),
+      ...days.map((day) => renderDay(day, today, now)),
     ),
   );
   const end = endRow(state, shown, offerMore);
   if (end) timeline.append(end);
-  // 时间待定的条目默认折叠（ADR-0015）；展开状态随重绘保留。时间未知，排在最后。
+  root.append(timeline);
+  // 时间待定单独一张卡片，默认折叠（F1-09）；展开状态随重绘保留。时间未知，排在时间轴之后。
   if (view.pending.length)
-    timeline.append(
+    root.append(
       el(
         "details",
-        { class: "pending-area", "data-region": "pending", "data-disclosure": "pending" },
+        { class: "pending-card card", "data-region": "pending", "data-disclosure": "pending" },
         el(
           "summary",
           {},
-          icon("hourglass"),
-          el("span", {}, "时间待定"),
+          el("span", { class: "pending-icon", "aria-hidden": "true" }, icon("hourglass")),
+          el("span", { class: "pending-title" }, "时间待定"),
           el("span", { class: "day-count" }, `${view.pending.length} 项`),
         ),
         el("ul", { class: "node-list" }, ...view.pending.map((node) => renderNode(node, now))),
       ),
     );
-  root.append(timeline);
   return root;
 }
 
