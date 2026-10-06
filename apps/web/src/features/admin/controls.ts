@@ -53,6 +53,11 @@ const LABELS: Record<string, { name: string; desc: string; danger?: boolean }> =
     name: "AI 草稿（模型抽取）",
     desc: "用 Workers AI 为待审公告预填草稿，人工批准后才发布；需同时打开外发总闸、关闭只读模式。",
   },
+  review_skip_enabled: {
+    name: "跳过审核",
+    desc: "新生成的 AI 草稿通过全部检查后由系统直接批准发布，不经人工核对；疑似重复、遇人工锁定、时间未定或有歧义的仍留在审核队列。需同时开启 AI 草稿。",
+    danger: true,
+  },
   account_reclaim_enabled: { name: "账号回收", desc: "允许回收长期不活跃的账号。" },
   seat_reclaim_enabled: { name: "邮件席位回收", desc: "允许回收不活跃账号的邮件席位。" },
   source_enabled: { name: "来源抓取", desc: "允许抓取该官方来源。" },
@@ -271,7 +276,14 @@ function render(): void {
     ],
     [
       "数据管线",
-      rows.filter((r) => ["automatic_publication_enabled", "source_enabled"].includes(r.control)),
+      rows.filter((r) =>
+        [
+          "automatic_publication_enabled",
+          "model_enabled",
+          "review_skip_enabled",
+          "source_enabled",
+        ].includes(r.control),
+      ),
     ],
     [
       "其他",
@@ -287,6 +299,8 @@ function render(): void {
             "email_seats_open",
             "email_routine_enabled",
             "automatic_publication_enabled",
+            "model_enabled",
+            "review_skip_enabled",
             "source_enabled",
           ].includes(r.control),
       ),

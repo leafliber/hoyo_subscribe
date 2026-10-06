@@ -507,7 +507,12 @@ describe("A-P3-VERSION 审核推导", () => {
       .run();
     await new PipelineRuntime({
       db: env.DB,
-      readControls: async () => ({ sources: {}, automaticPublication: false, model: false }),
+      readControls: async () => ({
+        sources: {},
+        automaticPublication: false,
+        model: false,
+        reviewSkip: false,
+      }),
       now: () => now,
       fetchFn: fetch,
     }).tick();
@@ -815,7 +820,12 @@ describe("A-P3-YEAR 补全年份与扩充的版本写法（ADR-0013）", () => {
       .run();
     await new PipelineRuntime({
       db: env.DB,
-      readControls: async () => ({ sources: {}, automaticPublication: false, model: false }),
+      readControls: async () => ({
+        sources: {},
+        automaticPublication: false,
+        model: false,
+        reviewSkip: false,
+      }),
       now: () => now,
       fetchFn: fetch,
     }).tick();

@@ -4,6 +4,7 @@ import { env } from "cloudflare:test";
 import { MATCH_PAGE, utcDayPeriod } from "@hoyo/contracts";
 import { beforeEach, describe, expect, it } from "vitest";
 import genshinContent from "../../../../../fixtures/sources/genshin-ann/content-21928.json";
+import zzzContent from "../../../../../fixtures/sources/zzz-ann/content-1301.json";
 import { DRAFT_PROFILE_REF, readDraft } from "../../extraction/model/store";
 import {
   DRAFT_T0,
@@ -48,7 +49,7 @@ beforeEach(async () => {
     ),
   ]);
   now += 86_400_000;
-  controls = { sources: {}, automaticPublication: false, model: true };
+  controls = { sources: {}, automaticPublication: false, model: true, reviewSkip: false };
 });
 
 describe("A-P3-DRAFT 管线草稿待办", () => {
@@ -157,5 +158,99 @@ describe("A-P3-DRAFT 管线草稿待办", () => {
     await insert(fresh.candidateId, fresh.versionId, DRAFT_PROFILE_REF);
     await runtime({ ai: fakeAi(modelResponse(GACHA_21876_OUTPUT)) }).watchdog();
     expect((await draftJobs()).map((row) => row.id)).toEqual([`pipeline:draft:${old.candidateId}`]);
+  });
+
+  it("A-P3-REVIEW-SKIP 跳过审核开启时新草稿由系统批准，停放的发布待办随后发布；关闭时草稿留在队列", async () => {
+    const zzzEntry = fixtureEntry(zzzContent as unknown as FixtureBody, 1301);
+    const output = JSON.stringify({
+      classification: "events",
+      ambiguities: [],
+      events: [
+        {
+          event_type: "limited_event",
+          status: "scheduled",
+          title: "「虚境逐影争锋」活动",
+          type_quote: { block: 0, quote: "「虚境逐影争锋」活动说明" },
+          status_quote: null,
+          milestones: [
+            {
+              node_type: "start",
+              label: "",
+              block: 2,
+              time_text: "2026/09/16 10:00",
+              estimated: false,
+            },
+            {
+              node_type: "end",
+              label: "",
+              block: 2,
+              time_text: "2026/10/05 03:59",
+              estimated: false,
+            },
+          ],
+        },
+      ],
+    });
+    /** 规则入队的候选与它停放着等人工的发布待办（与来源待办入库后的状态一致）。 */
+    const parked = async () => {
+      const seeded = await seedRuleCandidate("zzz-ann", zzzEntry, { nowMs: now });
+      const row = await env.DB.prepare("SELECT updated_at FROM candidates WHERE id = ?")
+        .bind(seeded.candidateId)
+        .first<{ updated_at: number }>();
+      await env.DB.prepare(
+        `INSERT INTO jobs (id,kind,payload_json,due_at,status,created_at,updated_at)
+         VALUES (?, ?, ?, ?, 'awaiting_review', ?, ?)`,
+      )
+        .bind(
+          `pipeline:publication:${seeded.versionId}`,
+          PUBLICATION_JOB,
+          JSON.stringify({ versionId: seeded.versionId, backfill: false, seenAt: row?.updated_at }),
+          now,
+          now,
+          now,
+        )
+        .run();
+      return seeded;
+    };
+    const status = (id: string) =>
+      env.DB.prepare(
+        `SELECT c.review_status, er.extractor FROM candidates c
+           LEFT JOIN extraction_runs er ON er.id = c.run_id WHERE c.id = ?`,
+      )
+        .bind(id)
+        .first<{ review_status: string; extractor: string | null }>();
+
+    const off = await parked();
+    now += 1;
+    await runtime({ ai: fakeAi(modelResponse(output)) }).watchdog();
+    await runtime({ ai: fakeAi(modelResponse(output)) }).tick();
+    expect((await readDraft(env.DB, off.candidateId))?.status).toBe("ready");
+    expect(await status(off.candidateId)).toEqual({ review_status: "pending", extractor: "rule" });
+
+    controls = { ...controls, reviewSkip: true };
+    const on = await parked();
+    now += 1;
+    await runtime({ ai: fakeAi(modelResponse(output)) }).watchdog();
+    await runtime({ ai: fakeAi(modelResponse(output)) }).tick();
+    expect(await status(on.candidateId)).toEqual({ review_status: "approved", extractor: "model" });
+    // 开关只作用于新写好的草稿：先前留在队列里的那条不受影响。
+    expect(await status(off.candidateId)).toEqual({ review_status: "pending", extractor: "rule" });
+
+    now += 1;
+    await runtime().watchdog();
+    await runtime().tick();
+    expect(
+      await env.DB.prepare("SELECT status, last_error FROM jobs WHERE id = ?")
+        .bind(`pipeline:publication:${on.versionId}`)
+        .first(),
+    ).toEqual({ status: "done", last_error: "published" });
+    expect(
+      await env.DB.prepare(
+        `SELECT e.human_locked, e.title FROM events e JOIN evidence ev ON ev.event_id = e.id
+          WHERE ev.article_version_id = ? LIMIT 1`,
+      )
+        .bind(on.versionId)
+        .first(),
+    ).toEqual({ human_locked: 0, title: "「虚境逐影争锋」活动" });
   });
 });

@@ -150,6 +150,30 @@ describe("A-P5-OBS 管理写权限和原子审计", () => {
     expect(response.headers.get("cache-control")).toBe("no-store");
     expect(await env.DB.prepare("SELECT COUNT(*) AS n FROM system_state").first("n")).toBe(1);
   });
+  it("A-P3-REVIEW-SKIP 跳过审核没有记录时读作关闭（其他开关仍是未知）；以版本 0 写入首行，且只在 AI 草稿可用时生效", async () => {
+    const a = await admin();
+    const listed = (await (await request("/api/v2/admin/controls", a)).json()) as {
+      controls: { control: string; value: unknown; updated_at: number }[];
+    };
+    expect(listed.controls.find((row) => row.control === "review_skip_enabled")).toEqual({
+      control: "review_skip_enabled",
+      value: false,
+      updated_at: 0,
+    });
+    expect(listed.controls.find((row) => row.control === "model_enabled")?.value).toBe("unknown");
+    expect(await controlsAllow(env.DB, "review_skip_enabled")).toBe(false);
+    expect(
+      (await request("/api/v2/admin/controls", a, body("review_skip_enabled", true))).status,
+    ).toBe(200);
+    expect((await readControl(env.DB, "review_skip_enabled")).value).toBe(true);
+    // 开关打开但 AI 草稿不可用（外发、只读、模型任一不满足）时不生效。
+    expect((await readPipelineControls(env.DB)).reviewSkip).toBe(false);
+    await set("outbound_enabled", true);
+    await set("model_enabled", true);
+    expect((await readPipelineControls(env.DB)).reviewSkip).toBe(true);
+    await set("read_only", true);
+    expect((await readPipelineControls(env.DB)).reviewSkip).toBe(false);
+  });
   it("来源只认注册表，不接受任意 URL；缺配置不启用管线", async () => {
     const a = await admin();
     expect(

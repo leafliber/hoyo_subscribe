@@ -24,6 +24,8 @@ export const OPERATIONAL_CONTROLS = [
   "push_enabled",
   "model_enabled",
   "automatic_publication_enabled",
+  // P3-25（ADR-0018）：AI 草稿通过全部检查后由系统批准、免人工审核；默认关闭（没有这一行即关闭）。
+  "review_skip_enabled",
   "account_reclaim_enabled",
   "seat_reclaim_enabled",
   "read_only",
@@ -32,6 +34,14 @@ export const OPERATIONAL_CONTROLS = [
 ] as const;
 export const OperationalControlSchema = z.enum(OPERATIONAL_CONTROLS);
 export type OperationalControl = z.infer<typeof OperationalControlSchema>;
+/**
+ * 首次部署之后才加的开关没有初始化行：查询成功但没有这一行时按这里的默认值读（P3-25）。
+ * 默认值只能是 false——不能借默认值打开任何能力；读取出错仍是 unknown。
+ * 管理端据此显示"关"并允许以版本 0 写入第一行（服务端条件写入挡住覆盖已有行）。
+ */
+export const OPERATIONAL_CONTROL_DEFAULTS: Readonly<Partial<Record<OperationalControl, false>>> = {
+  review_skip_enabled: false,
+};
 export type ControlFact = boolean | "unknown";
 export type ControlFacts = Partial<Record<OperationalControl, ControlFact>>;
 export const OperationalReasonSchema = z.enum([
