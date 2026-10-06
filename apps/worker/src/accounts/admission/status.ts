@@ -10,6 +10,7 @@
 import { PublicStatusResponseSchema, publicOperationalCapabilities } from "@hoyo/contracts";
 import { environmentMailAvailable } from "../../mail/provider/environment";
 import { publicResponse, readPublicStatus, validatePublicQuery } from "../../public/read";
+import { type PushEnvironment, pushConfigured } from "../../push/config";
 import type { ShellRoute } from "../../shell";
 import { readControls } from "../../shell/observability/controls";
 import { readRegistrationOpen } from "./registration";
@@ -21,23 +22,28 @@ export const statusRoute: ShellRoute = {
   write: false,
   handler: async (ctx) => {
     validatePublicQuery(ctx.url);
-    const [registrationOpen, mailSendingAvailable, publicStatus] = await Promise.all([
+    const [registrationOpen, mailSendingAvailable, publicStatus, pushReady] = await Promise.all([
       readRegistrationOpen(ctx.env.DB).catch(() => false),
       environmentMailAvailable(ctx.env).catch(() => false),
       readPublicStatus(ctx.env.DB),
+      // P6（ADR-0025）：VAPID 与站点源等部署配置齐备才可能开放；缺失时如实为 closed。
+      pushConfigured(ctx.env as Env & PushEnvironment).catch(() => false),
     ]);
     const controls = await readControls(ctx.env.DB);
     return publicResponse(
       PublicStatusResponseSchema.parse({
         ...publicStatus,
-        capabilities: publicOperationalCapabilities({
-          ...controls,
-          mail_sending_available: mailSendingAvailable
-            ? controls.mail_sending_available
-            : controls.mail_sending_available === false
-              ? false
-              : "unknown",
-        }),
+        capabilities: publicOperationalCapabilities(
+          {
+            ...controls,
+            mail_sending_available: mailSendingAvailable
+              ? controls.mail_sending_available
+              : controls.mail_sending_available === false
+                ? false
+                : "unknown",
+          },
+          { push_configured: pushReady },
+        ),
         registration_open: registrationOpen,
         mail_sending_available: mailSendingAvailable,
       }),

@@ -5,16 +5,22 @@ import { logEvent } from "../../shell/logger";
 import { readControl } from "../../shell/observability/controls";
 
 const failedLocally = new WeakSet<D1Database>();
-export async function recordActivityFailure(db: D1Database, now: number): Promise<void> {
+/** P6（ADR-0025）：Push 处理回执的水位合并失败同样计入并暂停回收；指标名区分来源。 */
+export type ActivityMetric = "feed_poll_merge" | "push_processed_merge";
+export async function recordActivityFailure(
+  db: D1Database,
+  now: number,
+  metric: ActivityMetric = "feed_poll_merge",
+): Promise<void> {
   failedLocally.add(db);
-  logEvent("error", "activity_write_failures", { count: 1 });
+  logEvent("error", "activity_write_failures", { count: 1, kind: metric });
   try {
     await db.batch([
       db
         .prepare(`INSERT INTO activity_write_failures(metric,utc_day,failures,updated_at)
-        VALUES ('feed_poll_merge',?,1,?) ON CONFLICT(metric,utc_day) DO UPDATE
+        VALUES (?,?,1,?) ON CONFLICT(metric,utc_day) DO UPDATE
         SET failures=failures+1, updated_at=MAX(updated_at,excluded.updated_at)`)
-        .bind(utcDayPeriod(now).key, now),
+        .bind(metric, utcDayPeriod(now).key, now),
       db
         .prepare(`INSERT INTO system_state(key,value_json,updated_at) VALUES ('reclaim_paused','true',?)
         ON CONFLICT(key) DO UPDATE SET value_json='true', updated_at=excluded.updated_at`)

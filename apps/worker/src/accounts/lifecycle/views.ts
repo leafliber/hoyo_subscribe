@@ -1,7 +1,13 @@
+// P6（ADR-0025）获准跨卡：账号摘要的 Push 一行改为本人绑定按状态计数的事实（读取失败仍为 unknown）。
 // F2-04 返工获准跨卡：仅在 readAccountSummary 返回 user_id，供已确认身份的本机草稿分键。
 // P2-10：D3 §1.2/§2.10 的本人事实摘要；动作与临期提示由 contracts 在浏览器推导。
 // 视图只读主状态，未知通道显式 unknown；导出不包含邮箱、任何凭证、URL 或通道同意。
-import { type AccountRecentAuth, type AccountSummary, AccountSummarySchema } from "@hoyo/contracts";
+import {
+  type AccountRecentAuth,
+  type AccountSummary,
+  AccountSummarySchema,
+  pushSummaryState,
+} from "@hoyo/contracts";
 import { decryptDeliveryAddress } from "../../auth/challenges/delivery";
 import { asEnvelopeBytes } from "../../auth/challenges/payload";
 import { targetForAction } from "../../auth/recent-auth/target";
@@ -16,12 +22,40 @@ interface AccountRow {
   email_version: number;
   reclaim_grace_until: number | null;
   status: string;
+  push_counts: string | null;
 }
 
 function maskEmail(address: string): string {
   const at = address.lastIndexOf("@");
   if (at <= 0) return "***";
   return `${address[0]}***${address.slice(at)}`;
+}
+
+/**
+ * 本人 Push 绑定按状态计数（随账号行同一查询取得，摘要仍是固定条数的只读查询）；
+ * 不含端点、密钥或任何凭证。形状不对时显式 unknown（D3 §1.1）。
+ */
+const PUSH_COUNTS_SQL = `(SELECT json_object('pending',COALESCE(SUM(state='pending'),0),
+  'active',COALESCE(SUM(state='active'),0),'paused',COALESCE(SUM(state='paused'),0),
+  'gone',COALESCE(SUM(state='gone'),0)) FROM push_bindings WHERE user_id = users.id)`;
+function pushSummary(raw: string | null): AccountSummary["channels"]["push"] {
+  try {
+    const counts = JSON.parse(raw ?? "null") as Record<string, unknown> | null;
+    const value = (key: string) => {
+      const n = counts?.[key];
+      if (typeof n !== "number" || !Number.isSafeInteger(n) || n < 0) throw new Error("push_count");
+      return n;
+    };
+    const row = {
+      pending: value("pending"),
+      active: value("active"),
+      paused: value("paused"),
+      gone: value("gone"),
+    };
+    return { state: pushSummaryState(row), ...row };
+  } catch {
+    return { state: "unknown" };
+  }
 }
 
 /** 只提取当前会话可用的证明到期时间；不向客户端披露 ID、方法或目标摘要。 */
@@ -82,8 +116,8 @@ export async function readAccountSummary(
   }
   const [account, subscription, session, emailChannel, saved, recovery] = await Promise.all([
     db
-      .prepare(`SELECT email_ciphertext,email_version,reclaim_grace_until,status
-      FROM users WHERE id = ?`)
+      .prepare(`SELECT email_ciphertext,email_version,reclaim_grace_until,status,
+      ${PUSH_COUNTS_SQL} AS push_counts FROM users WHERE id = ?`)
       .bind(auth.userId)
       .first<AccountRow>(),
     readSubscription(db, auth.userId),
@@ -151,7 +185,7 @@ export async function readAccountSummary(
                   : "disabled",
               routine_enabled: emailChannel.routine_enabled === 1,
             },
-      push: { state: "unknown" },
+      push: pushSummary(account.push_counts),
     },
     reclaim_grace_until: account.reclaim_grace_until,
     recent_auth: await readRecentAuth(db, auth, now),

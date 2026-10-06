@@ -1,3 +1,4 @@
+// P6（ADR-0025）获准跨卡：兴趣匹配抽成与通道无关的 matchesSubscriptionInterest，邮件资格行为不变。
 // P4-01 · 主方案 §5.3、§7.1：同一套匹配和发送前复核条件，按兴趣与通道各自生效时间判定。
 import {
   changeNotificationScope,
@@ -97,6 +98,15 @@ function hasInterest(
   );
 }
 
+/** 已保存订阅的兴趣事实（与通道无关）；P6 的 Push 资格与邮件共用同一匹配。 */
+export interface SubscriptionInterestFacts {
+  subscription_state: string | null;
+  subscription_revision: number | null;
+  scope_json: string | null;
+  calendar_json: string | null;
+  notifications_json: string | null;
+}
+
 /** latest consent_event 作为该层本轮同意的生效时间；P4-05 负责写入动作语义。 */
 export function isEmailAudienceEligible(
   occurrence: OccurrenceMatch,
@@ -117,6 +127,31 @@ export function isEmailAudienceEligible(
     occurrence.expires_at <= nowMs
   )
     return false;
+  const anchor = occurrence.due_at;
+  const kind = occurrenceDeliveryKind(occurrence.kind);
+  const routine = kind === "rule" || kind === "new_event";
+  if (
+    audience.seat_enabled_at === null ||
+    audience.seat_enabled_at > anchor ||
+    (routine &&
+      (audience.routine_enabled !== 1 ||
+        audience.routine_enabled_at === null ||
+        audience.routine_enabled_at > anchor))
+  )
+    return false;
+  return matchesSubscriptionInterest(occurrence, audience, interests);
+}
+
+/**
+ * 兴趣匹配（§5.3、§7.1）：已保存订阅、范围、规则或变更开关在 due_at 前已生效。
+ * 只判断"通知什么"，不判断通道；通道各自的生效时间与可用性由调用方先判断。
+ */
+export function matchesSubscriptionInterest(
+  occurrence: OccurrenceMatch,
+  audience: SubscriptionInterestFacts,
+  interests: readonly { interest_kind: string; interest_id: string; enabled_at: number }[],
+): boolean {
+  if (audience.subscription_state !== "initialized") return false;
   if (
     audience.scope_json === null ||
     audience.calendar_json === null ||
@@ -133,16 +168,6 @@ export function isEmailAudienceEligible(
   if (!config.success) return false;
   const anchor = occurrence.due_at;
   const kind = occurrenceDeliveryKind(occurrence.kind);
-  const routine = kind === "rule" || kind === "new_event";
-  if (
-    audience.seat_enabled_at === null ||
-    audience.seat_enabled_at > anchor ||
-    (routine &&
-      (audience.routine_enabled !== 1 ||
-        audience.routine_enabled_at === null ||
-        audience.routine_enabled_at > anchor))
-  )
-    return false;
   if (
     !config.data.scope.games.includes(occurrence.game) ||
     !config.data.scope.regions.includes(occurrence.region)
