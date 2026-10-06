@@ -332,6 +332,7 @@ test("A-P3-ARTICLE-VIEW 查看官方公告打开原文弹窗：整理成可读�
   const content = dialog.locator(".article-content");
   // 官方转义的时间标签只留时间；不出现标签、实体、样式或脚本字样。
   await expect(content).toContainText("2026/09/22 10:00 - 2026/09/29 03:59");
+  await expect(content).toContainText("※2026/09/29 02:59将关闭奖励兑换，请留意时间。");
   await expect(content).toContainText("注：活动规则以游戏内说明为准 & 解释权归官方所有");
   const text = (await content.textContent()) ?? "";
   for (const raw of [
@@ -342,6 +343,7 @@ test("A-P3-ARTICLE-VIEW 查看官方公告打开原文弹窗：整理成可读�
     "&lt;",
     "&amp;",
     "t_gl",
+    "t_lc",
     "style=",
     "javascript:",
     "__articleExecuted",
@@ -457,4 +459,35 @@ test("A-P3-ARTICLE-VIEW 没有可确认的原文版本、读取失败与不完�
   await expect(dialog.locator(".article-gap")).toContainText("这个来源只提供公告列表，拿不到正文");
   await expect(dialog.locator(".article-content")).toHaveCount(0);
   await expect(dialog.locator("a")).toHaveCount(0);
+});
+
+test("A-F1-BROWSE 详情时间线从开始到结束：接口顺序打乱、开始时间未知也排在最前", async ({
+  page,
+}) => {
+  const control = await mockPublicApi(page);
+  control.detail = (id) => {
+    const data = detailFixture(id);
+    if (!data) return null;
+    const milestones = [...data.event.milestones].reverse().map((node) =>
+      node.nodeType === "start"
+        ? {
+            ...node,
+            time: {
+              precision: "unknown" as const,
+              source_timezone: "UTC+8",
+              raw_expression: "7.0版本更新后",
+              time_basis: "unresolved" as const,
+            },
+          }
+        : node,
+    );
+    return { ...data, event: { ...data.event, milestones } };
+  };
+  await page.goto("/events/evt_morning");
+  await expect(page.locator(".event-detail")).toBeVisible();
+  expect(
+    await page
+      .locator('[data-section="timeline"] [data-milestone]')
+      .evaluateAll((items) => items.map((item) => item.getAttribute("data-milestone"))),
+  ).toEqual(["morning", "morning-end", "morning-reward"]);
 });

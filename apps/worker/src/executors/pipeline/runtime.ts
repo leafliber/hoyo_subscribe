@@ -23,7 +23,7 @@ import { logEvent } from "../../shell/logger";
 import { readControl } from "../../shell/observability/controls";
 import { recordMetric } from "../../shell/observability/metrics";
 import { articleRowId, saveArticleVersion } from "../../sources/articles/ingest";
-import { getSourceEntry, SOURCE_REGISTRY } from "../../sources/registry";
+import { getSourceEntry, isRetiredSource, SOURCE_REGISTRY } from "../../sources/registry";
 import { boundedDatabase, ReclaimQueryLimit } from "../cron/query-budget";
 import { type CollectedPage, collectSource } from "./collect";
 import type { PipelineControlReader } from "./controls";
@@ -266,6 +266,11 @@ export class PipelineRuntime {
   }
   private async source(job: Job, deadline: number): Promise<void> {
     const object = parseJobObject(job.payload_json);
+    // 已下线来源（ADR-0016）的轮询待办直接结束：不再续排，也不当作数据错误记失败。
+    if (typeof object.sourceId === "string" && isRetiredSource(object.sourceId)) {
+      await this.finish(job, "done", job.payload_json, this.now(), "source_retired");
+      return;
+    }
     if (
       typeof object.sourceId !== "string" ||
       !SOURCE_REGISTRY.some((entry) => entry.sourceId === object.sourceId)

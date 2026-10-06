@@ -100,7 +100,6 @@ export const SOURCE_LIMIT_PROFILE = {
     "genshin-ann": 458_752,
     "hsr-ann": 524_288,
     "zzz-ann": 393_216,
-    "miyoushe-news": 131_072,
   },
   // 工程安全上界：单次来源响应最多缓冲 512 KiB，远低于 Workers 128 MiB isolate 内存。
   // 增长超过本界时转缺口并发告警，不自动放大；不是允许额外请求/计费的额度。
@@ -883,7 +882,7 @@ export const PARAM_META: Readonly<Record<keyof ParamValues, ParamMeta>> = {
     unit: "按来源结构",
     description: "页数、正文大小、请求超时、重定向和批量上限",
     status: "measured-ref",
-    note: "P0-02 实测见 fixtures/sources/registry.draft.json；P3-08 生产响应上限和统一安全界在本参数项",
+    note: "P0-02 实测见 fixtures/sources/registry.draft.json；P3-08 生产响应上限和统一安全界在本参数项；ADR-0016 起只登记三个游戏内公告源（米游社来源下线）",
   },
   DISCOVERY_TARGET: {
     section: "A.1",

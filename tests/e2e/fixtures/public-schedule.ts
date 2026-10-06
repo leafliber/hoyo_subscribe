@@ -167,6 +167,11 @@ export const ARTICLE_FIXTURE_BLOCKS: PublicArticleBlock[] = [
     kind: "html",
     html: '<p style="white-space: pre-wrap;"><span style="color: rgb(204, 146, 85);">&lt;t class="t_gl" contenteditable="false"&gt;2026/09/22 10:00&lt;/t&gt;</span> - <span>&lt;t class="t_gl"&gt;2026/09/29 03:59&lt;/t&gt;</span></p>',
   },
+  // 线上原神公告的另一种写法：转义标签里的时间再包一层元素，解析后开、合标签分在不同文字节点。
+  {
+    kind: "html",
+    html: '<p style="white-space: pre-wrap; text-align: left;"><span style="color: rgb(236, 73, 35);">※&lt;t class="t_lc" contenteditable="false"&gt;<span style="color: rgb(236, 73, 35);">2026/09/29 02:59</span>&lt;/t&gt;将关闭奖励兑换，请留意时间。</span></p>',
+  },
   { kind: "html", html: '<p style="white-space: pre-wrap;"><strong>■参与条件</strong></p>' },
   {
     kind: "html",

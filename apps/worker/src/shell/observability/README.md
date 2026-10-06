@@ -39,7 +39,7 @@
 
 只接受管理员会话、绑定 CSRF、闭合原因（OperationalReasonSchema）与 `expected_updated_at` 乐观并发；业务写入与审计同批，零命中返回 409。
 
-- `POST /api/v2/admin/sources/resume` `{source, expected_updated_at, reason}`：仅 `maintenance-required` 且来源待办不在租约中时，恢复注册表登记状态（米游社仍是仅列表），丢弃残留抓取页并只放回一次正常受控轮询；仍受限时同一抓取重新标维护并告警。不做周期探测，不绕过官方访问控制。
+- `POST /api/v2/admin/sources/resume` `{source, expected_updated_at, reason}`：仅 `maintenance-required` 且来源待办不在租约中时，恢复注册表登记状态，丢弃残留抓取页并只放回一次正常受控轮询；仍受限时同一抓取重新标维护并告警。不做周期探测，不绕过官方访问控制。
 - `POST /api/v2/admin/delivery/rearm` `{job, expected_updated_at, reason}`：只接受固定清单中的 failed 行；退避行置 done 解除，`delivery:dispatch` 回到 pending 续跑同一批。不修改 `mail_sending_available`，开启外发仍是单独一步（顺序见 `mail/outbox/README.md`）。
 - 逐封、逐发生项与发布/通知待办的 failed 不提供批量重置。
 - account_reclaim_enabled / seat_reclaim_enabled：各自的运营门；不替代 reclaim_paused 的活动可靠性门，不实现回收。

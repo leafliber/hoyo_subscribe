@@ -15,8 +15,10 @@ export const PUBLIC_CHANGES_SQL = `SELECT milestone_id,
     AND json_extract(node_json, '$.patch.retain_until') IS NOT NULL
     AND json_extract(node_json, '$.patch.retain_until') > ?
   ORDER BY json_extract(node_json, '$.patch.retain_until') DESC, milestone_id LIMIT ?`;
+// 已下线来源（ADR-0016）的历史行留在库里（文章外键指向它），但不出现在公开状态。
 export const PUBLIC_SOURCES_SQL = `SELECT source_id, last_success_at, verification_state FROM sources
-  WHERE game = ? AND region = 'cn' ORDER BY source_id LIMIT ?`;
+  WHERE game = ? AND region = 'cn' AND source_id NOT IN (SELECT value FROM json_each(?))
+  ORDER BY source_id LIMIT ?`;
 // 扫描 pending 索引有限前缀；超过保护值降级为未知，禁止把截断计数当精确总量。
 // 每个候选由第一条证据（其来源唯一）归属游戏；人工 run_id 可空，不能只依赖 extraction_runs。
 export const PUBLIC_PENDING_SQL = `SELECT COALESCE((SELECT s.game FROM extraction_runs r

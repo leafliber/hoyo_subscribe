@@ -42,6 +42,16 @@ if (form && results) {
   /** 已经展示过的条目：只有新出现的条目播放入场动效，加载续页或刷新时旧条目不闪动。 */
   let shownRows = new Set<string>();
   let shownCards = new Set<string>();
+  /**
+   * "显示更多"期间以列表里最后一天为锚（ADR-0017）：上方区块（即将截止、提示）重绘时视口不跳，
+   * 下一档的条目接在这一天之后、原末行的位置出现。
+   */
+  let anchoring = false;
+  const rangeLabel = (range: string) => BROWSE_RANGES.find((item) => item.id === range)?.label;
+  function lastDay(): HTMLElement | null {
+    const days = output.querySelectorAll<HTMLElement>('[data-region="days"] > .schedule-day');
+    return days[days.length - 1] ?? null;
+  }
 
   function openDisclosures(root: HTMLElement): string[] {
     return [...root.querySelectorAll<HTMLDetailsElement>("details[open]")].map(
@@ -68,6 +78,9 @@ if (form && results) {
   }
 
   function render() {
+    const anchor = anchoring ? lastDay() : null;
+    const anchorDate = anchor?.dataset.date;
+    const anchorTop = anchor?.getBoundingClientRect().top ?? 0;
     const opened = openDisclosures(output);
     const asideOpened = aside ? openDisclosures(aside) : [];
     const focusKey =
@@ -96,10 +109,13 @@ if (form && results) {
       aside.replaceChildren(renderAside(loader.state, filters));
       restoreDisclosures(aside, asideOpened);
     }
-    if (active)
-      pageRoot
-        ?.querySelector<HTMLElement>(`[data-action="${active}"]`)
-        ?.focus({ preventScroll: true });
+    if (active) {
+      const target = pageRoot?.querySelector<HTMLElement>(`[data-action="${active}"]`);
+      // 已到最大一档时"显示更多"不再出现：焦点留在末行，不掉回页首。
+      const fallback =
+        active === "show-more" ? output.querySelector<HTMLElement>(".load-row") : null;
+      (target ?? fallback)?.focus({ preventScroll: true });
+    }
     if (focusKey)
       output
         .querySelector<HTMLElement>(`[data-focus="${CSS.escape(focusKey)}"]`)
@@ -113,14 +129,27 @@ if (form && results) {
       restoreScroll = null;
       requestAnimationFrame(() => scrollTo(0, position));
     }
+    if (anchorDate) {
+      const again = output.querySelector<HTMLElement>(
+        `[data-region="days"] > [data-date="${CSS.escape(anchorDate)}"]`,
+      );
+      const shift = again ? again.getBoundingClientRect().top - anchorTop : 0;
+      if (shift) scrollBy({ top: shift, behavior: "instant" });
+    }
+    if (anchoring && loader.state.extending === null) anchoring = false;
+    const shown = loader.state.loadedRange ?? filters.range;
     const announcement = document.getElementById("browse-announcement");
     if (announcement)
       announcement.textContent =
         loader.state.phase === "loading"
-          ? "正在加载公开日程。"
+          ? loader.state.extending
+            ? `正在加载${rangeLabel(loader.state.extending)}。`
+            : "正在加载公开日程。"
           : loader.state.phase === "failed"
             ? "加载失败，已有条目保留，可重试。"
-            : "已显示完当前范围。";
+            : shown === "all"
+              ? "已显示完全部日程。"
+              : `已显示完${rangeLabel(shown)}。`;
     clearTimeout(wake);
     const deadlines = [
       ...loader.state.pages.map((page) => page.cache.freshUntil + 1),
@@ -258,6 +287,9 @@ if (form && results) {
     }
     const reset = document.getElementById("reset-filters");
     if (reset) reset.hidden = isDefault();
+    // 时间范围收进「筛选」后（ADR-0017），按钮上始终写明当前档位。
+    const moreRange = document.getElementById("more-range");
+    if (moreRange) moreRange.textContent = rangeLabel(filters.range) ?? "";
     const more = document.getElementById("more-summary");
     const selected = [
       ...filters.events.map((v) => EVENT_NAMES[v]),
@@ -269,7 +301,8 @@ if (form && results) {
       more.title = selected.join("、");
     }
     const moreClear = document.getElementById("more-clear");
-    if (moreClear instanceof HTMLButtonElement) moreClear.disabled = selected.length === 0;
+    if (moreClear instanceof HTMLButtonElement)
+      moreClear.disabled = selected.length === 0 && filters.range === defaultBrowseFilters().range;
     for (const input of filterForm.querySelectorAll<HTMLInputElement>("input")) {
       input.checked =
         input.name === "range"
@@ -307,12 +340,15 @@ if (form && results) {
     reset();
     filterForm.querySelector<HTMLInputElement>('input[name="games"]')?.focus();
   });
+  // 「清除这些条件」只管弹层里的条件：时间范围回到默认档、活动与节点类型清空。
   document.getElementById("more-clear")?.addEventListener("click", () => {
-    filters = { ...filters, events: [], nodes: [] };
-    update(false);
+    const range = defaultBrowseFilters().range;
+    const remote = filters.range !== range;
+    filters = { ...filters, range, events: [], nodes: [] };
+    update(remote);
   });
 
-  // 「更多筛选」：浏览器顶层弹层（不会被横向滚动的筛选栏裁掉）。桌面端贴在按钮下方，
+  // 「筛选」：浏览器顶层弹层（不会被横向滚动的筛选栏裁掉）。桌面端贴在按钮下方，
   // 窄屏由 CSS 呈现为底部面板。轻点外部或 Esc 关闭由浏览器处理。
   const morePanel = document.getElementById("more-filters");
   const moreToggle = document.getElementById("more-filters-toggle");
@@ -334,7 +370,10 @@ if (form && results) {
       if ((event as ToggleEvent).newState === "open") placeMore();
     });
     morePanel.addEventListener("toggle", (event) => {
-      moreToggle.setAttribute("aria-expanded", String((event as ToggleEvent).newState === "open"));
+      const open = (event as ToggleEvent).newState === "open";
+      moreToggle.setAttribute("aria-expanded", String(open));
+      // 弹层关着时量不到选项宽度；打开后再定位时间范围的滑块。
+      if (open) placeThumb();
     });
     const follow = () => {
       if (morePanel.matches(":popover-open")) placeMore();
@@ -349,6 +388,7 @@ if (form && results) {
     const toggle = (open: boolean) => {
       morePanel.hidden = !open;
       moreToggle.setAttribute("aria-expanded", String(open));
+      if (open) placeThumb();
     };
     moreToggle.addEventListener("click", () => toggle(Boolean(morePanel.hidden)));
     for (const close of morePanel.querySelectorAll("[popovertargetaction='hide']"))
@@ -367,7 +407,18 @@ if (form && results) {
       if (range) {
         filters.range = range.id;
         update();
-        filterForm.querySelector<HTMLInputElement>('input[name="range"]:checked')?.focus();
+        // 时间范围在「筛选」里（ADR-0017）；焦点落到写着当前档位的按钮上。
+        moreToggle?.focus();
+      }
+    }
+    // 「显示更多」：读取下一档，已显示的条目保留，新条目接在末行的位置（ADR-0017）。
+    if (target?.dataset.action === "show-more" && target.getAttribute("aria-disabled") !== "true") {
+      const range = HOME_RANGES.find((item) => item.id === target.dataset.range);
+      if (range) {
+        filters.range = range.id;
+        anchoring = true;
+        updateControls();
+        loader.extend({ range: filters.range, games: filters.games });
       }
     }
     if (target?.dataset.action === "ending-all") {

@@ -31,7 +31,7 @@ export function classifyPipelineFailure(error: unknown): PipelineFailure {
       current instanceof PipelineDataError ||
       current instanceof SyntaxError ||
       current.name === "ZodError" ||
-      /D1_TYPE_ERROR|SQLITE_CONSTRAINT|候选.*(?:Schema|校验)|保存的候选未通过|只有已批准候选可发布|发布信号所指事件不存在|ArticleVersion .*?(?:无效|不存在)|来源存储与已核验注册项不一致/.test(
+      /D1_TYPE_ERROR|SQLITE_CONSTRAINT|候选.*(?:Schema|校验)|保存的候选未通过|只有已批准候选可发布|发布信号所指事件不存在|ArticleVersion .*?(?:无效|不存在)|来源存储与已核验注册项不一致|来源已下线/.test(
         current.message,
       )
     )

@@ -81,15 +81,18 @@ for (const ignoreAbort of [false, true]) {
         await expect.poll(() => pending).toBe(true);
         metadata.release();
         await expect(page.locator("#schedule-results")).toContainText("至少等待 2 秒");
-        if (selection === "range")
+        if (selection === "range") {
+          // 时间范围在「筛选」弹层里（ADR-0017）。
+          await page.locator("#more-filters-toggle").click();
           await page.getByRole("radio", { name: "近7天", exact: true }).check();
-        else await page.locator(".game-option").filter({ hasText: "原神" }).click();
+          await page.keyboard.press("Escape");
+        } else await page.locator(".game-option").filter({ hasText: "原神" }).click();
         const callsAtSwitch = apiCalls.length;
         old.release();
         await expect.poll(() => released).toBe(true);
         // 等待已释放响应的消费与一次页面绘制，不能用过早的否定断言掩盖旧结果。
         await page.clock.runFor(32);
-        await expect(page.locator(".load-row")).not.toContainText("已显示完当前范围");
+        await expect(page.locator(".load-row", { hasText: "已显示完" })).toHaveCount(0);
         await expect(page.locator("[data-node]")).toHaveCount(0);
         await expect(page.locator("#schedule-results")).toHaveAttribute("aria-busy", "false");
         const retry = page.getByRole("button", { name: "重试加载" });
@@ -100,7 +103,7 @@ for (const ignoreAbort of [false, true]) {
         await expect(retry).toBeEnabled();
         expect(apiCalls).toHaveLength(callsAtSwitch);
         await retry.click();
-        await expect(page.locator(".load-row")).toContainText("已显示完当前范围");
+        await expect(page.locator(".load-row")).toContainText("已显示完");
         expect(eventCalls.at(-1)?.cursor).toBeNull();
         if (selection === "range") {
           expect(eventCalls.at(-1)?.range).toBe("7d");
@@ -159,9 +162,9 @@ for (const mismatch of ["generation", "window"] as const) {
       await page.goto("/");
       await expect.poll(() => firstCalls).toBe(2);
       await expect(page.locator('[data-node="old-first"], [data-node="must-drop"]')).toHaveCount(0);
-      await expect(page.locator(".load-row")).not.toContainText("已显示完当前范围");
+      await expect(page.locator(".load-row", { hasText: "已显示完" })).toHaveCount(0);
       restart.release();
-      await expect(page.locator(".load-row")).toContainText("已显示完当前范围");
+      await expect(page.locator(".load-row")).toContainText("已显示完");
       await expect(page.locator('[data-node="current"]')).toBeVisible();
       await expect(page.locator('[data-node="old-first"], [data-node="must-drop"]')).toHaveCount(0);
       expect(cursors).toEqual([null, "next", null]);

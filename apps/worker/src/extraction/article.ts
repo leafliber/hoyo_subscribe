@@ -9,7 +9,7 @@ import {
   ARTICLE_COMPLETENESS_STATES,
   type ArticleCompleteness,
 } from "../sources/articles/completeness";
-import { getSourceEntry } from "../sources/registry";
+import { getSourceEntry, isRetiredSource } from "../sources/registry";
 import {
   type CandidateIssue,
   type CandidateParseResult,
@@ -32,7 +32,10 @@ export interface StoredArticleVersion {
   readonly completeness: ArticleCompleteness;
   readonly blocks: readonly ArticleBodyBlock[];
   readonly mediaRefs: readonly ArticleMediaRef[];
-  /** 来源载荷里的真实发布时间（目前只有米游社有）；ADR-0013 补年份的最后一级参照。 */
+  /**
+   * 来源载荷里的真实发布时间；ADR-0013 补年份的最后一级参照。现役公告来源不提供
+   * （提供它的米游社来源已下线，ADR-0016），只有历史版本可能带着它。
+   */
   readonly officialPublishedAtMs?: number | null;
 }
 
@@ -102,6 +105,8 @@ export async function loadStoredArticleVersion(
     .bind(articleVersionId)
     .first<ArticleRow>();
   if (row === null) throw new Error("ArticleVersion 不存在");
+  // 已下线来源（ADR-0016）的历史文章不再用于抽取、审核或发布；明确终止，管线不重试。
+  if (isRetiredSource(row.source_id)) throw new Error(`来源已下线：${row.source_id}`);
   const registered = getSourceEntry(row.source_id);
   const game = GameIdSchema.parse(row.game);
   const region = RegionIdSchema.parse(row.region.toUpperCase());

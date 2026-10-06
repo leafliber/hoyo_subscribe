@@ -5,13 +5,9 @@
 // **不能仅按最大 ID 推进水位**；SOURCE_RECHECK_WINDOW 内近期公告按 SOURCE_RECHECK_INTERVAL
 // 复查；分页、补漏保存游标；每批有上限；遇到访问控制停用来源并标维护，不实施绕过。
 //
-// 两类来源的批次形状不同（P0-02 实测，不强行统一）：
-//   - 公告源：每批 = getAnnList + getAnnContent 各一次（都是全量快照），整份指纹集合差分；
-//     "重叠窗口"= 水位保存整份上次快照。复查即全量重拉（不存在单篇通道）。
-//   - 米游社：每批 = 三类型各一页（每批上限的结构性取值：一页/类型；页边界未实测，
-//     limit_profile 登记"未测得边界"）。初始补漏沿保存游标每批推进一页；到达 is_last 后
-//     每批从最新页重叠重扫（可发现新帖与标题级变化；更深层历史变化对本来源不可见，
-//     按标题级维护来源接受，见交付报告）。
+// 公告源批次形状（P0-02 实测）：每批 = getAnnList + getAnnContent 各一次（都是全量快照），
+// 整份指纹集合差分；"重叠窗口"= 水位保存整份上次快照。复查即全量重拉（不存在单篇通道）。
+// 米游社批次随来源下线删除（ADR-0016）。
 //
 // 所有间隔来自 @hoyo/contracts（经 sources/registry.ts 的 pollPolicy 引用），本文件零字面常量。
 
@@ -19,27 +15,17 @@ import {
   createAnnouncementAdapter,
   fetchAnnouncementContentSet,
 } from "../../sources/adapters/announcement";
-import { createMiyousheNewsAdapter } from "../../sources/adapters/miyoushe-news";
-import type {
-  AnnouncementSourceEntry,
-  MiyousheNewsSourceEntry,
-  SourceRegistryEntry,
-} from "../../sources/registry";
+import type { AnnouncementSourceEntry, SourceRegistryEntry } from "../../sources/registry";
 import {
   advanceFullSnapshotWatermark,
   announcementFingerprint,
-  diffPageAgainstFingerprints,
   diffSnapshotRecords,
   type FullSnapshotWatermark,
-  type MiyousheScanState,
-  type MiyousheWatermark,
-  miyousheFingerprint,
-  type SnapshotChange,
   type SnapshotDiff,
   type SnapshotRecord,
   type SourceWatermark,
 } from "../../sources/snapshot-diff";
-import type { MiyousheNewsType, SourceFetchFailure, SourceItemStub } from "../../sources/types";
+import type { SourceFetchFailure, SourceItemStub } from "../../sources/types";
 
 export type PollMode = "normal" | "hot";
 
@@ -85,16 +71,14 @@ export function nextPollDueAtMs(
   return state.lastPollCompletedAtMs + pollIntervalSeconds(entry, mode) * 1000;
 }
 
-/** 复查到期：SOURCE_RECHECK_INTERVAL（公告源）；米游社未登记复查 → 永不到期。 */
+/** 复查到期：SOURCE_RECHECK_INTERVAL（经来源注册项引用 contracts）。 */
 export function isRecheckDue(
   entry: SourceRegistryEntry,
   state: SourcePollState,
   nowMs: number,
 ): boolean {
-  const intervalS = entry.pollPolicy.recheckIntervalS;
-  if (intervalS === null) return false;
   if (state.lastRecheckCompletedAtMs === null) return true;
-  return nowMs - state.lastRecheckCompletedAtMs >= intervalS * 1000;
+  return nowMs - state.lastRecheckCompletedAtMs >= entry.pollPolicy.recheckIntervalS * 1000;
 }
 
 /**
@@ -107,9 +91,7 @@ export function selectRecheckCandidates(
   items: readonly SourceItemStub[],
   nowMs: number,
 ): readonly string[] {
-  const windowDays = entry.pollPolicy.recheckWindowDays;
-  if (windowDays === null) return [];
-  const windowMs = windowDays * 86_400_000;
+  const windowMs = entry.pollPolicy.recheckWindowDays * 86_400_000;
   return items
     .filter((stub) => {
       const startMs = parseUtc8DisplayTimeMs(stub.listStartTime);
@@ -239,146 +221,5 @@ export async function runAnnouncementPollBatch(
       // 全量拉取本身覆盖复查窗口：复查水位同批推进（公告源"按篇复查"=全量重拉，P0-02）。
       lastRecheckCompletedAtMs: nowMs,
     },
-  };
-}
-
-// ---------- 米游社批次 ----------
-
-export interface MiyousheTypeScanReport {
-  readonly items: readonly SourceItemStub[];
-  readonly newsType: MiyousheNewsType;
-  readonly status: "ok" | "incomplete" | "maintenance-required";
-  readonly added: readonly string[];
-  readonly changed: readonly SnapshotChange[];
-  readonly nextScan: MiyousheScanState;
-  readonly failure: SourceFetchFailure | null;
-}
-
-export interface MiyoushePollReport {
-  readonly sourceId: string;
-  readonly status: "ok" | "incomplete" | "maintenance-required";
-  /** 三类型本批都到达 is_last 才为 true（扫描范围真的完成；常规稳态通常为 false）。 */
-  readonly complete: boolean;
-  readonly perType: Readonly<Record<MiyousheNewsType, MiyousheTypeScanReport>>;
-  readonly nextState: SourcePollState;
-}
-
-function emptyMiyousheScan(newsType: MiyousheNewsType): MiyousheScanState {
-  return { newsType, lastId: null, reachedLast: false, fingerprints: {} };
-}
-
-function initialMiyousheWatermark(entry: MiyousheNewsSourceEntry): MiyousheWatermark {
-  const scans = {} as Record<MiyousheNewsType, MiyousheScanState>;
-  for (const type of entry.newsTypes) {
-    scans[type] = emptyMiyousheScan(type);
-  }
-  return { model: "last-id-offset", scans };
-}
-
-/**
- * 米游社一批：三类型各一页。
- * 初始补漏：沿保存游标推进（分页、补漏保存游标，§3.2）；到达 is_last 后进入稳态——
- * 每批从最新页重叠重扫，新帖/标题级变化可见，更深层历史变化不可见（标题级维护来源的边界）。
- */
-export async function runMiyoushePollBatch(
-  entry: MiyousheNewsSourceEntry,
-  state: SourcePollState,
-  nowMs: number,
-  deps: PollBatchDeps = {},
-): Promise<MiyoushePollReport> {
-  const fetchFn = deps.fetchFn ?? fetch;
-  const watermark: MiyousheWatermark =
-    state.watermark !== null && state.watermark.model === "last-id-offset"
-      ? state.watermark
-      : initialMiyousheWatermark(entry);
-
-  const perType = {} as Record<MiyousheNewsType, MiyousheTypeScanReport>;
-  let overall: MiyoushePollReport["status"] = "ok";
-  let allComplete = true;
-
-  for (const newsType of entry.newsTypes) {
-    const adapter = createMiyousheNewsAdapter(entry, newsType, { fetchFn, now: () => nowMs });
-    const scan = watermark.scans[newsType] ?? emptyMiyousheScan(newsType);
-    // 稳态（曾到 is_last）→ 从头重叠重扫最新页；补漏中 → 沿保存游标续扫。
-    const cursor =
-      scan.reachedLast || scan.lastId === null
-        ? null
-        : { model: "last-id-offset" as const, newsType, lastId: scan.lastId };
-    const pageLimit = entry.requestLimits.listPageSizeCap ?? 1;
-    const list = await adapter.list(cursor, pageLimit);
-
-    if (list.failure !== null) {
-      const status: MiyousheTypeScanReport["status"] =
-        list.failure.kind === "restricted" ? "maintenance-required" : "incomplete";
-      // maintenance-required 优先于 incomplete 透出（停用比补漏更紧急）。
-      if (overall === "ok" || (overall === "incomplete" && status === "maintenance-required")) {
-        overall = status;
-      }
-      allComplete = false;
-      perType[newsType] = {
-        newsType,
-        items: [],
-        status,
-        added: [],
-        changed: [],
-        nextScan: scan,
-        failure: list.failure,
-      };
-      continue;
-    }
-
-    const pageRecords: SnapshotRecord[] = await Promise.all(
-      list.items.map(async (stub) => ({
-        externalId: stub.externalId,
-        fingerprint: await miyousheFingerprint(stub),
-      })),
-    );
-    const { added, changed } = diffPageAgainstFingerprints(pageRecords, scan.fingerprints);
-    const fingerprints: Record<string, string> = { ...scan.fingerprints };
-    for (const record of pageRecords) {
-      fingerprints[record.externalId] = record.fingerprint;
-    }
-    let nextScan: MiyousheScanState;
-    if (scan.reachedLast) {
-      // 稳态：保持"从最新页重扫"语义，不把游标推进到第二页（每批上限=一页/类型）。
-      nextScan = { newsType, lastId: null, reachedLast: true, fingerprints };
-    } else if (list.complete) {
-      nextScan = { newsType, lastId: null, reachedLast: true, fingerprints };
-    } else if (list.nextCursor !== null && list.nextCursor.model === "last-id-offset") {
-      nextScan = { newsType, lastId: list.nextCursor.lastId, reachedLast: false, fingerprints };
-    } else {
-      nextScan = { newsType, lastId: null, reachedLast: false, fingerprints };
-    }
-    if (!list.complete) allComplete = false;
-    perType[newsType] = {
-      newsType,
-      items: list.items,
-      status: "ok",
-      added,
-      changed,
-      nextScan,
-      failure: null,
-    };
-  }
-
-  const scans = { ...watermark.scans };
-  for (const newsType of entry.newsTypes) {
-    scans[newsType] = perType[newsType].nextScan;
-  }
-  const nextState: SourcePollState =
-    overall === "ok"
-      ? {
-          watermark: { model: "last-id-offset", scans },
-          lastPollCompletedAtMs: nowMs,
-          lastRecheckCompletedAtMs: state.lastRecheckCompletedAtMs,
-        }
-      : { ...state, watermark: { model: "last-id-offset", scans } };
-
-  return {
-    sourceId: entry.sourceId,
-    status: overall,
-    complete: overall === "ok" && allComplete,
-    perType,
-    nextState,
   };
 }

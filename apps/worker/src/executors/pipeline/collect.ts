@@ -1,14 +1,8 @@
 // P3-11：组合 P3-01 已读取结果与 P3-02/P3-08 的版本计划，不另发正文请求。
-import { createMiyousheNewsAdapter } from "../../sources/adapters/miyoushe-news";
 import { type ArticleIngestPlan, buildArticleIngestPlan } from "../../sources/articles/ingest";
 import type { SourceRegistryEntry } from "../../sources/registry";
 import type { ArticleFetchResult } from "../../sources/types";
-import {
-  isRecheckDue,
-  runAnnouncementPollBatch,
-  runMiyoushePollBatch,
-  type SourcePollState,
-} from "./source-poll";
+import { isRecheckDue, runAnnouncementPollBatch, type SourcePollState } from "./source-poll";
 export interface CollectedPage {
   plans: ArticleIngestPlan[];
   nextState: SourcePollState;
@@ -21,26 +15,9 @@ export async function collectSource(
   now: number,
   fetchFn: typeof fetch,
 ): Promise<CollectedPage> {
-  const backfill =
-    state.watermark === null ||
-    (state.watermark.model === "last-id-offset" &&
-      Object.values(state.watermark.scans).some((scan) => !scan.reachedLast));
+  // 首轮（还没有水位）是历史补录：入账但不发新事件通知。
+  const backfill = state.watermark === null;
   const plans: ArticleIngestPlan[] = [];
-  if (entry.adapterKind === "miyoushe-painter-news") {
-    const report = await runMiyoushePollBatch(entry, state, now, { fetchFn });
-    for (const type of entry.newsTypes) {
-      const scan = report.perType[type];
-      const adapter = createMiyousheNewsAdapter(entry, type, { fetchFn, now: () => now });
-      const changed = new Set([...scan.added, ...scan.changed.map((item) => item.externalId)]);
-      for (const stub of scan.items) {
-        if (changed.has(stub.externalId))
-          plans.push(
-            await buildArticleIngestPlan(entry, stub, await adapter.fetchArticle(stub), now),
-          );
-      }
-    }
-    return { plans, nextState: report.nextState, status: report.status, backfill };
-  }
   const report = await runAnnouncementPollBatch(entry, state, now, { fetchFn });
   const changed = new Set([
     ...(report.diff?.added ?? []),

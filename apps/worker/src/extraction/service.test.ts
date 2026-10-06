@@ -6,6 +6,7 @@ import hsrActivity from "../../../../fixtures/sources/hsr-ann/content-1392.json"
 import zzzPhasedActivity from "../../../../fixtures/sources/zzz-ann/content-1301.json";
 import zzzActivity from "../../../../fixtures/sources/zzz-ann/content-1303.json";
 import { extractArticleVersion } from "../executors/pipeline/extract";
+import { classifyPipelineFailure } from "../executors/pipeline/failure";
 import {
   blockVisibleText,
   denoiseTitle,
@@ -547,5 +548,42 @@ describe("A-P3-EXTRACT 规则白名单与人工审核领域层", () => {
         T0 + 32,
       ),
     ).rejects.toThrow();
+  });
+});
+
+describe("A-P3-SOURCE-RETIRE 已下线来源的历史文章（ADR-0016）", () => {
+  it("米游社历史版本不再用于抽取、审核或发布：读取即明确报错，管线按终止处理不重试", async () => {
+    const articleId = crypto.randomUUID();
+    const versionId = crypto.randomUUID();
+    await env.DB.batch([
+      env.DB.prepare(
+        `INSERT INTO sources (source_id,game,region,adapter,approved_hosts_json,verified_publishers_json,
+                              cursor_json,poll_policy_json,verification_state,created_at,updated_at)
+         VALUES ('miyoushe-news','genshin','cn','miyoushe-painter-news','[]','[]','{}','{}',
+                 'maintenance-required-list-only',?,?) ON CONFLICT(source_id) DO NOTHING`,
+      ).bind(T0, T0),
+      env.DB.prepare(
+        `INSERT INTO articles (id, source_id, external_id, official_url, first_seen_at,
+                               last_checked_at, created_at, updated_at)
+         VALUES (?, 'miyoushe-news', 'retired-post', 'https://bbs-api.miyoushe.com/', ?, ?, ?, ?)`,
+      ).bind(articleId, T0, T0, T0, T0),
+      env.DB.prepare(
+        `INSERT INTO article_versions (id, article_id, version_no, content_hash, body_blocks_json,
+                                      media_refs_json, completeness, official_published_at, fetched_at, created_at)
+         VALUES (?, ?, 1, ?, ?, '[]', 'gap-channel-unavailable', ?, ?, ?)`,
+      ).bind(
+        versionId,
+        articleId,
+        crypto.randomUUID(),
+        JSON.stringify([{ kind: "title", text: "历史帖子" }]),
+        T0,
+        T0,
+        T0,
+      ),
+    ]);
+    const error = await loadStoredArticleVersion(env.DB, versionId).catch((caught) => caught);
+    expect(error).toBeInstanceOf(Error);
+    expect((error as Error).message).toContain("来源已下线");
+    expect(classifyPipelineFailure(error)).toEqual({ terminal: true, reason: "invalid_data" });
   });
 });

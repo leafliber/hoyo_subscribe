@@ -291,7 +291,6 @@ describe("A-P3-PREVIEW 真实外壳/D1", () => {
   it("来源规则抽取保持 Feed 字节；预览序列化与真实 Feed 仅等长 namespace 不同", async () => {
     const oldIds = SOURCE_REGISTRY.filter(
       (e) =>
-        !e.contentChannelDisabled &&
         config.scope.games.includes(e.game) &&
         config.scope.regions.some((r) => r.toLowerCase() === e.region),
     ).map((e) => e.sourceId);

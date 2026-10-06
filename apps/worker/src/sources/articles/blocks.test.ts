@@ -1,14 +1,14 @@
 // A-P3-ARTICLE · 正文块构造、标题去噪与内容 hash（任务卡 P3-02）。
 // 样本全部来自 P0-02 真实抓取（fixtures/sources/，synthetic:false）；
-// 保真重建性质覆盖三公告源全部正文条目（genshin 41 + hsr 14 + zzz 18）。
+// 保真重建性质覆盖三公告源全部正文条目，含图文资讯目录（genshin 41 + hsr 14+11 + zzz 18+6）。
 
 import { describe, expect, it } from "vitest";
 import genshinContent from "../../../../../fixtures/sources/genshin-ann/content-21819.json";
 import hsrContent from "../../../../../fixtures/sources/hsr-ann/content-1429.json";
-import miyousheType2 from "../../../../../fixtures/sources/miyoushe-news/news-list-type2-page1.json";
+import hsrList from "../../../../../fixtures/sources/hsr-ann/list-page-1.json";
 import zzzContent from "../../../../../fixtures/sources/zzz-ann/content-1296.json";
-import { createMiyousheNewsAdapter } from "../adapters/miyoushe-news";
-import type { MiyousheNewsSourceEntry } from "../registry";
+import { createAnnouncementAdapter } from "../adapters/announcement";
+import type { AnnouncementSourceEntry } from "../registry";
 import { getSourceEntry } from "../registry";
 import {
   articleContentHash,
@@ -26,8 +26,10 @@ interface ContentEntry {
   content: string;
 }
 
+/** getAnnContent 的两个目录：data.list 与图文资讯 data.pic_list（ADR-0016 起都入账）。 */
 function contentEntries(body: unknown): ContentEntry[] {
-  return (body as { data: { list: ContentEntry[] } }).data.list;
+  const data = (body as { data: { list: ContentEntry[]; pic_list?: ContentEntry[] } }).data;
+  return [...data.list, ...(data.pic_list ?? [])];
 }
 
 function findEntry(entries: ContentEntry[], annId: number): ContentEntry {
@@ -76,7 +78,7 @@ describe("A-P3-ARTICLE 正文块：t_gl 转义标签保真与阶段文本保留�
         checked += 1;
       }
     }
-    expect(checked).toBe(41 + 14 + 18);
+    expect(checked).toBe(41 + (14 + 11) + (18 + 6));
   });
 
   it("时间与阶段文本保留：维护预告的阶段标题块原样在块中（去噪不越界）", () => {
@@ -169,27 +171,30 @@ describe("A-P3-ARTICLE 内容 hash：噪声不触发新版本", () => {
     expect(decodeHtmlEntities("&unknownentity;")).toBe("&unknownentity;");
   });
 
-  it("米游社列表原始载荷的统计噪声不进入版本内容（字段白名单边界）", async () => {
-    const entry = getSourceEntry("miyoushe-news") as MiyousheNewsSourceEntry;
-    const body = (miyousheType2 as { body: unknown }).body;
-    const rawFirst = (body as { data: { list: Array<Record<string, unknown>> } }).data.list[0];
-    // 原始载荷确实携带互动/统计类字段（阅读量等噪声的存在性证据）。
-    const rawJson = JSON.stringify(rawFirst);
-    expect(rawJson).toContain("vote_count");
-    expect(rawJson).toContain("stat");
+  it("公告列表原始载荷的提醒、跳转与内嵌图集字段不进入条目（字段白名单边界，含图文资讯）", async () => {
+    const entry = getSourceEntry("hsr-ann") as AnnouncementSourceEntry;
+    const body = (hsrList as { body: unknown }).body;
+    // 原始载荷确实携带提醒/跳转/图集类字段（存在性证据；图文资讯条目还带 href、img、pic_list）。
+    const rawJson = JSON.stringify(body);
+    for (const field of ["remind_ver", "login_alert", "href_type", "remind_text"])
+      expect(rawJson).toContain(`"${field}"`);
 
     const replay = (async () =>
       new Response(JSON.stringify(body), {
         status: 200,
         headers: { "content-type": "application/json" },
       })) as unknown as typeof fetch;
-    const adapter = createMiyousheNewsAdapter(entry, "2", { fetchFn: replay });
-    const list = await adapter.list(null, 20);
-    expect(list.items.length).toBeGreaterThan(0);
-    const serialized = JSON.stringify(list.items[0]);
-    expect(serialized).not.toContain("vote_count");
-    expect(serialized).not.toContain("stat");
-    expect(serialized).not.toContain("hot_reply");
-    expect(serialized).not.toContain("forum_rank");
+    const list = await createAnnouncementAdapter(entry, { fetchFn: replay }).list(null, 20);
+    expect(list.items.some((stub) => stub.externalId.startsWith("pic-"))).toBe(true);
+    const serialized = JSON.stringify(list.items);
+    for (const field of [
+      "remind_ver",
+      "login_alert",
+      "href_type",
+      "remind_text",
+      "pic_list",
+      "img",
+    ])
+      expect(serialized).not.toContain(`"${field}"`);
   });
 });

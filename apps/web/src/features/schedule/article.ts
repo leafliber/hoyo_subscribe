@@ -1,4 +1,4 @@
-import { type PublicArticleBlock, unwrapOfficialTimeTags } from "@hoyo/contracts";
+import { type PublicArticleBlock, unwrapOfficialTimeTagsAcross } from "@hoyo/contracts";
 import { el, icon } from "../../lib/dom";
 
 // P3-22（ADR-0014）：把官方公告正文块整理成便于阅读的文字（前端 §5：受控文本结构，按数据转义）。
@@ -103,9 +103,23 @@ function tidy(element: HTMLElement): boolean {
   return hasText(element);
 }
 
-/** 文字节点：官方转义的 <t> 时间标签只留时间（与审核页可读文本同一定义）。 */
+/** 文字节点。官方时间标签已在 unwrapTimeTags 里按块去掉。 */
 function text(value: string): Text {
-  return document.createTextNode(unwrapOfficialTimeTags(value));
+  return document.createTextNode(value);
+}
+
+/**
+ * 官方转义的 <t> 时间标签只留时间（与审核页可读文本同一定义）。官方有时把时间再包一层元素，
+ * 开、合标签分在不同文字节点，所以按文档顺序把整块的文字节点一起处理，不逐个节点处理。
+ */
+function unwrapTimeTags(doc: Document) {
+  const walker = doc.createTreeWalker(doc.body, NodeFilter.SHOW_TEXT);
+  const nodes: Text[] = [];
+  for (let node = walker.nextNode(); node; node = walker.nextNode()) nodes.push(node as Text);
+  const values = unwrapOfficialTimeTagsAcross(nodes.map((node) => node.data));
+  nodes.forEach((node, index) => {
+    node.data = values[index];
+  });
 }
 
 /** 游戏内链接写成 javascript:miHoYoGameJSSDK.openInBrowser('https://…')；只取其中的网址。 */
@@ -320,6 +334,7 @@ export function renderArticleBody(blocks: readonly PublicArticleBlock[]): HTMLEl
       block.kind === "html" ? block.html : block.text,
       "text/html",
     );
+    unwrapTimeTags(doc);
     flow.close();
     walkFlow(doc.body, flow);
   }

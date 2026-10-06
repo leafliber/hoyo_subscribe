@@ -1010,3 +1010,46 @@ describe("A-P3-PIPELINE 持久编排与定时接线", () => {
     }
   }
 });
+
+describe("A-P3-SOURCE-RETIRE 已下线来源的遗留待办（ADR-0016）", () => {
+  async function seedSourceJob(sourceId: string) {
+    await env.DB.prepare(
+      "INSERT INTO jobs (id,kind,payload_json,due_at,status,created_at,updated_at) VALUES (?,?,?,?,'pending',?,?)",
+    )
+      .bind(
+        `pipeline:source:${sourceId}`,
+        SOURCE_JOB,
+        JSON.stringify({ sourceId }),
+        now - 1,
+        now,
+        now,
+      )
+      .run();
+  }
+  const jobOf = (sourceId: string) =>
+    env.DB.prepare("SELECT status,last_error FROM jobs WHERE id = ?")
+      .bind(`pipeline:source:${sourceId}`)
+      .first();
+
+  it("米游社轮询待办直接结束：不发请求、不记失败、不再续排", async () => {
+    await seedSourceJob("miyoushe-news");
+    const log = vi.spyOn(console, "log");
+    const rt = runtime();
+    await rt.tick();
+    expect(await jobOf("miyoushe-news")).toEqual({ status: "done", last_error: "source_retired" });
+    expect(requests).toEqual([]);
+    expect(log.mock.calls.flat().some((line) => String(line).includes("pipeline_job_failed"))).toBe(
+      false,
+    );
+    expect(await rt.nextAlarm()).toBeNull();
+    // watchdog 只为注册来源补排待办，不会把已下线来源的待办复活。
+    await rt.watchdog();
+    expect(await jobOf("miyoushe-news")).toEqual({ status: "done", last_error: "source_retired" });
+  });
+
+  it("既不在注册表也不在下线名单的来源 ID 仍按数据错误终止", async () => {
+    await seedSourceJob("forged-source");
+    await runtime().tick();
+    expect(await jobOf("forged-source")).toEqual({ status: "failed", last_error: "invalid_data" });
+  });
+});

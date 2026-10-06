@@ -27,6 +27,7 @@ import {
   SUPPORTED_SCOPE,
 } from "@hoyo/contracts";
 import { ApiError, errorResponse, jsonResponse } from "../shell";
+import { RETIRED_SOURCE_IDS } from "../sources/registry";
 import {
   PUBLIC_ARTICLES_SQL,
   PUBLIC_CHANGES_SQL,
@@ -419,7 +420,7 @@ async function readSources(db: D1Database): Promise<PublicSourceStatus[] | null>
       const rows = (
         await db
           .prepare(PUBLIC_SOURCES_SQL)
-          .bind(game, LIMITS.sourcesPerGame + 1)
+          .bind(game, JSON.stringify(RETIRED_SOURCE_IDS), LIMITS.sourcesPerGame + 1)
           .all<{ source_id: string; last_success_at: number | null; verification_state: string }>()
       ).results;
       if (rows.length > LIMITS.sourcesPerGame) return null;

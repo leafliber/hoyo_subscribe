@@ -4,6 +4,7 @@ import {
   ARTICLE_COMPLETENESS_NOTES,
   ARTICLE_COMPLETENESS_STATES,
   unwrapOfficialTimeTags,
+  unwrapOfficialTimeTagsAcross,
 } from "./official-article";
 import { PublicEventArticlesResponseSchema } from "./public-api";
 
@@ -44,6 +45,42 @@ describe("A-P3-ARTICLE-VIEW 官方时间标签", () => {
       "table 与 <td> 不是时间标签",
     ])
       expect(unwrapOfficialTimeTags(text)).toBe(text);
+  });
+
+  // 线上原神公告的写法：&lt;t …&gt;<span>时间</span>&lt;/t&gt;，解析后标签分在三个文字节点里。
+  it("跨段：时间另包一层元素时，分在不同段的开、合标签成对去掉，段数不变", () => {
+    expect(
+      unwrapOfficialTimeTagsAcross([
+        '7.1版本更新后 ~ <t class="t_lc" contenteditable="false">',
+        "2026/11/02 03:59",
+        "</t>",
+      ]),
+    ).toEqual(["7.1版本更新后 ~ ", "2026/11/02 03:59", ""]);
+    expect(
+      unwrapOfficialTimeTagsAcross([
+        '※<t class="t_lc" contenteditable="false">',
+        "2026/11/02 02:59",
+        '</t>将关闭购买；至<t class="t_gl">2026/11/03 14:59</t>',
+      ]),
+    ).toEqual(["※", "2026/11/02 02:59", "将关闭购买；至2026/11/03 14:59"]);
+  });
+
+  it("跨段：只有一段时与逐段处理一致；不成对、夹了别的标签、含分隔符或开标签本身被拆开时不误删", () => {
+    for (const text of [
+      '补偿对象：<t class="t_gl" contenteditable="false">2026/09/23 06:00</t>前',
+      '<t class="t_gl"><b>2026/09/23</b></t>',
+      '<t class="t_gl">2026/09/23 06:00',
+    ])
+      expect(unwrapOfficialTimeTagsAcross([text])).toEqual([unwrapOfficialTimeTags(text)]);
+    for (const segments of [
+      [],
+      ['<t class="t_gl">', "2026/09/23 06:00"],
+      ["2026/09/23 06:00", "</t>"],
+      ['<t class="t_gl">', "<b>2026/09/23</b>", "</t>"],
+      ["含\u0000分隔符", '<t class="t_gl">', "2026/09/23", "</t>"],
+      ['<t class="t_lc"', ' contenteditable="false">', "2026/09/23", "</t>"],
+    ])
+      expect(unwrapOfficialTimeTagsAcross(segments)).toEqual(segments);
   });
 });
 

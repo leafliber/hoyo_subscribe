@@ -8,6 +8,9 @@
 //     SOURCE_RECHECK_WINDOW 的"按篇复查"在此等价于全量重拉。
 //   - 正文里的时间高亮是转义标签（&lt;t class="t_gl"&gt;），contentHtml 原样保真。
 //   - zzz 列表 title 含 HTML：保真透出，去噪属 P3-02。
+//   - 同一响应里有两个目录（ADR-0016）：data.list（游戏公告/活动公告）与 data.pic_list
+//     （图文资讯：崩铁「资讯」、绝区零「丽都资讯」）。崩铁跃迁、绝区零调频只在 pic_list，
+//     两个目录都读；pic_list 与 data.list 各自编号会撞号，外部 ID 加 PIC_LIST_ID_PREFIX。
 //
 // complete 语义：HTTP 200 但 retcode != 0（如 -1003 参数有误）→ complete=false；
 // 信封读不出（非 JSON / 无 retcode）→ complete=false。列表声称 has_content 但全量正文
@@ -54,42 +57,83 @@ interface RawAnnouncementItem {
   has_content: unknown;
   /** 分组结构（getAnnList 的 data.list[].list）才有的字段。 */
   list?: unknown;
+  /** 图文资讯分组（getAnnList 的 data.pic_list[].type_list[].list）才有的字段。 */
+  type_list?: unknown;
 }
 
 function isRawItem(value: unknown): value is RawAnnouncementItem {
   return value !== null && typeof value === "object";
 }
 
-/** getAnnList 的 data.list 是"按 type 分组"的二维结构；getAnnContent 是扁平数组（两种都识别，P0-02）。 */
+/**
+ * 图文资讯目录（data.pic_list）条目的外部 ID 前缀（ADR-0016）。pic_list 与 data.list 各自编号：
+ * 绝区零实测 ann_id 238/239/242 两边都有、是不同公告，不加前缀会被当成同一篇的不同版本。
+ */
+export const PIC_LIST_ID_PREFIX = "pic-";
+
+/** 一次响应里的一条公告；pic=true 表示来自图文资讯目录。 */
+interface CatalogItem {
+  readonly raw: unknown;
+  readonly pic: boolean;
+}
+
+/**
+ * 一次响应里两个目录的全部条目（P0-02；ADR-0016 起含图文资讯目录）：
+ *   - data.list：getAnnList 按 type 分组（data.list[].list），getAnnContent 是扁平数组；
+ *   - data.pic_list：getAnnList 是"分组 → type_list[] → list[]"三层，getAnnContent 是扁平数组。
+ * 条目原样交给调用方，建不了键的计入 skipped，不静默丢弃。
+ */
 function flattenAnnouncementList(data: Record<string, unknown>): {
   typeLabels: string[];
-  items: unknown[];
+  items: CatalogItem[];
 } {
+  const typeLabels: string[] = [];
+  const items: CatalogItem[] = [];
   const rawList = Array.isArray(data.list) ? data.list : [];
   const isGrouped =
     rawList.length > 0 && rawList.every((group) => isRawItem(group) && Array.isArray(group.list));
   if (isGrouped) {
-    const typeLabels: string[] = [];
-    const items: unknown[] = [];
     for (const group of rawList as Array<RawAnnouncementItem & { list: unknown[] }>) {
       if (typeof group.type_label === "string") {
         typeLabels.push(group.type_label);
       }
-      items.push(...group.list);
+      for (const raw of group.list) items.push({ raw, pic: false });
     }
-    return { typeLabels, items };
+  } else {
+    for (const raw of rawList.filter(isRawItem)) items.push({ raw, pic: false });
   }
-  return { typeLabels: [], items: rawList.filter(isRawItem) };
+  const picList = Array.isArray(data.pic_list) ? data.pic_list : [];
+  for (const group of picList) {
+    if (isRawItem(group) && Array.isArray(group.type_list)) {
+      if (typeof group.type_label === "string") {
+        typeLabels.push(group.type_label);
+      }
+      for (const typeGroup of group.type_list) {
+        const list = isRawItem(typeGroup) ? typeGroup.list : undefined;
+        if (Array.isArray(list)) for (const raw of list) items.push({ raw, pic: true });
+      }
+    } else if (isRawItem(group)) {
+      items.push({ raw: group, pic: true });
+    }
+  }
+  return { typeLabels, items };
+}
+
+/** 条目的外部 ID：图文资讯目录加前缀，与 data.list 分开编号。 */
+function catalogExternalId(item: CatalogItem): string | null {
+  const externalId = isRawItem(item.raw) ? asExternalId(item.raw.ann_id) : null;
+  return externalId === null ? null : `${item.pic ? PIC_LIST_ID_PREFIX : ""}${externalId}`;
 }
 
 function toStub(
   sourceId: string,
-  item: RawAnnouncementItem,
+  entry: CatalogItem,
 ): { stub: SourceItemStub } | { skipped: true } {
-  const externalId = asExternalId(item.ann_id);
-  if (externalId === null) {
+  const externalId = catalogExternalId(entry);
+  if (externalId === null || !isRawItem(entry.raw)) {
     return { skipped: true };
   }
+  const item = entry.raw;
   return {
     stub: {
       sourceId,
@@ -162,12 +206,12 @@ export async function fetchAnnouncementContentSet(
   const { items } = flattenAnnouncementList(envelope.data);
   const entries = new Map<string, AnnouncementContentEntry>();
   for (const item of items) {
-    const externalId = asExternalId((item as RawAnnouncementItem).ann_id);
-    if (externalId === null) continue;
-    const contentHtml = asNullableString((item as RawAnnouncementItem).content) ?? "";
+    const externalId = catalogExternalId(item);
+    if (externalId === null || !isRawItem(item.raw)) continue;
+    const contentHtml = asNullableString(item.raw.content) ?? "";
     entries.set(externalId, {
       externalId,
-      title: asNullableString((item as RawAnnouncementItem).title) ?? "",
+      title: asNullableString(item.raw.title) ?? "",
       contentHtml,
       contentSha256: await sha256Hex(contentHtml),
       signals: {
@@ -261,7 +305,7 @@ export function createAnnouncementAdapter(
       const stubs: SourceItemStub[] = [];
       let skipped = 0;
       for (const item of items) {
-        const converted = toStub(entry.sourceId, item as RawAnnouncementItem);
+        const converted = toStub(entry.sourceId, item);
         if ("stub" in converted) {
           stubs.push(converted.stub);
         } else {

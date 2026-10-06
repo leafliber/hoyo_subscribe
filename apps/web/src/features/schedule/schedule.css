@@ -150,11 +150,17 @@
   display: none;
 }
 
-/* 时间范围：分段控件 + 滑动选中块 */
-.filter-group > .range-options {
+/* 时间范围：分段控件 + 滑动选中块；ADR-0017 起放在「筛选」弹层里，占满一行 */
+.range-options {
   position: relative;
+  display: flex;
+  width: 100%;
   max-width: none;
   overflow: visible;
+}
+
+.range-options label {
+  flex: 1 1 0;
 }
 
 .segmented-thumb {
@@ -227,6 +233,13 @@
   outline-offset: 2px;
 }
 
+/* 按钮上的当前时间范围（窄屏也显示） */
+.more-range {
+  color: var(--color-text-secondary);
+  font-weight: 600;
+  white-space: nowrap;
+}
+
 .more-summary {
   display: inline-grid;
   place-items: center;
@@ -240,7 +253,7 @@
   font-weight: 700;
 }
 
-/* ------------------------------------------------------------- 更多筛选弹层 */
+/* ------------------------------------------------------------- 筛选弹层（ADR-0017 起含时间范围） */
 .more-popover {
   position: fixed;
   inset: auto;
@@ -874,6 +887,20 @@
   font-size: var(--font-size-small);
 }
 
+/* 加载提示在时间线顶部（ADR-0017） */
+.load-status {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-small);
+}
+
+.load-status .spinner {
+  width: 14px;
+  height: 14px;
+}
+
 .timeline-skeleton {
   display: grid;
   gap: var(--space-4);
@@ -1322,9 +1349,22 @@
   color: var(--color-danger);
 }
 
+.load-row:focus {
+  outline: none;
+}
+
+.load-row [data-action="show-more"][aria-disabled="true"] {
+  cursor: progress;
+}
+
+/* 回看昨天在时间线顶部（ADR-0017：从上到下按时间先后），与下方的日期用下边框隔开 */
 .yesterday-band {
-  border-top: var(--border-thin) solid var(--color-border);
+  border-bottom: var(--border-thin) solid var(--color-border);
   background: var(--color-bg-subtle);
+}
+
+.schedule-empty + .yesterday-band {
+  border-top: var(--border-thin) solid var(--color-border);
 }
 
 .yesterday-band > summary {
@@ -1581,7 +1621,7 @@
     margin-bottom: var(--space-3);
   }
 
-  /* 窄屏：游戏用简称，完整名称仍是读屏名称；「更多筛选」只留图标与计数 */
+  /* 窄屏：游戏用简称，完整名称仍是读屏名称；「筛选」只留图标、当前档位与计数 */
   .game-name,
   .more-label {
     position: absolute;

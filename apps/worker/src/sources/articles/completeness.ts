@@ -5,9 +5,9 @@
 // 自动取消事件。本枚举刻意不存在任何"无活动/已取消"取值——完整性状态描述的是
 // "我们知道什么/不知道什么"，不是"发生了什么活动"；取消语义只能来自官方取消证据（P3-04）。
 //
-// 米游社红线：正文通道被 403 访问控制停用（maintenance-required-list-only）——
-// 这是"拿不到"，不是"已确认为空"。gap-channel-unavailable 与 gap-source-empty 必须分开，
-// 下游 P3-03 据此决定送人工审核还是跳过；把通道不可用记成正文为空是不诚实归类。
+// 通道缺口：gap-channel-unavailable（正文接口受访问控制，"拿不到"≠"已确认为空"）只由已下线的
+// 米游社来源产生过（ADR-0016）。现役来源不再产出它，但状态保留在全集里：历史版本仍带着它，
+// 公开原文接口也按同一枚举说明缺口。
 //
 // 图片红线：引用图片只有 URL 没有内容验证，不声称可以发现同 URL 换图；"图片承载关键日期"
 // 的可判定形态是**正文不承载任何可读文本而图片引用非空**（P0-02 实测样本：genshin
@@ -31,7 +31,7 @@ export const COMPLETENESS_GAP_STATES: readonly ArticleCompleteness[] = [
 ];
 
 /** 正文可得性（fetchArticle 结果在完整性维度的投影；一般 failed 不产版本）。 */
-export type BodyAvailability = "fetched" | "truncated" | "content-missing" | "channel-unavailable";
+export type BodyAvailability = "fetched" | "truncated" | "content-missing";
 
 /** 完整性判定原料：P3-01 的信号 + 本卡的内容构造结果。 */
 export interface CompletenessInput {
@@ -44,13 +44,13 @@ export interface CompletenessInput {
   readonly bodyHasText: boolean;
   /** 媒体引用数（blocks.ts 构造的 mediaRefs 长度——以实际保存的引用为准）。 */
   readonly mediaRefCount: number;
-  /** 列表是否声称有正文（stub.hasContent）。null = 来源不携带该概念（米游社维护态）。 */
+  /** 列表是否声称有正文（stub.hasContent）。null = 列表缺这个字段，无从判断。 */
   readonly listClaimsContent: boolean | null;
 }
 
 /**
  * 版本是否真的拿到正文：只认正文可读文本或从正文 HTML 提取的图片。
- * 标题与列表图片不能证明正文可得；review-image-borne 也可能来自正文通道不可用，
+ * 标题与列表图片不能证明正文可得；历史版本里 review-image-borne 也可能来自正文通道不可用，
  * 因此不能以 completeness 标签判定。新计划与已存版本共用这个谓词。
  */
 export function articleBodyWasFetched(
@@ -75,10 +75,6 @@ export function determineCompleteness(input: CompletenessInput): ArticleComplete
   }
   if (input.bodyAvailability === "content-missing") {
     return "gap-content-missing";
-  }
-  if (input.bodyAvailability === "channel-unavailable") {
-    // 通道不可用：拿不到 ≠ 空。图片级信息存在时进审核（人工核验图片），否则记通道缺口。
-    return input.mediaRefCount > 0 ? "review-image-borne" : "gap-channel-unavailable";
   }
   if (input.bodyTruncated) {
     return "gap-body-truncated";

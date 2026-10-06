@@ -4,35 +4,19 @@
 // 与 fetchArticle(stub)；complete 表示**扫描范围真的完成**，HTTP 成功不等于正文完整；
 // 上游 ID 存字符串；生产只访问经审核的官方地址。
 //
-// 两类采集模型并存（P0-02 实测推翻了统一的分页假设，证据
-// docs/evidence/p0/source-params.md §2/§3）：
-//   - announcement（三公告 API）：每请求全量快照，服务端忽略分页参数；
-//     "重叠窗口"体现为每次与上次 ann_id 集合整体差分（§3.2 不按最大 ID 推进水位）。
-//   - miyoushe-news：last-id-offset 偏移量游标（非帖子 id），响应带 is_last；
-//     正文通道 getPostFull 被 403 访问控制拦截，按 maintenance-required-list-only 登记，
-//     适配器只贡献标题/图片级信息，fetchArticle 不发任何请求（AGENTS.md 规则 6：不绕过）。
+// 采集模型（P0-02 实测推翻了统一的分页假设，证据 docs/evidence/p0/source-params.md §2）：
+// 三公告 API 每请求全量快照，服务端忽略分页参数；"重叠窗口"体现为每次与上次 ann_id 集合
+// 整体差分（§3.2 不按最大 ID 推进水位）。米游社的偏移量游标模型随来源下线删除（ADR-0016）。
 
 /** 来源的游标模型（registry.draft.json sources[].cursor.model 的类型化投影）。 */
-export type CursorModel = "full-snapshot-per-request" | "last-id-offset";
-
-/** 米游社列表三类型（线上 bundle 枚举 I={DEFAULT:"1",EVENT:"2",NEWS:"3"}，P0-02 登记）；各自独立游标。 */
-export type MiyousheNewsType = "1" | "2" | "3";
-
-export const MIYOUSHE_NEWS_TYPES: readonly MiyousheNewsType[] = ["1", "2", "3"];
+export type CursorModel = "full-snapshot-per-request";
 
 /** 全量快照型游标：单请求即全集，无续扫位置。 */
 export interface FullSnapshotCursor {
   readonly model: "full-snapshot-per-request";
 }
 
-/** 米游社偏移量游标：last_id 是偏移量（page_size=20 时 20/40/60 递进），不是帖子 id。 */
-export interface LastIdOffsetCursor {
-  readonly model: "last-id-offset";
-  readonly newsType: MiyousheNewsType;
-  readonly lastId: string;
-}
-
-export type SourceCursor = FullSnapshotCursor | LastIdOffsetCursor;
+export type SourceCursor = FullSnapshotCursor;
 
 /**
  * 列表条目（标题级）。字段保真、不在此层去噪：
@@ -41,12 +25,15 @@ export type SourceCursor = FullSnapshotCursor | LastIdOffsetCursor;
  */
 export interface SourceItemStub {
   readonly sourceId: string;
-  /** 上游 ID，一律字符串（§3.1）。公告 API 的 ann_id 是 JSON number，入口处立即 String()。 */
+  /**
+   * 上游 ID，一律字符串（§3.1）。公告 API 的 ann_id 是 JSON number，入口处立即 String()；
+   * 图文资讯目录（data.pic_list）的条目加 "pic-" 前缀，与 data.list 分开编号（ADR-0016）。
+   */
   readonly externalId: string;
   /** 标题原文（zzz 含 HTML 标签；P3-02 负责去噪）。 */
   readonly title: string;
   readonly subtitle: string | null;
-  /** 公告栏目 type_label；米游社无此概念。 */
+  /** 公告栏目 type_label（如「活动公告」「资讯」）。 */
   readonly typeLabel: string | null;
   readonly tagLabel: string | null;
   /** 列表展示时间原文（UTC+8）。仅用于复查窗口筛选，不得当活动时间（§3.1）。 */
@@ -56,24 +43,25 @@ export interface SourceItemStub {
   readonly coverUrl: string | null;
   readonly imageUrls: readonly string[];
   /**
-   * 发布者 UID 或 null。公告 API 条目无发布者字段；米游社列表条目 uid="0"
-   * 不携带身份（P0-02 §3）——verified_publishers 为空是实测结论，不得"补全"。
+   * 发布者 UID 或 null。公告 API 条目无发布者字段（P0-02）——verified_publishers 为空是
+   * 实测结论，不得"补全"。
    */
   readonly publisherUid: string | null;
-  /** 公告列表 has_content（列表声称是否有正文）；米游社正文通道维护态 → null，不声称。 */
+  /** 公告列表 has_content（列表声称是否有正文）；缺字段 → null，不声称。 */
   readonly hasContent: boolean | null;
-  /** 米游社 created_at（Epoch 秒 ×1000）；公告无此字段 → null。 */
+  /** 来源载荷里的真实发布时间（Epoch 毫秒）。公告 API 条目没有这个字段 → null。 */
   readonly publishedAtMs: number | null;
 }
 
-/** 业务信封信息（公告/米游社响应顶层 retcode/message + data 元信息）。 */
+/** 业务信封信息（公告响应顶层 retcode/message + data 元信息）。 */
 export interface ListEnvelopeInfo {
   readonly retcode: number;
   readonly message: string | null;
   /** 公告 API 实测 = 8：列表 start_time/end_time 为 UTC+8 本地时间（P0-02 §2.4）。 */
   readonly timezone: number | null;
+  /** data.total：只计 data.list，不含图文资讯目录（data.pic_total 另计）。 */
   readonly total: number | null;
-  /** 公告列表按 type 分组的栏目标签（随运营配置变化，仅观测）。 */
+  /** 两个目录的栏目标签（data.list[].type_label 与 data.pic_list[].type_label；随运营配置变化，仅观测）。 */
   readonly typeLabels: readonly string[];
 }
 
@@ -151,13 +139,6 @@ export type ArticleFetchResult =
       externalId: string;
       note: string;
     }
-  | {
-      /** 正文通道被停用（米游社 getPostFull 403 访问控制，P0-02 §3）——不重试、不换路径、不发请求。 */
-      status: "channel-unavailable";
-      sourceId: string;
-      externalId: string;
-      reason: string;
-    }
   | { status: "failed"; sourceId: string; externalId: string; failure: SourceFetchFailure };
 
 /** 来源适配器（§3.1）。实现不得自带重试；被限/被拒的分类经 failure 交给调用方决策。 */
@@ -166,7 +147,6 @@ export interface SourceAdapter {
   /**
    * 全量快照型：cursor 仅接受 null 或同模型标记（每请求即全集，无续扫），limit 不会
    * 截断条目——截断=丢条目=伪造"消失"；每批上限由调用方按 limit_profile 控制。
-   * 米游社：cursor=null 从头开始；limit 映射 page_size 并被限制在实测批量上限内。
    */
   list(cursor: SourceCursor | null, limit: number): Promise<ListResult>;
   fetchArticle(ref: ArticleRef): Promise<ArticleFetchResult>;
