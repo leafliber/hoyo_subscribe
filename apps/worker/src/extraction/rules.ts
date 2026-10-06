@@ -13,7 +13,8 @@ export type RuleOutcome =
     }
   | { readonly kind: "review"; readonly reason: string };
 
-const DATE_EXPRESSION = /\d{4}\/\d{2}\/\d{2}(?: \d{2}:\d{2}(?::\d{2})?)?/g;
+// P3-24：横线写法也算正文里的日期，额外日期一律转人工；模板本身仍只认已核验的斜线写法。
+const DATE_EXPRESSION = /\d{4}([/-])\d{2}\1\d{2}(?: \d{2}:\d{2}(?::\d{2})?)?/g;
 const AMBIGUOUS_OR_CHANGE = /取消|终止|停办|撤销|延期|推迟|提前|预计|版本更新后|更新后开放/;
 
 interface MatchedRange {

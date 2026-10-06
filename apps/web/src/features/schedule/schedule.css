@@ -11,6 +11,8 @@
   --row-pad-x: var(--space-5);
   --time-col: 112px;
   --rail-col: 12px;
+  /* 日期标记行上方的留白；轨道穿过这段留白，跨日不断 */
+  --day-gap: var(--space-4);
 }
 
 /* ------------------------------------------------------------- 筛选栏（单行） */
@@ -927,10 +929,15 @@
   align-items: center;
   column-gap: var(--space-3);
   margin: 0;
-  padding: var(--space-3) var(--row-pad-x) var(--space-1);
+  padding: var(--day-gap) var(--row-pad-x) var(--space-1);
   background: var(--color-bg-surface);
   font-size: var(--font-size-aux);
   font-weight: 650;
+}
+
+/* 今天的日期用强调色（F1-09），与"现在"时刻线一起标出当前位置 */
+.schedule-day.is-today .day-date {
+  color: var(--color-accent-strong);
 }
 
 .day-label {
@@ -974,13 +981,15 @@
   background: var(--color-border);
 }
 
-/* 日期点：轨道上的实心圆角方块，与条目的空心圆点区分；今天用强调色 */
-.day-rail::before {
-  top: calc(-1 * var(--space-3));
+/* 日期点：轨道上的实心圆角方块，与条目的空心圆点区分；今天用强调色。
+   选择器带上 .day-heading：与后面的 .node-rail 通用规则同级时会被覆盖，日期点画成无边框的白点、
+   看起来像轨道断了一截（F1-09 修正）。 */
+.day-heading .day-rail::before {
+  top: calc(-1 * var(--day-gap));
   bottom: calc(-1 * var(--space-1));
 }
 
-.day-rail::after {
+.day-heading .day-rail::after {
   width: 10px;
   height: 10px;
   margin: -5px 0 0 -5px;
@@ -1088,16 +1097,13 @@
   border-style: dashed;
 }
 
-/* 日程轨道跨日连续：只在第一天的日期点之上、最后一条之下封口 */
-.days > .schedule-day:first-child .day-rail::before {
-  top: 50%;
-}
-
+/* 日程轨道从顶部"回看昨天"一行开始，经昨天（展开时）、今天直到最后一条，跨日连续（F1-09）；
+   只在最后一条之下封口。 */
 .days > .schedule-day:last-child > ul:last-child > li:last-child > .node-rail::before {
   bottom: 50%;
 }
 
-/* 待定与昨天是各自独立的短列表，首尾各自封口 */
+/* 时间待定卡片里是独立的短列表，首尾各自封口 */
 .node-list > li:first-child > .node-rail::before {
   top: 50%;
 }
@@ -1151,6 +1157,16 @@
 
 .schedule-node.is-past .clock {
   color: var(--color-text-secondary);
+}
+
+/* 已过去的条目整体降权（F1-09）：标题与动作改用次要文字色，不降不透明度，对比度不打折 */
+.schedule-node.is-past .event-title,
+.schedule-node.is-past .node-action {
+  color: var(--color-text-secondary);
+}
+
+.schedule-node.is-past .event-title:hover {
+  color: var(--color-accent-strong);
 }
 
 .node-content {
@@ -1268,11 +1284,17 @@
   bottom: 50%;
 }
 
+/* "现在"标签是红底小胶囊（F1-09），扫一眼就能找到当前位置 */
 .now-time {
-  color: var(--color-danger);
+  justify-self: start;
+  padding: 1px var(--space-2);
+  border-radius: var(--radius-pill);
+  background: var(--color-danger);
+  color: var(--color-on-accent);
   font-size: var(--font-size-micro);
   font-weight: 700;
   font-variant-numeric: tabular-nums;
+  line-height: 1.6;
   white-space: nowrap;
 }
 
@@ -1293,24 +1315,17 @@
   background: linear-gradient(to right, var(--color-danger), transparent);
 }
 
-/* 时间待定：默认折叠（ADR-0015），外观与"回看昨天"一致 */
-.pending-area {
-  border-top: var(--border-thin) solid var(--color-border);
-}
-
-.pending-area > summary {
+/* 时间待定：时间轴下方单独一张卡片，默认折叠（F1-09）；外观与"近期重要变更"一致 */
+.pending-card > summary {
   display: flex;
   align-items: center;
-  gap: var(--space-2);
+  gap: var(--space-3);
   min-height: var(--tap-target-min);
-  padding: var(--space-2) var(--row-pad-x);
+  padding: var(--space-3) var(--space-4);
   list-style: none;
-  color: var(--color-text-secondary);
-  font-size: var(--font-size-aux);
-  font-weight: 600;
 }
 
-.pending-area > summary::after {
+.pending-card > summary::after {
   content: "";
   width: 7px;
   height: 7px;
@@ -1321,11 +1336,31 @@
   transition: transform var(--duration-base) var(--ease-standard);
 }
 
-.pending-area[open] > summary::after {
+.pending-card[open] > summary::after {
   transform: rotate(45deg);
 }
 
-.pending-area[open] > .node-list {
+.pending-icon {
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  flex: none;
+  border-radius: 10px;
+  background: var(--color-bg-subtle);
+  color: var(--color-text-secondary);
+}
+
+.pending-icon svg {
+  width: 18px;
+  height: 18px;
+}
+
+.pending-title {
+  font-weight: 650;
+}
+
+.pending-card[open] > .node-list {
   border-top: var(--border-thin) solid var(--color-border);
 }
 
@@ -1357,55 +1392,115 @@
   cursor: progress;
 }
 
-/* 回看昨天在时间线顶部（ADR-0017：从上到下按时间先后），与下方的日期用下边框隔开 */
-.yesterday-band {
-  border-bottom: var(--border-thin) solid var(--color-border);
-  background: var(--color-bg-subtle);
-}
-
-.schedule-empty + .yesterday-band {
-  border-top: var(--border-thin) solid var(--color-border);
-}
-
-.yesterday-band > summary {
-  display: flex;
+/* 回看昨天是主时间轴的第一行（F1-09）：与条目同一网格，轨道从这一行的图标处开始向下，
+   展开后昨天的日期段落接在这一行与今天之间，同一条轨道穿过。 */
+.rail-toggle {
+  display: grid;
+  grid-template-columns: var(--time-col) var(--rail-col) minmax(0, 1fr) 20px;
   align-items: center;
-  gap: var(--space-2);
+  column-gap: var(--space-3);
   min-height: var(--tap-target-min);
   padding: var(--space-2) var(--row-pad-x);
   list-style: none;
+  cursor: pointer;
   color: var(--color-text-secondary);
   font-size: var(--font-size-aux);
   font-weight: 600;
+  transition: background-color var(--duration-fast) var(--ease-standard);
 }
 
-.yesterday-band > summary .day-count {
-  margin-left: 0;
+.rail-toggle::-webkit-details-marker {
+  display: none;
 }
 
-.yesterday-band > summary::after {
+.rail-toggle:hover {
+  background: var(--color-bg-subtle);
+}
+
+.rail-toggle:focus-visible {
+  outline: 2px solid var(--color-focus-ring);
+  outline-offset: -2px;
+}
+
+.rail-toggle-text {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--space-1) var(--space-2);
+}
+
+.rail-toggle::after {
   content: "";
+  justify-self: center;
   width: 7px;
   height: 7px;
-  margin-left: auto;
   border-right: 2px solid var(--color-text-aux);
   border-bottom: 2px solid var(--color-text-aux);
-  transform: rotate(-45deg);
+  transform: rotate(45deg);
   transition: transform var(--duration-base) var(--ease-standard);
 }
 
-.yesterday-band[open] > summary::after {
-  transform: rotate(45deg);
+.yesterday-band[open] > .rail-toggle::after {
+  transform: rotate(-135deg);
 }
 
-.band-content {
-  border-top: var(--border-thin) solid var(--color-border);
+/* 轨道从图标中心起：上方封口，向下接到下一行 */
+.toggle-rail {
+  display: grid;
+  place-items: center;
+}
+
+.toggle-rail::before {
+  top: 50%;
+  bottom: calc(-1 * var(--space-2));
+}
+
+.toggle-rail::after {
+  display: none;
+}
+
+.toggle-rail svg {
+  position: relative;
+  z-index: 1;
+  width: 16px;
+  height: 16px;
+  padding: 1px;
+  border-radius: var(--radius-pill);
   background: var(--color-bg-surface);
+  color: var(--color-text-aux);
+  box-sizing: content-box;
 }
 
-.band-content .data-note {
+/* 当前范围为空（空态）时下方没有日期：折叠时这一行不画轨道，展开时轨道到昨天最后一条为止 */
+.yesterday-band:not([open]):has(+ .days:empty) .toggle-rail::before {
+  display: none;
+}
+
+.yesterday-band[open]:has(+ .days:empty)
+  > .schedule-day:last-of-type
+  > ul:last-child
+  > li:last-child
+  > .node-rail::before {
+  bottom: 50%;
+}
+
+/* 昨天没有安排时的说明：文字对齐内容列，轨道照常穿过 */
+.band-note {
+  position: relative;
   margin: 0;
-  padding: var(--space-4) var(--space-5);
+  padding: var(--space-2) var(--row-pad-x) var(--space-2)
+    calc(var(--row-pad-x) + var(--time-col) + var(--rail-col) + 2 * var(--space-3));
+}
+
+.band-note::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: calc(var(--row-pad-x) + var(--time-col) + var(--space-3) + var(--rail-col) / 2);
+  width: 2px;
+  margin-left: -1px;
+  background: var(--color-border);
 }
 
 .data-note {
@@ -1614,6 +1709,7 @@
     --row-pad-y: 12px;
     --row-pad-x: var(--space-4);
     --time-col: 72px;
+    --day-gap: var(--space-3);
   }
 
   .filter-bar {

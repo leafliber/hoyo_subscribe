@@ -5,6 +5,8 @@ export interface PipelineControls {
   readonly sources: Readonly<Record<string, { enabled: boolean; mode: PollMode }>>;
   readonly automaticPublication: boolean;
   readonly model: boolean;
+  /** P3-25（ADR-0018）：AI 草稿免人工审核；只在草稿可用（model）时有意义。 */
+  readonly reviewSkip: boolean;
 }
 export type PipelineControlReader = () => Promise<PipelineControls | null>;
 export async function readPipelineControls(db: D1Database): Promise<PipelineControls> {
@@ -24,9 +26,11 @@ export async function readPipelineControls(db: D1Database): Promise<PipelineCont
       ]),
     ),
   );
+  const model = outbound && writable && (await controlsAllow(db, "model_enabled"));
   return {
     sources,
     automaticPublication: writable && (await controlsAllow(db, "automatic_publication_enabled")),
-    model: outbound && writable && (await controlsAllow(db, "model_enabled")),
+    model,
+    reviewSkip: model && (await controlsAllow(db, "review_skip_enabled")),
   };
 }

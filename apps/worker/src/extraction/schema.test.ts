@@ -292,6 +292,45 @@ describe("A-P3-EXTRACT 候选 Schema 与证据纯函数", () => {
     expect(validateCandidateAgainstArticle(relative, relativeArticle).success).toBe(false);
   });
 
+  it("A-P3-HYPHEN 横线写法的原文同样核对 UTC：写错一分钟失败，与原文一致通过", () => {
+    const hyphenArticle = {
+      ...article,
+      blocks: [
+        article.blocks[0],
+        {
+          kind: "text" as const,
+          text: "活动时间：2026-09-30 12:00（服务器时间） ~ 2026-10-20 14:59（服务器时间）",
+        },
+      ],
+    };
+    const valid = validProposal();
+    const event = valid.events[0];
+    const start = event.milestones[0];
+    const withUtc = (utcMs: number) => ({
+      ...valid,
+      events: [
+        {
+          ...event,
+          milestones: [
+            {
+              ...start,
+              time: { ...start.time, raw_expression: "2026-09-30 12:00", utc_ms: utcMs },
+              time_evidence: { block_ref: "blocks/1", quote: "2026-09-30 12:00", tag: null },
+            },
+          ],
+        },
+      ],
+    });
+    expect(
+      validateCandidateAgainstArticle(withUtc(Date.parse("2026-09-30T04:00:00Z")), hyphenArticle)
+        .success,
+    ).toBe(true);
+    expect(
+      validateCandidateAgainstArticle(withUtc(Date.parse("2026-09-30T04:01:00Z")), hyphenArticle)
+        .success,
+    ).toBe(false);
+  });
+
   it("改期只改变时间；Event 与 Milestone 身份保持稳定", async () => {
     const first = await eventIdentity("zzz-ann", "1303", "primary");
     const start = await milestoneIdentity(first, "start");

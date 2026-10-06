@@ -33,6 +33,7 @@
 - outbound_enabled：全部外发；缺失关闭。
 - email_seats_open / email_routine_enabled / business_mail_enabled：新名额、常规层、业务邮件分别控制；关闭不修改用户同意。
 - push_enabled / model_enabled / automatic_publication_enabled：独立门；未实现的 Push/模型不得宣称已可用。
+- review_skip_enabled（P3-25，ADR-0018）：「跳过审核」，只在 AI 草稿可用时生效。首次部署后才加，没有记录时按合同默认值读作关闭（`OPERATIONAL_CONTROL_DEFAULTS`，只能是 false），读取出错仍是 unknown；管理端以版本 0 写入首行。
 - source:<注册表 source_id>：逐来源 boolean；仍保留访问控制维护锁，不自动解除。
 
 ## 终态解除（所有者有意操作）

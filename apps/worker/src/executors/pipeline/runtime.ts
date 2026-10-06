@@ -14,6 +14,7 @@ import {
   reclaimSupersededPublicSnapshotPage,
 } from "../../calendar/public/snapshot";
 import { DRAFT_ELIGIBLE_SQL, type DraftModel, runDraftJob } from "../../extraction/model/draft";
+import { approveDraftWithoutReview } from "../../extraction/model/review-skip";
 import { DRAFT_PROFILE_REF } from "../../extraction/model/store";
 import { staleVersionDerivation } from "../../extraction/versions";
 import { generatePublicationOccurrences } from "../../mail/occurrences/generate";
@@ -500,6 +501,23 @@ export class PipelineRuntime {
       deadline,
       now: this.now,
     });
+    // P3-25（ADR-0018）：新草稿写好且「跳过审核」开启时由系统批准；发布交给随后被唤醒的发布待办。
+    // 草稿写好后中断、重试时得到 already_drafted，同样尝试批准（是否在开关开启后写好由批准时核对）。
+    // 批准失败只记日志，候选留在队列里给人工，草稿待办照常完成（已计费的结果不重做）。
+    if (
+      outcome.kind === "done" &&
+      (outcome.reason === null || outcome.reason === "already_drafted") &&
+      controls?.reviewSkip === true
+    ) {
+      try {
+        const skipped = await approveDraftWithoutReview(this.db, object.candidateId, this.now());
+        logEvent("info", "review_skip", {
+          reason_code: skipped.kind === "approved" ? "approved" : skipped.reason,
+        });
+      } catch {
+        logEvent("error", "review_skip_failed", { reason_code: "approve" });
+      }
+    }
     if (outcome.kind === "done")
       await this.finish(job, "done", job.payload_json, this.now(), outcome.reason);
     else await this.finish(job, "pending", job.payload_json, outcome.dueAt, outcome.reason);

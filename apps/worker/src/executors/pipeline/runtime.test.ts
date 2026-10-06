@@ -103,6 +103,7 @@ beforeEach(async () => {
     sources: { "zzz-ann": { enabled: true, mode: "normal" } },
     automaticPublication: true,
     model: false,
+    reviewSkip: false,
   };
 });
 describe("A-P3-PIPELINE 持久编排与定时接线", () => {
@@ -292,6 +293,7 @@ describe("A-P3-PIPELINE 持久编排与定时接线", () => {
       },
       automaticPublication: true,
       model: false,
+      reviewSkip: false,
     };
     let restricted = 0;
     const fetchFn = (async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -420,6 +422,7 @@ describe("A-P3-PIPELINE 持久编排与定时接线", () => {
       },
       automaticPublication: true,
       model: false,
+      reviewSkip: false,
     };
     await runtime().watchdog();
     await drain();
@@ -658,6 +661,7 @@ describe("A-P3-PIPELINE 持久编排与定时接线", () => {
       sources: { "zzz-ann": { enabled: true, mode: "hot" } },
       automaticPublication: true,
       model: false,
+      reviewSkip: false,
     };
     rows = [];
     await runtime().watchdog();

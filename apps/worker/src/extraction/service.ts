@@ -2,7 +2,7 @@
 // P3-03 · 候选审核队列领域服务。只写 extraction_runs/candidates/evidence；
 // events/milestones/发布修订由 P3-04 条件提交，本模块不越界。
 import { API_BODY_MAX_BYTES, type ReviewStatus } from "@hoyo/contracts";
-import { conditionalCommit, type GuardedEffect } from "../storage/cas";
+import { conditionalCommit, type GuardedEffect, type SqlParam } from "../storage/cas";
 import {
   candidateEvidenceRefs,
   loadStoredArticleVersion,
@@ -21,6 +21,8 @@ interface CandidateRow {
   review_status: ReviewStatus;
   updated_at: number;
   article_version_id: string;
+  /** 只有按抽取运行查到的行才带；用于区分规则与模型（P3-25）。 */
+  extractor?: string | null;
 }
 
 export interface CandidateRecord {
@@ -33,7 +35,8 @@ export interface CandidateRecord {
   readonly officialUrl: string;
   readonly proposal: CandidateProposal;
   readonly reviewStatus: ReviewStatus;
-  readonly path: "rule" | "manual";
+  /** model：「跳过审核」开启时由系统批准的 AI 草稿（P3-25，ADR-0018）。 */
+  readonly path: "rule" | "model" | "manual";
   readonly updatedAtMs: number;
 }
 
@@ -101,7 +104,7 @@ function record(row: CandidateRow, article: StoredArticleVersion): CandidateReco
     officialUrl: article.officialUrl,
     proposal: parsed.data,
     reviewStatus: row.review_status,
-    path: row.run_id === null ? "manual" : "rule",
+    path: row.run_id === null ? "manual" : row.extractor === "model" ? "model" : "rule",
     updatedAtMs: row.updated_at,
   };
 }
@@ -218,6 +221,125 @@ export async function reviseCandidate(
   if (nowMs <= current.updated_at) throw new CandidateValidationError("修正时间必须晚于上次修改");
   const article = await loadStoredArticleVersion(db, current.article_version_id);
   const proposal = requireProposal(input, article);
+  await rewritePendingCandidate(db, current, article, proposal, nowMs, options, {
+    sql: "run_id = NULL",
+    params: [],
+  });
+  return {
+    candidateId,
+    articleVersionId: article.articleVersionId,
+    sourceId: article.sourceId,
+    externalId: article.externalId,
+    game: article.game,
+    region: article.region,
+    officialUrl: article.officialUrl,
+    proposal,
+    reviewStatus: "pending",
+    path: "manual",
+    updatedAtMs: nowMs,
+  };
+}
+
+/** P3-25（ADR-0018）：模型抽取运行按（文章版本, model, profile）唯一；同一组合重复批准时复用。 */
+export async function ensureModelRun(
+  db: D1Database,
+  articleVersionId: string,
+  profileRef: string,
+  nowMs: number,
+): Promise<string> {
+  await db
+    .prepare(
+      `INSERT INTO extraction_runs (id, article_version_id, extractor, profile_ref, status,
+                                    usage_json, error, created_at, completed_at)
+       VALUES (?, ?, 'model', ?, 'succeeded', NULL, NULL, ?, ?)
+       ON CONFLICT (article_version_id, extractor, profile_ref) DO NOTHING`,
+    )
+    .bind(crypto.randomUUID(), articleVersionId, profileRef, nowMs, nowMs)
+    .run();
+  const row = await db
+    .prepare(
+      `SELECT id FROM extraction_runs
+        WHERE article_version_id = ? AND extractor = 'model' AND profile_ref = ? AND status = 'succeeded'`,
+    )
+    .bind(articleVersionId, profileRef)
+    .first<{ id: string }>();
+  if (row === null) throw new Error("模型抽取运行写入失败");
+  return row.id;
+}
+
+/**
+ * P3-25（ADR-0018）：「跳过审核」开启时，系统把规则入队的 pending 候选改为挂在模型抽取运行上的
+ * 已批准候选（不加人工锁；发布仍由发布待办执行）。人工已接手（run_id 为空）的候选不动。
+ */
+export async function approveModelCandidate(
+  db: D1Database,
+  candidateId: string,
+  runId: string,
+  input: unknown,
+  reviewer: string,
+  reason: string,
+  nowMs: number,
+  /** condition：提交时必须同时成立的静态谓词（只接受 controlPredicate 等生成的 SQL，如运行开关）。 */
+  options: CandidateWriteOptions & { readonly condition?: string } = {},
+): Promise<CandidateRecord> {
+  if (
+    reviewer.length === 0 ||
+    reviewer.length > API_BODY_MAX_BYTES ||
+    reason.length === 0 ||
+    reason.length > API_BODY_MAX_BYTES
+  )
+    throw new CandidateValidationError("审核者与理由必须是非空且长度受限的字符串");
+  const current = await findCandidateById(db, candidateId);
+  checkExpected(current, options);
+  if (current.review_status !== "pending" || current.run_id === null)
+    throw new CandidateConflictError();
+  if (nowMs <= current.updated_at) throw new CandidateValidationError("裁定时间必须晚于上次修改");
+  const article = await loadStoredArticleVersion(db, current.article_version_id);
+  const proposal = requireProposal(input, article);
+  if (proposal.classification === "uncertain")
+    throw new CandidateValidationError("有未解缺口或歧义的候选不能批准");
+  const run = await db
+    .prepare("SELECT article_version_id, extractor, status FROM extraction_runs WHERE id = ?")
+    .bind(runId)
+    .first<{ article_version_id: string; extractor: string; status: string }>();
+  if (
+    run === null ||
+    run.extractor !== "model" ||
+    run.status !== "succeeded" ||
+    run.article_version_id !== article.articleVersionId
+  )
+    throw new CandidateValidationError("模型抽取运行与候选的文章版本不一致");
+  await rewritePendingCandidate(db, current, article, proposal, nowMs, options, {
+    sql: "run_id = ?, review_status = 'approved', reviewer = ?, decision_reason = ?, decided_at = ?",
+    params: [runId, reviewer, reason, nowMs],
+    where: `AND run_id IS NOT NULL${options.condition === undefined ? "" : ` AND ${options.condition}`}`,
+  });
+  return {
+    candidateId,
+    articleVersionId: article.articleVersionId,
+    sourceId: article.sourceId,
+    externalId: article.externalId,
+    game: article.game,
+    region: article.region,
+    officialUrl: article.officialUrl,
+    proposal,
+    reviewStatus: "approved",
+    path: "model",
+    updatedAtMs: nowMs,
+  };
+}
+
+/** 改写 pending 候选的内容，并整组替换它的证据引用；set 决定改写后的抽取运行与审核状态。 */
+async function rewritePendingCandidate(
+  db: D1Database,
+  current: CandidateRow,
+  article: StoredArticleVersion,
+  proposal: CandidateProposal,
+  nowMs: number,
+  options: CandidateWriteOptions,
+  set: { readonly sql: string; readonly params: readonly SqlParam[]; readonly where?: string },
+): Promise<void> {
+  const candidateId = current.id;
   const previous = parseCandidateProposal(JSON.parse(current.proposal_json));
   if (!previous.success) throw new Error("保存的旧候选未通过统一 Schema");
   preserveKeysOnRevision(previous.data, proposal);
@@ -233,12 +355,13 @@ export async function reviseCandidate(
   if (refs.length === 0) refs.push("blocks/0");
   const result = await conditionalCommit(db, {
     guard: {
-      sql: `UPDATE candidates SET run_id = NULL, event_id = ?, proposal_json = ?, updated_at = ?
-        WHERE id = ? AND review_status = 'pending' AND updated_at = ?
+      sql: `UPDATE candidates SET ${set.sql}, event_id = ?, proposal_json = ?, updated_at = ?
+        WHERE id = ? AND review_status = 'pending' AND updated_at = ? ${set.where ?? ""}
         AND (SELECT count(*) FROM evidence WHERE candidate_id = candidates.id) = ?
         AND NOT EXISTS (SELECT 1 FROM json_each(?) old WHERE NOT EXISTS
           (SELECT 1 FROM evidence WHERE id = old.value AND candidate_id = candidates.id))`,
       params: [
+        ...set.params,
         eventId,
         JSON.stringify(proposal),
         nowMs,
@@ -278,19 +401,6 @@ export async function reviseCandidate(
     ],
   });
   if (result.outcome === "condition_missed") throw new CandidateConflictError();
-  return {
-    candidateId,
-    articleVersionId: article.articleVersionId,
-    sourceId: article.sourceId,
-    externalId: article.externalId,
-    game: article.game,
-    region: article.region,
-    officialUrl: article.officialUrl,
-    proposal,
-    reviewStatus: "pending",
-    path: "manual",
-    updatedAtMs: nowMs,
-  };
 }
 
 /** 人工裁定只变候选审核状态；真正发布留给 P3-04。 */
@@ -373,6 +483,19 @@ export async function storeRuleCandidate(
     .bind(article.articleVersionId)
     .first<CandidateRow>();
   if (manual !== null) return { candidate: record(manual, article), rule, replayed: true };
+
+  // P3-25：「跳过审核」批准的模型候选取代规则入队的那条；发布待办重抽时不另建待审候选。
+  const model = await db
+    .prepare(
+      `SELECT c.id, c.run_id, c.proposal_json, c.review_status, c.updated_at,
+              er.article_version_id, er.extractor
+         FROM extraction_runs er JOIN candidates c ON c.run_id = er.id
+        WHERE er.article_version_id = ? AND er.extractor = 'model'
+        ORDER BY c.updated_at DESC LIMIT 1`,
+    )
+    .bind(article.articleVersionId)
+    .first<CandidateRow>();
+  if (model !== null) return { candidate: record(model, article), rule, replayed: true };
 
   const previous = await db
     .prepare(

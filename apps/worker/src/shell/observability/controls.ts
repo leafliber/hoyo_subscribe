@@ -1,6 +1,7 @@
 import {
   type ControlFacts,
   controlFact,
+  OPERATIONAL_CONTROL_DEFAULTS,
   OPERATIONAL_CONTROLS,
   type OperationalControl,
 } from "@hoyo/contracts";
@@ -22,7 +23,9 @@ export async function readControl(db: D1Database, control: OperationalControl, s
       .bind(controlKey(control, source))
       .first<{ value_json: string; updated_at: number }>();
     return {
-      value: row ? controlFact(JSON.parse(row.value_json)) : ("unknown" as const),
+      value: row
+        ? controlFact(JSON.parse(row.value_json))
+        : (OPERATIONAL_CONTROL_DEFAULTS[control] ?? ("unknown" as const)),
       updated_at: row?.updated_at ?? 0,
     };
   } catch {
@@ -44,7 +47,12 @@ export async function readControls(db: D1Database): Promise<ControlFacts> {
       names.map((name) => {
         const row = rows.find((r) => r.key === name);
         try {
-          return [name, row ? controlFact(JSON.parse(row.value_json)) : "unknown"];
+          return [
+            name,
+            row
+              ? controlFact(JSON.parse(row.value_json))
+              : (OPERATIONAL_CONTROL_DEFAULTS[name] ?? "unknown"),
+          ];
         } catch {
           return [name, "unknown"];
         }

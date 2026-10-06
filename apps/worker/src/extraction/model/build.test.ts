@@ -100,6 +100,86 @@ describe("A-P3-DRAFT 确定性构建", () => {
     });
   });
 
+  it("A-P3-HYPHEN 横线写法的完整时刻同样按官方 UTC+8 解析；只写日期的仍是日期，分隔符混用不认", () => {
+    // 摘自 2026-10-06 绝区零「3.2版本限时频段（下期）」原文（图文资讯 pic-243）。
+    const banner = storedFromFixture("zzz-ann", {
+      ann_id: 243,
+      title: "3.2版本限时频段（下期）",
+      content:
+        "<p>本期代理人与音擎调频活动时间为： 2026-09-30 12:00（服务器时间） ~ 2026-10-20 14:59（服务器时间），包含如下内容：</p>" +
+        "<p>「烬夜安眠」调频活动</p><p>测试用日期：2026-09-30 与 2026-09/30 12:00</p>",
+    });
+    const result = buildDraftProposal(
+      banner,
+      parseModelJson(
+        JSON.stringify({
+          classification: "events",
+          ambiguities: [],
+          events: [
+            event({
+              event_type: "gacha",
+              title: "「烬夜安眠」调频活动",
+              type_quote: { block: 2, quote: "「烬夜安眠」调频活动" },
+              milestones: [
+                {
+                  node_type: "start",
+                  label: "",
+                  block: 1,
+                  time_text: "2026-09-30 12:00（服务器时间）",
+                  estimated: false,
+                },
+                {
+                  node_type: "end",
+                  label: "",
+                  block: 1,
+                  time_text: "2026-10-20 14:59",
+                  estimated: false,
+                },
+                {
+                  node_type: "phase_unlock",
+                  label: "日期",
+                  block: 3,
+                  time_text: "2026-09-30",
+                  estimated: false,
+                },
+                {
+                  node_type: "reward_deadline",
+                  label: "混用",
+                  block: 3,
+                  time_text: "2026-09/30 12:00",
+                  estimated: false,
+                },
+              ],
+            }),
+          ],
+        }),
+      ),
+    );
+    expect(result.status).toBe("ready");
+    const times = result.proposal.events[0].milestones.map((m) => m.time);
+    expect(times[0]).toEqual(parseAnnouncementExactTime("2026-09-30 12:00"));
+    expect(times[0]).toMatchObject({
+      utc_ms: Date.UTC(2026, 8, 30, 4, 0),
+      time_basis: "official_explicit",
+    });
+    expect(times[1]).toMatchObject({
+      utc_ms: Date.UTC(2026, 9, 20, 6, 59),
+      time_basis: "official_explicit",
+    });
+    expect(times[2]).toMatchObject({
+      precision: "date",
+      date: "2026-09-30",
+      time_basis: "official_explicit",
+    });
+    expect(times[3]).toMatchObject({ precision: "unknown", time_basis: "unresolved" });
+    expect(parseAnnouncementExactTime("2026-09/30 12:00")).toBeNull();
+    expect(parseAnnouncementExactTime("2026-02-30 12:00")).toBeNull();
+    expect(parseAnnouncementExactTime("2026/09/30 12:00")).toEqual({
+      ...parseAnnouncementExactTime("2026-09-30 12:00"),
+      raw_expression: "2026/09/30 12:00",
+    });
+  });
+
   it("真实维护输出：原文没有的推算时刻被丢弃并留说明，其余节点照常可用", () => {
     const result = buildDraftProposal(maintenance, parseModelJson(MAINTENANCE_21928_OUTPUT));
     expect(result.status).toBe("ready");

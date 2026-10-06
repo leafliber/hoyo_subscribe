@@ -1,7 +1,12 @@
 import { mkdirSync } from "node:fs";
 import { resolve } from "node:path";
 import { expect, type Page, test } from "@playwright/test";
-import { compareScheduleNodes, ExactTimeSchema } from "../../packages/contracts/src/index";
+import {
+  browseDate,
+  compareScheduleNodes,
+  DateOnlySchema,
+  ExactTimeSchema,
+} from "../../packages/contracts/src/index";
 import { clock, eventsFixture, mockPublicApi, statusFixture } from "./fixtures/public-schedule";
 
 const controls = new WeakMap<Page, Awaited<ReturnType<typeof mockPublicApi>>>();
@@ -204,7 +209,7 @@ test("U03 五档昨天带常驻顶部（从上到下按时间先后）；按响�
     await expect(page.locator('[data-region="yesterday"] [data-node="old"]')).toHaveCount(1);
     await expect(page.locator('[data-region="yesterday"]')).toContainText("9月21日");
   }
-  // ADR-0017：昨天 → 当前范围逐日 → 末行 → 时间待定（时间未知排最后）。
+  // ADR-0017 / F1-09：时间轴里昨天 → 当前范围逐日 → 末行；时间待定是时间轴下方单独的卡片。
   expect(
     await page
       .locator(".timeline > *")
@@ -217,7 +222,8 @@ test("U03 五档昨天带常驻顶部（从上到下按时间先后）；按响�
           )
           .filter(Boolean),
       ),
-  ).toEqual(["yesterday", "days", "end", "pending"]);
+  ).toEqual(["yesterday", "days", "end"]);
+  await expect(page.locator('.timeline.card + [data-region="pending"].card')).toHaveCount(1);
   // 昨天带默认折叠，展开后条目可见；文字不做半透明降权。
   await page.locator(".yesterday-band > summary").click();
   await expect(page.locator('[data-region="yesterday"] [data-node="old"]')).toBeVisible();
@@ -676,7 +682,9 @@ test("A-F1-POLISH 时间轴跨日连续，日期是轨道上的标记；全天�
         getComputedStyle(e).paddingBottom,
       ]),
     ).toEqual(["0px", "0px"]);
-  await expect(page.locator(".day-heading").first()).toContainText("周二 · 今天");
+  await expect(page.locator('[data-region="days"] .day-heading').first()).toContainText(
+    "周二 · 今天",
+  );
   // 只有日期的条目归在当天，标"全天"，没有"具体时刻未公布"小标题。
   const day = page.locator('section.schedule-day[data-date="2026-09-23"]');
   await expect(day.locator('.date-only [data-node="date"]')).toContainText("全天");
@@ -688,6 +696,9 @@ test("A-F1-POLISH 时间待定默认折叠，展开后重绘仍保持展开", as
   await page.goto("/");
   await complete(page);
   const pending = page.locator('[data-region="pending"]');
+  // F1-09：时间待定是时间轴下方单独的卡片，不在时间轴卡片里。
+  await expect(page.locator('.timeline [data-region="pending"]')).toHaveCount(0);
+  await expect(pending).toHaveClass(/\bcard\b/);
   await expect(pending).not.toHaveAttribute("open");
   await expect(pending.locator("summary")).toContainText("时间待定");
   await expect(pending.locator('[data-node="pending"]')).toBeHidden();
@@ -930,4 +941,140 @@ test("A-F1-BROWSE 近期变更与时间待定从上到下按时间先后、从�
     "pending-start",
     "pending-end",
   ]);
+});
+
+// F1-09（ADR-0020）：时间轴整合——今天总在、回看昨天接在主轴上、时间待定单独成卡、日期点与已过条目。
+const TODAY = browseDate(clock.getTime());
+type FixtureNode = ReturnType<typeof eventsFixture>["nodes"][number];
+const dayOf = (node: FixtureNode) =>
+  node.time.precision === "datetime"
+    ? browseDate(node.time.utc_ms)
+    : node.time.precision === "date"
+      ? node.time.date
+      : null;
+/** 页面里 token 实际解析出的颜色，用来比对计算样式（不在测试里写死色值）。 */
+const tokenColor = (page: Page, token: string) =>
+  page.evaluate((name) => {
+    const probe = document.createElement("span");
+    probe.style.color = `var(${name})`;
+    document.body.append(probe);
+    const color = getComputedStyle(probe).color;
+    probe.remove();
+    return color;
+  }, token);
+const railCenter = (locator: ReturnType<Page["locator"]>) =>
+  locator.evaluate((element) => {
+    const box = element.getBoundingClientRect();
+    return Math.round(box.left + box.width / 2);
+  });
+
+test("A-F1-TIMELINE 今天没有安排时仍画出今天与「现在」时刻线", async ({ page }) => {
+  const control = controls.get(page);
+  if (!control) throw new Error("missing fixture");
+  control.events = (params, scenario) => {
+    const data = eventsFixture(params, scenario);
+    return { ...data, nodes: data.nodes.filter((node) => dayOf(node) !== TODAY) };
+  };
+  await page.goto("/");
+  await complete(page);
+  const days = page.locator('[data-region="days"] > section.schedule-day');
+  await expect(days.first()).toHaveAttribute("data-date", TODAY);
+  const today = days.first();
+  await expect(today).toHaveClass(/is-today/);
+  await expect(today.locator(".day-count")).toHaveText("暂无安排");
+  await expect(today.locator("[data-node]")).toHaveCount(0);
+  await expect(today.locator(".now-marker")).toHaveCount(1);
+  await expect(today.locator("[data-now-clock]")).toHaveText("12:30");
+  expect(await days.count()).toBeGreaterThan(1);
+});
+
+test("A-F1-TIMELINE 今天只有全天条目时，时刻线在全天条目之前", async ({ page }) => {
+  const control = controls.get(page);
+  if (!control) throw new Error("missing fixture");
+  control.events = (params, scenario) => {
+    const data = eventsFixture(params, scenario);
+    return {
+      ...data,
+      nodes: data.nodes
+        .filter((node) => dayOf(node) !== TODAY)
+        .map((node) =>
+          node.id === "date" && node.time.precision === "date"
+            ? { ...node, time: { ...node.time, date: DateOnlySchema.parse(TODAY) } }
+            : node,
+        ),
+    };
+  };
+  await page.goto("/");
+  await complete(page);
+  const today = page.locator(`[data-region="days"] > section.schedule-day[data-date="${TODAY}"]`);
+  await expect(today.locator(".day-count")).toHaveText("1 项");
+  await expect(today.locator(".timed-list > .now-marker")).toHaveCount(1);
+  await expect(today.locator('.date-only > [data-node="date"]')).toHaveCount(1);
+  expect(
+    await today.evaluate((section) => [...section.children].map((child) => child.className)),
+  ).toEqual(["day-heading", "timed-list", "date-only"]);
+});
+
+test("A-F1-TIMELINE 回看昨天接在主时间轴上：同一条轨道，展开后昨天的日期段落在今天之上", async ({
+  page,
+}) => {
+  await page.goto("/");
+  await complete(page);
+  const toggle = page.locator(".yesterday-band > summary");
+  const todayRail = page.locator('[data-region="days"] > section.is-today .day-rail');
+  // 折叠时是轨道上的一行：轨道从这一行的图标处向下接到今天。
+  expect(await railCenter(toggle.locator(".toggle-rail"))).toBe(await railCenter(todayRail));
+  expect(
+    await toggle
+      .locator(".toggle-rail")
+      .evaluate((element) => getComputedStyle(element, "::before").display),
+  ).not.toBe("none");
+  await toggle.click();
+  const yesterday = page.locator(
+    '[data-region="yesterday"] > section.schedule-day[data-date="2026-09-21"]',
+  );
+  await expect(yesterday.locator(".day-heading")).toContainText("周一 · 昨天");
+  await expect(yesterday.locator('[data-node="old"]')).toBeVisible();
+  expect(await railCenter(yesterday.locator(".day-rail"))).toBe(await railCenter(todayRail));
+  // 不再另开一段列表；昨天整段在今天之上。
+  await expect(page.locator('[data-region="yesterday"] .node-list')).toHaveCount(0);
+  const above = await yesterday.boundingBox();
+  const below = await page.locator('[data-region="days"] > section.is-today').boundingBox();
+  if (!above || !below) throw new Error("missing layout");
+  expect(above.y + above.height).toBeLessThanOrEqual(below.y + 1);
+});
+
+test("A-F1-TIMELINE 日期点是实心圆角方块；已过的条目降权", async ({ page }) => {
+  // 入场动效期间行的不透明度在变化；只量静止状态。
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await page.goto("/");
+  await complete(page);
+  // 日期点曾被通用的条目圆点规则覆盖，画成无边框的白点、看起来像轨道断了一截。
+  const dot = await page
+    .locator('[data-region="days"] > section.schedule-day:not(.is-today) .day-rail')
+    .first()
+    .evaluate((element) => {
+      const style = getComputedStyle(element, "::after");
+      return {
+        radius: style.borderTopLeftRadius,
+        width: style.width,
+        color: style.backgroundColor,
+      };
+    });
+  expect(dot).toEqual({
+    radius: "3px",
+    width: "10px",
+    color: await tokenColor(page, "--color-control-border"),
+  });
+  // 已过（08:00）的标题用次要文字色，未到的（18:00）不降权；不降不透明度。
+  const secondary = await tokenColor(page, "--color-text-secondary");
+  const titleColor = (id: string) =>
+    page
+      .locator(`[data-node="${id}"] .event-title`)
+      .evaluate((element) => getComputedStyle(element).color);
+  expect(await titleColor("morning")).toBe(secondary);
+  expect(await titleColor("end")).not.toBe(secondary);
+  expect(
+    await page.locator('[data-node="morning"]').evaluate((e) => getComputedStyle(e).opacity),
+  ).toBe("1");
 });

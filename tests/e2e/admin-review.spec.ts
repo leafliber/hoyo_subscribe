@@ -159,6 +159,9 @@ async function openDraft(page: Page) {
 const controlRows = [
   { control: "read_only", value: false, updated_at: 1_900_000_000_000 },
   { control: "registration_open", value: true, updated_at: 1_900_000_000_000 },
+  { control: "model_enabled", value: true, updated_at: 1_900_000_000_000 },
+  // P3-25：后加的开关还没有记录时，Worker 按默认值读作关闭、版本 0。
+  { control: "review_skip_enabled", value: false, updated_at: 0 },
   {
     control: "source_enabled",
     source: "genshin-ann",
@@ -1143,7 +1146,10 @@ test.describe("P3-20 运行开关", () => {
     });
     await page.goto("/admin/settings/");
     await expect(page.locator("#controls-status")).toHaveText(controlsRead);
-    const row = page.locator(".control-row").filter({ hasText: "只读模式" });
+    // 按开关名称找行：其他开关的说明里也会提到"只读模式"。
+    const row = page
+      .locator(".control-row")
+      .filter({ has: page.locator(".control-name", { hasText: "只读模式" }) });
     await row.getByRole("button", { name: "开启", exact: true }).click();
     await expect(page.locator("#controls-status")).toHaveText("请先在上方选择修改理由。");
     await page.getByLabel("修改理由（每次修改都会记录）").selectOption("maintenance");
@@ -1203,5 +1209,39 @@ test.describe("P3-20 运行开关", () => {
       { source: "hsr-ann", expected_updated_at: 1_899_500_000_000, reason: "evidence_reviewed" },
     ]);
     await expect(hsr.getByRole("button", { name: "解除维护", exact: true })).toHaveCount(0);
+  });
+
+  test("A-P3-REVIEW-SKIP 跳过审核在「数据管线」组，默认关闭、写明不经人工核对；开启须页面内确认，首行以版本 0 写入", async ({
+    page,
+  }) => {
+    const state = await setup(page);
+    await page.goto("/admin/settings/");
+    await expect(page.locator("#controls-status")).toHaveText(controlsRead);
+    const pipeline = page.locator(".control-group").filter({ hasText: "数据管线" });
+    const named = (name: string) =>
+      pipeline
+        .locator(".control-row")
+        .filter({ has: page.locator(".control-name", { hasText: name }) });
+    const row = named("跳过审核");
+    await expect(row.locator(".control-name .badge")).toHaveText("关");
+    await expect(row).toContainText("不经人工核对");
+    await expect(row).toContainText("仍留在审核队列");
+    await expect(named("AI 草稿（模型抽取）")).toHaveCount(1);
+    await page.getByLabel("修改理由（每次修改都会记录）").selectOption("verified_configuration");
+    await row.getByRole("button", { name: "开启", exact: true }).click();
+    await expect(row.getByRole("group", { name: "确认开启" })).toContainText("跳过审核");
+    expect(state.calls.filter((call) => call.method === "PUT")).toEqual([]);
+    await row.getByRole("button", { name: "确认开启", exact: true }).click();
+    await expect(page.locator("#controls-status")).toHaveText(
+      "已开启「跳过审核」，已重新读取核实。",
+    );
+    expect(state.calls.filter((call) => call.method === "PUT").map((call) => call.body)).toEqual([
+      {
+        control: "review_skip_enabled",
+        enabled: true,
+        expected_updated_at: 0,
+        reason: "verified_configuration",
+      },
+    ]);
   });
 });

@@ -34,8 +34,22 @@ function versions(plans: readonly ArticleIngestPlan[]) {
 const titleOf = (blocks: readonly { kind: string; text?: string }[]) =>
   blocks.find((block) => block.kind === "title")?.text;
 
+interface PicListBody {
+  data: {
+    pic_list: Array<{ type_list: Array<{ list: Array<{ ann_id: number; title: string }> }> }>;
+  };
+}
+/** 列表样本里给一条图文资讯补上标题（模拟官方之后补写）。 */
+function withPicTitle(list: { body: unknown }, annId: number, title: string): { body: unknown } {
+  const body = structuredClone(list.body) as PicListBody;
+  for (const group of body.data.pic_list)
+    for (const typeGroup of group.type_list)
+      for (const item of typeGroup.list) if (item.ann_id === annId) item.title = title;
+  return { body };
+}
+
 describe("A-P3-PIC-LIST 采集：图文资讯条目建成文章版本，正文与时间齐全", () => {
-  it("崩铁：跃迁公告带正文进入版本计划；空标题空正文的图片条目记来源暂空，不丢", async () => {
+  it("A-P3-PIC-IMAGE-ONLY 崩铁：跃迁公告带正文进入版本计划；空标题空正文的图片条目不入库，补上标题后按变更入库", async () => {
     const page = await collectSource(
       getSourceEntry("hsr-ann"),
       INITIAL_SOURCE_POLL_STATE,
@@ -44,16 +58,17 @@ describe("A-P3-PIC-LIST 采集：图文资讯条目建成文章版本，正文�
     );
     expect(page.status).toBe("ok");
     const byId = versions(page.plans);
-    expect(byId.size).toBe(25);
+    expect(byId.size).toBe(24);
     const warp = byId.get(`${PIC_LIST_ID_PREFIX}1331`);
     expect(warp?.completeness).toBe("complete");
     expect(titleOf(warp?.blocks ?? [])).toBe("4.5版本活动跃迁（其二）");
     // 正文块原样保真（含官方转义的时间标签）。
     expect(JSON.stringify(warp?.blocks)).toContain("本期活动跃迁时间为");
     expect(JSON.stringify(warp?.blocks)).toContain("2026/09/28 03:59:00");
-    expect(byId.get(`${PIC_LIST_ID_PREFIX}1344`)?.completeness).toBe("gap-source-empty");
+    // 1344 只有一张图片：没有标题、正文没有文字，不入库（P3-24）。
+    expect(byId.has(`${PIC_LIST_ID_PREFIX}1344`)).toBe(false);
 
-    // 同一份响应再轮询一次：图文资讯条目指纹稳定，不产生新版本计划。
+    // 同一份响应再轮询一次：图文资讯条目指纹稳定，不产生新版本计划（被跳过的图片条目也已记入列表快照）。
     const again = await collectSource(
       getSourceEntry("hsr-ann"),
       page.nextState,
@@ -61,6 +76,17 @@ describe("A-P3-PIC-LIST 采集：图文资讯条目建成文章版本，正文�
       replay(hsrList, hsrContent),
     );
     expect(again.plans).toEqual([]);
+
+    // 官方之后补上标题：按列表变更重新取正文，这次入库（正文仍空，记来源暂空等人工）。
+    const titled = await collectSource(
+      getSourceEntry("hsr-ann"),
+      again.nextState,
+      CAPTURED_AT_MS + 120_000,
+      replay(withPicTitle(hsrList, 1344, "4.6版本前瞻海报"), hsrContent),
+    );
+    const late = versions(titled.plans).get(`${PIC_LIST_ID_PREFIX}1344`);
+    expect(late?.completeness).toBe("gap-source-empty");
+    expect(titleOf(late?.blocks ?? [])).toBe("4.6版本前瞻海报");
   });
 
   it("绝区零：撞号的 238 与图文资讯 238 是两篇文章，标题去噪后各自对应正文", async () => {
@@ -71,7 +97,9 @@ describe("A-P3-PIC-LIST 采集：图文资讯条目建成文章版本，正文�
       replay(zzzList, zzzContent),
     );
     const byId = versions(page.plans);
-    expect(byId.size).toBe(24);
+    // 24 条里图文资讯 247 只有一张图片（与 2026-10-06 线上同一条），不入库。
+    expect(byId.size).toBe(23);
+    expect(byId.has(`${PIC_LIST_ID_PREFIX}247`)).toBe(false);
     const forum = byId.get("238");
     const signal = byId.get(`${PIC_LIST_ID_PREFIX}238`);
     expect(titleOf(forum?.blocks ?? [])).toBe("绳网认证分部一览");
