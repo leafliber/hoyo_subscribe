@@ -5,7 +5,8 @@ import { MATCH_PAGE, utcDayPeriod } from "@hoyo/contracts";
 import { beforeEach, describe, expect, it } from "vitest";
 import genshinContent from "../../../../../fixtures/sources/genshin-ann/content-21928.json";
 import zzzContent from "../../../../../fixtures/sources/zzz-ann/content-1301.json";
-import { DRAFT_PROFILE_REF, readDraft } from "../../extraction/model/store";
+import { buildDraftProposal } from "../../extraction/model/build";
+import { DRAFT_PROFILE_REF, readDraft, writeDraft } from "../../extraction/model/store";
 import {
   DRAFT_T0,
   type FixtureBody,
@@ -21,6 +22,50 @@ import { DRAFT_JOB, PipelineRuntime, PUBLICATION_JOB } from "./runtime";
 const gachaEntry = fixtureEntry(genshinContent as unknown as FixtureBody, 21876);
 let now = DRAFT_T0;
 let controls: PipelineControls;
+
+// P3-25：1301「虚境逐影争锋」块 2 的两个完整时刻（与 build.test 同一份真实正文）。
+const zzzEntry = fixtureEntry(zzzContent as unknown as FixtureBody, 1301);
+const outputFor = (title: string) =>
+  JSON.stringify({
+    classification: "events",
+    ambiguities: [],
+    events: [
+      {
+        event_type: "limited_event",
+        status: "scheduled",
+        title,
+        type_quote: { block: 0, quote: "「虚境逐影争锋」活动说明" },
+        status_quote: null,
+        milestones: [
+          {
+            node_type: "start",
+            label: "",
+            block: 2,
+            time_text: "2026/09/16 10:00",
+            estimated: false,
+          },
+          {
+            node_type: "end",
+            label: "",
+            block: 2,
+            time_text: "2026/10/05 03:59",
+            estimated: false,
+          },
+        ],
+      },
+    ],
+  });
+const output = outputFor("「虚境逐影争锋」活动");
+/** 「跳过审核」在库里的实际状态：批准时读开关并以条件提交核对（AI 草稿可用 + 跳过审核）。 */
+async function switches(on: boolean): Promise<void> {
+  for (const key of ["outbound_enabled", "model_enabled", "review_skip_enabled"])
+    await env.DB.prepare(
+      `INSERT INTO system_state(key,value_json,updated_at) VALUES (?,?,?)
+       ON CONFLICT(key) DO UPDATE SET value_json=excluded.value_json,updated_at=excluded.updated_at`,
+    )
+      .bind(key, JSON.stringify(on), now)
+      .run();
+}
 
 function runtime(extra: Partial<ConstructorParameters<typeof PipelineRuntime>[0]> = {}) {
   return new PipelineRuntime({
@@ -161,36 +206,6 @@ describe("A-P3-DRAFT 管线草稿待办", () => {
   });
 
   it("A-P3-REVIEW-SKIP 跳过审核开启时新草稿由系统批准，停放的发布待办随后发布；关闭时草稿留在队列", async () => {
-    const zzzEntry = fixtureEntry(zzzContent as unknown as FixtureBody, 1301);
-    const output = JSON.stringify({
-      classification: "events",
-      ambiguities: [],
-      events: [
-        {
-          event_type: "limited_event",
-          status: "scheduled",
-          title: "「虚境逐影争锋」活动",
-          type_quote: { block: 0, quote: "「虚境逐影争锋」活动说明" },
-          status_quote: null,
-          milestones: [
-            {
-              node_type: "start",
-              label: "",
-              block: 2,
-              time_text: "2026/09/16 10:00",
-              estimated: false,
-            },
-            {
-              node_type: "end",
-              label: "",
-              block: 2,
-              time_text: "2026/10/05 03:59",
-              estimated: false,
-            },
-          ],
-        },
-      ],
-    });
     /** 规则入队的候选与它停放着等人工的发布待办（与来源待办入库后的状态一致）。 */
     const parked = async () => {
       const seeded = await seedRuleCandidate("zzz-ann", zzzEntry, { nowMs: now });
@@ -227,6 +242,7 @@ describe("A-P3-DRAFT 管线草稿待办", () => {
     expect((await readDraft(env.DB, off.candidateId))?.status).toBe("ready");
     expect(await status(off.candidateId)).toEqual({ review_status: "pending", extractor: "rule" });
 
+    await switches(true);
     controls = { ...controls, reviewSkip: true };
     const on = await parked();
     now += 1;
@@ -252,5 +268,54 @@ describe("A-P3-DRAFT 管线草稿待办", () => {
         .bind(on.versionId)
         .first(),
     ).toEqual({ human_locked: 0, title: "「虚境逐影争锋」活动" });
+    await switches(false);
+  });
+
+  it("A-P3-REVIEW-SKIP 草稿写好后中断、重试的待办得到 already_drafted 时同样批准，不再调用模型", async () => {
+    await switches(true);
+    controls = { ...controls, reviewSkip: true };
+    const seeded = await seedRuleCandidate("zzz-ann", zzzEntry, { nowMs: now });
+    now += 1;
+    // 上一次执行已写好草稿、还没来得及批准就中断：租约过期后待办回到 pending。
+    // 标题与上一例已发布的活动不同，不触发疑似重复。
+    const built = buildDraftProposal(seeded.article, JSON.parse(outputFor("「重试样例」")));
+    await writeDraft(env.DB, {
+      candidateId: seeded.candidateId,
+      articleVersionId: seeded.versionId,
+      status: "ready",
+      proposal: built.proposal,
+      notes: [],
+      reasonCode: null,
+      usage: null,
+      called: true,
+      nowMs: now,
+    });
+    await env.DB.prepare(
+      `INSERT INTO jobs (id,kind,payload_json,due_at,status,created_at,updated_at)
+       VALUES (?, ?, ?, ?, 'pending', ?, ?)`,
+    )
+      .bind(
+        `pipeline:draft:${seeded.candidateId}`,
+        DRAFT_JOB,
+        JSON.stringify({ candidateId: seeded.candidateId }),
+        now,
+        now,
+        now,
+      )
+      .run();
+    now += 1;
+    const ai = fakeAi(modelResponse(output));
+    await runtime({ ai }).tick();
+    expect(ai.calls).toHaveLength(0);
+    expect(await draftJobs()).toMatchObject([{ status: "done", last_error: "already_drafted" }]);
+    expect(
+      await env.DB.prepare(
+        `SELECT c.review_status, er.extractor FROM candidates c
+           JOIN extraction_runs er ON er.id = c.run_id WHERE c.id = ?`,
+      )
+        .bind(seeded.candidateId)
+        .first(),
+    ).toEqual({ review_status: "approved", extractor: "model" });
+    await switches(false);
   });
 });

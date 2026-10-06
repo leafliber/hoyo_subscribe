@@ -279,7 +279,8 @@ export async function approveModelCandidate(
   reviewer: string,
   reason: string,
   nowMs: number,
-  options: CandidateWriteOptions = {},
+  /** condition：提交时必须同时成立的静态谓词（只接受 controlPredicate 等生成的 SQL，如运行开关）。 */
+  options: CandidateWriteOptions & { readonly condition?: string } = {},
 ): Promise<CandidateRecord> {
   if (
     reviewer.length === 0 ||
@@ -311,7 +312,7 @@ export async function approveModelCandidate(
   await rewritePendingCandidate(db, current, article, proposal, nowMs, options, {
     sql: "run_id = ?, review_status = 'approved', reviewer = ?, decision_reason = ?, decided_at = ?",
     params: [runId, reviewer, reason, nowMs],
-    where: "AND run_id IS NOT NULL",
+    where: `AND run_id IS NOT NULL${options.condition === undefined ? "" : ` AND ${options.condition}`}`,
   });
   return {
     candidateId,

@@ -59,6 +59,7 @@ describe("A-P3-YEAR 识别没写年份的日期", () => {
       ]),
     ).toBe("2026-09-30");
     expect(earliestExplicitDate(["2026-02-30 12:00", "编号 2026-09-301"])).toBeNull();
+    expect(earliestExplicitDate(["编号 12026-09-30", "单号 92026/09/30"])).toBeNull();
   });
 });
 

@@ -34,8 +34,9 @@ export interface YearReference {
 
 const YEARLESS =
   /^(\d{1,2})月(\d{1,2})日(?:\s*(\d{1,2}):(\d{2})(?::(\d{2}))?)?(?:\s*[(（](?:UTC\+8|UTC\+08:00|GMT\+8|服务器时间)[)）])?$/;
+// 年份前面不能紧挨着数字：长数字串里的"2026-09-30"不是日期（PR #99 审查意见）。
 const EXPLICIT_DATE =
-  /(\d{4})(?:\/(\d{1,2})\/(\d{1,2})|年(\d{1,2})月(\d{1,2})日|-(\d{1,2})-(\d{1,2})(?!\d))/g;
+  /(?<!\d)(\d{4})(?:\/(\d{1,2})\/(\d{1,2})|年(\d{1,2})月(\d{1,2})日|-(\d{1,2})-(\d{1,2})(?!\d))/g;
 
 function pad(value: number): string {
   return String(value).padStart(2, "0");

@@ -4,6 +4,11 @@
 // 打开开关即接受 AI 草稿未经人工核对直接上线。
 import { browseDate, SYSTEM_AUDIT_TTL } from "@hoyo/contracts";
 import { checkCandidateText } from "../../admin/limits";
+import {
+  controlPredicate,
+  readControl,
+  WRITABLE_PREDICATE,
+} from "../../shell/observability/controls";
 import type { GuardedEffect } from "../../storage/cas";
 import {
   loadStoredArticleVersion,
@@ -22,6 +27,8 @@ import { readDraft } from "./store";
 
 /** 留给人工的原因；写进日志，便于核对为什么没有自动批准。 */
 export type ReviewSkipHold =
+  | "switch_off"
+  | "draft_before_switch"
   | "not_pending"
   | "draft_not_ready"
   | "draft_stale"
@@ -42,7 +49,18 @@ export const REVIEW_SKIP_REASON =
   "跳过审核已开启：AI 草稿通过全部检查，由系统批准，未经人工核对（ADR-0018）";
 
 // 单位换算，非预算、配额或 Feed 参数。
-const DAY = 86_400_000;
+const UTC8 = 8 * 3_600_000;
+
+/**
+ * 批准提交时开关必须仍然有效（与管线读取的"AI 草稿可用 + 跳过审核"同一条件）：
+ * 草稿生成要几十秒，期间开关可能被关掉；先读后写之间的窗口由条件提交兜住。
+ */
+const ACTIVE_PREDICATE = [
+  controlPredicate("outbound_enabled"),
+  controlPredicate("model_enabled"),
+  controlPredicate("review_skip_enabled"),
+  WRITABLE_PREDICATE,
+].join(" AND ");
 
 interface PendingRow {
   id: string;
@@ -100,8 +118,9 @@ async function targetsLockedEvent(
 
 /**
  * 同一游戏、同一区域里，已发布（未撤回）的别篇公告事件标题相同、日期范围有交叠时视为疑似重复。
- * 2026-10-06 首批图文资讯 18 条里有 8 条是版本公告已收录活动的说明，事件身份按文章区分，
- * 不拦就会各发一份。
+ * 比较的是两边整体的北京时间日期范围（最早到最晚的已知节点），已发布事件把草稿整段包住、
+ * 中间没有节点时同样算交叠。2026-10-06 首批图文资讯 18 条里有 8 条是版本公告已收录活动的说明，
+ * 事件身份按文章区分，不拦就会各发一份。
  */
 async function resemblesPublishedEvent(
   db: D1Database,
@@ -113,17 +132,17 @@ async function resemblesPublishedEvent(
     const days = eventDays(event);
     if (key === "" || days === null) continue;
     const own = await eventIdentity(article.sourceId, article.externalId, event.event_key);
-    const fromMs = Date.parse(`${days.from}T00:00:00+08:00`);
-    const toMs = Date.parse(`${days.to}T00:00:00+08:00`) + DAY - 1;
     const rows = (
       await db
         .prepare(
-          `SELECT DISTINCT e.id, e.title FROM events e JOIN milestones m ON m.event_id = e.id
+          `SELECT e.id, e.title FROM events e JOIN milestones m ON m.event_id = e.id
             WHERE e.game = ? AND e.region = ? AND e.status <> 'retracted'
               AND e.first_published_at IS NOT NULL AND e.id <> ?
-              AND ((m.time_exact_ms BETWEEN ? AND ?) OR (m.time_date BETWEEN ? AND ?))`,
+            GROUP BY e.id
+           HAVING MIN(COALESCE(m.time_date, date((m.time_exact_ms + ?) / 1000, 'unixepoch'))) <= ?
+              AND MAX(COALESCE(m.time_date, date((m.time_exact_ms + ?) / 1000, 'unixepoch'))) >= ?`,
         )
-        .bind(article.game, article.region, own, fromMs, toMs, days.from, days.to)
+        .bind(article.game, article.region, own, UTC8, days.to, UTC8, days.from)
         .all<{ id: string; title: string }>()
     ).results;
     if (rows.some((row) => titleKey(row.title) === key)) return true;
@@ -165,14 +184,17 @@ function systemAudit(candidateId: string, detailRef: string, nowMs: number): Gua
 }
 
 /**
- * 草稿刚写好时调用（调用方已确认开关开启）。按草稿与当前版本时间表推导出的内容批准，
+ * 草稿写好后调用（含写好后因中断而重试的）。按草稿与当前版本时间表推导出的内容批准，
  * 与人工点「采用草稿并批准」看到的是同一份；任何一项检查没过都留给人工。
+ * 开关以此刻的实际值为准，只批准开关开启之后写好的草稿。
  */
 export async function approveDraftWithoutReview(
   db: D1Database,
   candidateId: string,
   nowMs: number,
 ): Promise<ReviewSkipOutcome> {
+  const switchState = await readControl(db, "review_skip_enabled");
+  if (switchState.value !== true) return held("switch_off");
   const candidate = await db
     .prepare(
       `SELECT c.id, c.run_id, c.review_status, c.updated_at,
@@ -193,16 +215,19 @@ export async function approveDraftWithoutReview(
   if (draft === null || draft.status !== "ready" || draft.proposal === null)
     return held("draft_not_ready");
   if (draft.articleVersionId !== candidate.article_version_id) return held("draft_stale");
+  // 开关开启前就写好的草稿不在范围内（开启前已在队列里的条目由人工处理）。
+  if (draft.updatedAt < switchState.updated_at) return held("draft_before_switch");
   const article = await loadStoredArticleVersion(db, candidate.article_version_id);
   const context = await loadDerivationContext(db, article, draft.proposal);
   const derived = applyVersionDerivations(draft.proposal, context).proposal;
+  if (derived.classification !== "events" && derived.classification !== "no_event")
+    return held("uncertain");
+  // 带歧义的一律留给人工，"无日程"也一样：不能用系统确认压掉可能存在的活动。
+  if (derived.ambiguities.length > 0) return held("ambiguous");
   let proposal: CandidateProposal;
   if (derived.classification === "no_event") {
     proposal = { classification: "no_event", events: [], ambiguities: [] };
-  } else if (derived.classification !== "events") {
-    return held("uncertain");
   } else {
-    if (derived.ambiguities.length > 0) return held("ambiguous");
     if (
       derived.events.some((event) => event.milestones.some((m) => m.time.precision === "unknown"))
     )
@@ -231,6 +256,7 @@ export async function approveDraftWithoutReview(
     {
       expectedUpdatedAt: candidate.updated_at,
       auditEffect: systemAudit(candidateId, `ai_draft:${draft.profileRef};run=${runId}`, nowMs),
+      condition: ACTIVE_PREDICATE,
     },
   );
   return { kind: "approved", runId };

@@ -2,7 +2,7 @@
 // 发布不加人工锁；任何一项检查没过都留给人工（本地 D1；真实公告样本 + 固定模型输出，零推理请求）。
 import "../../admin/test-support";
 import { env } from "cloudflare:test";
-import { describe, expect, it } from "vitest";
+import { beforeAll, describe, expect, it } from "vitest";
 import genshinContent from "../../../../../fixtures/sources/genshin-ann/content-21928.json";
 import zzzContent from "../../../../../fixtures/sources/zzz-ann/content-1301.json";
 import { extractArticleVersion } from "../../executors/pipeline/extract";
@@ -11,7 +11,7 @@ import { denoiseTitle, splitBodyBlocks } from "../../sources/articles/blocks";
 import type { StoredArticleVersion } from "../article";
 import { eventIdentity } from "../identity";
 import type { CandidateProposal } from "../schema";
-import { reviseCandidate } from "../service";
+import { CandidateConflictError, reviseCandidate } from "../service";
 import { buildDraftProposal, parseModelJson } from "./build";
 import {
   approveDraftWithoutReview,
@@ -32,6 +32,20 @@ const zzzEntry = fixtureEntry(zzzContent as unknown as FixtureBody, 1301);
 const gachaEntry = fixtureEntry(genshinContent as unknown as FixtureBody, 21876);
 let now = DRAFT_T0;
 const tick = () => (now += 1_000);
+
+async function setControl(key: string, value: boolean, at: number): Promise<void> {
+  await env.DB.prepare(
+    `INSERT INTO system_state(key,value_json,updated_at) VALUES (?,?,?)
+     ON CONFLICT(key) DO UPDATE SET value_json=excluded.value_json,updated_at=excluded.updated_at`,
+  )
+    .bind(key, JSON.stringify(value), at)
+    .run();
+}
+// AI 草稿可用（外发 + 模型）且「跳过审核」开启，开启时间早于所有草稿。
+const SWITCHES = ["outbound_enabled", "model_enabled", "review_skip_enabled"] as const;
+beforeAll(async () => {
+  for (const key of SWITCHES) await setControl(key, true, DRAFT_T0);
+});
 
 /** 1301「虚境逐影争锋」块 2 的两个完整时刻（与 build.test 同一份真实正文）。 */
 function activityOutput(title = "「虚境逐影争锋」活动") {
@@ -234,6 +248,18 @@ describe("A-P3-REVIEW-SKIP 跳过审核：系统批准 AI 草稿", () => {
       reason: "ambiguous",
     });
 
+    // 带歧义的"无日程"也留给人工：系统确认不能压掉可能存在的活动。
+    const quiet = await seedRuleCandidate("zzz-ann", zzzEntry, { nowMs: tick() });
+    await draftFor(quiet.candidateId, quiet.article, {
+      classification: "no_event",
+      events: [],
+      ambiguities: ["图片里可能有活动时间"],
+    });
+    expect(await approveDraftWithoutReview(env.DB, quiet.candidateId, tick())).toEqual({
+      kind: "held",
+      reason: "ambiguous",
+    });
+
     // 真实卡池输出的开始是"7.1版本更新后"：版本时间没确认，推不出日期。
     const gacha = await seedRuleCandidate("genshin-ann", gachaEntry, { nowMs: tick() });
     const built = buildDraftProposal(gacha.article, parseModelJson(GACHA_21876_OUTPUT));
@@ -259,6 +285,7 @@ describe("A-P3-REVIEW-SKIP 跳过审核：系统批准 AI 草稿", () => {
     for (const id of [
       uncertain.candidateId,
       ambiguous.candidateId,
+      quiet.candidateId,
       gacha.candidateId,
       missing.candidateId,
     ])
@@ -297,6 +324,90 @@ describe("A-P3-REVIEW-SKIP 跳过审核：系统批准 AI 草稿", () => {
       reason: "possible_duplicate",
     });
     expect(await candidate(second.candidateId)).toMatchObject({ review_status: "pending" });
+  });
+
+  it("已发布活动把草稿整段包住、草稿范围里没有它的节点时，同样视为疑似重复", async () => {
+    const wide = await readyActivity("「区间样例」");
+    expect((await approveDraftWithoutReview(env.DB, wide.candidateId, tick())).kind).toBe(
+      "approved",
+    );
+    await publishApprovedCandidate(env.DB, wide.candidateId, tick(), false);
+    // 别篇公告只写了中间一段（9/20–9/25），已发布活动的节点在 9/16 与 10/5。
+    const inner = await seedRuleCandidate(
+      "zzz-ann",
+      {
+        ann_id: 9001,
+        title: "「区间样例」第二阶段说明",
+        content: "<p>「区间样例」第二阶段</p><p>开放时间：2026/09/20 10:00 ~ 2026/09/25 03:59</p>",
+      },
+      { nowMs: tick() },
+    );
+    expect(inner.article.blocks[2]).toMatchObject({ kind: "html" });
+    const built = buildDraftProposal(inner.article, {
+      classification: "events",
+      ambiguities: [],
+      events: [
+        {
+          event_type: "limited_event",
+          status: "scheduled",
+          title: "『区间样例』活动",
+          type_quote: { block: 0, quote: "「区间样例」第二阶段说明" },
+          status_quote: null,
+          milestones: [
+            {
+              node_type: "start",
+              label: "",
+              block: 2,
+              time_text: "2026/09/20 10:00",
+              estimated: false,
+            },
+            {
+              node_type: "end",
+              label: "",
+              block: 2,
+              time_text: "2026/09/25 03:59",
+              estimated: false,
+            },
+          ],
+        },
+      ],
+    });
+    expect(built.status).toBe("ready");
+    await draftFor(inner.candidateId, inner.article, built.proposal);
+    expect(await approveDraftWithoutReview(env.DB, inner.candidateId, tick())).toEqual({
+      kind: "held",
+      reason: "possible_duplicate",
+    });
+  });
+
+  it("开关以此刻为准：已关闭、或草稿写于开启之前都留给人工；提交时开关条件不成立则不批准", async () => {
+    const off = await readyActivity("「开关样例」");
+    await setControl("review_skip_enabled", false, tick());
+    expect(await approveDraftWithoutReview(env.DB, off.candidateId, tick())).toEqual({
+      kind: "held",
+      reason: "switch_off",
+    });
+    // 重新开启：开启时间晚于这份草稿，草稿不在范围内。
+    await setControl("review_skip_enabled", true, tick());
+    expect(await approveDraftWithoutReview(env.DB, off.candidateId, tick())).toEqual({
+      kind: "held",
+      reason: "draft_before_switch",
+    });
+    // 开关读作开启，但提交那一刻 AI 草稿已不可用（外发关闭）：条件提交拒绝，候选原样。
+    const late = await readyActivity("「条件样例」");
+    await setControl("outbound_enabled", false, tick());
+    try {
+      await expect(approveDraftWithoutReview(env.DB, late.candidateId, tick())).rejects.toThrow(
+        CandidateConflictError,
+      );
+      expect(await candidate(late.candidateId)).toMatchObject({
+        review_status: "pending",
+        extractor: "rule",
+      });
+    } finally {
+      await setControl("outbound_enabled", true, now);
+    }
+    expect(await candidate(off.candidateId)).toMatchObject({ review_status: "pending" });
   });
 
   it("目标活动已被人工锁定时，新版本的草稿留给人工", async () => {
