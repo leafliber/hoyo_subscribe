@@ -42,8 +42,9 @@ export interface DraftVersionWindow {
 
 const MODEL_STATUSES = ["scheduled", "postponed", "cancelled"] as const;
 type ModelStatus = (typeof MODEL_STATUSES)[number];
-const DATE_TIME = /\d{4}\/\d{2}\/\d{2} \d{2}:\d{2}(?::\d{2})?/g;
-const DATE_ONLY = /^(\d{4})\/(\d{2})\/(\d{2})$/;
+// P3-24：斜线与横线两种官方写法（"2026/09/30""2026-09-30"），分隔符前后一致。
+const DATE_TIME = /\d{4}([/-])\d{2}\1\d{2} \d{2}:\d{2}(?::\d{2})?/g;
+const DATE_ONLY = /^(\d{4})([/-])(\d{2})\2(\d{2})$/;
 const TIME_TAG = /<t\b[^>]*\bclass=["'](t_gl|t_lc)["'][^>]*>([^<]*)<\/t>/g;
 
 /** 从模型文本取唯一 JSON 对象：去掉思考块与代码围栏；无法解析返回 null。 */
@@ -159,7 +160,7 @@ function timeValue(quote: string, estimated: boolean): TimeValue | "range" {
   }
   const date = DATE_ONLY.exec(quote.trim());
   if (date !== null) {
-    const iso = DateOnlySchema.safeParse(`${date[1]}-${date[2]}-${date[3]}`);
+    const iso = DateOnlySchema.safeParse(`${date[1]}-${date[3]}-${date[4]}`);
     if (iso.success)
       return {
         precision: "date",

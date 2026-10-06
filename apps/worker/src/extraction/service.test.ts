@@ -224,6 +224,32 @@ describe("A-P3-EXTRACT 规则白名单与人工审核领域层", () => {
     expect(phased.candidate.proposal.classification).toBe("uncertain");
   });
 
+  it("A-P3-HYPHEN 横线写法的额外日期同样转人工；规则模板仍只认已核验的斜线写法", async () => {
+    const original = fixtureEntry(zzzActivity, 1303);
+    const extra = await seedArticle(
+      "zzz-ann",
+      original,
+      "complete",
+      `${original.content}<p>2026-09-30 12:00（服务器时间）开放新关卡</p>`,
+      "1303-synthetic-hyphen-extra",
+    );
+    expect(extractByRules(await loadStoredArticleVersion(env.DB, extra))).toEqual({
+      kind: "review",
+      reason: "正文含额外日期，需核对多阶段",
+    });
+    const hyphenOnly = await seedArticle(
+      "zzz-ann",
+      original,
+      "complete",
+      original.content.replaceAll("2026/09/", "2026-09-"),
+      "1303-synthetic-hyphen-template",
+    );
+    expect(extractByRules(await loadStoredArticleVersion(env.DB, hyphenOnly))).toEqual({
+      kind: "review",
+      reason: "未命中已核验规则模板",
+    });
+  });
+
   it("来源运行中转为维护态时，历史完整正文也不走自动批准", async () => {
     const entry = fixtureEntry(hsrActivity, 1392);
     const version = await seedArticle(

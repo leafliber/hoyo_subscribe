@@ -50,6 +50,16 @@ describe("A-P3-YEAR 识别没写年份的日期", () => {
     expect(earliestExplicitDate(["10月1日", "2026/02/30 10:00"])).toBeNull();
     expect(earliestExplicitDate([])).toBeNull();
   });
+
+  it("A-P3-HYPHEN 横线写法（绝区零调频公告）也算参照日期；不存在的日子和多出的数字不算", () => {
+    expect(
+      earliestExplicitDate([
+        "本期代理人与音擎调频活动时间为： 2026-09-30 12:00（服务器时间） ~ 2026-10-20 14:59（服务器时间）",
+        "2026/10/03 10:00（服务器时间）",
+      ]),
+    ).toBe("2026-09-30");
+    expect(earliestExplicitDate(["2026-02-30 12:00", "编号 2026-09-301"])).toBeNull();
+  });
 });
 
 describe("A-P3-YEAR 补全年份", () => {

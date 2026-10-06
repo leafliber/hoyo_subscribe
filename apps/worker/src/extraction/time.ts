@@ -3,12 +3,13 @@ import { ExactTimeSchema, type ExactTimeValue } from "@hoyo/contracts";
 
 /** docs/evidence/p0/source-params.md §2.4：正文 API timezone=8。 */
 export const ANNOUNCEMENT_TIMEZONE = "UTC+08:00";
-export const FULL_DATE_TIME_SHAPE = /^(\d{4})\/(\d{2})\/(\d{2}) (\d{2}):(\d{2})(?::(\d{2}))?$/;
+// P3-24：绝区零调频公告写"2026-09-30 12:00"，与斜线写法同一含义；分隔符前后必须一致。
+export const FULL_DATE_TIME_SHAPE = /^(\d{4})([/-])(\d{2})\2(\d{2}) (\d{2}):(\d{2})(?::(\d{2}))?$/;
 
 export function parseAnnouncementExactTime(raw: string): ExactTimeValue | null {
   const match = FULL_DATE_TIME_SHAPE.exec(raw);
   if (match === null) return null;
-  const [, year, month, day, hour, minute, second] = match;
+  const [, year, , month, day, hour, minute, second] = match;
   const full = `${year}-${month}-${day}T${hour}:${minute}:${second ?? "00"}`;
   const utcMs = Date.parse(`${full}+08:00`);
   if (!Number.isSafeInteger(utcMs)) return null;

@@ -34,7 +34,8 @@ export interface YearReference {
 
 const YEARLESS =
   /^(\d{1,2})月(\d{1,2})日(?:\s*(\d{1,2}):(\d{2})(?::(\d{2}))?)?(?:\s*[(（](?:UTC\+8|UTC\+08:00|GMT\+8|服务器时间)[)）])?$/;
-const EXPLICIT_DATE = /(\d{4})(?:\/(\d{1,2})\/(\d{1,2})|年(\d{1,2})月(\d{1,2})日)/g;
+const EXPLICIT_DATE =
+  /(\d{4})(?:\/(\d{1,2})\/(\d{1,2})|年(\d{1,2})月(\d{1,2})日|-(\d{1,2})-(\d{1,2})(?!\d))/g;
 
 function pad(value: number): string {
   return String(value).padStart(2, "0");
@@ -64,15 +65,15 @@ export function parseYearlessDate(rawExpression: string): YearlessDate | null {
   return { month, day, time: { hour, minute, second } };
 }
 
-/** 文本里最早的四位年份日期（"2026/09/23"或"2026年9月23日"），作为补全年份的参照；没有时为 null。 */
+/** 文本里最早的四位年份日期（"2026/09/23""2026年9月23日"或"2026-09-23"），作为补全年份的参照；没有时为 null。 */
 export function earliestExplicitDate(texts: readonly string[]): string | null {
   let earliest: string | null = null;
   for (const text of texts)
     for (const match of text.matchAll(EXPLICIT_DATE)) {
       const value = isoDate(
         Number(match[1]),
-        Number(match[2] ?? match[4]),
-        Number(match[3] ?? match[5]),
+        Number(match[2] ?? match[4] ?? match[6]),
+        Number(match[3] ?? match[5] ?? match[7]),
       );
       if (value !== null && (earliest === null || value < earliest)) earliest = value;
     }
