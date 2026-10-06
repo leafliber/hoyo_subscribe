@@ -1,8 +1,22 @@
 // P3-11：组合 P3-01 已读取结果与 P3-02/P3-08 的版本计划，不另发正文请求。
+import { PIC_LIST_ID_PREFIX } from "../../sources/adapters/announcement";
+import { bodyHasVisibleText, denoiseTitle, splitBodyBlocks } from "../../sources/articles/blocks";
 import { type ArticleIngestPlan, buildArticleIngestPlan } from "../../sources/articles/ingest";
 import type { SourceRegistryEntry } from "../../sources/registry";
-import type { ArticleFetchResult } from "../../sources/types";
+import type { ArticleFetchResult, SourceItemStub } from "../../sources/types";
 import { isRecheckDue, runAnnouncementPollBatch, type SourcePollState } from "./source-poll";
+
+/**
+ * P3-24（ADR-0019，修改 ADR-0016 的"记来源暂空、不丢弃"）：图文资讯里只有一张图片的条目
+ * （标题为空、正文没有可读文字）不入库。
+ * 本站不识别图片里的文字，入库只会产生无从核对的空候选；列表快照照常记下它，
+ * 之后官方补上标题或正文时按"变更"重新取正文入库。公告目录（data.list）不受影响。
+ */
+function isImageOnlyPicItem(stub: SourceItemStub, fetched: ArticleFetchResult): boolean {
+  if (!stub.externalId.startsWith(PIC_LIST_ID_PREFIX) || fetched.status !== "fetched") return false;
+  if (denoiseTitle(fetched.title || stub.title) !== "") return false;
+  return !bodyHasVisibleText(splitBodyBlocks(fetched.contentHtml));
+}
 export interface CollectedPage {
   plans: ArticleIngestPlan[];
   nextState: SourcePollState;
@@ -60,6 +74,7 @@ export async function collectSource(
               fetchedAtMs: now,
             };
     }
+    if (isImageOnlyPicItem(stub, fetched)) continue;
     plans.push(await buildArticleIngestPlan(entry, stub, fetched, now));
   }
   return {
