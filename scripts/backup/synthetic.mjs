@@ -175,6 +175,29 @@ export async function synthetic(ring) {
     changed_at: t,
     ...dates,
   });
+  // P6 (ADR-0025): an active push binding whose endpoint/keys are controlled ciphertexts.
+  insert(db, "push_bindings", {
+    id: "synthetic-push-binding",
+    user_id: "synthetic-user",
+    endpoint_hash: digest("https://fcm.googleapis.com/fcm/send/synthetic"),
+    endpoint_ciphertext: await encryptField(
+      ring.fieldEncryption(),
+      { type: "push-endpoint", id: "synthetic-push-binding" },
+      "https://fcm.googleapis.com/fcm/send/synthetic",
+    ),
+    keys_ciphertext: await encryptField(
+      ring.fieldEncryption(),
+      { type: "push-keys", id: "synthetic-push-binding" },
+      JSON.stringify({ p256dh: "synthetic-p256dh", auth: "synthetic-auth" }),
+    ),
+    state: "active",
+    binding_version: 3,
+    receipt_token_hash: digest("synthetic-receipt"),
+    lease_expires_at: t + 1000,
+    activated_at: t,
+    push_service: "fcm",
+    ...dates,
+  });
   insert(db, "auth_challenges", {
     id: "synthetic-challenge",
     purpose: "login",

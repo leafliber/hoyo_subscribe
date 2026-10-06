@@ -158,6 +158,9 @@ const fields = [
   ["auth_challenges", "receipt_ciphertext", "auth-completion-receipt", "id"],
   ["calendar_feeds", "token_ciphertext", "feed-token-owner-copy", "namespace"],
   ["mail_outbox", "payload_ciphertext", "otp-mail-payload", "id"],
+  // P6 (ADR-0025): push endpoint and keys are field-encrypted with record type + binding id AAD.
+  ["push_bindings", "endpoint_ciphertext", "push-endpoint", "id"],
+  ["push_bindings", "keys_ciphertext", "push-keys", "id"],
 ];
 export async function validate(db, ring) {
   checkSchema(db);
@@ -181,8 +184,7 @@ export async function validate(db, ring) {
       ciphertexts++;
     }
   }
-  // P6 is not enabled and has no registered field-AAD format yet. Never pretend to validate it.
-  demand(rows(db, "push_bindings").length === 0, "push_ciphertext_format_not_implemented");
+  // Push secrets are validated above like every other controlled ciphertext (ADR-0025).
   demand(
     db
       .prepare(
@@ -345,8 +347,10 @@ export async function restore(payload, ring, current, now = Date.now()) {
     db.prepare(
       "UPDATE email_channels SET enabled=0,routine_enabled=0,lease_expires_at=NULL,channel_revision=channel_revision+1,updated_at=?",
     ).run(now);
+    // Restored push bindings stay paused until the browser re-registers and passes a new visible
+    // activation; receipt capabilities and outstanding challenges are revoked. Gone endpoints stay gone.
     db.prepare(
-      "UPDATE push_bindings SET state='paused',receipt_token_hash=NULL,binding_version=binding_version+1,updated_at=?",
+      "UPDATE push_bindings SET state='paused',paused_reason='restore',receipt_token_hash=NULL,activation_challenges_json=NULL,binding_version=binding_version+1,updated_at=? WHERE state<>'gone'",
     ).run(now);
     // Reconcile identities conservatively. Missing, changed binding, or non-active live identity
     // blocks ALL account reopening until the owner has reconciled the current identity ledger.
