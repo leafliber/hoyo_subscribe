@@ -14,6 +14,7 @@ import {
   MAIL_URGENT_FLOOR,
   MAIL_USER_BASE_DAY,
   MAIL_USER_URGENT_DAY,
+  PUSH_DISCLOSURE,
 } from "@hoyo/contracts";
 import Icon from "../components/Icon.astro";
 import Layout from "./_Layout.astro";
@@ -36,6 +37,7 @@ import "../features/info/info.css";
           <li><a href="#clients">支持的日历应用</a></li>
           <li><a href="#preview">预览与范围</a></li>
           <li><a href="#mail">邮件通知与名额</a></li>
+          <li><a href="#push">浏览器通知</a></li>
           <li><a href="#account">账号与恢复码</a></li>
           <li><a href="#data">数据来源与准确性</a></li>
         </ul>
@@ -99,7 +101,19 @@ import "../features/info/info.css";
             <p>全站认证、基础、紧急三个日池分别为 {MAIL_AUTH_DAY}、{MAIL_BASE_DAY}、{MAIL_URGENT_DAY} 次，各池独立、不互借、不跨日结转。认证池剩余不高于 {MAIL_AUTH_FLOOR} 时，只接受已有账号首次登录，暂停新注册发信与重发；紧急池剩余不高于 {MAIL_URGENT_FLOOR} 时只发取消/撤回通知。日池次日恢复不代表旧通知会补发。</p>
             <p>平台要求稍后重试时，首版不会自动补发：验证码请重新申请，业务通知到期即作废。「已提交平台」不代表对方已收到或已读。</p>
           </details>
-          <p>名额满时暂不提供候补，也不承诺开放时间；可以先用<a href="/subscription">日历提醒</a>，但没有邮件就收不到取消/改期的主动通知。日历和邮件相互独立，可能重复提醒，也没有自动故障转移。浏览器推送首版未开放。</p>
+          <p>名额满时暂不提供候补，也不承诺开放时间；可以先用<a href="/subscription">日历提醒</a>，但没有邮件就收不到取消/改期的主动通知。日历和邮件相互独立，可能重复提醒，也没有自动故障转移。</p>
+        </section>
+
+        <section id="push" class="card info-section" aria-labelledby="push-title">
+          <h2 id="push-title">浏览器通知是什么？怎么开启？</h2>
+          <p>浏览器通知是可选的第三种接收方式：开放后，在「我的订阅」点「在当前浏览器开启通知」，浏览器会请你授权，本站随即发一条验证通知；你看到它、浏览器回报收到后，才显示「本浏览器接收验证通过」。点击之前本站不会请求通知权限。</p>
+          <ul>
+            <li>每个账号最多 {PUSH_DISCLOSURE.user_max} 个浏览器；验证要在 {PUSH_DISCLOSURE.activation_ttl_seconds / 60} 分钟内完成，最多发 {PUSH_DISCLOSURE.activation_attempts} 次验证通知；测试通知同一浏览器至少间隔 {PUSH_DISCLOSURE.test_cooldown_seconds} 秒。</li>
+            <li>收到通知或在本站操作会自动续期；连续 {PUSH_DISCLOSURE.lease_days} 天都没有确认收到，会自动暂停，暂停 {PUSH_DISCLOSURE.stale_grace_days} 天后清理。恢复时需要重新验证。</li>
+            <li>iPhone / iPad 需要先用 Safari 把本站「添加到主屏幕」，再从主屏幕打开本站开启。部分浏览器依赖的推送服务在一些网络下可能无法连接。</li>
+            <li>验证通过只说明此刻能收到，不承诺以后每条都送达；浏览器通知、邮件和日历相互独立，同一件事可能各提醒一次。</li>
+            <li>退出某台设备的登录不会关闭它的浏览器通知；请在账号页「浏览器通知」里暂停或删除。紧急停用、恢复登录与删除账号会立即暂停全部浏览器通知。</li>
+          </ul>
         </section>
 
         <section id="account" class="card info-section" aria-labelledby="account-title">

@@ -16,6 +16,7 @@ import { closeDialog } from "../../../components/dialog";
 import { announce } from "../../../components/status";
 import { feedbackForFailure } from "../../../lib/errors/feedback";
 import { publishDraftIdentity, readDraftIdentityEvent } from "../../../lib/storage/identity";
+import { AccountPushSection, pauseThisBrowserBeforeLogout } from "../../channels/push/account";
 import { csrfToken, object, request, type Session, sessions } from "../api";
 import { Turnstile } from "../turnstile";
 import { revokeSession } from "./api";
@@ -37,6 +38,17 @@ let deletionUncertain = false;
 let channel: BroadcastChannel | null = null;
 let publishingIdentity = false;
 const now = () => clockAnchor.server + (performance.now() - clockAnchor.local);
+// F5-01：浏览器通知分区（登录会话与 Push 绑定分组展示，前端 §10.1）。
+const pushSection = new AccountPushSection(
+  {
+    section: document.getElementById("account-push") as HTMLElement,
+    list: document.getElementById("account-push-list") as HTMLElement,
+    status: document.getElementById("account-push-status") as HTMLElement,
+    permission: document.getElementById("account-push-permission") as HTMLElement,
+    enableLink: document.getElementById("account-push-enable") as HTMLAnchorElement,
+  },
+  () => renderActions(),
+);
 
 function message(text: string): void {
   el("account-result").textContent = text;
@@ -75,9 +87,18 @@ function clearPrivate(): void {
   summary = null;
   rows = [];
   sessionReady = false;
-  for (const field of ["email", "expiry", "subscription", "mail", "lease", "reclaim"]) {
+  for (const field of [
+    "email",
+    "expiry",
+    "subscription",
+    "mail",
+    "push-summary",
+    "lease",
+    "reclaim",
+  ]) {
     el(`account-${field}`).textContent = "未知";
   }
+  pushSection.clear();
   el("account-sessions").replaceChildren();
   el("account-recovery").textContent = "恢复码保存状态未知。";
   el("account-recovery").className = "recovery-state";
@@ -101,6 +122,8 @@ function renderActions(): void {
   button("account-refresh").disabled = busy;
   button("account-logout").disabled = busy || !ready;
   button("logout-only").disabled = busy || !ready;
+  // 只有本浏览器有本账号的、可暂停的通知时才提供组合动作（前端 §10.2）。
+  button("logout-pause").hidden = !pushSection.thisBrowserPausable();
   button("logout-pause").disabled = busy || !ready;
   button("account-export").disabled = busy || !ready || !actions?.export_data.allowed;
   button("account-delete-open").disabled = busy || !ready || deletionUncertain;
@@ -145,6 +168,13 @@ function renderSummary(facts: AccountSummary): void {
       : facts.channels.email.state === "enabled"
         ? "已开启（不代表每封都送达）"
         : "未开启";
+  const push = facts.channels.push;
+  el("account-push-summary").textContent =
+    push.state === "unknown"
+      ? "未知"
+      : push.state === "none"
+        ? "未开启"
+        : `已验证 ${push.active} 个浏览器${push.pending ? `，${push.pending} 个等待验证` : ""}${push.paused ? `，${push.paused} 个已暂停` : ""}${push.gone ? `，${push.gone} 个已失效` : ""}`;
   el("account-reclaim").textContent =
     facts.reclaim_grace_until === null
       ? "正常使用中"
@@ -223,6 +253,7 @@ async function refresh(): Promise<boolean> {
     clockAnchor = { server: parsed.server_time, local: performance.now() };
     deletionUncertain = false;
     renderSummary(parsed);
+    void pushSection.refresh();
     try {
       const list = await readSessions(); // Issues current session CSRF, without renewal.
       if (turn !== epoch) return false;
@@ -341,12 +372,15 @@ async function renewAfterAction(
 
 async function logout(pause: boolean): Promise<void> {
   closeDialog(false);
+  // 组合动作逐项执行：暂停要用当前会话，必须在退出、失去凭证之前完成（前端 §10.2；D3 §2.9）。
+  let pauseResult = "\n本浏览器通知：未请求暂停。";
+  if (pause) {
+    message("正在暂停本浏览器通知…");
+    pauseResult = `\n本浏览器通知：${await pauseThisBrowserBeforeLogout()}`;
+  }
   invalidate();
   proofId = undefined;
   const turn = epoch;
-  const pauseResult = pause
-    ? "\n本浏览器通知：暂停未执行（能力尚未接入），不能确认已暂停。"
-    : "\n本浏览器通知：未请求暂停。";
   message(`正在退出当前账号。${pauseResult}`);
   let result: string;
   try {
@@ -826,14 +860,6 @@ window.addEventListener("pageshow", (event) => {
     });
   }
 });
-const pushPermission = document.getElementById("account-push-permission");
-if (pushPermission)
-  pushPermission.textContent =
-    typeof Notification === "undefined"
-      ? "此浏览器不支持通知"
-      : ({ default: "尚未授权", denied: "已拒绝", granted: "允许（不代表已绑定）" } as const)[
-          Notification.permission
-        ];
 connect();
 // Render time-dependent hints only. No passive session renewal or network polling.
 window.setInterval(renderActions, 1_000);

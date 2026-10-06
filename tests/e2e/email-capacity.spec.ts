@@ -153,6 +153,18 @@ async function openSubscription(
       await route.fulfill({ status: 503, json: {} });
     },
   );
+  // F5-01：浏览器通知卡片只读取本人 Push 事实（不写入、不带查询）；不可读时卡片保持隐藏。
+  await page.route(
+    (url) => url.pathname === "/api/v2/me/push-bindings",
+    async (route) => {
+      const request = route.request();
+      const url = new URL(request.url());
+      expect(request.method()).toBe("GET");
+      expect(url.origin).toBe(new URL(page.url()).origin);
+      expect(url.search).toBe("");
+      await route.fulfill({ status: 503, json: {} });
+    },
+  );
   await page.route("**/api/v2/auth/renew", async (route) => {
     expect(route.request().method()).toBe("POST");
     renewals++;

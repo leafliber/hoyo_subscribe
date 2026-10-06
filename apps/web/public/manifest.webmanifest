@@ -1,0 +1,12 @@
+{
+  "name": "HoYo日历",
+  "short_name": "HoYo日历",
+  "description": "原神、崩坏：星穹铁道、绝区零的官方活动日程。",
+  "lang": "zh-CN",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#f4f5f7",
+  "theme_color": "#f4f5f7",
+  "icons": [{ "src": "/favicon.svg", "sizes": "any", "type": "image/svg+xml" }]
+}
