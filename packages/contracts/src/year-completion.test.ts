@@ -1,11 +1,12 @@
 // A-P3-YEAR · 没写年份的公告日期按参照日期确定性补全年份（ADR-0013，纯函数）。
 import { describe, expect, it } from "vitest";
-import { YEAR_COMPLETION_WINDOW } from "./params/registry";
+import { YEAR_COMPLETION_CAPTURE_WINDOW, YEAR_COMPLETION_WINDOW } from "./params/registry";
 import {
   completeYear,
   earliestExplicitDate,
   parseYearlessDate,
   yearCompletionBasis,
+  yearCompletionWindow,
 } from "./year-completion";
 
 const tz = "UTC+08:00";
@@ -102,11 +103,43 @@ describe("A-P3-YEAR 补全年份", () => {
     expect(completeYear("10月1日", "2026-13-01", tz)).toBeNull();
   });
 
+  it("A-P3-YEAR-CAPTURE 参照为首次采集日期时用更窄的窗口（ADR-0027）", () => {
+    expect(yearCompletionWindow("captured")).toBe(YEAR_COMPLETION_CAPTURE_WINDOW);
+    for (const source of ["article", "version", "published"] as const)
+      expect(yearCompletionWindow(source)).toBe(YEAR_COMPLETION_WINDOW);
+    const capture = yearCompletionWindow("captured");
+    // 2026-10-07 线上的两个绝区零节点：前瞻公告 10-06 首次采集，假日相册公告 10-04 首次采集。
+    expect(completeYear("10月09日 19:30", "2026-10-06", tz, capture)).toEqual({
+      precision: "datetime",
+      utc_ms: Date.parse("2026-10-09T11:30:00Z"),
+      source_timezone: tz,
+      raw_expression: "10月09日 19:30",
+      time_basis: "deterministic_derived",
+    });
+    expect(completeYear("9月9日", "2026-10-04", tz, capture)).toMatchObject({
+      precision: "date",
+      date: "2026-09-09",
+    });
+    expect(completeYear("10月10日 23:59 (UTC+8)", "2026-10-04", tz, capture)).toMatchObject({
+      utc_ms: Date.parse("2026-10-10T15:59:00Z"),
+    });
+    // 参照 2026-10-04：前 30 天是 09-04，后 90 天是 2027-01-02；边界含当天。
+    expect(completeYear("9月4日", "2026-10-04", tz, capture)).toMatchObject({ date: "2026-09-04" });
+    expect(completeYear("9月3日", "2026-10-04", tz, capture)).toBeNull();
+    expect(completeYear("1月2日", "2026-10-04", tz, capture)).toMatchObject({ date: "2027-01-02" });
+    expect(completeYear("1月3日", "2026-10-04", tz, capture)).toBeNull();
+    // 首次采集晚于真实发布：一个多月前的日期用默认窗口会被补到下一年，窄窗口保持未定。
+    expect(completeYear("8月1日", "2026-10-04", tz)).toMatchObject({ date: "2027-08-01" });
+    expect(completeYear("8月1日", "2026-10-04", tz, capture)).toBeNull();
+  });
+
   it("推导依据写明年份是补出来的；不是补年份的节点没有依据文本", () => {
     const value = completeYear("10月1日", "2026-09-23", tz);
     if (value === null) throw new Error("应补出年份");
     expect(yearCompletionBasis("10月1日", value)).toContain("补全为 2026 年");
     expect(yearCompletionBasis("10月1日", value)).toContain("不是官方直接写出的");
+    // ADR-0027：公开节点不保存参照来源，依据文本要涵盖首次采集日期。
+    expect(yearCompletionBasis("10月1日", value)).toContain("本站首次采集这篇公告的日期");
     expect(
       yearCompletionBasis("2026/10/01", { ...value, raw_expression: "2026/10/01" }),
     ).toBeNull();

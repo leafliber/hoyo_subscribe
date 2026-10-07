@@ -424,6 +424,21 @@ export const PARAM_EQUATIONS: readonly EquationDefinition[] = [
       ) && v.YEAR_COMPLETION_WINDOW.beforeDays + v.YEAR_COMPLETION_WINDOW.afterDays < 365,
     { YEAR_COMPLETION_WINDOW: { beforeDays: 30, afterDays: 335 } },
   ),
+  eq(
+    "year-completion-capture-window-narrower",
+    "时间推导",
+    "YEAR_COMPLETION_CAPTURE_WINDOW.beforeDays、afterDays 为正安全整数，且两端都不超过 YEAR_COMPLETION_WINDOW 对应的一端（首次采集晚于真实发布，窗口只能更窄；ADR-0027）",
+    (v) =>
+      `beforeDays(${v.YEAR_COMPLETION_CAPTURE_WINDOW.beforeDays}) <= ${v.YEAR_COMPLETION_WINDOW.beforeDays}, afterDays(${v.YEAR_COMPLETION_CAPTURE_WINDOW.afterDays}) <= ${v.YEAR_COMPLETION_WINDOW.afterDays}`,
+    (v) =>
+      [
+        v.YEAR_COMPLETION_CAPTURE_WINDOW.beforeDays,
+        v.YEAR_COMPLETION_CAPTURE_WINDOW.afterDays,
+      ].every((days) => Number.isSafeInteger(days) && days > 0) &&
+      v.YEAR_COMPLETION_CAPTURE_WINDOW.beforeDays <= v.YEAR_COMPLETION_WINDOW.beforeDays &&
+      v.YEAR_COMPLETION_CAPTURE_WINDOW.afterDays <= v.YEAR_COMPLETION_WINDOW.afterDays,
+    { YEAR_COMPLETION_CAPTURE_WINDOW: { beforeDays: 30, afterDays: 331 } },
+  ),
   // —— SOURCE_LIMIT_PROFILE 工程依赖（P3-08；§3.1 大小限制、附录 A.1）——
   eq(
     "source-response-caps-within-ceiling",

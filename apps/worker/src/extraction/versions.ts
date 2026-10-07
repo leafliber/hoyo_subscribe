@@ -1,6 +1,6 @@
 // P3-19（ADR-0011）· 版本时间表：AI 建议入库、读取确认值，以及对草稿与人工候选的确定性推导和一致性核对。
 // P3-21（ADR-0013）· 同一推导再补全没写年份的日期：参照日期取正文里最早的四位年份日期 >
-// 所属版本已确认的更新开始 > 公告发布日期。
+// 所属版本已确认的更新开始 > 公告发布日期 > 本站首次采集日期（P3-26，ADR-0027，窗口更窄）。
 // 推导规则只有 @hoyo/contracts 的 deriveVersionTime / completeYear 定义；这里只负责取数和套用。
 import {
   browseDate,
@@ -13,6 +13,7 @@ import {
   parseYearlessDate,
   type TimeValue,
   type YearReference,
+  yearCompletionWindow,
 } from "@hoyo/contracts";
 import { loadStoredArticleVersion, type StoredArticleVersion } from "./article";
 import type { DraftVersionWindow } from "./model/build";
@@ -97,7 +98,10 @@ export function articleVersion(article: StoredArticleVersion): string | null {
   return distinct.length === 1 ? distinct[0] : null;
 }
 
-/** ADR-0013 参照日期：正文里最早的四位年份日期 > 所属版本已确认的更新开始 > 公告发布日期；都没有时为 null。 */
+/**
+ * ADR-0013 参照日期：正文里最早的四位年份日期 > 所属版本已确认的更新开始 > 公告发布日期 >
+ * 本站首次采集日期（ADR-0027）；都没有时为 null。首次采集日期建行后不再改写，不进入 derivation_key。
+ */
 export function yearReferenceOf(
   article: StoredArticleVersion,
   versions: ReadonlyMap<string, StoredVersionWindow>,
@@ -110,6 +114,8 @@ export function yearReferenceOf(
     return { date: browseDate(start), source: "version", version };
   if (article.officialPublishedAtMs != null)
     return { date: browseDate(article.officialPublishedAtMs), source: "published" };
+  if (article.firstSeenAtMs != null)
+    return { date: browseDate(article.firstSeenAtMs), source: "captured" };
   return null;
 }
 
@@ -187,6 +193,7 @@ function referenceText(reference: YearReference): string {
   if (reference.source === "article") return `公告里最早写明的日期（${reference.date}）`;
   if (reference.source === "version")
     return `已确认的 ${reference.version} 版本更新开始（${reference.date}）`;
+  if (reference.source === "captured") return `本站首次采集这篇公告的日期（${reference.date}）`;
   return `公告发布日期（${reference.date}）`;
 }
 
@@ -223,7 +230,12 @@ export function applyVersionDerivations(
         }
         if (reference.source === "version" && reference.version !== undefined)
           used.set(reference.version, versions.get(reference.version)?.updatedAt ?? 0);
-        const time = completeYear(raw, reference.date, ANNOUNCEMENT_TIMEZONE);
+        const time = completeYear(
+          raw,
+          reference.date,
+          ANNOUNCEMENT_TIMEZONE,
+          yearCompletionWindow(reference.source),
+        );
         if (time === null) {
           notes.add(
             `「${raw}」未写年份，按${referenceText(reference)}推不出唯一的年份，保持未定时刻。`,
@@ -306,7 +318,12 @@ export function versionDerivationIssues(
         expected =
           context.year === null
             ? null
-            : completeYear(raw, context.year.date, ANNOUNCEMENT_TIMEZONE);
+            : completeYear(
+                raw,
+                context.year.date,
+                ANNOUNCEMENT_TIMEZONE,
+                yearCompletionWindow(context.year.source),
+              );
       else return;
       if (expected === null || !sameTime(expected, milestone.time))
         issues.push(`$.events[${eventIndex}].milestones[${milestoneIndex}].time`);
