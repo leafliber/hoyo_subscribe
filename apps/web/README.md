@@ -23,6 +23,7 @@ HoYo日历的网页端：Astro 静态输出 + 原生 TypeScript 模块，与 Wor
 - 每个公共页面在 frontmatter 第一行 `import "../styles/base.css"`，保证基础样式先于功能样式输出；管理端三页由 `features/admin/AdminLayout.astro`（独立外壳：noindex、三个页签）引入。
 - 与后端通信的协议细节（CSRF 头、幂等键、revision/generation 等 CAS 字段、结果不确定时的核对、显式操作后才续期）集中在各功能的 api/控制器模块里，改界面时不要绕开它们。
 - 业务规则来自 `@hoyo/contracts`，页面只做呈现。
+- 公开数据统一经 `src/lib/public-api/client.ts` 读取：响应在本标签页留副本（`store.ts`，`sessionStorage`），站内切换在 `CLIENT_RECHECK_INTERVAL` 内直接复用，超过后带 ETag 核对，刷新按钮与浏览器刷新立即核对（ADR-0032）。私人接口不要经过它。
 
 ## 本地验证
 

@@ -304,6 +304,12 @@ export const CAL_PATCH_GLOBAL_MAX = 10_000 as const;
 /** 公共快照新鲜窗口：公开副本超过这么久才标为可能过时。附录 A.3；§6.4。ADR-0015 由 300 改为 3600。 */
 export const PUBLIC_CACHE_FRESH = 3600 as const;
 
+/**
+ * 页面在站内切换、返回时直接复用上次核对过的公开数据（以及页头账号入口的上次核对结果）的最长时间（秒）；
+ * 超过后用条件请求再核对一次（内容没变只回 304）。刷新按钮与浏览器刷新总是立即核对。ADR-0032。
+ */
+export const CLIENT_RECHECK_INTERVAL = 300 as const;
+
 /** 私人预览每会话、每 isolate 的滑动窗口（秒）。ADR-0006；D2 §3.5。 */
 export const CALENDAR_PREVIEW_RATE_WINDOW = 60 as const;
 
@@ -712,6 +718,7 @@ export const PARAMS = {
   CAL_PATCH_TAIL_DAYS,
   CAL_PATCH_GLOBAL_MAX,
   PUBLIC_CACHE_FRESH,
+  CLIENT_RECHECK_INTERVAL,
   CALENDAR_PREVIEW_RATE_WINDOW,
   CALENDAR_PREVIEW_RATE_LIMIT,
   PUBLIC_READ_LIMITS,
@@ -811,6 +818,7 @@ export type ParamStatus =
   | "adr-0015"
   | "adr-0027"
   | "adr-0030"
+  | "adr-0032"
   | "p5-02-approved"
   | "measured"
   | "measured-ref"
@@ -1275,7 +1283,15 @@ export const PARAM_META: Readonly<Record<keyof ParamValues, ParamMeta>> = {
     unit: "秒",
     description: "公共快照新鲜窗口：公开副本超过这么久才标为可能过时",
     status: "adr-0015",
-    note: "附录原值 300；ADR-0015 改为 3600（所有者 2026-10-05）。公开读取 HTTP 改为 no-cache，打开页面总取最新",
+    note: "附录原值 300；ADR-0015 改为 3600（所有者 2026-10-05）。公开读取 HTTP 改为 no-cache；ADR-0032 起页面在 CLIENT_RECHECK_INTERVAL 内复用上次核对的副本，超过后用条件请求核对",
+  },
+  CLIENT_RECHECK_INTERVAL: {
+    section: "A.3",
+    unit: "秒",
+    description:
+      "页面站内切换、返回时直接复用上次核对过的公开数据（及页头账号入口的核对结果）的最长时间；超过后条件请求再核对",
+    status: "adr-0032",
+    note: "刷新按钮与浏览器刷新总是立即核对；内容没变时服务端只回 304",
   },
   CALENDAR_PREVIEW_RATE_WINDOW: {
     section: "A.3",

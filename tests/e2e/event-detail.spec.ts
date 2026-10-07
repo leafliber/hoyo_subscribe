@@ -276,7 +276,7 @@ test("U04 补全年份的节点写明年份是补出来的（ADR-0013）", async
   await expect(milestone.locator(".milestone-status")).toContainText("按公告推算");
   await expect(milestone.locator(".evidence-box")).toContainText("原始时间表述：10月1日");
   await expect(milestone.locator(".evidence-box")).toContainText(
-    "推导依据：原文未写年份，按同一公告里写明的日期（或所属版本已确认的更新时间）补全为 2026 年；年份不是官方直接写出的。",
+    "推导依据：原文未写年份，按同一公告里写明的日期、所属版本已确认的更新时间或本站首次采集这篇公告的日期补全为 2026 年；年份不是官方直接写出的。",
   );
 });
 

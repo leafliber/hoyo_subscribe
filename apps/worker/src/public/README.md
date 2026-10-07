@@ -44,7 +44,7 @@
 
 ## 缓存、失败和读量
 
-公共副本 `freshUntil = generatedAt + PUBLIC_CACHE_FRESH`（秒转毫秒；ADR-0015 起为 1 小时）；源站实时响应 `stale=false`。HTTP 为 `no-cache`（ADR-0015）：浏览器每次打开都向源站取最新，不复用旧响应；freshUntil 只用于页面开着太久时标注"可能已过时"并给出刷新按钮。前端使用已过 freshUntil 的副本时标注并显示 generatedAt；publication.publishedAt 与每来源 verifiedAt 单独展示数据水位。此模块没有源站旧副本兜底，不供私人 Feed 使用。
+公共副本 `freshUntil = generatedAt + PUBLIC_CACHE_FRESH`（秒转毫秒；ADR-0015 起为 1 小时）；源站实时响应 `stale=false`。HTTP 为 `no-cache`（ADR-0015）：浏览器不在 HTTP 缓存里复用旧响应；freshUntil 只用于页面开着太久时标注"可能已过时"并给出刷新按钮。ADR-0032 起目录、日程、详情、原文、状态、兑换码的 200 响应带弱 ETag（`conditional.ts`：去掉 `cache` 字段后的 SHA-256 前 128 位），`If-None-Match` 一致时回 304、无正文；页面在同一标签页留副本，站内切换时在 `CLIENT_RECHECK_INTERVAL` 内直接复用，超过后带 ETag 核对，刷新立即核对（`apps/web/src/lib/public-api/`）。错误响应不带 ETag。前端使用已过 freshUntil 的副本时标注并显示 generatedAt；publication.publishedAt 与每来源 verifiedAt 单独展示数据水位。此模块没有源站旧副本兜底，不供私人 Feed 使用。
 
 没有完整代次：catalog/status 的 `publication=null`；events/detail 返回 503。events/detail 查询失败、行超字节保护、详情超节点/字节保护明确不可用。
 

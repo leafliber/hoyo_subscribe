@@ -158,6 +158,7 @@ describe("A-P4-OUTBOX Delivery 执行器", () => {
             await statusRoute.handler({
               env: configured,
               url: new URL("https://synthetic.example/api/v2/status"),
+              request: new Request("https://synthetic.example/api/v2/status"),
             } as unknown as Parameters<ShellRoute["handler"]>[0])
           ).json(),
         ).toMatchObject({ mail_sending_available: false });
@@ -209,6 +210,7 @@ describe("A-P4-OUTBOX 认证路由故障门", () => {
     const response = await statusRoute.handler({
       env,
       url: new URL("https://synthetic.example/api/v2/status"),
+      request: new Request("https://synthetic.example/api/v2/status"),
     } as unknown as Parameters<ShellRoute["handler"]>[0]);
     expect(await response.json()).toMatchObject({ mail_sending_available: false });
   });
@@ -251,6 +253,7 @@ describe("A-P4-OUTBOX 认证路由故障门", () => {
       const status = await statusRoute.handler({
         env: broken,
         url: new URL("https://synthetic.example/api/v2/status"),
+        request: new Request("https://synthetic.example/api/v2/status"),
       } as unknown as Parameters<ShellRoute["handler"]>[0]);
       expect(await status.json()).toMatchObject({ mail_sending_available: false });
     }

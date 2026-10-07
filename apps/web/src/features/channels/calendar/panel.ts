@@ -9,6 +9,7 @@ import {
 import { feedbackForFailure } from "../../../lib/errors/feedback";
 import { stamp } from "../../../lib/format";
 import { ICONS } from "../../../lib/icons";
+import { PublicApiClient, PublicReadError } from "../../../lib/public-api/client";
 import { publishDraftIdentity } from "../../../lib/storage/identity";
 import { copyText, toast } from "../../../lib/toast";
 import { type EmailSubscriptionHost, hasUnsavedSubscription } from "../email/subscription";
@@ -319,16 +320,11 @@ export class CalendarPanel {
   }
   private async readCapability(): Promise<void> {
     try {
-      const response = await fetch("/api/v2/status", { credentials: "omit" });
-      if (!response.ok) return;
-      const body: unknown = await response.json();
-      const value =
-        typeof body === "object" && body !== null && "capabilities" in body
-          ? (body as { capabilities?: { calendar?: unknown } }).capabilities?.calendar
-          : undefined;
-      this.capability = value === "open" || value === "closed" ? value : "unknown";
-    } catch {
-      this.capability = "unknown";
+      // ADR-0032：与本页其他入口共用一次 `/api/v2/status` 读取。
+      this.capability = (await new PublicApiClient().capabilities()).calendar;
+    } catch (error) {
+      // 服务端明确报错时保留原值（与改动前一致）；网络失败或形状不符按 unknown。
+      if (!(error instanceof PublicReadError && error.kind === "http")) this.capability = "unknown";
     }
   }
   private async load(): Promise<void> {

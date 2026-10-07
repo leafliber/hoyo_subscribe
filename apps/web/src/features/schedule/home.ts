@@ -77,7 +77,8 @@ if (form && results) {
       const id = item.getAttribute(attribute);
       if (!id) continue;
       current.add(id);
-      if (previous.has(id)) continue;
+      // ADR-0032：直接取自本标签页副本的列表原地出现，不当作新内容播放入场动效。
+      if (previous.has(id) || loader.state.restored) continue;
       item.classList.add("is-entering");
       item.style.setProperty("--enter-delay", `${Math.min(order, 10) * 45}ms`);
       order++;
@@ -101,6 +102,7 @@ if (form && results) {
         : undefined;
     output.replaceChildren(renderResults(loader.state, filters));
     output.setAttribute("aria-busy", String(loader.state.phase === "loading"));
+    output.toggleAttribute("data-switching", loader.state.switching);
     restoreDisclosures(output, opened);
     shownRows = markEntering(output, "data-node", shownRows);
     if (ending) {
@@ -453,13 +455,17 @@ if (form && results) {
   });
   window.addEventListener("offline", render);
   window.addEventListener("online", render);
-  window.addEventListener("pageshow", () => {
+  window.addEventListener("pageshow", (event) => {
     if (loader.state.pages.length) render();
+    // 从浏览器的往返缓存恢复（后退、前进）：离开得够久才核对（ADR-0032）。
+    if (event.persisted) loader.recheckIfStale();
   });
   document.addEventListener("visibilitychange", () => {
     if (!document.hidden) {
       tick();
       render();
+      // ADR-0032：离开得够久才向服务端核对（条件请求，没变不下载）。
+      loader.recheckIfStale();
     }
   });
   window.addEventListener("popstate", () => {

@@ -1759,8 +1759,29 @@ summary::-webkit-details-marker {
   }
 }
 
+/*
+ * ADR-0032 站内切换页面：同源导航用浏览器的跨文档视图过渡——页头原地不动，正文短暂交叉淡入，
+ * 不再整页白一下再出现。不支持的浏览器照常跳转；减少动效偏好下关闭。
+ */
+@view-transition {
+  navigation: auto;
+}
+
+.app-header {
+  view-transition-name: app-header;
+}
+
+::view-transition-old(root),
+::view-transition-new(root) {
+  animation-duration: var(--duration-fast);
+}
+
 /* 减少非必要动效：用户偏好减少动效时全部停用。 */
 @media (prefers-reduced-motion: reduce) {
+  @view-transition {
+    navigation: none;
+  }
+
   *,
   *::before,
   *::after {

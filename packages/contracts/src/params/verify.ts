@@ -457,6 +457,19 @@ export const PARAM_EQUATIONS: readonly EquationDefinition[] = [
       },
     },
   ),
+  // —— 页面复用公开副本（ADR-0032）——
+  eq(
+    "client-recheck-below-public-fresh",
+    "页面副本",
+    "0 < CLIENT_RECHECK_INTERVAL < PUBLIC_CACHE_FRESH（页面在副本被标为可能过时之前就会再核对一次）",
+    (v) =>
+      `0 < CLIENT_RECHECK_INTERVAL(${v.CLIENT_RECHECK_INTERVAL}) < PUBLIC_CACHE_FRESH(${v.PUBLIC_CACHE_FRESH})`,
+    (v) =>
+      Number.isSafeInteger(v.CLIENT_RECHECK_INTERVAL) &&
+      v.CLIENT_RECHECK_INTERVAL > 0 &&
+      v.CLIENT_RECHECK_INTERVAL < v.PUBLIC_CACHE_FRESH,
+    { CLIENT_RECHECK_INTERVAL: 3600 },
+  ),
   // —— 直播兑换码来源（ADR-0030）——
   eq(
     "redeem-reveal-grace-below-hot-poll",

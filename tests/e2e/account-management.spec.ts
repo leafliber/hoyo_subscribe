@@ -629,9 +629,19 @@ test("U14a 导出从专用端点下载，不写本地账号或凭据缓存", asy
     format: "hoyo-preferences",
     subscription: { state: "uninitialized", config: null },
   });
+  const stored = await page.evaluate(() => ({
+    local: { ...localStorage },
+    session: { ...sessionStorage },
+  }));
+  // ADR-0032：本标签页只可能留公开接口的副本（如浏览器通知卡片读的 /api/v2/status），没有账号或凭据缓存。
+  const publicKeys = Object.keys(stored.session).filter((key) => key.startsWith("hoyo:public:v1:"));
   expect(
-    await page.evaluate(() => ({ local: { ...localStorage }, session: { ...sessionStorage } })),
-  ).toEqual({ local: {}, session: {} });
+    publicKeys.every((key) =>
+      /^hoyo:public:v1:(index|\/api\/v2\/(status|catalog|redeem-codes|events)\b)/.test(key),
+    ),
+  ).toBe(true);
+  for (const key of publicKeys) delete stored.session[key];
+  expect(stored).toEqual({ local: {}, session: {} });
 });
 
 for (const [name, path] of [

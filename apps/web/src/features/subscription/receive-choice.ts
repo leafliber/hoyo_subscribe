@@ -1,6 +1,7 @@
 // ADR-0029：登录后的第 2 步「选择接收方式」——浏览器通知、日历订阅、邮件通知任选一种，前两项标推荐。
 // 这里只呈现入口与公开能力：点击只跳到「接收方式」里对应的卡片，不开启任何通道、不申请浏览器权限
 // （前端 §7.1"邮件与 Push 不附带开启"、§9.3"用户主动点击前不申请系统权限"）。
+import { PublicApiClient } from "../../lib/public-api/client";
 import { iosNeedsHomeScreen, pushSupported } from "../channels/push/browser";
 
 export type ReceiveChannel = "push" | "calendar" | "mail";
@@ -9,19 +10,15 @@ export type ReceiveCapabilities = Record<ReceiveChannel, Capability>;
 
 const UNKNOWN: ReceiveCapabilities = { push: "unknown", calendar: "unknown", mail: "unknown" };
 
-/** 公开能力（`/api/v2/status`）；读取失败一律 unknown，不据此说"不可用"。 */
+/** 公开能力（`/api/v2/status`，与本页其他入口共用一次读取，ADR-0032）；读取失败一律 unknown，不据此说"不可用"。 */
 export async function readReceiveCapabilities(): Promise<ReceiveCapabilities> {
   try {
-    const response = await fetch("/api/v2/status", { credentials: "omit" });
-    if (!response.ok) return UNKNOWN;
-    const body = (await response.json()) as { capabilities?: Record<string, unknown> };
-    const read = (value: unknown): Capability =>
-      value === "open" || value === "closed" ? value : "unknown";
+    const capabilities = await new PublicApiClient().capabilities();
     return {
-      push: read(body.capabilities?.push),
-      calendar: read(body.capabilities?.calendar),
+      push: capabilities.push,
+      calendar: capabilities.calendar,
       // 新开邮件通知看"邮件新席位"；已开启的人不会走到这一步。
-      mail: read(body.capabilities?.email_seats),
+      mail: capabilities.email_seats,
     };
   } catch {
     return UNKNOWN;

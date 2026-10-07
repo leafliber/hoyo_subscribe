@@ -597,7 +597,7 @@ it("A-P3-PREVIEW Worker 真实入口跨请求保留限流桶，失败的读取�
   try {
     for (let i = 0; i < CALENDAR_PREVIEW_RATE_LIMIT; i++) {
       const r = await worker.fetch(
-        new Request(site + privatePath + "?cursor=bad", {
+        new Request(`${site}${privatePath}?cursor=bad`, {
           headers: { cookie: `__Host-session=${user.cookie}` },
         }),
         env,
