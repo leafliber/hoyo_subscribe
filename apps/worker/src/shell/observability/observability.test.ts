@@ -14,7 +14,7 @@ import { combinedAuthenticator, issueAdminSession } from "../../admin/session";
 import { readPipelineControls } from "../../executors/pipeline/controls";
 import { maintainFeedback } from "../../scheduled/feedback";
 import { CSRF_COOKIE_NAME, CSRF_HEADER_NAME, createApiShell, mintCsrfToken } from "../../shell";
-import { SOURCE_REGISTRY } from "../../sources/registry";
+import { isLiveEntry, SOURCE_REGISTRY } from "../../sources/registry";
 import { generateSecretToken } from "../../storage/crypto/random";
 import { ADMIN_SESSION_COOKIE_NAME, USER_SESSION_COOKIE_NAME } from "../domains";
 import { fakeExecutionContext, testKeyring } from "../test-support";
@@ -173,6 +173,43 @@ describe("A-P5-OBS 管理写权限和原子审计", () => {
     expect((await readPipelineControls(env.DB)).reviewSkip).toBe(true);
     await set("read_only", true);
     expect((await readPipelineControls(env.DB)).reviewSkip).toBe(false);
+  });
+  it("ADR-0033 来源开关没有记录时读作关闭、版本 0：初始化之后才登记的直播兑换码来源能以版本 0 开启，开启后管线即启用", async () => {
+    const a = await admin();
+    const listed = (await (await request("/api/v2/admin/controls", a)).json()) as {
+      controls: { control: string; source?: string; value: unknown; updated_at: number }[];
+    };
+    const live = SOURCE_REGISTRY.filter(isLiveEntry).map((entry) => entry.sourceId);
+    expect(live).toEqual(["genshin-live", "hsr-live", "zzz-live"]);
+    for (const source of live)
+      expect(listed.controls.find((row) => row.source === source)).toMatchObject({
+        control: "source_enabled",
+        value: false,
+        updated_at: 0,
+      });
+    // 全局开关没有记录时仍是未知（首次关闭门初始化必须逐项写入）。
+    expect(listed.controls.find((row) => row.control === "outbound_enabled")?.value).toBe(
+      "unknown",
+    );
+    await set("outbound_enabled", true);
+    expect((await readPipelineControls(env.DB)).sources["zzz-live"].enabled).toBe(false);
+    const write = await request("/api/v2/admin/controls", a, {
+      ...body("source_enabled", true),
+      source: "zzz-live",
+    });
+    expect(write.status).toBe(200);
+    expect((await readControl(env.DB, "source_enabled", "zzz-live")).value).toBe(true);
+    expect((await readPipelineControls(env.DB)).sources["zzz-live"].enabled).toBe(true);
+    // 有了记录之后，版本 0 不能再覆盖它。
+    expect(
+      (
+        await request("/api/v2/admin/controls", a, {
+          ...body("source_enabled", false),
+          source: "zzz-live",
+        })
+      ).status,
+    ).toBe(409);
+    expect((await readControl(env.DB, "source_enabled", "zzz-live")).value).toBe(true);
   });
   it("来源只认注册表，不接受任意 URL；缺配置不启用管线", async () => {
     const a = await admin();

@@ -28,7 +28,7 @@
 | §9.2 按月剩余自动平滑 | 0003 | 删去 envelope、carry、E=1、软线 S、月末片段；两个 floor 按当日剩余 ≤20 触发；恢复入口仍不依赖发信预算 |
 | §9.3 初值的数量关系 | 0003 | 认证量按日估算，不超过 `MAIL_AUTH_DAY`；按月的算例作废 |
 | §9.4 存量、日额度与回收 | 0025 | Push 租期 `PUSH_LEASE` 由激活、真实处理回执（按 `PUSH_RECEIPT_WRITE_INTERVAL` 合并）、测试与续期续上；到期暂停，暂停或失效超过 `PUSH_STALE_GRACE` 清理，激活过期的 pending 即清理 |
-| §10.1 观测与开关 | 0003、0009、0018、0024、0025 | 新增 `review_skip_enabled`（默认关）；`model_enabled` 控制 AI 草稿；月额、envelope 指标作废（开关全表见本文 §13）；平台侧开启 Workers Logs；公开能力 `push` 另核对部署配置（VAPID 等），推送服务 401/403 时系统自动关闭 `push_enabled` |
+| §10.1 观测与开关 | 0003、0009、0018、0024、0025、0033 | 新增 `review_skip_enabled`（默认关）；来源开关没有记录时读作关闭（ADR-0033）；`model_enabled` 控制 AI 草稿；月额、envelope 指标作废（开关全表见本文 §13）；平台侧开启 Workers Logs；公开能力 `push` 另核对部署配置（VAPID 等），推送服务 401/403 时系统自动关闭 `push_enabled` |
 | §10.3 合并后的验收矩阵 | 0003 | 月末片段、envelope/carry、认证软线相关用例作废 |
 | §10.5 仓库、配置与迁移 | 0003 | 禁止项改为"不得恢复月度池、envelope、carry、认证软线"（AGENTS.md §3） |
 | 附录 A.1 产品、来源与后台 | 0012、0016、0030 | `API_BODY_MAX_BYTES` 仍为 8 KiB，候选另有 `CANDIDATE_MAX_BYTES`；`SOURCE_LIMIT_PROFILE` 为三个公告源与三个直播兑换码来源（各 256 KiB）；新增 `REDEEM_LIVE_TRACK_MAX`（4）、`REDEEM_LIVE_TRACK_DAYS`（7）、`REDEEM_CODE_REVEAL_GRACE`（60 秒）、`REDEEM_CODE_UNDATED_DISPLAY`（24 小时）；`DEFAULT_CALENDAR_EVENT_TYPES` 加入 `redeem_code`（只影响界面预选） |
@@ -551,7 +551,7 @@ P3-15 / ADR-0006 启动校验 `calendar-preview-rate-bounds`：`CALENDAR_PREVIEW
 | `/api/v2/admin/redeem-lives` | POST 为直播兑换码来源登记官方直播页链接或活动 ID（ADR-0030）：闭合理由、条件写入并审计，至多 `REDEEM_LIVE_TRACK_MAX` 个，跟踪期后失效 |
 | `/api/v2/admin/reclaim`（+ `confirm/{id}`、`resume`） | 回收清单复核与恢复（P5-02） |
 
-## 13. 运行开关（§10.1；P5-01，ADR-0009、ADR-0018）
+## 13. 运行开关（§10.1；P5-01，ADR-0009、ADR-0018、ADR-0033）
 
 唯一定义在 contracts `OPERATIONAL_CONTROLS`（`packages/contracts/src/observability/index.ts`）。值存 `system_state`，只接受 JSON boolean；管理端写入必须管理员会话、绑定 CSRF、闭合理由（`OperationalReasonSchema`）、`expected_updated_at` 条件写入与同批审计（实现说明见 `apps/worker/src/shell/observability/README.md`）。
 
@@ -568,7 +568,7 @@ P3-15 / ADR-0006 启动校验 `calendar-preview-rate-bounds`：`CALENDAR_PREVIEW
 | `account_reclaim_enabled` / `seat_reclaim_enabled` | 账号、席位回收的运营门；不替代活动水位可靠性门 `reclaim_paused` | 未知 → 关闭 |
 | `read_only` | 维护只读：只限制扩大与修改，退订、停用、撤销、删除与管理员恢复操作保留 | 未知 → 按未配置处理 |
 | `calendar_enabled` | 日历启用（D3）；不影响已有个人 Feed 的读取与停用 | 未知 → 关闭 |
-| `source:<source_id>`（`source_enabled`） | 逐来源抓取；还要求外发总门开、`read_only` 关 | 未知 → 关闭 |
+| `source:<source_id>`（`source_enabled`） | 逐来源抓取；还要求外发总门开、`read_only` 关 | **合同默认 false**（ADR-0033：初始化之后才登记的来源，如 ADR-0030 的直播兑换码来源，没有行）；读取出错仍是未知 |
 
 读取失败一律是未知（`unknown`），执行时失败关闭；默认值只能是 false，不能借默认值打开任何能力。公开 `GET /api/v2/status` 只导出 `registration_open`、`mail_sending_available` 与 `capabilities`（calendar / email_seats / routine_email / push）的 open / closed / unknown，不输出预算或私人数据。首次关闭门初始化（2026-10-03）写入的"18 项"是当时 13 个全局开关、4 个来源开关与 `reclaim_paused`。
 
