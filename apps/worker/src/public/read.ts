@@ -3,8 +3,10 @@ import {
   EVENT_TYPES,
   encodePublicCursor,
   type GameId,
+  isPublicChange,
   PUBLIC_READ_LIMITS as LIMITS,
   NODE_TYPES,
+  PUBLIC_UNANNOUNCED_PATCH_KIND,
   type PublicCache,
   PublicCatalogResponseSchema,
   PublicEventArticlesResponseSchema,
@@ -183,14 +185,21 @@ export async function readEvents(db: D1Database, url: URL, now = Date.now()): Pr
       ...(
         await db
           .prepare(PUBLIC_CHANGES_SQL)
-          .bind(LIMITS.nodeBytes, state.head.id, game, now, LIMITS.recentChanges + 1)
+          .bind(
+            LIMITS.nodeBytes,
+            state.head.id,
+            game,
+            now,
+            PUBLIC_UNANNOUNCED_PATCH_KIND,
+            LIMITS.recentChanges + 1,
+          )
           .all<NodeRow>()
       ).results,
     );
   }
   const changes = changeRows
     .map((r) => parseNode(r, now))
-    .filter((n): n is PublicSnapshotNode => n !== null)
+    .filter((n): n is PublicSnapshotNode => n?.patch != null && isPublicChange(n.patch))
     .sort(
       (a, b) =>
         (b.patch?.retain_until ?? 0) - (a.patch?.retain_until ?? 0) ||

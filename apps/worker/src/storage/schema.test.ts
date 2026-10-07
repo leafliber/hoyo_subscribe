@@ -14,6 +14,7 @@ import {
   MAIL_UNMATCHED_MAX,
   MATCH_PAGE,
   PUBLIC_READ_LIMITS,
+  PUBLIC_UNANNOUNCED_PATCH_KIND,
   SECRET_BITS,
 } from "@hoyo/contracts";
 
@@ -2147,6 +2148,7 @@ it("A-P3-PUBLIC 当前代次/分片/详情/变更/来源/缺口/证据：增加 
         snapshot,
         "genshin",
         T0,
+        PUBLIC_UNANNOUNCED_PATCH_KIND,
         PUBLIC_READ_LIMITS.recentChanges + 1,
       ],
     },

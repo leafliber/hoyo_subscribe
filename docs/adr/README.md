@@ -57,4 +57,6 @@
 
 | [0027](0027-capture-time-year-reference.md) | 没写年份的日期在正文日期、所属版本更新开始、发布日期都没有时，按本站首次采集该公告的日期补全年份；这一级窗口收窄为前 30 天、后 90 天（`YEAR_COMPLETION_CAPTURE_WINDOW`），新增等式 `year-completion-capture-window-narrower`；公开推导依据文案涵盖首次采集日期 | 已接受（所有者 2026-10-07 批准）；P3-26 代码在工作区完成，待验收与部署；部署后由管理员更正两个绝区零节点 |
 
-下一个编号 0028。
+| [0028](0028-ending-soon-hide-and-first-time-not-change.md) | 首页"即将截止"没有条目时整块不显示；节点从待定第一次得到时间（没有任何曾公开旧时间的 `rescheduled`）不算改期：contracts `isPublicChange` 判定，不进近期变更，列表与详情的 `change` 为 null；共享更正层与个人 Feed 不变 | 已接受（所有者 2026-10-07 提出）；代码在工作区完成，待验收与部署 |
+
+下一个编号 0029。

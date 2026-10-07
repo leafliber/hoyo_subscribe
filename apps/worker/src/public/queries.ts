@@ -8,12 +8,16 @@ export const PUBLIC_DETAIL_SQL = `SELECT milestone_id,
   CASE WHEN length(CAST(node_json AS BLOB)) <= ? THEN node_json ELSE NULL END AS node_json
   FROM public_snapshot_nodes INDEXED BY idx_public_nodes_event
   WHERE snapshot_id = ? AND json_extract(node_json, '$.projection.event_id') = ? ORDER BY milestone_id LIMIT ?`;
+// ADR-0028：排除"没有旧时间的改期"（种类由 contracts PUBLIC_UNANNOUNCED_PATCH_KIND 绑定），
+// 与 isPublicChange 同一条件；放在 SQL 里，条数上限与截断标记只按真正公开的变更计算。
 export const PUBLIC_CHANGES_SQL = `SELECT milestone_id,
   CASE WHEN length(CAST(node_json AS BLOB)) <= ? THEN node_json ELSE NULL END AS node_json
   FROM public_snapshot_nodes INDEXED BY idx_public_nodes_changes
   WHERE snapshot_id = ? AND json_extract(node_json, '$.game') = ?
     AND json_extract(node_json, '$.patch.retain_until') IS NOT NULL
     AND json_extract(node_json, '$.patch.retain_until') > ?
+    AND (json_extract(node_json, '$.patch.kind') IS NOT ?
+      OR json_extract(node_json, '$.patch.old_time') IS NOT NULL)
   ORDER BY json_extract(node_json, '$.patch.retain_until') DESC, milestone_id LIMIT ?`;
 // 已下线来源（ADR-0016）的历史行留在库里（文章外键指向它），但不出现在公开状态。
 export const PUBLIC_SOURCES_SQL = `SELECT source_id, last_success_at, verification_state FROM sources

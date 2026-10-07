@@ -649,24 +649,6 @@
   height: 64px;
 }
 
-.ending-none {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  margin: 0;
-  padding: var(--space-4);
-  border: var(--border-thin) dashed var(--color-border-strong);
-  border-radius: var(--radius-card);
-  background: var(--color-bg-surface);
-  color: var(--color-text-secondary);
-  font-size: var(--font-size-aux);
-}
-
-.ending-none .icon {
-  flex: none;
-  color: var(--color-success);
-}
-
 .ending-more {
   display: inline-flex;
   align-items: center;
