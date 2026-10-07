@@ -695,21 +695,27 @@ for (const reason of ["no_session", "session_expired"] as const) {
 }
 
 for (const mode of ["success", "reject", "timeout"])
-  test(`A-P2-PREAUTH U29 三个账号组件 action 与 ${mode} 后独立清理/reset`, async ({ page }) => {
+  test(`A-P2-PREAUTH U29 四个账号组件 action 与 ${mode} 后独立清理/reset`, async ({ page }) => {
     const state = await setup(page);
     state.challengeMode = mode;
     await manualTurnstile(page);
     await open(page);
+    // ADR-0026：恢复码的更换在账号设置里，用同一套最近认证组件。
     for (const [id, action, role] of [
       ["email-current", "email_change", "current"],
       ["email-new", "email_change", "new_address"],
+      ["recovery-current", "recovery_code_rotate", "current"],
       ["delete-current", "account_delete", "current"],
     ] as const) {
+      if (id === "recovery-current") await page.locator("#recovery-rotate").click();
       if (id === "delete-current") await page.locator("#account-delete-open").click();
-      expect(await widgetState(page, `${id}-turnstile`)).toMatchObject({
-        action: recentAuthTurnstileAction(action, role),
-        sitekey: "synthetic-sitekey",
-      });
+      // 每个组件各自加载脚本后渲染；轮询直到本组件渲染完成。
+      await expect
+        .poll(() => widgetState(page, `${id}-turnstile`))
+        .toMatchObject({
+          action: recentAuthTurnstileAction(action, role),
+          sitekey: "synthetic-sitekey",
+        });
       await page.locator(`#${id}-send`).click();
       await expect.poll(() => widgetState(page, `${id}-turnstile`)).toMatchObject({ resets: 1 });
       expect(state.writes.at(-1)?.body).toMatchObject({

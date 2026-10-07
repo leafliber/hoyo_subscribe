@@ -81,9 +81,9 @@ export async function pauseThisBrowserBeforeLogout(): Promise<string> {
       const fresh = (await readPush()).bindings.find((item) => item.id === binding.id);
       return fresh?.state === "paused"
         ? "核对确认已暂停。"
-        : "结果未知：暂停可能没有生效，请登录后在账号页核对。";
+        : "结果未知：暂停可能没有生效，请登录后在账号设置里核对。";
     } catch {
-      return "结果未知：暂停可能没有生效，请登录后在账号页核对。";
+      return "结果未知：暂停可能没有生效，请登录后在账号设置里核对。";
     }
   }
 }

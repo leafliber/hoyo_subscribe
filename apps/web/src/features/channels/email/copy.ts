@@ -10,12 +10,11 @@ import {
 export const BLOCK_COPY: Record<EmailChannelBlockReason, string> = {
   pending_activation: "请先完成当前浏览器的登录激活。",
   recovery_code_unconfirmed: "请先保存并确认恢复登录后生成的新恢复码。",
-  recovery_code_not_saved: "请先保存并确认当前恢复码，再开启邮件提醒。",
   subscription_uninitialized: "先保存一次订阅内容。",
   address_suppressed:
-    "当前邮箱已被抑制，不能通过重新勾选解除。请到账号页进行受控处理或验证新邮箱。",
+    "当前邮箱已被抑制，不能通过重新勾选解除。请到账号设置进行受控处理或验证新邮箱。",
   deliverability_unknown: "当前邮箱可投递性未知，请重新读取状态。",
-  seat_required: "请先开启邮件提醒席位，再单独同意常规提醒邮件。",
+  seat_required: "先开启上面的「重要变化」邮件提醒，才能开启这一项。",
   capacity_full: "当前名额已满，暂不能开启这一层。",
   capacity_unknown: "当前名额余量未知，请重新读取状态。",
 };

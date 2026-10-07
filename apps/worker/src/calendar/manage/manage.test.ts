@@ -150,19 +150,18 @@ beforeAll(async () => {
   );
 }, 60000);
 describe("A-P3-FEEDAPI 管理接口", () => {
-  it("未启用视图不创建默认配置；保存确认前不得启用", async () => {
+  it("未启用视图不创建默认配置；恢复码可选，没有恢复码也能启用（ADR-0026）", async () => {
     const s = await seed(false);
     expect(await view(s)).toMatchObject({
       address_state: "not_enabled",
       url: null,
       configuration: { state: "uninitialized", revision: 0, alarms_enabled: null },
     });
-    await run("UPDATE recovery_credentials SET saved_confirmed_at=NULL WHERE user_id=?", s.userId);
-    await expect(mutate(s, "enable", 0)).rejects.toMatchObject({
-      code: "unauthorized",
-      details: { reason: "recovery_code_not_saved" },
-    });
     expect(await row(s.userId)).toBeNull();
+    const t = await seed();
+    await run("DELETE FROM recovery_credentials WHERE user_id=?", t.userId);
+    expect(await mutate(t, "enable", 0)).toMatchObject({ changed: true });
+    expect(await view(t)).toMatchObject({ address_state: "enabled" });
   });
   it("签发 hash+认证密文，重复 enable/reset 不换第二次；保留 namespace/view_revision/成功基线", async () => {
     const s = await seed();

@@ -399,32 +399,11 @@ async function scenario(name, existing) {
     const saved = await api("/api/v2/me/subscription");
     assert.deepEqual(saved.config.scope.games, ["genshin"]);
     assert.equal(saved.config.notifications.new_event, true);
-    await expect(page.locator("#save-recovery-link")).toBeVisible();
-    pass();
-
-    step = `${name}: existing recover save page generates and confirms real recovery credential`;
-    await page.locator("#save-recovery-link").click();
-    await expect(page).toHaveURL(/\/recover\/?#save$/);
-    await page.locator("#generate-code").click();
-    await expect(page.locator("#delivered-code")).toBeVisible();
-    await expect(page.locator("#confirm-code")).toBeDisabled();
-    await page.locator("#saved-check").check();
-    await page.locator("#confirm-code").click();
-    await expect(page.locator("#confirmed-next")).toBeVisible();
-    await expect(page.locator("#code-output")).toHaveValue("");
-    assert.equal(
-      (
-        await row(
-          "SELECT COUNT(*) AS n FROM recovery_credentials WHERE user_id=? AND saved_confirmed_at IS NOT NULL AND consumed_at IS NULL",
-          user.id,
-        )
-      ).n,
-      1,
-    );
-    assert.equal((await row("SELECT COUNT(*) AS n FROM calendar_feeds")).n, 0);
-    assert.equal(renewals(), 1);
-    await page.locator('#confirmed-next a[href="/subscription"]').click();
-    await expect(page.locator("#cloud-flow-status")).toContainText("订阅与恢复码已保存");
+    // ADR-0026：恢复码可选，保存订阅后直接进入「接收方式」，不经过恢复页。
+    await expect(page.locator("#save-recovery-link")).toBeHidden();
+    await page.locator("#setup-calendar-link").click();
+    await expect(page.locator("#panel-channels")).toBeVisible();
+    assert.equal((await row("SELECT COUNT(*) AS n FROM recovery_credentials")).n, 0);
     pass();
 
     step = `${name}: real complete saved preview is read-only and requires confirmation`;

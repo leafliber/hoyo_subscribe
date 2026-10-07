@@ -12,7 +12,6 @@ export type EmailConsentLayer = "seat" | "routine";
 export type EmailChannelBlockReason =
   | "pending_activation"
   | "recovery_code_unconfirmed"
-  | "recovery_code_not_saved"
   | "subscription_uninitialized"
   | "address_suppressed"
   | "deliverability_unknown"
@@ -22,7 +21,6 @@ export type EmailChannelBlockReason =
 export interface EmailChannelEnableFacts {
   session_state: "active" | "pending";
   recovery_code_required: boolean;
-  recovery_code_saved: boolean;
   subscription_state: "initialized" | "uninitialized";
   deliverability: "deliverable" | "suppressed" | "unknown";
   enabled: boolean;
@@ -32,14 +30,16 @@ export interface EmailChannelEnableFacts {
 export type EmailChannelActionAvailability =
   | { allowed: true }
   | { allowed: false; reason: EmailChannelBlockReason };
-/** 浏览器可用此函数置灰；服务器写入复用，再以 SQL 条件守卫核对实时状态。 */
+/**
+ * 浏览器可用此函数置灰；服务器写入复用，再以 SQL 条件守卫核对实时状态。
+ * ADR-0026：恢复码改为可选，不再是开启邮件的前置；恢复登录的受限会话仍不能开启。
+ */
 export function emailChannelEnableAvailability(
   facts: EmailChannelEnableFacts,
   layer: EmailConsentLayer,
 ): EmailChannelActionAvailability {
   if (facts.session_state === "pending") return { allowed: false, reason: "pending_activation" };
   if (facts.recovery_code_required) return { allowed: false, reason: "recovery_code_unconfirmed" };
-  if (!facts.recovery_code_saved) return { allowed: false, reason: "recovery_code_not_saved" };
   if (facts.subscription_state !== "initialized")
     return { allowed: false, reason: "subscription_uninitialized" };
   if (facts.deliverability === "suppressed")
@@ -105,11 +105,7 @@ export function emailChannelServiceState(
 /** 写入拒绝保留相同的闭合原因；七类错误本体仍由全站错误模型构造。 */
 export function emailChannelRefusal(reason: EmailChannelBlockReason, layer: EmailConsentLayer) {
   const body = (() => {
-    if (
-      reason === "pending_activation" ||
-      reason === "recovery_code_unconfirmed" ||
-      reason === "recovery_code_not_saved"
-    )
+    if (reason === "pending_activation" || reason === "recovery_code_unconfirmed")
       return buildApiErrorBody("unauthorized", { code: "unauthorized", reason });
     if (reason === "capacity_full")
       return buildApiErrorBody("capacity_reached", {

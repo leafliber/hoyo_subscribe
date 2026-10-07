@@ -41,7 +41,6 @@ export type AccountAction = (typeof ACCOUNT_ACTIONS)[number];
 export const ACTION_BLOCK_REASONS = [
   "pending_activation",
   "recovery_code_unconfirmed",
-  "recovery_code_not_saved",
   "subscription_uninitialized",
   "recent_auth_required",
   "capacity_full",

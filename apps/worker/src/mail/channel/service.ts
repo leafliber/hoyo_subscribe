@@ -134,7 +134,7 @@ export async function updateEmailChannel(
       );
     }
   const guardIndex = statements.length;
-  // 读取仅供提示；权限、绑定、配置、恢复码、抑制、容量与日额在同一 SQL 守卫重查。
+  // 读取仅供提示；权限、绑定、配置、抑制、容量与日额在同一 SQL 守卫重查（恢复码可选，ADR-0026）。
   statements.push(
     db
       .prepare(`UPDATE users SET updated_at=updated_at WHERE id=? AND status='active'
@@ -143,7 +143,6 @@ export async function updateEmailChannel(
       AND s.recovery_code_required=0 AND s.auth_epoch=users.auth_epoch AND s.recovery_epoch=users.recovery_epoch AND s.expires_at>? AND s.absolute_expires_at>?)
     AND COALESCE((SELECT channel_revision FROM email_channels WHERE user_id=users.id),0)=?
     AND (?=0 OR (EXISTS(SELECT 1 FROM user_subscriptions WHERE user_id=users.id AND state='initialized' AND revision=?)
-      AND EXISTS(SELECT 1 FROM recovery_credentials WHERE user_id=users.id AND consumed_at IS NULL AND saved_confirmed_at IS NOT NULL)
       AND NOT EXISTS(SELECT 1 FROM suppressions WHERE address_key=? AND (expires_at IS NULL OR expires_at>?))
       AND (SELECT value FROM capacity_state WHERE key=?)<? AND (SELECT value FROM capacity_state WHERE key=?)<?))
     AND (?=0 OR (SELECT COUNT(*) FROM email_channels WHERE enabled=1)<?)

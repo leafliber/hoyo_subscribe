@@ -7,7 +7,6 @@ import {
 import { decryptDeliveryAddress } from "../../auth/challenges/delivery";
 import { asEnvelopeBytes } from "../../auth/challenges/payload";
 import type { ActiveRecoverySession } from "../../auth/recovery/credential";
-import { currentRecoveryCodeSaved } from "../../auth/recovery/credential";
 import { ApiError } from "../../shell/errors";
 import type { Keyring } from "../../storage/crypto/keyring";
 import { suppressionAddressKey } from "../suppression";
@@ -71,9 +70,8 @@ export async function readContext(
     asEnvelopeBytes(user.email_ciphertext),
   );
   const addressKey = await suppressionAddressKey(keys.emailLookup(), address);
-  const [channel, saved, remaining] = await Promise.all([
+  const [channel, remaining] = await Promise.all([
     channelRow(db, session.userId),
-    currentRecoveryCodeSaved(db, session.userId),
     readCapacity(db),
   ]);
   let deliverability: EmailChannelEnableFacts["deliverability"] = "unknown";
@@ -100,7 +98,6 @@ export async function readContext(
     facts: {
       session_state: user.session_state,
       recovery_code_required: user.recovery_code_required === 1,
-      recovery_code_saved: saved,
       deliverability,
       enabled: current && channel?.enabled === 1,
       routine_enabled: current && channel?.routine_enabled === 1,

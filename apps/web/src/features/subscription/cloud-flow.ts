@@ -16,7 +16,7 @@ type StepState = "done" | "current" | "todo";
 
 /**
  * 订阅页的引导进度：只读取账号事实并呈现下一步；不保存、不开通任何通道。
- * 保存、恢复码和通道各自由既有控制器负责。
+ * 保存和通道各自由既有控制器负责；恢复码可选，在账号设置中管理（ADR-0026）。
  */
 export class SubscriptionCloudFlow {
   private userId: string | null = null;
@@ -169,14 +169,12 @@ export class SubscriptionCloudFlow {
     const progress = document.getElementById("setup-progress");
     const saved = this.snapshot?.state === "initialized";
     const restricted = this.restricted();
-    const recoverySaved = this.facts?.recovery_code_saved === true;
     const signedIn = this.userId !== null;
 
+    // ADR-0026：恢复码可选，不再是引导步骤；只有恢复登录后的受限会话需要先保存新码。
     const steps: Record<string, StepState> = {
       save: saved ? "done" : "current",
-      recovery: !saved ? "todo" : recoverySaved && !restricted ? "done" : "current",
-      calendar:
-        !saved || !recoverySaved || restricted ? "todo" : this.calendarEnabled ? "done" : "current",
+      calendar: !saved || restricted ? "todo" : this.calendarEnabled ? "done" : "current",
     };
     for (const [name, state] of Object.entries(steps)) {
       const item = document.querySelector<HTMLElement>(`#setup-steps [data-step="${name}"]`);
@@ -186,11 +184,9 @@ export class SubscriptionCloudFlow {
         else item.removeAttribute("aria-current");
       }
     }
-    if (progress)
-      progress.hidden = signedIn && saved && recoverySaved && !restricted && this.calendarEnabled;
+    if (progress) progress.hidden = signedIn && saved && !restricted && this.calendarEnabled;
     if (login) login.hidden = signedIn;
-    if (recovery)
-      recovery.hidden = !(signedIn && (restricted || (saved && this.facts && !recoverySaved)));
+    if (recovery) recovery.hidden = !(signedIn && restricted);
     if (calendarLink) calendarLink.hidden = steps.calendar !== "current" || !signedIn;
     if (status) {
       status.textContent = this.loading
@@ -202,14 +198,10 @@ export class SubscriptionCloudFlow {
             : !signedIn
               ? "先选好订阅内容，登录后保存到云端。未登录时设置只保存在本机。"
               : !saved
-                ? "选好内容后点「保存订阅」，就可以继续下一步。"
-                : !this.facts
-                  ? "订阅已保存；恢复码状态暂未确认，请稍后刷新。"
-                  : !recoverySaved
-                    ? "订阅已保存。下一步：保存恢复码，之后才能启用日历订阅。"
-                    : this.calendarEnabled
-                      ? "全部完成！日历会自动同步你的订阅内容。"
-                      : "最后一步：在下方「日历订阅」中生成私人链接并添加到日历。";
+                ? "选好内容后点「保存订阅」，就可以添加到日历。"
+                : this.calendarEnabled
+                  ? "全部完成！日历会自动同步你的订阅内容。"
+                  : "订阅已保存。下一步：在「接收方式」里生成私人链接并添加到日历。";
     }
     // 说明性占位，只提示需要先保存一次，不是第二个通道控制器。
     const hint = document.getElementById("calendar-first-save");

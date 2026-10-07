@@ -32,6 +32,7 @@ import { splitSqlStatements } from "../../storage/split-sql";
 import { runCompleteAuth } from "../consume/complete";
 import { hashSessionToken, makePendingSession } from "../consume/session";
 import { mintPreauthCookieValue } from "../preauth/cookie";
+import { targetForAction } from "../recent-auth/target";
 import { sessionAuthenticator } from "../sessions/authenticator";
 import { makeSessionRoutes } from "../sessions/routes";
 import { runRecoveryAction, verifyRecoveryCredential } from "./action";
@@ -139,6 +140,28 @@ async function seedCode(
     now,
   );
   return { id, secret };
+}
+/** 直接写入一份本会话的最近认证证明（真实流程由当前邮箱 OTP 或恢复码产生）。 */
+async function seedProof(
+  userId: string,
+  sessionId: string,
+  action: "recovery_code_rotate" | "account_delete" = "recovery_code_rotate",
+  expiresAt = now + RECENT_AUTH_TTL * SECOND,
+): Promise<string> {
+  const id = crypto.randomUUID();
+  await run(
+    `INSERT INTO recent_auth_proofs
+    (id,user_id,session_id,action,role,target_digest,method,expires_at,consumed_at,created_at)
+    VALUES (?,?,?,?,'current',?,'otp',?,NULL,?)`,
+    id,
+    userId,
+    sessionId,
+    action,
+    (await targetForAction(action)).digest,
+    expiresAt,
+    now,
+  );
+  return id;
 }
 async function seedSession(
   userId: string,
@@ -682,6 +705,105 @@ describe("A-P2-RECOVERY 离线恢复码", () => {
     expect(generated.status).toBe(200);
     const code = (await generated.json()) as { recovery_id: string; secret: string };
     expect(await verifyRecoveryCredential(env.DB, code.recovery_id, code.secret)).not.toBeNull();
+  });
+
+  it("ADR-0026：登录较久的普通会话凭本会话轮换用途证明首次生成，证明同批单次消费", async () => {
+    const userId = await seedUser();
+    const session = await seedSession(userId);
+    const originalNow = now;
+    try {
+      now += RECENT_AUTH_TTL * SECOND + 1;
+      const proof = await seedProof(userId, session.id);
+      const generated = await sessionRequest("/api/v2/auth/recovery/code", session.token, "POST", {
+        action: "generate",
+        proof_id: proof,
+      });
+      expect(generated.status).toBe(200);
+      const code = (await generated.json()) as { recovery_id: string; secret: string };
+      expect(await verifyRecoveryCredential(env.DB, code.recovery_id, code.secret)).not.toBeNull();
+      expect(
+        (
+          await query<{ consumed_at: number | null }>(
+            "SELECT consumed_at FROM recent_auth_proofs WHERE id = ?",
+            proof,
+          )
+        )[0]?.consumed_at,
+      ).toBe(now);
+      // 同一证明不能第二次使用：再生成（作废未确认码）需要新的证明。
+      const replay = await sessionRequest("/api/v2/auth/recovery/code", session.token, "POST", {
+        action: "generate",
+        proof_id: proof,
+      });
+      expect(replay.status).toBe(401);
+      expect(await replay.json()).toMatchObject({
+        error: { details: { reason: "recent_auth_required" } },
+      });
+      const confirmed = await sessionRequest("/api/v2/auth/recovery/code", session.token, "POST", {
+        action: "confirm",
+        recovery_id: code.recovery_id,
+        secret: code.secret,
+      });
+      expect(confirmed.status).toBe(200);
+      expect(await currentRecoveryCodeSaved(env.DB, userId)).toBe(true);
+    } finally {
+      now = originalNow;
+    }
+  });
+
+  it("ADR-0026：别的会话、别的用途或过期的证明都不能替代最近激活", async () => {
+    const userId = await seedUser();
+    const session = await seedSession(userId);
+    const other = await seedSession(userId);
+    const originalNow = now;
+    try {
+      now += RECENT_AUTH_TTL * SECOND + 1;
+      const proofs = [
+        await seedProof(userId, other.id),
+        await seedProof(userId, session.id, "account_delete"),
+        await seedProof(userId, session.id, "recovery_code_rotate", now),
+      ];
+      for (const proof of proofs) {
+        const denied = await sessionRequest("/api/v2/auth/recovery/code", session.token, "POST", {
+          action: "generate",
+          proof_id: proof,
+        });
+        expect(denied.status).toBe(401);
+        expect(await denied.json()).toMatchObject({
+          error: { details: { reason: "recent_auth_required" } },
+        });
+      }
+      expect(
+        await query("SELECT id FROM recovery_credentials WHERE user_id = ?", userId),
+      ).toHaveLength(0);
+      expect(
+        await query(
+          "SELECT id FROM recent_auth_proofs WHERE user_id = ? AND consumed_at IS NOT NULL",
+          userId,
+        ),
+      ).toHaveLength(0);
+    } finally {
+      now = originalNow;
+    }
+  });
+
+  it("ADR-0026：已确认的恢复码仍不能由生成端点替换，证明不被消费", async () => {
+    const userId = await seedUser();
+    const session = await seedSession(userId);
+    await seedCode(userId);
+    const proof = await seedProof(userId, session.id);
+    const conflict = await sessionRequest("/api/v2/auth/recovery/code", session.token, "POST", {
+      action: "generate",
+      proof_id: proof,
+    });
+    expect(conflict.status).toBe(409);
+    expect(
+      (
+        await query<{ consumed_at: number | null }>(
+          "SELECT consumed_at FROM recent_auth_proofs WHERE id = ?",
+          proof,
+        )
+      )[0]?.consumed_at,
+    ).toBeNull();
   });
 
   it("受限恢复会话超过最近认证时限仍能生成并确认新码", async () => {

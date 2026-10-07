@@ -236,7 +236,6 @@ export const PushChannelViewSchema = z.strictObject({
   service: z.enum(["open", "closed", "unknown"]),
   session_state: z.enum(["active", "pending"]),
   recovery_code_required: z.boolean(),
-  recovery_code_saved: z.boolean(),
   subscription_state: SubscriptionStateSchema,
   remaining: z.strictObject({
     user: z.int().nonnegative(),
@@ -410,11 +409,10 @@ function sessionGate(view: PushChannelView): PushActionAvailability {
   if (view.recovery_code_required) return blocked("recovery_code_unconfirmed");
   return allowed;
 }
-/** 开启前置（与写入守卫同一顺序）：会话、恢复码、订阅、能力。 */
+/** 开启前置（与写入守卫同一顺序）：会话、订阅、能力。恢复码可选，不是前置（ADR-0026）。 */
 function channelGate(view: PushChannelView): PushActionAvailability {
   const session = sessionGate(view);
   if (!session.allowed) return session;
-  if (!view.recovery_code_saved) return blocked("recovery_code_not_saved");
   if (view.subscription_state !== "initialized") return blocked("subscription_uninitialized");
   if (view.service !== "open" || !view.configured) return blocked("feature_closed");
   return allowed;
@@ -519,7 +517,6 @@ export function pushRefusal(reason: PushBlockReason, retryAt?: number, now?: num
     switch (reason) {
       case "pending_activation":
       case "recovery_code_unconfirmed":
-      case "recovery_code_not_saved":
       case "recent_auth_required":
         return buildApiErrorBody("unauthorized", { code: "unauthorized", reason });
       case "capacity_full":

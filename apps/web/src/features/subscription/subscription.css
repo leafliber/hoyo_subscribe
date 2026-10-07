@@ -12,20 +12,32 @@
 }
 
 /* ------------------------------------------------------------- 引导进度 */
+/* ADR-0026：两步引导（保存订阅内容 → 添加到日历），完成后隐藏。 */
 .setup-card {
-  margin-bottom: var(--space-5);
-  border-color: var(--color-accent-border);
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-4) var(--space-5);
+  margin-bottom: var(--space-4);
+  padding: var(--space-4) var(--space-5);
+  border: var(--border-thin) solid var(--color-accent-border);
+  border-radius: var(--radius-card);
   background: var(--color-accent-soft);
-  box-shadow: none;
+}
+
+.setup-main {
+  display: grid;
+  flex: 1 1 520px;
+  gap: var(--space-3);
+  min-width: 0;
 }
 
 .setup-head {
   display: flex;
   flex-wrap: wrap;
   align-items: baseline;
-  justify-content: space-between;
-  gap: var(--space-1) var(--space-4);
-  margin-bottom: var(--space-4);
+  gap: var(--space-1) var(--space-3);
 }
 
 .setup-head h2 {
@@ -41,9 +53,9 @@
 
 .setup-steps {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: var(--space-3);
-  margin: 0 0 var(--space-4);
+  margin: 0;
   padding: 0;
   list-style: none;
 }
@@ -123,6 +135,93 @@
 
 .setup-actions:not(:has(> :not([hidden]))) {
   display: none;
+}
+
+/* ------------------------------------------------------------- 功能分区 */
+/* 「订阅内容」决定收什么，「接收方式」决定怎么收；两个标签页共用同一套保存状态。 */
+.sub-tablist {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-1);
+  margin-bottom: var(--space-5);
+  padding: var(--space-1);
+  border: var(--border-thin) solid var(--color-border);
+  border-radius: var(--radius-card);
+  background: var(--color-bg-sunken);
+}
+
+.sub-tab {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  min-width: 0;
+  min-height: 60px;
+  padding: var(--space-2) var(--space-4);
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
+  color: var(--color-text-secondary);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition:
+    background-color var(--duration-fast) var(--ease-standard),
+    color var(--duration-fast) var(--ease-standard),
+    box-shadow var(--duration-fast) var(--ease-standard);
+}
+
+.sub-tab:hover {
+  color: var(--color-text-primary);
+}
+
+.sub-tab:focus-visible {
+  outline: 2px solid var(--color-focus-ring);
+  outline-offset: 1px;
+}
+
+.sub-tab[aria-selected="true"] {
+  background: var(--color-bg-surface);
+  color: var(--color-text-primary);
+  box-shadow: var(--shadow-sm);
+}
+
+.sub-tab-icon {
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  flex: none;
+  border-radius: 10px;
+  background: var(--color-bg-surface);
+  color: var(--color-text-secondary);
+}
+
+.sub-tab[aria-selected="true"] .sub-tab-icon {
+  background: var(--color-accent-soft);
+  color: var(--color-accent-strong);
+}
+
+.sub-tab-text {
+  display: grid;
+  flex: 1;
+  min-width: 0;
+}
+
+.sub-tab-title {
+  font-size: var(--font-size-body);
+  font-weight: 650;
+}
+
+.sub-tab-desc {
+  overflow: hidden;
+  color: var(--color-text-aux);
+  font-size: var(--font-size-small);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sub-tab-badge {
+  flex: none;
 }
 
 /* ------------------------------------------------------------- 布局 */
@@ -567,6 +666,9 @@
 }
 
 .preview-body {
+  /* 列表里的读屏文字是绝对定位：滚动容器自身必须是定位祖先，否则它们逃出滚动区，
+     把整页撑出一大段空白（2026-10-07 线上实测约 7000px）。 */
+  position: relative;
   display: grid;
   gap: var(--space-3);
   max-height: calc(100vh - var(--header-height) - 120px);
@@ -741,15 +843,37 @@
 }
 
 /* ------------------------------------------------------------- 接收方式 */
+.receive-summary {
+  margin: 0 0 var(--space-4);
+  color: var(--color-text-secondary);
+}
+
 .receive-section .callout {
   margin-bottom: var(--space-4);
 }
 
+/* 日历是主通道，占左列；邮件与浏览器通知在右列上下排列。 */
 .receive-grid {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr);
+  grid-template-areas:
+    "calendar mail"
+    "calendar push";
+  grid-template-rows: auto 1fr;
   align-items: start;
   gap: var(--space-4);
+}
+
+#calendar-channel {
+  grid-area: calendar;
+}
+
+#mail-channel {
+  grid-area: mail;
+}
+
+#push-channel {
+  grid-area: push;
 }
 
 .channel-card > .card-body {
@@ -888,6 +1012,7 @@
 }
 
 .confirm-list {
+  position: relative;
   display: grid;
   max-height: 260px;
   margin: 0;
@@ -1151,10 +1276,38 @@
 
   .receive-grid {
     grid-template-columns: minmax(0, 1fr);
+    grid-template-areas:
+      "calendar"
+      "mail"
+      "push";
+    grid-template-rows: none;
   }
 }
 
 @media (max-width: 720px) {
+  .sub-tab {
+    gap: var(--space-2);
+    min-height: 52px;
+    padding: var(--space-2) var(--space-3);
+  }
+
+  .sub-tab-icon {
+    display: none;
+  }
+
+  .sub-tab-desc {
+    display: none;
+  }
+
+  .setup-card {
+    padding: var(--space-4);
+  }
+
+  .setup-actions,
+  .setup-actions .button {
+    width: 100%;
+  }
+
   .setup-steps,
   .game-picker,
   .type-grid,

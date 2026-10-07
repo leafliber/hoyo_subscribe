@@ -25,8 +25,11 @@ import {
   type Snapshot,
   SubscriptionSaveMachine,
 } from "./save/machine";
+import { SubscriptionTabs } from "./tabs";
 
 const form = document.getElementById("subscription-form");
+const tablist = document.querySelector<HTMLElement>(".sub-tablist");
+const tabs = tablist ? new SubscriptionTabs(tablist) : undefined;
 
 const PHASE_LABEL: Record<Phase, { text: string; kind: string }> = {
   guest: { text: "未登录 · 设置仅保存在本机", kind: "" },
@@ -57,6 +60,7 @@ if (form instanceof HTMLFormElement) {
   const saveButton = document.getElementById("save-subscription");
   const discardButton = document.getElementById("discard-changes");
   const channelSummary = document.getElementById("channel-saved-summary");
+  const contentBadge = document.getElementById("tab-content-badge");
   const previewRoot = document.getElementById("calendar-preview-content");
   let preview: CalendarPreview | undefined;
   let identityGeneration = 0;
@@ -74,6 +78,8 @@ if (form instanceof HTMLFormElement) {
 
   function showError(element: HTMLElement | null): void {
     if (!element) return;
+    // 「接收方式」里的「保存后继续」也可能撞上字段错误：先回到出错的分区再定位。
+    tabs?.select("content");
     element.hidden = false;
     element.focus();
     element.scrollIntoView({ block: "center" });
@@ -244,6 +250,11 @@ if (form instanceof HTMLFormElement) {
     // 游客没有云端可重新读取。
     if (recheck instanceof HTMLButtonElement)
       recheck.hidden = isGuest || !["uncertain", "dirty", "conflict"].includes(phase);
+    // 在「接收方式」分区也能看出订阅内容还有没保存的修改。
+    if (contentBadge) {
+      contentBadge.hidden = isGuest || !["dirty", "uncertain", "conflict"].includes(phase);
+      contentBadge.textContent = phase === "dirty" ? "未保存" : "待处理";
+    }
     updateSaveGate();
   }
 
@@ -253,6 +264,8 @@ if (form instanceof HTMLFormElement) {
         readDraft: draftFromForm,
         applyDraft,
         render(phase: Phase, message: string, snapshot: Snapshot | null) {
+          // 冲突要在「订阅内容」里选择保留哪一份；从「接收方式」触发的保存也切回去。
+          if (phase === "conflict" && savePhase !== "conflict") tabs?.select("content");
           drafts?.paint(phase);
           savePhase = phase;
           flow?.update(phase, snapshot);

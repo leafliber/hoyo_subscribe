@@ -122,7 +122,6 @@ export function parseEmailView(value: unknown): EmailView {
     channel_revision: integer(row.channel_revision),
     session_state: member(row.session_state, ["active", "pending"]),
     recovery_code_required: bool(row.recovery_code_required),
-    recovery_code_saved: bool(row.recovery_code_saved),
     subscription_state: state,
     subscription: { revision, config },
     deliverability: member(row.deliverability, ["deliverable", "suppressed", "unknown"]),

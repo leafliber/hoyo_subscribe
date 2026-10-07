@@ -256,15 +256,8 @@ try {
     "preview_outdated",
     "web adapter reads real 409 details",
   );
+  // ADR-0026：恢复码可选。下面的启用在恢复码未确认保存时完成，只有恢复受限会话被拒绝。
   await sql("UPDATE recovery_credentials SET saved_confirmed_at=NULL WHERE user_id=?", id);
-  const unsavedCode = await call("/api/v2/me/calendar/enable", "POST", body, crypto.randomUUID());
-  assert.equal(unsavedCode.status, 401, "recovery code gate");
-  assert.equal(
-    errorDetail(new CalendarRequestError(unsavedCode.status, await unsavedCode.json())).reason,
-    "recovery_code_not_saved",
-    "web adapter reads real 401 details",
-  );
-  await sql("UPDATE recovery_credentials SET saved_confirmed_at=? WHERE user_id=?", now, id);
   await sql("UPDATE sessions SET recovery_code_required=1 WHERE id=?", session.id);
   const restricted = await call("/api/v2/me/calendar/enable", "POST", body, crypto.randomUUID());
   assert.equal(restricted.status, 401, "restricted recovery session gate");

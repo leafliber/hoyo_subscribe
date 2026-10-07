@@ -218,25 +218,16 @@ describe("A-P4-CONSENT 两层同意 API", () => {
     expect(await channelRow(env.DB, f.userId)).toBeNull();
     expect(await audit(f)).toEqual([]);
   });
-  it("首次启用需确认保存恢复码；推导函数与写接口同原因", async () => {
+  it("恢复码可选：没有已确认的恢复码也能开启席位（ADR-0026）", async () => {
     const f = await ready();
     await run("UPDATE recovery_credentials SET saved_confirmed_at=NULL WHERE user_id=?", f.userId);
     const view = await readEmailChannel(await deps(), f.session, now);
-    expect(emailChannelEnableAvailability(view, "seat")).toEqual({
-      allowed: false,
-      reason: "recovery_code_not_saved",
-    });
-    await expect(enable(f)).rejects.toMatchObject({
-      code: "unauthorized",
-      details: { reason: "recovery_code_not_saved" },
-    });
-    const rejected = await http(f, "PUT", await input(f));
-    expect(await rejected.json()).toMatchObject({
-      blocked_reason: "recovery_code_not_saved",
-      error: { code: "unauthorized" },
-    });
-    expect(rejected.headers.get("cache-control")).toBe("no-store");
-    expect(await channelRow(env.DB, f.userId)).toBeNull();
+    expect(view).not.toHaveProperty("recovery_code_saved");
+    expect(emailChannelEnableAvailability(view, "seat")).toEqual({ allowed: true });
+    const accepted = await http(f, "PUT", await input(f));
+    expect(accepted.status).toBe(200);
+    expect(accepted.headers.get("cache-control")).toBe("no-store");
+    expect(await channelRow(env.DB, f.userId)).toMatchObject({ enabled: 1 });
   });
   it("两层分别明确同意；默认不开常规层，空规则也能启用席位", async () => {
     const f = await ready();
@@ -679,11 +670,9 @@ describe("A-P4-CONSENT 两层同意 API", () => {
       mock.mockRestore();
     }
   });
-  it("读取后恢复码被消费或会话被撤销，提交守卫拒绝且不落同意", async () => {
-    for (const sql of [
-      "UPDATE recovery_credentials SET consumed_at=? WHERE user_id=?",
-      "UPDATE sessions SET state='revoked',updated_at=? WHERE user_id=?",
-    ]) {
+  // ADR-0026：恢复码可选，读取后恢复码被消费不再单独阻止开启；恢复登录另有安全暂停撤销会话。
+  it("读取后会话被撤销，提交守卫拒绝且不落同意", async () => {
+    for (const sql of ["UPDATE sessions SET state='revoked',updated_at=? WHERE user_id=?"]) {
       const f = await ready();
       const request = await input(f);
       const original = env.DB.batch.bind(env.DB);

@@ -6,6 +6,7 @@ import {
   deriveAccountActions,
   isApiErrorBody,
   isSessionExpiryNotice,
+  RECENT_AUTH_TTL,
   type RecentAuthAction,
   type RecentAuthRole,
   recentAuthTurnstileAction,
@@ -18,6 +19,7 @@ import { feedbackForFailure } from "../../../lib/errors/feedback";
 import { publishDraftIdentity, readDraftIdentityEvent } from "../../../lib/storage/identity";
 import { AccountPushSection, pauseThisBrowserBeforeLogout } from "../../channels/push/account";
 import { csrfToken, object, request, type Session, sessions } from "../api";
+import { type DeliveredCode, deliveredCode } from "../recovery/model";
 import { Turnstile } from "../turnstile";
 import { revokeSession } from "./api";
 
@@ -87,22 +89,21 @@ function clearPrivate(): void {
   summary = null;
   rows = [];
   sessionReady = false;
-  for (const field of [
-    "email",
-    "expiry",
-    "subscription",
-    "mail",
-    "push-summary",
-    "lease",
-    "reclaim",
-  ]) {
+  for (const field of ["email", "expiry", "lease", "reclaim"]) {
     el(`account-${field}`).textContent = "未知";
   }
+  showRow("lease", false);
+  showRow("reclaim", false);
   pushSection.clear();
   el("account-sessions").replaceChildren();
-  el("account-recovery").textContent = "恢复码保存状态未知。";
+  el("account-recovery").textContent = "恢复码状态未知。";
   el("account-recovery").className = "recovery-state";
   el("account-lag").textContent = "设备列表尚未确认，请刷新。";
+}
+/** 账号信息里不适用的行整行隐藏（前端 §10.1「适用的」提示），不显示「未知」占位。 */
+function showRow(name: string, visible: boolean): void {
+  for (const item of document.querySelectorAll<HTMLElement>(`[data-account-row="${name}"]`))
+    item.hidden = !visible;
 }
 function invalidate(): void {
   // Must precede logout, current-session revocation and deletion requests.
@@ -151,6 +152,7 @@ function renderActions(): void {
   for (const item of el("account-sessions").querySelectorAll<HTMLButtonElement>("button")) {
     item.disabled = busy || !ready;
   }
+  renderRecovery(ready);
   if (summary) {
     const expiry = Math.min(summary.session.expires_at, summary.session.absolute_expires_at);
     el("account-expiry").textContent = `${stamp(expiry)} 前有效${
@@ -160,34 +162,24 @@ function renderActions(): void {
 }
 function renderSummary(facts: AccountSummary): void {
   el("account-email").textContent = `${facts.email.masked}（已验证）`;
-  el("account-subscription").textContent =
-    facts.subscription.state === "initialized" ? "已保存到云端" : "尚未保存";
-  el("account-mail").textContent =
-    facts.channels.email.state === "unknown"
-      ? "未知"
-      : facts.channels.email.state === "enabled"
-        ? "已开启（不代表每封都送达）"
-        : "未开启";
-  const push = facts.channels.push;
-  el("account-push-summary").textContent =
-    push.state === "unknown"
-      ? "未知"
-      : push.state === "none"
-        ? "未开启"
-        : `已验证 ${push.active} 个浏览器${push.pending ? `，${push.pending} 个等待验证` : ""}${push.paused ? `，${push.paused} 个已暂停` : ""}${push.gone ? `，${push.gone} 个已失效` : ""}`;
+  // 回收提示只在服务端给出回收期限时出现（前端 §10.1「适用的账号回收提示」）。
+  showRow("reclaim", facts.reclaim_grace_until !== null);
   el("account-reclaim").textContent =
     facts.reclaim_grace_until === null
       ? "正常使用中"
       : `账号将在 ${stamp(facts.reclaim_grace_until)} 后可能被回收。继续使用（包括日历应用拉取）即可保留。`;
+  // ADR-0026：恢复码可选，没有恢复码不是警告状态；只有恢复登录后的受限会话需要先保存新码。
   el("account-recovery").textContent = facts.session.recovery_code_required
     ? "恢复登录后还没有保存新码。在此之前只能查看、导出、保存新码或删除账号。"
     : facts.recovery_code_saved
-      ? "恢复码已保存。"
-      : "还没有保存恢复码。启用日历订阅或邮件通知前需要先保存。";
-  el("account-recovery").className = `recovery-state ${
-    facts.session.recovery_code_required || !facts.recovery_code_saved
-      ? "callout callout--warning"
-      : "callout callout--success"
+      ? "已保存恢复码。出于安全考虑，旧码无法再次显示；找不到时可以更换一个新码。"
+      : "还没有恢复码。不创建也能正常使用；但邮箱无法使用时，就没有别的办法找回账号。";
+  el("account-recovery").className = `recovery-state callout ${
+    facts.session.recovery_code_required
+      ? "callout--warning"
+      : facts.recovery_code_saved
+        ? "callout--success"
+        : "callout--info"
   }`;
 }
 function renderSessions(): void {
@@ -285,10 +277,11 @@ async function refresh(): Promise<boolean> {
         object(lease) &&
         (lease.expires_at === null || Number.isSafeInteger(lease.expires_at))
       ) {
-        el("account-lease").textContent =
-          lease.expires_at === null
-            ? "服务端未记录租期"
-            : `到期时间 ${stamp(lease.expires_at as number)}；后台续租状态${lease.background_processing === "unknown" ? "未知" : "尚待核对"}。`;
+        // 没开启邮件通知就没有名额租期，这一行不适用，整行隐藏。
+        showRow("lease", lease.expires_at !== null);
+        if (lease.expires_at !== null)
+          el("account-lease").textContent =
+            `${stamp(lease.expires_at as number)} 前有效；账号有活动（包括日历应用拉取）会自动续期，后台续期的运行状态${lease.background_processing === "unknown" ? "暂未确认" : "尚待核对"}。`;
       }
     } catch {
       /* Secondary facts remain unknown; never infer success. */
@@ -342,11 +335,12 @@ function sameActionIdentity(identity: ReturnType<typeof actionIdentity>): boolea
 async function renewAfterAction(
   identity: ReturnType<typeof actionIdentity>,
   completed: string,
+  report: (text: string) => void = message,
 ): Promise<void> {
   // Only a confirmed explicit operation reaches here. Never renew another identity
   // when its cookie changes before a cross-tab invalidation message is delivered.
   if (!sameActionIdentity(identity)) return;
-  message(completed);
+  report(completed);
   try {
     const reply = await request("auth/renew", {});
     if (
@@ -366,7 +360,7 @@ async function renewAfterAction(
         rows.find((row) => row.is_current)?.id !== identity.sessionId)
     )
       return;
-    message(`${completed} 会话续期未确认，请核对会话状态；已完成的操作不受影响。`);
+    report(`${completed} 会话续期未确认，请核对会话状态；已完成的操作不受影响。`);
   }
 }
 
@@ -572,6 +566,7 @@ function clearMaintenance(): void {
   el("email-proofs").hidden = true;
   el("email-change-result").textContent = "";
   el("email-activate").hidden = true;
+  forgetRecoveryCode();
 }
 function canProveEmail(): boolean {
   if (!summary) return false;
@@ -666,6 +661,8 @@ async function verifyProof(id: string): Promise<void> {
     if (slot.action === "account_delete") proofId = slot.proof;
     if (!(await refresh()) || generation !== maintenanceGeneration) return;
     el(`${id}-status`).textContent = "本次用途验证已完成。";
+    // 恢复码的邮箱验证通过后直接继续用户原本要做的创建或更换。
+    if (id === "recovery-current") await continueRecovery();
   } catch (error) {
     if (!valid()) return;
     if (clearRejectedIdentity(error)) return;
@@ -743,6 +740,7 @@ for (const [id, action, role] of [
   ["email-current", "email_change", "current"],
   ["email-new", "email_change", "new_address"],
   ["delete-current", "account_delete", "current"],
+  ["recovery-current", "recovery_code_rotate", "current"],
 ] as const) {
   proofSlots[id] = { action, role, widget: new Turnstile(el(`${id}-turnstile-status`)) };
   button(`${id}-send`).addEventListener("click", () => void run(() => sendProof(id)));
@@ -751,6 +749,226 @@ for (const [id, action, role] of [
     if (!button(`${id}-verify`).disabled) void run(() => verifyProof(id));
   });
 }
+// ---- 恢复码（ADR-0026）：可选，在账号设置里首次创建或更换 ----
+// 交付的明文只留在本页内存，不进存储、URL 或日志；身份变化、离开页面即清除。
+// 登录超过最近认证时限后，创建与更换都要先用当前邮箱验证码取得本次用途证明。
+let delivered: DeliveredCode | null = null;
+let recoveryIntent: "create" | "rotate" | null = null;
+let rotationKey = "";
+const recoveryOutput = () => el("recovery-output") as HTMLTextAreaElement;
+
+function recoveryMessage(text: string): void {
+  el("recovery-result").textContent = text;
+  announce(text);
+}
+function forgetRecoveryCode(): void {
+  delivered = null;
+  recoveryIntent = null;
+  rotationKey = "";
+  recoveryOutput().value = "";
+  input("recovery-saved-check").checked = false;
+  el("recovery-result").textContent = "";
+}
+function renderRecovery(ready: boolean): void {
+  const restricted = summary?.session.recovery_code_required === true;
+  const saved = summary?.recovery_code_saved === true;
+  const idle = summary !== null && !restricted && delivered === null && recoveryIntent === null;
+  el("recovery-create").hidden = !idle || saved;
+  el("recovery-rotate").hidden = !idle || !saved;
+  button("recovery-create").disabled = busy || !ready;
+  button("recovery-rotate").disabled = busy || !ready;
+  // 恢复登录后的受限会话仍在恢复页保存新码（§7.4 准入条件不变）。
+  el("recovery-restricted-link").hidden = !restricted;
+  el("recovery-verify").hidden = recoveryIntent === null || delivered !== null || restricted;
+  button("recovery-verify-cancel").disabled = busy;
+  el("recovery-delivered").hidden = delivered === null;
+  button("recovery-copy").disabled = busy || delivered === null;
+  button("recovery-download").disabled = busy || delivered === null;
+  button("recovery-confirm").disabled =
+    busy || !ready || delivered === null || !input("recovery-saved-check").checked;
+}
+function recentAuthRequired(error: unknown): boolean {
+  return (
+    isApiErrorBody(error) &&
+    error.error.details?.code === "unauthorized" &&
+    error.error.details.reason === "recent_auth_required"
+  );
+}
+function resetRecoveryProof(): void {
+  const slot = proofSlots["recovery-current"];
+  slot.proof = undefined;
+  slot.challenge = undefined;
+  slot.key = undefined;
+  input("recovery-current-code").value = "";
+  el("recovery-current-status").textContent = "尚未验证。";
+}
+function askRecoveryVerification(intent: "create" | "rotate", text: string): void {
+  resetRecoveryProof();
+  recoveryIntent = intent;
+  el("recovery-verify-hint").textContent = text;
+  loadProofWidgets();
+  recoveryMessage(text);
+}
+function showDeliveredCode(value: Record<string, unknown>): void {
+  delivered = deliveredCode(value);
+  recoveryIntent = null;
+  // 证明已随本次交付消费，不再复用。
+  resetRecoveryProof();
+  recoveryOutput().value = `${delivered.recovery_id}\n${delivered.secret}`;
+  input("recovery-saved-check").checked = false;
+  recoveryMessage("恢复码已生成。请复制或下载保存，然后勾选并点「确认已保存」。");
+}
+async function createRecoveryCode(): Promise<void> {
+  const identity = actionIdentity();
+  const proof = proofSlots["recovery-current"].proof;
+  recoveryMessage("正在创建恢复码…");
+  try {
+    const reply = await request("auth/recovery/code", {
+      action: "generate",
+      ...(proof ? { proof_id: proof } : {}),
+    });
+    if (!sameActionIdentity(identity)) return;
+    if (reply.status !== 200) throw new Error("unknown_generation");
+    showDeliveredCode(reply.body);
+  } catch (error) {
+    if (!sameActionIdentity(identity)) return;
+    if (clearRejectedIdentity(error)) return;
+    if (recentAuthRequired(error)) {
+      askRecoveryVerification(
+        "create",
+        `登录超过 ${RECENT_AUTH_TTL / 60} 分钟后，创建恢复码前需要先验证当前邮箱。验证通过后会自动继续创建。`,
+      );
+      return;
+    }
+    if (isApiErrorBody(error) && error.error.code === "conflict") {
+      if (!(await refresh())) return;
+      recoveryMessage("账号已经有已保存的恢复码。需要新码请用「更换恢复码」。");
+      return;
+    }
+    recoveryMessage(
+      `恢复码${isApiErrorBody(error) ? "未创建" : "创建结果未知；可以重新创建，未确认的码会作废"}。${explanation(error)}`,
+    );
+  }
+}
+async function rotateRecoveryCode(): Promise<void> {
+  const proof = proofSlots["recovery-current"].proof;
+  if (!proof) {
+    askRecoveryVerification(
+      "rotate",
+      "更换恢复码前需要先验证当前邮箱。新码确认保存之前，旧码仍然有效。",
+    );
+    return;
+  }
+  const identity = actionIdentity();
+  rotationKey ||= crypto.randomUUID();
+  recoveryMessage("正在生成新的恢复码…");
+  try {
+    const reply = await request("me/recovery-code", {
+      action: "start",
+      proof_id: proof,
+      operation_key: rotationKey,
+    });
+    if (!sameActionIdentity(identity)) return;
+    if (reply.status !== 200 || typeof reply.body.rotation_id !== "string")
+      throw new Error("unknown_rotation");
+    showDeliveredCode(reply.body);
+  } catch (error) {
+    if (!sameActionIdentity(identity)) return;
+    if (clearRejectedIdentity(error)) return;
+    if (recentAuthRequired(error)) {
+      rotationKey = "";
+      askRecoveryVerification(
+        "rotate",
+        "邮箱验证已过期或已用过，请重新验证当前邮箱后再更换。旧码仍然有效。",
+      );
+      return;
+    }
+    // 结果未知时保留同一操作键与证明：再点一次「更换恢复码」会核对并重新交付同一次轮换的新码。
+    if (isApiErrorBody(error)) rotationKey = "";
+    recoveryIntent = null;
+    recoveryMessage(
+      `新恢复码${isApiErrorBody(error) ? "未生成" : "生成结果未知，可以再点一次「更换恢复码」核对"}。旧码仍然有效。${explanation(error)}`,
+    );
+  }
+}
+async function continueRecovery(): Promise<void> {
+  if (recoveryIntent === "create") await createRecoveryCode();
+  else if (recoveryIntent === "rotate") await rotateRecoveryCode();
+}
+async function confirmRecoveryCode(): Promise<void> {
+  const code = delivered;
+  if (!code || !input("recovery-saved-check").checked) return;
+  let identity = actionIdentity();
+  const generationBefore = summary?.recovery_code_generation ?? null;
+  recoveryMessage("正在确认恢复码保存…");
+  try {
+    const reply = await request(
+      code.rotation_id ? "me/recovery-code" : "auth/recovery/code",
+      code.rotation_id
+        ? { action: "confirm", rotation_id: code.rotation_id, secret: code.secret }
+        : { action: "confirm", recovery_id: code.recovery_id, secret: code.secret },
+    );
+    if (!sameActionIdentity(identity)) return;
+    if (reply.status !== 200 || reply.body.saved_confirmed !== true)
+      throw new Error("unknown_confirmation");
+  } catch (error) {
+    if (!sameActionIdentity(identity)) return;
+    if (clearRejectedIdentity(error)) return;
+    // 响应丢失时读取摘要核对：已保存且（轮换时）代次已变才算完成，不重复生成。
+    if (!(await refresh())) return;
+    const confirmed =
+      summary?.recovery_code_saved === true &&
+      (!code.rotation_id || summary.recovery_code_generation !== generationBefore);
+    if (!confirmed) {
+      recoveryMessage(`保存确认未完成，这份码仍在上方，可以再点一次确认。${explanation(error)}`);
+      return;
+    }
+    identity = actionIdentity();
+  }
+  forgetRecoveryCode();
+  const completed = "恢复码已确认保存。邮箱无法使用时，可以在登录页用它找回账号。";
+  // 轮换是显式账号管理（主方案 §4.5），先续期一次再刷新事实；首次创建沿用恢复页的做法不续期。
+  if (code.rotation_id) await renewAfterAction(identity, completed, recoveryMessage);
+  if (!(await refresh())) return;
+  if (!code.rotation_id) recoveryMessage(completed);
+}
+button("recovery-create").addEventListener("click", () => void run(createRecoveryCode));
+button("recovery-rotate").addEventListener("click", () => void run(rotateRecoveryCode));
+button("recovery-confirm").addEventListener("click", () => {
+  if (!button("recovery-confirm").disabled) void run(confirmRecoveryCode);
+});
+button("recovery-verify-cancel").addEventListener("click", () => {
+  resetRecoveryProof();
+  recoveryIntent = null;
+  rotationKey = "";
+  recoveryMessage("已取消，没有生成新的恢复码。");
+  renderActions();
+});
+input("recovery-saved-check").addEventListener("change", () => renderActions());
+button("recovery-copy").addEventListener("click", async () => {
+  if (!delivered || busy) return;
+  const identity = actionIdentity();
+  try {
+    await navigator.clipboard.writeText(recoveryOutput().value);
+    if (!sameActionIdentity(identity)) return;
+    recoveryMessage("恢复码已复制。请粘贴到安全的地方保存，然后勾选确认。");
+  } catch {
+    if (!sameActionIdentity(identity)) return;
+    recoveryMessage("复制失败，请手动选择恢复码复制，或下载保存。");
+  }
+});
+button("recovery-download").addEventListener("click", () => {
+  if (!delivered || busy) return;
+  const url = URL.createObjectURL(
+    new Blob([recoveryOutput().value], { type: "text/plain;charset=utf-8" }),
+  );
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = "hoyo-recovery-code.txt";
+  link.click();
+  URL.revokeObjectURL(url);
+  recoveryMessage("已请求下载恢复码，请确认文件已保存后勾选确认。");
+});
 let widgetsLoaded = false;
 function loadProofWidgets(): void {
   if (widgetsLoaded) return;

@@ -85,7 +85,6 @@ describe("A-P1-SHELL 七类错误模型（contracts 唯一定义源）", () => {
       "session_expired",
       "pending_activation",
       "recovery_code_unconfirmed",
-      "recovery_code_not_saved",
       "recent_auth_required",
       "wrong_domain",
     ] as const satisfies readonly UnauthorizedReason[];
@@ -93,7 +92,7 @@ describe("A-P1-SHELL 七类错误模型（contracts 唯一定义源）", () => {
     type AllReasonsCovered = UnauthorizedReason extends (typeof reasons)[number] ? true : never;
     const covered: AllReasonsCovered = true;
     expect(covered).toBe(true);
-    expect(new Set<string>(reasons).size).toBe(11);
+    expect(new Set<string>(reasons).size).toBe(10);
     expect(reasons.some((r) => /exist|unknown_email|registered/.test(r))).toBe(false);
     const body = buildApiErrorBody("unauthorized", {
       code: "unauthorized",

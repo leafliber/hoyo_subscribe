@@ -55,7 +55,6 @@ function view(overrides: Partial<PushChannelView> = {}): PushChannelView {
     service: "open",
     session_state: "active",
     recovery_code_required: false,
-    recovery_code_saved: true,
     subscription_state: "initialized",
     remaining: {
       user: PUSH_USER_MAX,
@@ -226,7 +225,7 @@ describe("A-P6-SEND 推送服务响应分类：404/410 停用，401/403 只查�
 });
 
 describe("A-P6-BIND 浏览器推导置灰（D3 §1.2）与写入拒绝同一原因", () => {
-  it("开启前置按会话、恢复码、订阅、能力顺序", () => {
+  it("开启前置按会话、恢复受限、订阅、能力顺序；恢复码可选（ADR-0026）", () => {
     expect(derivePushActions(view({ session_state: "pending" }), null, now).enable).toEqual({
       allowed: false,
       reason: "pending_activation",
@@ -234,9 +233,6 @@ describe("A-P6-BIND 浏览器推导置灰（D3 §1.2）与写入拒绝同一原�
     expect(
       derivePushActions(view({ recovery_code_required: true }), null, now).enable,
     ).toMatchObject({ reason: "recovery_code_unconfirmed" });
-    expect(derivePushActions(view({ recovery_code_saved: false }), null, now).enable).toMatchObject(
-      { reason: "recovery_code_not_saved" },
-    );
     expect(
       derivePushActions(view({ subscription_state: "uninitialized" }), null, now).enable,
     ).toMatchObject({ reason: "subscription_uninitialized" });
@@ -340,13 +336,12 @@ describe("A-P6-BIND 浏览器推导置灰（D3 §1.2）与写入拒绝同一原�
     const closed = view({
       service: "closed",
       subscription_state: "uninitialized",
-      recovery_code_saved: false,
       remaining: { ...view().remaining, send_today: 0, user: 0 },
     });
     const actions = derivePushActions(closed, binding(), now);
     expect(actions.pause).toEqual({ allowed: true });
     expect(actions.delete).toEqual({ allowed: true });
-    expect(actions.renew).toMatchObject({ reason: "recovery_code_not_saved" });
+    expect(actions.renew).toMatchObject({ reason: "subscription_uninitialized" });
     expect(
       derivePushActions(closed, binding({ state: "gone", gone_at: now }), now).pause,
     ).toMatchObject({ reason: "state_mismatch" });
@@ -359,9 +354,9 @@ describe("A-P6-BIND 浏览器推导置灰（D3 §1.2）与写入拒绝同一原�
     expect(pushRefusal("capacity_full").error.code).toBe("capacity_reached");
     expect(pushRefusal("quota_paused").error.code).toBe("quota_paused");
     expect(pushRefusal("feature_closed").error.code).toBe("temporarily_unavailable");
-    expect(pushRefusal("recovery_code_not_saved")).toMatchObject({
-      error: { code: "unauthorized", details: { reason: "recovery_code_not_saved" } },
-      blocked_reason: "recovery_code_not_saved",
+    expect(pushRefusal("recovery_code_unconfirmed")).toMatchObject({
+      error: { code: "unauthorized", details: { reason: "recovery_code_unconfirmed" } },
+      blocked_reason: "recovery_code_unconfirmed",
     });
     expect(pushRefusal("cooldown", now + 5_000, now)).toMatchObject({
       error: { code: "rate_limited", details: { retry_after_ms: 5_000 } },

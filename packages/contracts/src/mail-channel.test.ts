@@ -12,7 +12,6 @@ import { MAIL_BASE_DAY, MAIL_URGENT_DAY, MAIL_URGENT_FLOOR } from "./params/regi
 const ready: EmailChannelEnableFacts = {
   session_state: "active",
   recovery_code_required: false,
-  recovery_code_saved: true,
   subscription_state: "initialized",
   deliverability: "deliverable",
   enabled: false,
@@ -23,7 +22,6 @@ describe("A-P4-CONSENT 共享规则", () => {
   it.each([
     [{ session_state: "pending" }, "pending_activation"],
     [{ recovery_code_required: true }, "recovery_code_unconfirmed"],
-    [{ recovery_code_saved: false }, "recovery_code_not_saved"],
     [{ subscription_state: "uninitialized" }, "subscription_uninitialized"],
     [{ deliverability: "suppressed" }, "address_suppressed"],
     [{ deliverability: "unknown" }, "deliverability_unknown"],

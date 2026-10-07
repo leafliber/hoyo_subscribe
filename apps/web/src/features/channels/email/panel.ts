@@ -98,7 +98,7 @@ const MARKUP = `
 </details>
 <p class="text-aux channel-note">邮件和日历相互独立，同一件事可能各提醒一次。关闭邮件不影响日历、账号登录；换邮箱后需要重新开启。</p>
 <div class="channel-foot">
-  <a class="link-button" href="/account">${svg("user")}在账号页管理邮箱</a>
+  <a class="link-button" href="/account">${svg("user")}在账号设置中管理邮箱</a>
   <button type="button" class="link-button" data-email="refresh">${svg("refresh")}刷新状态</button>
 </div>`;
 
@@ -248,7 +248,7 @@ class EmailPanel {
             unknown: "未知",
           }[state.deliverability] +
             (state.suppression_kind
-              ? `；原因：${({ complaint: "投诉", hard_bounce: "硬退信" } as Record<string, string>)[state.suppression_kind] ?? "受控抑制"}。请到账号页处理或验证新邮箱。`
+              ? `；原因：${({ complaint: "投诉", hard_bounce: "硬退信" } as Record<string, string>)[state.suppression_kind] ?? "受控抑制"}。请到账号设置处理或验证新邮箱。`
               : ""),
         ],
         [

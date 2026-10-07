@@ -13,8 +13,7 @@ export const ENABLE_LABEL = "在当前浏览器开启通知";
 /** 受阻原因的说明（与写接口返回的 blocked_reason 同一闭合枚举）。 */
 export const PUSH_REASON_COPY: Readonly<Record<PushBlockReason, string>> = {
   pending_activation: "请先在登录页完成本设备的登录确认。",
-  recovery_code_unconfirmed: "请先保存并确认新的恢复码。",
-  recovery_code_not_saved: "首次开启通知前，请先保存恢复码并确认。",
+  recovery_code_unconfirmed: "请先保存并确认恢复登录后的新恢复码。",
   subscription_uninitialized: "先保存一次订阅内容，再开启浏览器通知。",
   recent_auth_required: "需要重新验证身份。",
   capacity_full: "浏览器通知名额已满（内测预算限制，不是账号问题）。日历订阅和邮件不受影响。",

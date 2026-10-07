@@ -62,7 +62,7 @@ const sitekey = import.meta.env.PUBLIC_TURNSTILE_SITE_KEY ?? "";
         <p class="text-secondary">确认后这台设备会占用一个登录名额。</p>
         <p id="completion-time" class="field-hint"></p>
         <p id="session-notice" class="field-hint"></p>
-        <FormField id="device-label" label="给这台设备起个名字（可选）" hint="方便以后在账号页辨认，例如「我的手机」。不要填写邮箱等私人信息。" />
+        <FormField id="device-label" label="给这台设备起个名字（可选）" hint="方便以后在账号设置里辨认，例如「我的手机」。不要填写邮箱等私人信息。" />
         <fieldset id="device-selection" class="device-selection" hidden>
           <legend>登录设备已满，请选择要退出的旧设备</legend>
           <p class="field-hint">不会自动退出其他设备。退出登录不会关闭那台设备的浏览器通知。</p>

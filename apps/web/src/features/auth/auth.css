@@ -295,41 +295,6 @@
   gap: var(--space-1);
 }
 
-.code-box {
-  display: grid;
-  gap: var(--space-3);
-  padding: var(--space-4);
-  border: 2px dashed var(--color-accent-border);
-  border-radius: var(--radius-card);
-  background: var(--color-accent-soft);
-}
-
-.code-box > * {
-  margin: 0;
-}
-
-.code-box textarea {
-  font-family: var(--font-family-mono);
-  font-size: var(--font-size-body);
-  line-height: 1.7;
-  resize: none;
-  overflow-wrap: anywhere;
-}
-
-.check-label {
-  display: flex;
-  align-items: flex-start;
-  gap: var(--space-3);
-  min-height: var(--tap-target-min);
-  padding: 10px 0;
-  font-weight: 600;
-  cursor: pointer;
-}
-
-.check-label input {
-  margin-top: 3px;
-}
-
 .recovery-actions {
   display: flex;
   flex-wrap: wrap;

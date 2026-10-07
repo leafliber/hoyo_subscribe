@@ -10,7 +10,6 @@ import {
   utcDayPeriod,
 } from "@hoyo/contracts";
 import { readSubscription } from "../../accounts/subscription/service";
-import { currentRecoveryCodeSaved } from "../../auth/recovery/credential";
 import { ApiError } from "../../shell/errors";
 import { conditionalCommit, type GuardedEffect } from "../../storage/cas";
 import { decryptFieldText, encryptField } from "../../storage/crypto/aead";
@@ -190,8 +189,6 @@ export async function mutateCalendar(
     return result(before, action === "enable");
   }
   if ((before?.token_generation ?? 0) !== expected) conflict();
-  if (action !== "disable" && !(await currentRecoveryCodeSaved(db, session.userId)))
-    throw new ApiError("unauthorized", { code: "unauthorized", reason: "recovery_code_not_saved" });
   if (action === "enable") await assertPreview(db, session.userId, preview);
   const enabled = before?.state === "enabled" && before.recovery_epoch === who.recovery_epoch;
   if (
@@ -289,8 +286,7 @@ export async function mutateCalendar(
       AND ${before ? "EXISTS (SELECT 1 FROM calendar_feeds f WHERE f.user_id=sessions.user_id AND f.token_generation=?)" : "NOT EXISTS (SELECT 1 FROM calendar_feeds f WHERE f.user_id=sessions.user_id)"}
       ${
         charge
-          ? `AND EXISTS (SELECT 1 FROM recovery_credentials c WHERE c.user_id=sessions.user_id AND c.consumed_at IS NULL AND c.saved_confirmed_at IS NOT NULL)
-      AND (SELECT value FROM capacity_state WHERE key=?) < ? AND (SELECT value FROM capacity_state WHERE key=?) < ?`
+          ? `AND (SELECT value FROM capacity_state WHERE key=?) < ? AND (SELECT value FROM capacity_state WHERE key=?) < ?`
           : ""
       }`,
       params: [
@@ -312,8 +308,6 @@ export async function mutateCalendar(
       reason: "recovery_code_unconfirmed",
     });
   if (current?.last_management_operation === operation) return result(current, action === "enable");
-  if (charge && !(await currentRecoveryCodeSaved(db, session.userId)))
-    throw new ApiError("unauthorized", { code: "unauthorized", reason: "recovery_code_not_saved" });
   if (action === "enable") await assertPreview(db, session.userId, preview);
   if (charge) {
     for (const [key, limit, scope] of [

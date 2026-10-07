@@ -30,6 +30,7 @@ import {
   SUPPORTED_SCOPE_REGIONS,
   type SubscriptionConfig,
 } from "../../packages/contracts/src/index";
+import { showChannels, showContent } from "./subscription-tabs";
 
 // F3-05 / E2: synthetic accounts, auth and API responses only; no real mail.
 // Calendar steps use the single F3-04 controller; local-flow.mjs separately exercises real D1/APIs.
@@ -294,7 +295,8 @@ async function setup(
       return reply(syntheticPreview(state.cloud.config));
     }
     if (endpoint === "me/calendar/enable") {
-      expect(state.facts.recovery_code_saved).toBe(true);
+      // ADR-0026：恢复码可选，启用日历不再要求账号已保存恢复码。
+      expect(state.facts.session.recovery_code_required).toBe(false);
       expect(body).toEqual({
         confirmed: true,
         expected_generation: state.calendar.token_generation,
@@ -416,25 +418,16 @@ for (const choice of ["keep", "cloud"] as const) {
         expected_revision: 1,
         config: { notifications: { new_event: true } },
       });
-      await expect(page.locator("#save-recovery-link")).toHaveAttribute("href", "/recover#save");
-      await page.locator("#save-recovery-link").click();
-      await expect(page).toHaveURL(/\/recover#save$/);
-      await expect(page.locator("#save-section")).toBeVisible();
-      await expect(page.locator("#generate-code")).toBeEnabled();
-      await page.locator("#generate-code").click();
-      await expect(page.locator("#delivered-code")).toBeVisible();
-      await expect(page.locator("#confirm-code")).toBeDisabled();
-      await page.locator("#saved-check").check();
-      await page.locator("#confirm-code").click();
-      await expect(page.locator("#recovery-result")).toContainText("恢复码已确认保存");
-      await expect(page.locator("#code-output")).toHaveValue("");
-      await page.locator('#confirmed-next a[href="/subscription"]').click();
-      await expectCloudRevision(page, 2);
+      // ADR-0026：恢复码可选，保存订阅后直接进入第 2 步「添加到日历」，不经过恢复页。
+      await expect(page.locator("#save-recovery-link")).toBeHidden();
       await expect(page.locator("#cloud-flow-status")).toContainText("日历");
       await expect(page.locator('#setup-steps [data-step="calendar"]')).toHaveAttribute(
         "data-state",
         "current",
       );
+      await page.locator("#setup-calendar-link").click();
+      await expect(page.locator("#panel-channels")).toBeVisible();
+      await expect(page.locator("#calendar-channel")).toBeInViewport();
       expect(state.cloud.config?.notifications.new_event).toBe(true);
       expect(renewals(state)).toHaveLength(1);
       const part = (name: string) => page.locator(`[data-calendar="${name}"]`);
@@ -475,7 +468,7 @@ for (const choice of ["keep", "cloud"] as const) {
   });
 }
 
-test("U15a 新账号只有注册表预选，首次显式保存后引导已有恢复页，三通道不附带开启", async ({
+test("U15a 新账号只有注册表预选，首次显式保存后直接引导添加日历（恢复码可选），三通道不附带开启", async ({
   page,
 }) => {
   const state = await setup(page, { uninitialized: true });
@@ -485,14 +478,18 @@ test("U15a 新账号只有注册表预选，首次显式保存后引导已有恢
     "data-state",
     "current",
   );
+  await showChannels(page);
   await expect(page.locator("#calendar-first-save")).toBeVisible();
   await expect(page.locator("#calendar-first-save")).toContainText("保存一次订阅");
   // 浏览器通知（Push）区域已从新界面移除，原 #push-first-save 占位断言不再适用。
   await expect(page.locator('#mail-channel [data-email="seat-start"]')).toBeDisabled();
   await page.locator('[data-calendar="refresh"]').click();
   await expect(page.locator("#calendar-first-save")).toBeVisible();
-  await expect(page.locator('[data-calendar="reason"]')).toContainText("保存恢复码");
+  // ADR-0026：唯一的前置是先保存一次订阅，不再要求恢复码。
+  await expect(page.locator('[data-calendar="reason"]')).toContainText("请先保存一次订阅设置");
+  await expect(page.locator('[data-calendar="recovery"]')).toBeHidden();
   await expect(page.locator('[data-calendar="begin"]')).toBeDisabled();
+  await showContent(page);
   await expect(page.locator("#cloud-state")).toHaveText("尚未保存到云端");
   await expect(page.locator("#draft-state")).not.toContainText("云端版本");
   for (const game of DEFAULT_SCOPE_GAMES)
@@ -503,7 +500,11 @@ test("U15a 新账号只有注册表预选，首次显式保存后引导已有恢
   await page.locator("#save-subscription").click();
   await expectCloudRevision(page, 1);
   await expect.poll(() => renewals(state).length).toBe(1);
-  await expect(page.locator("#save-recovery-link")).toBeVisible();
+  await expect(page.locator("#save-recovery-link")).toBeHidden();
+  await expect(page.locator("#setup-calendar-link")).toBeVisible();
+  await showChannels(page);
+  await page.locator('[data-calendar="refresh"]').click();
+  await expect(page.locator('[data-calendar="begin"]')).toBeEnabled();
   expect(saves(state)[0]?.body.expected_revision).toBe(0);
   expectNoChannelWrites(state);
   await page.goto("/help");
@@ -728,7 +729,8 @@ for (const reason of ["recent_auth_required", "csrf_mismatch"] as const) {
     );
     await page.locator("#recheck-save").click();
     await response;
-    await expect(page.locator("#cloud-flow-status")).toContainText("恢复码状态暂未确认");
+    // ADR-0026：引导不再依赖恢复码事实；读不到摘要时只是不知道是否受限，已保存配置照常显示。
+    await expect(page.locator("#cloud-flow-status")).toContainText("订阅已保存");
     await expectCloudRevision(page, 1);
     await expect(page.locator('input[name="new_event"]')).toBeChecked();
     await expect(page.locator("#subscription-login")).toBeHidden();
@@ -958,7 +960,8 @@ const returnCases = [
   ["/subscription", "/subscription"],
   ["/account", "/account"],
   ["/recover", "/recover"],
-  ["/recover#save", "/recover#save"],
+  // ADR-0026：普通会话的恢复码在账号设置里管理，恢复页的保存分区转去那里。
+  ["/recover#save", "/account#account-security"],
   ["/status", "/status"],
   ["https://outside.example.invalid", "/subscription"],
   ["//outside.example.invalid", "/subscription"],
@@ -1003,6 +1006,7 @@ test("U12/U20 页面恢复重新挂载日历，三方私人视图先失效再确
   const state = await setup(page);
   state.facts.recovery_code_saved = true;
   await openSaved(page, state);
+  await showChannels(page);
   const calendar = (name: string) => page.locator(`[data-calendar="${name}"]`);
   await calendar("refresh").click();
   await calendar("begin").click();

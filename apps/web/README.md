@@ -11,7 +11,7 @@ HoYo日历的网页端：Astro 静态输出 + 原生 TypeScript 模块，与 Wor
 | `src/styles/base.css` | 基础排版与组件库：按钮、表单、胶囊/分段、徽标、提示条、卡片、折叠、弹窗、键值列表、空状态 |
 | `src/styles/contrast-checks.ts` | 页面实际使用的「前景/背景」token 组合，e2e 逐项校验对比度 |
 | `src/lib/` | `dom.ts`（安全的 DOM 构建，不用 innerHTML 拼外部数据）、`icons.ts`、`format.ts`（北京时间格式化）、`toast.ts`、API 客户端与本机存储 |
-| `src/features/` | 按功能组织：`schedule`（日程时间轴、详情、公告原文弹窗）、`subscription`（编辑、保存状态机、预览、引导）、`channels`（日历、邮件）、`auth`（登录、恢复、账号）、`admin`（审核、版本时间表、运行开关三页，外壳为 `AdminLayout.astro`）、`info`（帮助与状态页样式） |
+| `src/features/` | 按功能组织：`schedule`（日程时间轴、详情、公告原文弹窗）、`subscription`（编辑、保存状态机、预览、两步引导；「订阅内容」「接收方式」两个标签页，ADR-0026）、`channels`（日历、邮件、浏览器通知）、`auth`（登录、恢复、账号设置；普通会话的恢复码在账号设置里创建与更换，ADR-0026）、`admin`（审核、版本时间表、运行开关三页，外壳为 `AdminLayout.astro`）、`info`（帮助与状态页样式） |
 | `src/components/` | 基础组件：`FormField`、`Icon`、`GameIcon`（官方游戏图标，ADR-0015）、`dialog`、`collapse`、`status`、`header-auth` |
 | `public/_headers` | 静态页面的安全响应头与 `/_astro/*` 长缓存（只作用于静态资源，Worker 响应自带安全头）；Referrer-Policy 为 strict-origin-when-cross-origin（ADR-0022），Worker 响应为 no-referrer |
 | `public/_redirects` | 详情直达改写的唯一规则（P5-05）；不另加平台侧改写 |
