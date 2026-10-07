@@ -433,9 +433,15 @@ export const CANDIDATE_MAX_BYTES = 32_768 as const;
 /**
  * 补全年份的参照窗口（ADR-0013）：没写年份的日期取让它落在参照日期前 beforeDays 天到后 afterDays 天之内的那一年。
  * 窗口短于一年，至多一个年份符合；都不符合时保持"未定时刻"。参照日期按"正文里最早的四位年份日期 >
- * 所属版本已确认的更新开始 > 公告发布日期"取。
+ * 所属版本已确认的更新开始 > 公告发布日期 > 本站首次采集日期"取；最后一级用下面更窄的窗口。
  */
 export const YEAR_COMPLETION_WINDOW = { beforeDays: 30, afterDays: 330 } as const;
+
+/**
+ * 参照日期取本站首次采集日期时的窗口（ADR-0027）。首次采集只会晚于真实发布，后端放宽到 330 天会把
+ * 一个多月前的日期补到下一年；收窄到 90 天后，日期要早于首次采集 275 天以上才会补错。
+ */
+export const YEAR_COMPLETION_CAPTURE_WINDOW = { beforeDays: 30, afterDays: 90 } as const;
 
 // ---------------------------------------------------------------------------
 // A.4 邮件与 Push（主方案 §9.1—§9.5；**邮件值按 ADR-0003 纯日额度模型**）
@@ -708,6 +714,7 @@ export const PARAMS = {
   AI_DRAFT_RESERVATION,
   CANDIDATE_MAX_BYTES,
   YEAR_COMPLETION_WINDOW,
+  YEAR_COMPLETION_CAPTURE_WINDOW,
   // A.4（ADR-0003 纯日额度模型；月度参数已废止，不得出现）
   MAIL_SEATS_MAX,
   MAIL_ROUTINE_SEATS_MAX,
@@ -780,6 +787,7 @@ export type ParamStatus =
   | "adr-0012"
   | "adr-0013"
   | "adr-0015"
+  | "adr-0027"
   | "p5-02-approved"
   | "measured"
   | "measured-ref"
@@ -1364,6 +1372,13 @@ export const PARAM_META: Readonly<Record<keyof ParamValues, ParamMeta>> = {
     description: "补全年份的参照窗口：日期须落在参照日期前 30 天到后 330 天之内",
     status: "adr-0013",
     note: "窗口短于一年，至多一个年份符合；不符合时保持未定时刻",
+  },
+  YEAR_COMPLETION_CAPTURE_WINDOW: {
+    section: "A.3",
+    unit: "天",
+    description: "参照日期取本站首次采集日期时的窗口：日期须落在参照日期前 30 天到后 90 天之内",
+    status: "adr-0027",
+    note: "首次采集晚于真实发布，两端都不超过 YEAR_COMPLETION_WINDOW；不符合时保持未定时刻",
   },
   // A.4
   MAIL_SEATS_MAX: {

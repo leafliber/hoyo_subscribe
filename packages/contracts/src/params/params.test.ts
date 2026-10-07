@@ -70,8 +70,8 @@ describe("A-P1-PARAM 附录 A.5 启动等式", () => {
     expect(results.every((r) => r.ok)).toBe(true);
   });
 
-  it("覆盖 §11、P3 工程依赖、ADR-0006、ADR-0009、ADR-0012、ADR-0013 与 P5-01/P5-02（36 条），另有 1 条语义条款", () => {
-    expect(PARAM_EQUATIONS).toHaveLength(36);
+  it("覆盖 §11、P3 工程依赖、ADR-0006、ADR-0009、ADR-0012、ADR-0013、ADR-0027 与 P5-01/P5-02（37 条），另有 1 条语义条款", () => {
+    expect(PARAM_EQUATIONS).toHaveLength(37);
     expect(SEMANTIC_INVARIANTS.map((s) => s.id)).toEqual(["mail-digest-window-forward-only"]);
   });
 
@@ -145,6 +145,24 @@ describe("A-P1-PARAM 附录 A.5 启动等式", () => {
     ])
       expect(() => verifyParams(override({ YEAR_COMPLETION_WINDOW }))).toThrow(
         "year-completion-window-single-year",
+      );
+  });
+
+  it("A-P3-YEAR-CAPTURE 首次采集日期的窗口两端都不超过默认窗口（ADR-0027）", () => {
+    expect(PARAMS.YEAR_COMPLETION_CAPTURE_WINDOW.beforeDays).toBeLessThanOrEqual(
+      PARAMS.YEAR_COMPLETION_WINDOW.beforeDays,
+    );
+    expect(PARAMS.YEAR_COMPLETION_CAPTURE_WINDOW.afterDays).toBeLessThanOrEqual(
+      PARAMS.YEAR_COMPLETION_WINDOW.afterDays,
+    );
+    for (const YEAR_COMPLETION_CAPTURE_WINDOW of [
+      { beforeDays: 31, afterDays: 90 },
+      { beforeDays: 30, afterDays: 331 },
+      { beforeDays: 0, afterDays: 90 },
+      { beforeDays: 30, afterDays: 90.5 },
+    ])
+      expect(() => verifyParams(override({ YEAR_COMPLETION_CAPTURE_WINDOW }))).toThrow(
+        "year-completion-capture-window-narrower",
       );
   });
 

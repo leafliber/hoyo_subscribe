@@ -14,7 +14,7 @@
 | §1.2 本版明确改变的合同 | 0003 | "可持续邮件预算"改为纯 UTC 日额度，不再有月预算与日平滑 |
 | §3.1 来源适配 | 0001、0016 | 生产只登记三个游戏内公告来源（`level` + 登出态哑 `uid`），同一响应读 `data.list` 与 `data.pic_list`；米游社下线 |
 | §3.2 采集与版本 | 0016、0019 | 图文资讯条目外部 ID 加 `pic-` 前缀；标题为空且正文没有可读文字的图文资讯条目不入库 |
-| §3.3 Event / Milestone 合同 | 0011、0013、0019 | `deterministic_derived` 新增版本锚点推导与按同篇日期补全年份；斜线、横线两种完整时刻都算 `official_explicit`（见本文 §1） |
+| §3.3 Event / Milestone 合同 | 0011、0013、0019、0027 | `deterministic_derived` 新增版本锚点推导与补全年份（参照依次为同篇日期、所属版本更新开始、发布日期、本站首次采集日期）；斜线、横线两种完整时刻都算 `official_explicit`（见本文 §1） |
 | §3.4 规则、模型与人工三条发布路径 | 0009、0010、0018 | AI 草稿只做预填，管理员按看到的草稿版本采用并批准；「跳过审核」开启时，合格的新草稿由系统按模型路径批准 |
 | §3.5 模型预算与降级 | 0009、0010 | 草稿模型 glm-5.3-flash，按实际输入预占，日累计不超过 `AI_SOFT_DAY`；模型抽取的计费 profile 仍未配置（P3-09 未做） |
 | §3.6 发布一致性 | 0011、0018 | 版本时间表、补全年份的变化不自动改已发布事件；系统批准的发布不加人工锁，疑似重复留给人工 |
@@ -30,9 +30,9 @@
 | §10.3 合并后的验收矩阵 | 0003 | 月末片段、envelope/carry、认证软线相关用例作废 |
 | §10.5 仓库、配置与迁移 | 0003 | 禁止项改为"不得恢复月度池、envelope、carry、认证软线"（AGENTS.md §3） |
 | 附录 A.1 产品、来源与后台 | 0012、0016 | `API_BODY_MAX_BYTES` 仍为 8 KiB，候选另有 `CANDIDATE_MAX_BYTES`；`SOURCE_LIMIT_PROFILE` 只保留三个来源 |
-| 附录 A.3 日历、通知有效期与模型 | 0006、0009、0010、0012、0013、0015 | `PUBLIC_CACHE_FRESH` 3600；私人预览限流 60 秒 30 次；AI 草稿参数（单次最大预占 1,238）；候选上限 32 KiB；补全年份窗口 −30/+330 天 |
+| 附录 A.3 日历、通知有效期与模型 | 0006、0009、0010、0012、0013、0015、0027 | `PUBLIC_CACHE_FRESH` 3600；私人预览限流 60 秒 30 次；AI 草稿参数（单次最大预占 1,238）；候选上限 32 KiB；补全年份窗口 −30/+330 天，参照为首次采集日期时 −30/+90 天 |
 | 附录 A.4 邮件与 Push | 0003 | 席位 100、常规 40；日池合计 260，不超过平台 1,000；两个 floor 各 20；删去五个 `*_MONTH` |
-| 附录 A.5 保留与配置依赖 | 0003、0005、0006、0007、0009、0010、0012、0013 | 邮件等式改为日模型；新增两项审计 TTL，以及 AI、预览限流、候选字节、补全年份窗口的等式（全表见本文 §11） |
+| 附录 A.5 保留与配置依赖 | 0003、0005、0006、0007、0009、0010、0012、0013、0027 | 邮件等式改为日模型；新增两项审计 TTL，以及 AI、预览限流、候选字节、补全年份窗口（含首次采集窗口）的等式（全表见本文 §11） |
 
 **前端 v1.0**
 
@@ -42,7 +42,7 @@
 | §4.1 页面骨架 | 0017、0020 | 筛选行为"游戏、临近截止、筛选"；时间轴自上而下：回看昨天（主轴第一行）→ 当前范围逐日 → "已显示完{档位}"与"显示更多"；时间待定在时间轴下方单独成卡 |
 | §4.2 筛选 | 0017 | 时间范围移入「筛选」弹层，按钮显示当前档位与筛选计数；清除时恢复默认档 |
 | §4.3 条目与排序 | 0015、0017、0020 | 先后顺序统一用 contracts `compareScheduleNodes`；全天条目排在当天精确条目之后；结束节点叫"活动结束"；用官方游戏图标；今天总在轴上 |
-| §4.4 时间与状态呈现 | 0011、0013 | 推导出的时间在详情里写明推导依据（版本锚点、补全年份） |
+| §4.4 时间与状态呈现 | 0011、0013、0027 | 推导出的时间在详情里写明推导依据（版本锚点、补全年份；补全年份的依据句涵盖首次采集日期） |
 | §4.5 数据状态与空结果 | 0015 | 公开读取为 `no-cache`；页面开满 1 小时显示"内容可能已过时/当前离线"与信息获取时间，并给刷新按钮 |
 | §5 事件详情 | 0014、0015、0017 | "查看官方公告"打开本站存档的原文弹窗；删去说明句；时间线用同一先后规则 |
 | §9.1 日历订阅 | 0023 | 界面统一称"订阅链接 / 链接"；四项事实为 链接状态 / 使用的设置 / 内容输出 / 日历应用拉取，客户端情况在"查看订阅步骤"里说明；含义不变 |
@@ -81,7 +81,7 @@ ADR-0011（P3-19）版本锚点的确定性推导，唯一定义在 contracts `d
 
 两者的 `time_basis` 都是 `deterministic_derived`，原始表达原样保留；只推导依据为 `unresolved` 的未定节点。`结束后`、夹带其他文字的表达和官方"预计"（`official_estimate`）的锚点都不推导。确认值只来自管理端版本时间表，未确认时保持 `unknown`。人工写入或批准时，版本锚点节点必须与推导一致（`version_derivation_mismatch`）。公开详情的时间依据里要写明推导依据（前端 §4.4）。
 
-ADR-0013（P3-21）补全年份，唯一定义在 contracts `completeYear`：原始表达整体为"M月D日"（可带 `HH:MM(:SS)` 与"(UTC+8)""（服务器时间）"注记）的未定节点，参照日期依次取正文里最早的四位年份日期、所属版本（标题唯一，否则全文唯一的版本号）已确认的更新开始、公告发布日期；取落在参照日期前 `beforeDays`（30）天到后 `afterDays`（330）天之内的唯一年份（`YEAR_COMPLETION_WINDOW`），没有符合的或没有参照时保持未定。只写日期的补成日期，写了时刻的按北京时间补成精确时刻；`time_basis` 为 `deterministic_derived`，原文保留；官方"预计"不补。推导与版本锚点同在读取时进行，人工写入或批准时同样核对（`version_derivation_mismatch`）。
+ADR-0013（P3-21）补全年份，唯一定义在 contracts `completeYear`：原始表达整体为"M月D日"（可带 `HH:MM(:SS)` 与"(UTC+8)""（服务器时间）"注记）的未定节点，参照日期依次取正文里最早的四位年份日期、所属版本（标题唯一，否则全文唯一的版本号）已确认的更新开始、公告发布日期、本站首次采集日期（`articles.first_seen_at`，ADR-0027 / P3-26）；取落在参照日期前 `beforeDays`（30）天到后 `afterDays`（330）天之内的唯一年份（`YEAR_COMPLETION_WINDOW`；参照为首次采集日期时用 `YEAR_COMPLETION_CAPTURE_WINDOW`，前 30 天、后 90 天），没有符合的或没有参照时保持未定。只写日期的补成日期，写了时刻的按北京时间补成精确时刻；`time_basis` 为 `deterministic_derived`，原文保留；官方"预计"不补。推导与版本锚点同在读取时进行，人工写入或批准时同样核对（`version_derivation_mismatch`）。
 
 官方明确时间（`official_explicit`）的完整写法："YYYY/MM/DD HH:MM(:SS)"与"YYYY-MM-DD HH:MM(:SS)"（后者为 ADR-0019 新增），按 UTC+8 解析并做往返校验，分隔符前后必须一致；解析函数在 Worker `extraction/time.ts`，草稿构建与候选证据校验共用。规则白名单模板仍只认斜线写法，规则路径数正文日期时把横线写法算进去、多出的日期转人工。
 
@@ -395,7 +395,7 @@ pending 期限重合，没有问题。**若把 `AUTH_COMPLETION_TTL` 调得比 `
 
 ## 11. 附录 A.5 启动等式（`pnpm params:verify` 必须实现全部）
 
-`pnpm params:verify` 与 Worker 启动路径执行同一份校验（`packages/contracts/src/params/verify.ts`），任一不成立即非零退出、拒绝启动。2026-10-06（main `cea8145`）共 **36 条数值等式**，全部成立；另有 1 条语义条款由实现保证。新增等式时同步本表（AGENTS.md §4 允许的例外）。
+`pnpm params:verify` 与 Worker 启动路径执行同一份校验（`packages/contracts/src/params/verify.ts`），任一不成立即非零退出、拒绝启动。2026-10-06（main `cea8145`）共 36 条数值等式；P3-26（ADR-0027）新增 1 条，现为 **37 条**，全部成立；另有 1 条语义条款由实现保证。新增等式时同步本表（AGENTS.md §4 允许的例外）。
 
 | 组 | 等式 ID | 内容 | 依据 |
 | --- | --- | --- | --- |
@@ -428,6 +428,7 @@ pending 期限重合，没有问题。**若把 `AUTH_COMPLETION_TTL` 调得比 `
 | D1 工程上限 | `public-snapshot-chunk-within-d1` | `API_BODY_MAX_BYTES < chunkBytes / 2`；`2 < chunkBytes <= singleValueBytes / 2`；`queryLimit > 18` | P3-06；ENGINEERING §5.4 |
 | D1 工程上限 | `candidate-bytes-within-d1` | `API_BODY_MAX_BYTES <= CANDIDATE_MAX_BYTES < chunkBytes / 2` | ADR-0012 |
 | 时间推导 | `year-completion-window-single-year` | `YEAR_COMPLETION_WINDOW` 两端为正安全整数且 `beforeDays + afterDays < 365` | ADR-0013 |
+| 时间推导 | `year-completion-capture-window-narrower` | `YEAR_COMPLETION_CAPTURE_WINDOW` 两端为正安全整数，且两端都不超过 `YEAR_COMPLETION_WINDOW` 对应的一端 | ADR-0027 |
 | 来源上限 | `source-response-caps-within-ceiling` | 每来源 `responseCapsBytes > 0` 且 `<= responseCapCeilingBytes` | P3-08 |
 | 公共读保护 | `public-read-bounds` | `PUBLIC_READ_LIMITS` 为正整数；`recentChanges <= scanPage <= detailNodes`；`nodeBytes × (recentChanges + 1) < responseBytes <= FEED_RESPONSE_MAX_BYTES`；`queryBytes <= nodeBytes` | P3-14 |
 | 私人预览限流 | `calendar-preview-rate-bounds` | 两参数为正安全整数；`CALENDAR_PREVIEW_RATE_WINDOW < PUBLIC_CACHE_FRESH` | ADR-0006 |
@@ -450,6 +451,8 @@ P3-06 工程等式 `public-snapshot-chunk-within-d1`：`API_BODY_MAX_BYTES < PUB
 P3-20 / ADR-0012 工程等式 `candidate-bytes-within-d1`：`API_BODY_MAX_BYTES <= CANDIDATE_MAX_BYTES < PUBLIC_SNAPSHOT_WRITE_PROFILE.chunkBytes / 2`，`CANDIDATE_MAX_BYTES` 为安全整数。人工新建、修正的候选总能存下；采用 AI 草稿生成的大候选仍在 D1 分块写入的安全界内。单个公共节点仍受 `PUBLIC_READ_LIMITS.nodeBytes` 约束。
 
 P3-21 / ADR-0013 等式 `year-completion-window-single-year`：`YEAR_COMPLETION_WINDOW` 的 `beforeDays`、`afterDays` 为正安全整数，且 `beforeDays + afterDays < 365`。窗口短于一年，没写年份的日期至多一个年份落在窗口内；没有符合的年份时保持未定时刻。
+
+P3-26 / ADR-0027 等式 `year-completion-capture-window-narrower`：`YEAR_COMPLETION_CAPTURE_WINDOW` 的 `beforeDays`、`afterDays` 为正安全整数，且分别不超过 `YEAR_COMPLETION_WINDOW` 的 `beforeDays`、`afterDays`（因此也短于一年）。首次采集日期只会晚于真实发布，窗口只能更窄：后端 90 天时，日期要早于首次采集 275 天以上才会被补到下一年。
 
 > 邮件部分按 **ADR-0003** 改写；其余不变。
 

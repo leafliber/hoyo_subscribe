@@ -2,12 +2,14 @@
 //
 // 模型照原文摘录"10月1日"（ADR-0010 提示词不补年份），补全只在服务端按本模块完成：
 // - 原始表达必须整体就是"M月D日"，可带"HH:MM(:SS)"与"(UTC+8)""（服务器时间）"注记；夹带其他文字的不补。
-// - 参照日期由调用方按"正文里最早的四位年份日期 > 所属版本已确认的更新开始 > 公告发布日期"选定。
-// - 年份取让日期落在参照日期前 beforeDays 天到后 afterDays 天之内的那一年（YEAR_COMPLETION_WINDOW）。
+// - 参照日期由调用方按"正文里最早的四位年份日期 > 所属版本已确认的更新开始 > 公告发布日期 >
+//   本站首次采集日期（ADR-0027）"选定。
+// - 年份取让日期落在参照日期前 beforeDays 天到后 afterDays 天之内的那一年（YEAR_COMPLETION_WINDOW；
+//   参照为首次采集日期时用更窄的 YEAR_COMPLETION_CAPTURE_WINDOW，见 yearCompletionWindow）。
 //   窗口短于一年，至多一个年份符合；没有符合的年份时返回 null，保持"未定时刻"。
 // 公告时间一律按北京时间（正文 API timezone=8，P0-02 §2.4；国服"服务器时间"同为 UTC+8）。
 // 本模块是纯函数，不读库、不调用模型。
-import { YEAR_COMPLETION_WINDOW } from "./params/registry";
+import { YEAR_COMPLETION_CAPTURE_WINDOW, YEAR_COMPLETION_WINDOW } from "./params/registry";
 import { DateOnlySchema, ExactTimeSchema, type TimeValue } from "./time";
 
 // 单位换算，非预算、配额或 Feed 参数。
@@ -21,8 +23,18 @@ export interface YearlessDate {
   readonly time: { readonly hour: number; readonly minute: number; readonly second: number } | null;
 }
 
-/** 参照日期从哪里来；写进推导依据，让审核员知道补出的年份凭什么。 */
-export type YearReferenceSource = "article" | "version" | "published";
+/** 参照日期从哪里来；写进推导依据，让审核员知道补出的年份凭什么。captured 为本站首次采集日期（ADR-0027）。 */
+export type YearReferenceSource = "article" | "version" | "published" | "captured";
+
+export interface YearCompletionWindow {
+  readonly beforeDays: number;
+  readonly afterDays: number;
+}
+
+/** ADR-0027：首次采集日期只会晚于真实发布，用更窄的窗口；其余参照用 YEAR_COMPLETION_WINDOW。 */
+export function yearCompletionWindow(source: YearReferenceSource): YearCompletionWindow {
+  return source === "captured" ? YEAR_COMPLETION_CAPTURE_WINDOW : YEAR_COMPLETION_WINDOW;
+}
 
 export interface YearReference {
   /** 北京时间日期 YYYY-MM-DD。 */
@@ -84,18 +96,20 @@ export function earliestExplicitDate(texts: readonly string[]): string | null {
 /**
  * 按参照日期补全年份。年份唯一确定时返回 deterministic_derived 的时间：只写日期的仍是日期精度，
  * 写了时刻的按北京时间换成精确时刻；原始表达保留。识别不了或没有符合窗口的年份时返回 null。
+ * window 由参照来源决定（yearCompletionWindow），省略时为 YEAR_COMPLETION_WINDOW。
  */
 export function completeYear(
   rawExpression: string,
   referenceDate: string,
   sourceTimezone: string,
+  window: YearCompletionWindow = YEAR_COMPLETION_WINDOW,
 ): TimeValue | null {
   const parsed = parseYearlessDate(rawExpression);
   const reference = DateOnlySchema.safeParse(referenceDate);
   if (parsed === null || !reference.success) return null;
   const referenceMs = Date.parse(`${reference.data}T00:00:00Z`);
-  const lower = referenceMs - YEAR_COMPLETION_WINDOW.beforeDays * DAY;
-  const upper = referenceMs + YEAR_COMPLETION_WINDOW.afterDays * DAY;
+  const lower = referenceMs - window.beforeDays * DAY;
+  const upper = referenceMs + window.afterDays * DAY;
   const year = Number(reference.data.slice(0, 4));
   const matches = [year - 1, year, year + 1].flatMap((candidate) => {
     const date = isoDate(candidate, parsed.month, parsed.day);
@@ -135,5 +149,6 @@ export function yearCompletionBasis(rawExpression: string, value: TimeValue): st
         ? new Date(value.utc_ms + UTC8).toISOString().slice(0, 4)
         : null;
   if (year === null) return null;
-  return `原文未写年份，按同一公告里写明的日期（或所属版本已确认的更新时间）补全为 ${year} 年；年份不是官方直接写出的。`;
+  // 公开节点不保存参照来源（ADR-0013 实施说明 6），三种来源写在同一句里（ADR-0027）。
+  return `原文未写年份，按同一公告里写明的日期、所属版本已确认的更新时间或本站首次采集这篇公告的日期补全为 ${year} 年；年份不是官方直接写出的。`;
 }

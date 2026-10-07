@@ -675,8 +675,9 @@ describe("A-P3-YEAR 补全年份与扩充的版本写法（ADR-0013）", () => {
     );
     const before = await detail(candidateId);
     expect(before.draft.derived_count).toBe(0);
+    // 版本未确认时退到首次采集日期（ADR-0027）；10-16 落在 2027-01-15 的窄窗口之外，仍保持未定。
     expect(before.draft.notes).toContain(
-      "「10月16日」未写年份，公告里没有写明年份的日期，也没有已确认的所属版本更新时间，保持未定时刻。",
+      "「10月16日」未写年份，按本站首次采集这篇公告的日期（2027-01-15）推不出唯一的年份，保持未定时刻。",
     );
     await confirm71();
     const after = await detail(candidateId);
@@ -747,29 +748,75 @@ describe("A-P3-YEAR 补全年份与扩充的版本写法（ADR-0013）", () => {
     expect((await detail(candidateId)).draft.derived_count).toBe(0);
   });
 
-  it("正文和版本都给不出参照时，用公告发布日期；都没有时保持未定", async () => {
-    const entry = (annId: number) => ({
+  it("正文和版本都给不出参照时，用公告发布日期；没有发布日期时用首次采集日期，窗口更窄（ADR-0027）", async () => {
+    const entry = (annId: number, day: string) => ({
       ann_id: annId,
       title: "「合成」网页活动",
-      content: "<p>活动将于2月1日开启。</p>",
+      content: `<p>活动将于${day}开启。</p>`,
     });
-    const output = yearOutput([{ title: "合成网页活动", milestones: [["start", "2月1日"]] }]);
+    const output = (day: string) =>
+      yearOutput([{ title: "合成网页活动", milestones: [["start", day]] }]);
     const published = await draftSynthetic(
-      entry(99_104),
-      output,
+      entry(99_104, "5月1日"),
+      output("5月1日"),
       Date.parse("2027-01-15T08:00:00Z"),
     );
     const withDate = await detail(published.candidateId);
     expect(withDate.draft.proposal.events[0].milestones[0].time).toMatchObject({
       precision: "date",
-      date: "2027-02-01",
+      date: "2027-05-01",
       time_basis: "deterministic_derived",
     });
     expect(withDate.draft.notes).toContain(
-      "「2月1日」未写年份，按公告发布日期（2027-01-15）补全为 2027-02-01。",
+      "「5月1日」未写年份，按公告发布日期（2027-01-15）补全为 2027-05-01。",
     );
-    const bare = await draftSynthetic(entry(99_105), output);
-    const without = await detail(bare.candidateId);
+    // 游戏内公告没有发布日期：退到本站首次采集日期（DRAFT_T0，北京时间 2027-01-15）。
+    const captured = await draftSynthetic(entry(99_105, "2月1日"), output("2月1日"));
+    const near = await detail(captured.candidateId);
+    expect(near.draft.proposal.events[0].milestones[0].time).toMatchObject({
+      precision: "date",
+      date: "2027-02-01",
+      time_basis: "deterministic_derived",
+    });
+    expect(near.draft.notes).toContain(
+      "「2月1日」未写年份，按本站首次采集这篇公告的日期（2027-01-15）补全为 2027-02-01。",
+    );
+    // 人工写入同样核对：与首次采集参照的推导一致才收，手填别的年份 400。
+    const proposal = structuredClone(near.draft.proposal) as unknown as {
+      classification: string;
+      ambiguities: string[];
+      events: { milestones: { time: Record<string, unknown> }[] }[];
+    };
+    proposal.classification = "events";
+    proposal.ambiguities = [];
+    const wrongYear = structuredClone(proposal);
+    wrongYear.events[0].milestones[0].time = {
+      ...wrongYear.events[0].milestones[0].time,
+      date: "2026-02-01",
+    };
+    const mismatch = await call("review/revise", {
+      candidate_id: captured.candidateId,
+      expected_updated_at: near.candidate.updated_at,
+      reason: "人工修正",
+      proposal_json: JSON.stringify(wrongYear),
+    });
+    expect(mismatch.status).toBe(400);
+    expect(await mismatch.json()).toMatchObject({
+      error: {
+        details: { fields: [{ path: "proposal_json", reason: "version_derivation_mismatch" }] },
+      },
+    });
+    now += 1;
+    const accepted = await call("review/revise", {
+      candidate_id: captured.candidateId,
+      expected_updated_at: near.candidate.updated_at,
+      reason: "按推导写入",
+      proposal_json: JSON.stringify(proposal),
+    });
+    expect(accepted.status).toBe(200);
+    // 同样的 5 月 1 日在发布日期参照下能补，在首次采集参照下超出后 90 天，保持未定。
+    const far = await draftSynthetic(entry(99_106, "5月1日"), output("5月1日"));
+    const without = await detail(far.candidateId);
     expect(without.draft.derived_count).toBe(0);
     expect(without.draft.proposal.events[0].milestones[0].time).toMatchObject({
       precision: "unknown",

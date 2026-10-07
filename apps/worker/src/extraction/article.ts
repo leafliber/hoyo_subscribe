@@ -37,6 +37,8 @@ export interface StoredArticleVersion {
    * （提供它的米游社来源已下线，ADR-0016），只有历史版本可能带着它。
    */
   readonly officialPublishedAtMs?: number | null;
+  /** 文章行的首次采集时间（`articles.first_seen_at`，建行后不再改写）；ADR-0027 补年份的第四级参照。 */
+  readonly firstSeenAtMs?: number | null;
 }
 
 interface ArticleRow {
@@ -52,6 +54,7 @@ interface ArticleRow {
   body_blocks_json: string;
   media_refs_json: string;
   official_published_at: number | null;
+  first_seen_at: number;
 }
 
 function parseBlocks(json: string): readonly ArticleBodyBlock[] {
@@ -96,7 +99,8 @@ export async function loadStoredArticleVersion(
     .prepare(
       `SELECT av.id AS version_id, a.id AS article_id, a.source_id, a.external_id,
               a.official_url, s.game, s.region, s.verification_state,
-              av.completeness, av.body_blocks_json, av.media_refs_json, av.official_published_at
+              av.completeness, av.body_blocks_json, av.media_refs_json, av.official_published_at,
+              a.first_seen_at
          FROM article_versions av
          JOIN articles a ON a.id = av.article_id
          JOIN sources s ON s.source_id = a.source_id
@@ -128,6 +132,7 @@ export async function loadStoredArticleVersion(
     blocks: parseBlocks(row.body_blocks_json),
     mediaRefs: parseMediaRefs(row.media_refs_json),
     officialPublishedAtMs: row.official_published_at,
+    firstSeenAtMs: row.first_seen_at,
   };
 }
 
