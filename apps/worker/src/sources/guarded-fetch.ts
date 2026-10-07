@@ -9,6 +9,7 @@
 // 数值全部来自 SOURCE_LIMIT_PROFILE 指向的 registry.draft.json（经 sources/registry.ts 转录，
 // 漂移测试锁定），本文件零自有阈值。
 
+import { LIVE_ACT_ID_PATTERN } from "@hoyo/contracts";
 import { logEvent } from "../shell/logger";
 
 /** 诚实 UA：标识服务与只读用途，不伪装浏览器（AGENTS.md 规则 6）。 */
@@ -18,7 +19,16 @@ export const SOURCE_COLLECTOR_USER_AGENT =
 export type GuardRejectionCode =
   | "scheme_not_allowed"
   | "userinfo_not_allowed"
-  | "host_not_in_allowlist";
+  | "host_not_in_allowlist"
+  | "header_not_allowed";
+
+/**
+ * ADR-0030：官方直播接口用请求头 x-rpc-act_id 指定活动（与官方直播页一致）。只放行这一个头名，
+ * 值必须是短的字母数字；不放行 Cookie、Referer、UA 等任何身份或伪装类请求头（AGENTS.md 规则 6）。
+ */
+const ALLOWED_EXTRA_HEADERS: Readonly<Record<string, RegExp>> = {
+  "x-rpc-act_id": LIVE_ACT_ID_PATTERN,
+};
 
 export interface GuardedFetchLimits {
   readonly onTruncated?: (host: string) => Promise<void>;
@@ -26,6 +36,8 @@ export interface GuardedFetchLimits {
   readonly allowedHosts: readonly string[];
   readonly timeoutMs: number;
   readonly maxResponseBytes: number;
+  /** 只接受 ALLOWED_EXTRA_HEADERS 登记的头名与取值形状；其余一律在请求前拒绝。 */
+  readonly extraHeaders?: Readonly<Record<string, string>>;
 }
 
 export type GuardedFetchOutcome =
@@ -171,6 +183,12 @@ export async function guardedSourceFetch(
     return { kind: "network-error", name: error instanceof Error ? error.name : "url_parse_error" };
   }
 
+  const extra = limits.extraHeaders ?? {};
+  for (const [name, value] of Object.entries(extra)) {
+    if (!ALLOWED_EXTRA_HEADERS[name]?.test(value))
+      return { kind: "guard-rejected", code: "header_not_allowed", detail: name };
+  }
+
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), limits.timeoutMs);
   try {
@@ -178,7 +196,11 @@ export async function guardedSourceFetch(
       method: "GET",
       redirect: "manual",
       signal: controller.signal,
-      headers: { "user-agent": SOURCE_COLLECTOR_USER_AGENT, accept: "application/json" },
+      headers: {
+        ...extra,
+        "user-agent": SOURCE_COLLECTOR_USER_AGENT,
+        accept: "application/json",
+      },
     });
 
     if (response.status >= 301 && response.status <= 308) {

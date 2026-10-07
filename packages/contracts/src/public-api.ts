@@ -127,9 +127,21 @@ export const PublicEventArticlesResponseSchema = z.strictObject({
     }),
   ),
 });
+/**
+ * 来源的用途（ADR-0030）：announcement 是日程事实的来源（游戏内公告），live_codes 是米游社直播兑换码。
+ * 只有 announcement 决定日程是否受来源异常影响；兑换码来源异常只影响兑换码条与兑换码事件。
+ */
+export const PUBLIC_SOURCE_KINDS = ["announcement", "live_codes"] as const;
+export type PublicSourceKind = (typeof PUBLIC_SOURCE_KINDS)[number];
+/** 来源用途的界面名称（服务状态页逐来源列出时用）。 */
+export const PUBLIC_SOURCE_KIND_LABELS: Record<PublicSourceKind, string> = {
+  announcement: "游戏内公告",
+  live_codes: "直播兑换码",
+};
 export const PublicSourceStatusSchema = z.strictObject({
   sourceId: z.string().min(1),
   game: GameIdSchema,
+  kind: z.enum(PUBLIC_SOURCE_KINDS),
   verifiedAt: Timestamp.nullable(),
   verificationState: z.enum(["verified", "unavailable", "unknown"]),
   degradationReasons: z.array(
@@ -160,6 +172,35 @@ export const PublicStatusResponseSchema = z.strictObject({
     }),
   ),
 });
+/**
+ * GET /api/v2/redeem-codes（ADR-0030）：当前在「有效兑换码」条里的兑换码，来自米游社官方直播页接口。
+ * 只含已发放、仍在显示期内的条目（contracts redeemCodeVisible）；code 与 reward 按文本渲染。
+ */
+export const PublicRedeemCodeSchema = z.strictObject({
+  game: GameIdSchema,
+  code: z.string().min(1).max(64),
+  /** 奖励说明，官方 HTML 已整理为纯文本。 */
+  reward: z.string(),
+  liveTitle: z.string(),
+  /** 官方发放时刻。 */
+  revealedAt: Timestamp,
+  /** 官方写明的有效期截止；没写为 null（此时只按显示上限隐藏）。 */
+  expiresAt: Timestamp.nullable(),
+  /** 有效期原文，例如"10月10日12:00"；没写为 null。 */
+  expiryText: z.string().nullable(),
+  /** 用于页面到点隐藏的时刻（官方有效期，或没写有效期时的显示上限）。 */
+  hiddenAt: Timestamp,
+  /** 官方直播页。 */
+  officialUrl: z.url(),
+  /** 已发布的兑换码事件；尚未发布时为 null。 */
+  eventId: z.string().min(1).nullable(),
+});
+export const PublicRedeemCodesResponseSchema = z.strictObject({
+  cache: PublicCacheSchema,
+  codes: z.array(PublicRedeemCodeSchema),
+});
+export type PublicRedeemCode = z.infer<typeof PublicRedeemCodeSchema>;
+export type PublicRedeemCodesResponse = z.infer<typeof PublicRedeemCodesResponseSchema>;
 export type PublicCatalogResponse = z.infer<typeof PublicCatalogResponseSchema>;
 export type PublicSourceStatus = z.infer<typeof PublicSourceStatusSchema>;
 export type PublicPublication = z.infer<typeof PublicPublicationSchema>;
@@ -286,6 +327,7 @@ export function publicImportantNode(
 export function publicSourceStatus(
   game: PublicSourceStatus["game"],
   row: { source_id: string; last_success_at: number | null; verification_state: string },
+  kind: PublicSourceKind = "announcement",
 ): PublicSourceStatus {
   const stopped = row.verification_state === "maintenance-required";
   const listOnly = row.verification_state === "maintenance-required-list-only";
@@ -294,6 +336,7 @@ export function publicSourceStatus(
   return {
     sourceId: row.source_id,
     game,
+    kind,
     verifiedAt: row.last_success_at,
     verificationState:
       row.last_success_at === null

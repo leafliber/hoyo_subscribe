@@ -1,0 +1,30 @@
+{
+  "schema_version": 1,
+  "synthetic": false,
+  "source_id": "zzz-live",
+  "kind": "code-response",
+  "purpose": "兑换码接口对不存在/已结束活动的信封（-500012 活动已结束）",
+  "captured_at_utc": "2026-10-07T10:02:18.394Z",
+  "url": "https://api-takumi-static.mihoyo.com/event/miyolive/refreshCode?version=1&time=1791367320",
+  "request_headers": ["x-rpc-act_id"],
+  "http": {
+    "status": 200,
+    "headers": {
+      "content_type": "application/json",
+      "location": null,
+      "retry_after": null
+    }
+  },
+  "body_bytes": 69,
+  "body_sha256": "5c3b2334d4127577c8f268233b06edbfe511519c82a247d08242d21e5cdb942c",
+  "redactions": [],
+  "extra": {
+    "act_id": "ea000000000000000",
+    "act_id_note": "本站构造的不存在 ID"
+  },
+  "body": {
+    "data": null,
+    "message": "活动已结束 (-500012)",
+    "retcode": -500012
+  }
+}

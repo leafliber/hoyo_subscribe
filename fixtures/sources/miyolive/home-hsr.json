@@ -1,0 +1,293 @@
+{
+  "schema_version": 1,
+  "synthetic": false,
+  "source_id": "hsr-live",
+  "kind": "discovery-response",
+  "purpose": "崩坏：星穹铁道米游社首页（gids=6）",
+  "captured_at_utc": "2026-10-07T10:02:14.824Z",
+  "url": "https://bbs-api.miyoushe.com/apihub/api/home/new?gids=6",
+  "request_headers": [],
+  "http": {
+    "status": 200,
+    "headers": {
+      "content_type": "application/json",
+      "location": null,
+      "retry_after": null
+    }
+  },
+  "body_bytes": 10123,
+  "body_sha256": "39ac6657eb9cdbbb109da8b260a5199312551285b55638ba64b2e165dfe5d4a4",
+  "redactions": [],
+  "extra": {},
+  "body": {
+    "retcode": 0,
+    "message": "OK",
+    "data": {
+      "navigator": [
+        {
+          "id": 1866292535,
+          "name": "官方企微",
+          "icon": "https://bbs-static.miyoushe.com/static/2026/05/22/3af54bc55eb4893f618fc5481887f521_7222203233026515250.png",
+          "app_path": "mihoyobbs://article/76691429?deep_source=navigator_6a1000705ccb12edd109dc41&isMentor=0&viewType=1",
+          "reddot_online_time": 0,
+          "mys_event": "{\"module_type\":\"navigator\",\"resource_id\":\"6a1000705ccb12edd109dc41\",\"app_path\":\"mihoyobbs://article/76691429?deep_source=navigator_6a1000705ccb12edd109dc41\\u0026isMentor=0\\u0026viewType=1\"}",
+          "resource_id": "6a1000705ccb12edd109dc41"
+        },
+        {
+          "id": 1869906168,
+          "name": "工具集合页",
+          "icon": "https://bbs-static.miyoushe.com/static/2026/09/28/23bd568e80d2be3af454d3008e57b443_469319652827656524.gif",
+          "app_path": "https://act.mihoyo.com/sr/event/cultivation-tool/index.html?mhy_presentation_style=fullscreen&mhy_auth_required=true&mhy_landscape=true&mhy_hide_status_bar=true&utm_medium=mys&utm_campaign=bb",
+          "reddot_online_time": 1790571600,
+          "mys_event": "{\"module_type\":\"navigator\",\"resource_id\":\"69feeefbabb128c98d6270bb\",\"app_path\":\"https://act.mihoyo.com/sr/event/cultivation-tool/index.html?mhy_presentation_style=fullscreen\\u0026mhy_auth_required=true\\u0026mhy_landscape=true\\u0026mhy_hide_status_bar=true\\u0026utm_medium=mys\\u0026utm_campaign=bb\"}",
+          "resource_id": "69feeefbabb128c98d6270bb"
+        },
+        {
+          "id": 328347918,
+          "name": "绘画征集",
+          "icon": "https://bbs-static.miyoushe.com/static/2026/09/23/a367adf283a12d8d0ccb375800e0a78b_7915207962888517718.gif",
+          "app_path": "https://act.mihoyo.com/bbs/event/doujin-collect/index.html?id=ea202609031728067124&act_id=ea202609031728067124&game_biz=hkrpg&mhy_presentation_style=fullscreen#/rpg/act?&utm_source=bbs&utm_medium=mys&utm_campaign=bb",
+          "reddot_online_time": 1790137800,
+          "mys_event": "{\"module_type\":\"navigator\",\"resource_id\":\"6a1907f236774b6e575549ff\",\"app_path\":\"https://act.mihoyo.com/bbs/event/doujin-collect/index.html?id=ea202609031728067124\\u0026act_id=ea202609031728067124\\u0026game_biz=hkrpg\\u0026mhy_presentation_style=fullscreen#/rpg/act?\\u0026utm_source=bbs\\u0026utm_medium=mys\\u0026utm_campaign=bb\"}",
+          "resource_id": "6a1907f236774b6e575549ff"
+        },
+        {
+          "id": 2106384566,
+          "name": "货币战争",
+          "icon": "https://bbs-static.miyoushe.com/static/2025/10/24/0c016907fdf6762740bf9f2323cbf94b_5313084975489055836.gif",
+          "app_path": "https://act.miyoushe.com/sr/event/currency-wars/index.html?sign_type=2&auth_appid=rpqcurrencywar&authkey_ver=1&open_bbs=0&mhy_presentation_style=fullscreen&utm_source=bbs&utm_medium=mys&utm_campaign=bb",
+          "reddot_online_time": 1762317900,
+          "mys_event": "{\"module_type\":\"navigator\",\"resource_id\":\"68fb2b2eb5433bfc2238b22a\",\"app_path\":\"https://act.miyoushe.com/sr/event/currency-wars/index.html?sign_type=2\\u0026auth_appid=rpqcurrencywar\\u0026authkey_ver=1\\u0026open_bbs=0\\u0026mhy_presentation_style=fullscreen\\u0026utm_source=bbs\\u0026utm_medium=mys\\u0026utm_campaign=bb\"}",
+          "resource_id": "68fb2b2eb5433bfc2238b22a"
+        },
+        {
+          "id": 1377694780,
+          "name": "阵容推荐",
+          "icon": "https://bbs-static.miyoushe.com/static/2024/04/19/eca9a3035c46dda76b0d0a1269438281_4089754415928357872.png",
+          "app_path": "https://webstatic.mihoyo.com/bbs/event/bbs-lineup-hkrpg/index.html?mhy_presentation_style=fullscreen&utm_source=bbs&utm_medium=mys&utm_campaign=icon",
+          "reddot_online_time": 0,
+          "mys_event": "{\"module_type\":\"navigator\",\"resource_id\":\"65251dfda1e72555e6f18af8\",\"app_path\":\"https://webstatic.mihoyo.com/bbs/event/bbs-lineup-hkrpg/index.html?mhy_presentation_style=fullscreen\\u0026utm_source=bbs\\u0026utm_medium=mys\\u0026utm_campaign=icon\"}",
+          "resource_id": "65251dfda1e72555e6f18af8"
+        },
+        {
+          "id": 1674732944,
+          "name": "地图",
+          "icon": "https://bbs-static.miyoushe.com/static/2024/03/29/46b00ea00950105bc9fb0af4b7ef5803_8087596882412348116.png",
+          "app_path": "https://webstatic.mihoyo.com/sr/app/interactive-map/index.html?mhy_presentation_style=fullscreen&utm_medium=mys&utm_campaign=bb",
+          "reddot_online_time": 0,
+          "mys_event": "{\"module_type\":\"navigator\",\"resource_id\":\"6524bef7b3bc5c6d9ff8c501\",\"app_path\":\"https://webstatic.mihoyo.com/sr/app/interactive-map/index.html?mhy_presentation_style=fullscreen\\u0026utm_medium=mys\\u0026utm_campaign=bb\"}",
+          "resource_id": "6524bef7b3bc5c6d9ff8c501"
+        },
+        {
+          "id": 1890680231,
+          "name": "新版本攻略",
+          "icon": "https://bbs-static.miyoushe.com/static/2024/04/28/e4a16d90636e94a4d41db007d01139b4_1911271745634561372.png",
+          "app_path": "https://bbs.mihoyo.com/sr/wiki/content/7807/detail?bbs_presentation_style=no_header",
+          "reddot_online_time": 1770976800,
+          "mys_event": "{\"module_type\":\"navigator\",\"resource_id\":\"658551507dd3b5f0a70a9101\",\"app_path\":\"https://bbs.mihoyo.com/sr/wiki/content/7807/detail?bbs_presentation_style=no_header\"}",
+          "resource_id": "658551507dd3b5f0a70a9101"
+        }
+      ],
+      "discussion": {
+        "icon": "https://upload-bbs.miyoushe.com/upload/2022/12/13/7b4c9a71690aab3780dabfc8d8b1c83f_1657389578377640943.png",
+        "title": "星穹铁道讨论区",
+        "prompt": "开拓者交流.攻略.同人分享"
+      },
+      "background": {
+        "image": "https://bbs-static.miyoushe.com/static/2024/04/29/b38d836d4ba605cbc5b563c9b75fef7c_7427735939459414235.webp",
+        "color": "000000"
+      },
+      "official": {
+        "position": 3,
+        "forum_id": 53,
+        "data": [
+          {
+            "post_id": "78471477",
+            "title": "帕姆展览馆 | 表情包第29弹上线！",
+            "date": "1790569809",
+            "label": "资讯",
+            "is_top": false,
+            "view_type": 1,
+            "image_url": "https://upload-bbs.miyoushe.com/upload/2026/09/28/288909600/7c693e04abd8458d49b18e8c6c1bfbe9_197673249345728345.png",
+            "image": {
+              "image_id": "260606934",
+              "url": "https://upload-bbs.miyoushe.com/upload/2026/09/28/288909600/7c693e04abd8458d49b18e8c6c1bfbe9_197673249345728345.png",
+              "width": 699,
+              "height": 320
+            }
+          },
+          {
+            "post_id": "78448395",
+            "title": "4.6版本活动跃迁（其一）",
+            "date": "1790488812",
+            "label": "公告",
+            "is_top": false,
+            "view_type": 1,
+            "image_url": "https://upload-bbs.miyoushe.com/upload/2026/09/24/288909600/7e191ec19f959efefdded81d62ed4f0a_6032642277039335799.jpg",
+            "image": {
+              "image_id": "260383959",
+              "url": "https://upload-bbs.miyoushe.com/upload/2026/09/24/288909600/7e191ec19f959efefdded81d62ed4f0a_6032642277039335799.jpg",
+              "width": 900,
+              "height": 3031
+            }
+          },
+          {
+            "post_id": "78164942",
+            "title": "周边上新 手办服饰多款新品登场",
+            "date": "1789380004",
+            "label": "资讯",
+            "is_top": false,
+            "view_type": 1,
+            "image_url": "https://upload-bbs.miyoushe.com/upload/2026/09/14/378227948/a97daad7c3839e7c0b61968272dc792b_6757199551527042873.jpg",
+            "image": {
+              "image_id": "259911457",
+              "url": "https://upload-bbs.miyoushe.com/upload/2026/09/14/378227948/a97daad7c3839e7c0b61968272dc792b_6757199551527042873.jpg",
+              "width": 690,
+              "height": 320
+            }
+          },
+          {
+            "post_id": "77765524",
+            "title": "【全新工具】跃迁记录统计功能上线",
+            "date": "1787724012",
+            "label": "公告",
+            "is_top": true,
+            "view_type": 1,
+            "image_url": "https://upload-bbs.miyoushe.com/upload/2026/08/25/288909601/6d3e89a10835c6470735f94cd8b9733c_7561978660233674187.png",
+            "image": {
+              "image_id": "258936817",
+              "url": "https://upload-bbs.miyoushe.com/upload/2026/08/25/288909601/6d3e89a10835c6470735f94cd8b9733c_7561978660233674187.png",
+              "width": 690,
+              "height": 320
+            }
+          },
+          {
+            "post_id": "76691429",
+            "title": "官方小程序&企业微信正式上线，每版本领专属星琼福利！",
+            "date": "1784095213",
+            "label": "公告",
+            "is_top": true,
+            "view_type": 1,
+            "image_url": "https://upload-bbs.miyoushe.com/upload/2026/07/14/288909600/c0b3cebf102b6fc4080b103223ef0763_2853390606249249982.png",
+            "image": {
+              "image_id": "256346871",
+              "url": "https://upload-bbs.miyoushe.com/upload/2026/07/14/288909600/c0b3cebf102b6fc4080b103223ef0763_2853390606249249982.png",
+              "width": 690,
+              "height": 320
+            }
+          }
+        ]
+      },
+      "carousels": {
+        "position": 10,
+        "data": [
+          {
+            "cover": "https://bbs-static.miyoushe.com/static/2026/09/27/7693f834add672b9e2766974dbf7e2e8_2776540806367734832.jpg",
+            "app_path": "mihoyobbs://article/78446173?viewType=5&isMentor=0"
+          },
+          {
+            "cover": "https://bbs-static.miyoushe.com/static/2026/09/23/9e842f99fc38a54ab04946294e6a74a0_8384082948239480552.png",
+            "app_path": "mihoyobbs://article/78341238?viewType=5&isMentor=0"
+          },
+          {
+            "cover": "https://bbs-static.miyoushe.com/static/2026/09/15/717574fff7b8efd33c224608741af90d_4687167041124520747.png",
+            "app_path": "mihoyobbs://article/78179682"
+          },
+          {
+            "cover": "https://bbs-static.miyoushe.com/static/2026/09/30/14fe21e55ad64f724e31fa484c9452d3_7949782854036661829.png",
+            "app_path": "https://act.mihoyo.com/sr/event/e20260928thevoracity-nl3xly/index.html?game_biz=hkrpg_cn&mhy_presentation_style=fullscreen&mhy_auth_required=true&mhy_landscape=true&mhy_hide_status_bar=true&mode=fullscreen&win_mode=fullscreen&utm_source=bbs&utm_medium=lb"
+          }
+        ]
+      },
+      "hot_topics": null,
+      "game_receptions": [
+        {
+          "position": 0,
+          "data": {
+            "config": {
+              "id": 23,
+              "game_id": 0,
+              "name": "",
+              "description": "",
+              "icon": "",
+              "status": "ReceptionFinished",
+              "rules": {
+                "game_level": 0,
+                "community_level": 0
+              },
+              "questionnaire": {
+                "questionnaire_type": 0,
+                "questionnaire_url": "",
+                "questionnaire_status": 0
+              },
+              "pkg": {
+                "android_url": "",
+                "pkg_name": "",
+                "pkg_version": "",
+                "ios_url": "",
+                "pkg_length": "0",
+                "pkg_md5": "",
+                "pkg_version_code": "0",
+                "ios_version": "",
+                "new_filename": "",
+                "filename": "",
+                "pkg_version_name": "",
+                "ios_scheme_url": ""
+              },
+              "detail_servlet": {
+                "type": 0,
+                "normal_servlet": null,
+                "customize_detail": null
+              },
+              "pre_register_count": {
+                "show_count": false,
+                "count": "0"
+              },
+              "is_top": false,
+              "last_update_time": "0",
+              "app_store_switch": 0,
+              "download_switch": 0,
+              "developer": "",
+              "banner_card": {
+                "card_type": "NORMAL",
+                "card_media_type": "CardMediaType_UNKNOWN",
+                "card_rec_slogan": "",
+                "card_video_url": "",
+                "card_image_url": "",
+                "card_background_image_url": "",
+                "btn_color": "",
+                "btn_text_color": "",
+                "is_encrypt": false,
+                "encrypt_id": "0",
+                "encrypt_card_video_url": "",
+                "encrypt_card_image_url": "",
+                "encrypt_card_background_image_url": "",
+                "encrypt_card_video_md5": "",
+                "encrypt_card_image_md5": "",
+                "encrypt_card_background_image_md5": "",
+                "k": "",
+                "iv": "",
+                "is_pre_download": false
+              }
+            },
+            "user_status": null,
+            "exposure_times": 0
+          },
+          "expose_ticket": ""
+        }
+      ],
+      "posts": [],
+      "lives": [],
+      "recommend_villa": null,
+      "image_post_card": [],
+      "link_card": [],
+      "album_card": [],
+      "link_topic_card": [],
+      "is_resource_unchanged": false,
+      "exposed_resource_tickets": [],
+      "perspective_card": null,
+      "light_interactive_card": null,
+      "break_frame_card": null
+    }
+  }
+}

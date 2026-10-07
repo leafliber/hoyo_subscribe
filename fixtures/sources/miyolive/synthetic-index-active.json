@@ -1,0 +1,29 @@
+{
+  "schema_version": 1,
+  "synthetic": true,
+  "source_id": "zzz-live",
+  "kind": "index-response",
+  "purpose": "合成样本：进行中的直播活动信息。字段按米游社官方直播页前端实际读取的字段构造（data.live.title / code_ver / is_end / remain / now，data.template 为 JSON 字符串、其中 codeTipText 是兑换码说明）；2026-10-07 没有进行中的直播，尚无真实样本。",
+  "captured_at_utc": null,
+  "url": "https://api-takumi.mihoyo.com/event/miyolive/index",
+  "request_headers": ["x-rpc-act_id"],
+  "extra": { "act_id": "ea202610091930001", "act_id_note": "合成 ID" },
+  "body": {
+    "retcode": 0,
+    "message": "OK",
+    "data": {
+      "live": {
+        "act_id": "ea202610091930001",
+        "title": "《绝区零》3.3版本「重返天空的旅程」前瞻特别节目",
+        "code_ver": "a1b2c3d4",
+        "is_end": false,
+        "remain": 0,
+        "start": "2026-10-09 19:30:00",
+        "end": "2026-10-09 20:30:00",
+        "now": "1791545400"
+      },
+      "template": "{\"actTitle\":\"《绝区零》3.3版本前瞻特别节目\",\"codeTipText\":\"兑换码有效期至10月10日12:00，请绳匠们尽快兑换~\",\"codeVisible\":true}",
+      "live_list": { "list_id": "synthetic", "list": [] }
+    }
+  }
+}

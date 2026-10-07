@@ -225,6 +225,12 @@
   border-top: var(--border-thin) solid var(--color-border);
 }
 
+/* ADR-0030：来源用途（游戏内公告 / 直播兑换码） */
+.source-kind {
+  color: var(--color-text-secondary);
+  font-weight: 600;
+}
+
 .source-id {
   color: var(--color-text-aux);
   font-family: var(--font-family-mono);

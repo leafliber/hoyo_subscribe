@@ -36,6 +36,15 @@ export interface SourcePollState {
   readonly lastPollCompletedAtMs: number | null;
   /** 上次近期公告复查完成（公告源每次全量拉取即复查，与此计数一致推进）。 */
   readonly lastRecheckCompletedAtMs: number | null;
+  /** ADR-0030：直播兑换码来源正在跟踪的直播活动（公告源没有这一项）。 */
+  readonly lives?: readonly TrackedLive[];
+}
+
+/** ADR-0030：一个被跟踪的直播活动。官方返回"活动已结束"后记下时刻、不再请求，满跟踪期后移出。 */
+export interface TrackedLive {
+  readonly actId: string;
+  readonly firstSeenAtMs: number;
+  readonly closedAtMs: number | null;
 }
 
 export const INITIAL_SOURCE_POLL_STATE: SourcePollState = {

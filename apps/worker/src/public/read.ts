@@ -14,6 +14,7 @@ import {
   PublicEventsResponseSchema,
   type PublicPublication,
   PublicPublicationSchema,
+  PublicRedeemCodesResponseSchema,
   type PublicScheduleNode,
   type PublicSnapshotNode,
   type PublicSourceStatus,
@@ -29,7 +30,8 @@ import {
   SUPPORTED_SCOPE,
 } from "@hoyo/contracts";
 import { ApiError, errorResponse, jsonResponse } from "../shell";
-import { RETIRED_SOURCE_IDS } from "../sources/registry";
+import { readVisibleRedeemCodes } from "../sources/redeem-store";
+import { isLiveSource, RETIRED_SOURCE_IDS } from "../sources/registry";
 import {
   PUBLIC_ARTICLES_SQL,
   PUBLIC_CHANGES_SQL,
@@ -434,7 +436,16 @@ async function readSources(db: D1Database): Promise<PublicSourceStatus[] | null>
       ).results;
       if (rows.length > LIMITS.sourcesPerGame) return null;
       sources.push(
-        ...rows.map((row) => PublicSourceStatusSchema.parse(publicSourceStatus(game, row))),
+        ...rows.map((row) =>
+          PublicSourceStatusSchema.parse(
+            publicSourceStatus(
+              game,
+              row,
+              // ADR-0030：直播兑换码来源单列，日程是否受影响只看公告源。
+              isLiveSource(row.source_id) ? "live_codes" : "announcement",
+            ),
+          ),
+        ),
       );
     }
     return sources;
@@ -465,4 +476,21 @@ export async function readPublicStatus(db: D1Database, now = Date.now()) {
       { client: "outlook", support: "unknown" },
     ],
   };
+}
+
+/**
+ * ADR-0030：GET /api/v2/redeem-codes——「有效兑换码」条。只含已发放、仍在显示期内的兑换码
+ * （contracts redeemCodeVisible）；不带查询参数。
+ */
+export async function readRedeemCodes(db: D1Database, url: URL, now = Date.now()) {
+  validatePublicQuery(url);
+  let codes: Awaited<ReturnType<typeof readVisibleRedeemCodes>>;
+  try {
+    codes = await readVisibleRedeemCodes(db, now);
+  } catch {
+    throw unavailable();
+  }
+  return publicResponse(
+    PublicRedeemCodesResponseSchema.parse({ cache: publicCache(null, now), codes }),
+  );
 }

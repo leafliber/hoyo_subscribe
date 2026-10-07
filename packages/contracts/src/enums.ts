@@ -8,8 +8,14 @@ import { z } from "zod";
 /** 逐个枚举提供：`as const` 元组（运行时清单）、TS 联合类型、Zod schema。 */
 const enumSchema = <const T extends readonly string[]>(values: T) => z.enum(values);
 
-// 主方案 §3.3：事件类型。
-export const EVENT_TYPES = ["livestream", "maintenance", "limited_event", "gacha"] as const;
+// 主方案 §3.3：事件类型。redeem_code（兑换码）由 ADR-0030 增补：开始=兑换码发放，结束=兑换码过期。
+export const EVENT_TYPES = [
+  "livestream",
+  "maintenance",
+  "limited_event",
+  "gacha",
+  "redeem_code",
+] as const;
 /** 事件类型（主方案 §3.3）。 */
 export type EventType = (typeof EVENT_TYPES)[number];
 

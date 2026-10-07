@@ -27,6 +27,8 @@ const eventMeta = {
   maintenance: { label: "版本维护", desc: "停服维护与更新", icon: "wrench" },
   limited_event: { label: "限时活动", desc: "活动开放、阶段与奖励截止", icon: "flag" },
   gacha: { label: "卡池", desc: "限定卡池开启与结束", icon: "sparkles" },
+  // ADR-0030：米游社官方直播页的兑换码。
+  redeem_code: { label: "兑换码", desc: "前瞻直播兑换码发放与过期", icon: "gift" },
 } as const;
 const ruleGroups = EVENT_TYPES.map((type) => ({
   type,

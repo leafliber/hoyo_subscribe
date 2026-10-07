@@ -19,6 +19,8 @@
 //
 // ADR-0016：米游社官方资讯（miyoushe-news）已下线——正文接口受访问控制、只有列表，
 // 版本公告与活动正文由游戏内公告覆盖。P0-02 登记与样本作为历史证据保留，不再注册。
+// ADR-0030：另登记三个直播兑换码来源（米游社首页发现直播活动 + 官方直播页的兑换码接口），
+// 事实与样本在 fixtures/sources/miyolive/；它们只产出兑换码，不是日程公告。
 
 import type { GameId } from "@hoyo/contracts";
 import {
@@ -84,8 +86,45 @@ export interface AnnouncementSourceEntry {
   readonly request: AnnouncementRequestProfile;
 }
 
-/** 注册来源只剩三个游戏内公告源（ADR-0016）；保留此名供各模块按"来源"引用。 */
-export type SourceRegistryEntry = AnnouncementSourceEntry;
+/**
+ * ADR-0030 米游社直播兑换码来源的请求形状。接口取自米游社官方直播页前端（定位用），数据全部直连官方端点：
+ * - 发现：米游社首页接口（直播卡片、导航与轮播里的官方直播页链接带活动 ID）；
+ * - 活动：直播页的 index 接口（请求头 x-rpc-act_id）给出直播标题、code_ver 与页面模板（有效期说明在模板里）；
+ * - 兑换码：CDN 上的 refreshCode（参数 version=code_ver、time=按 20 秒取整的秒数，同官方页面）。
+ * 官方直播页只作展示链接，本站不请求它。
+ */
+export interface MiyoliveRequestProfile {
+  readonly discovery: {
+    readonly host: string;
+    readonly path: string;
+    readonly params: Readonly<Record<string, string>>;
+  };
+  readonly index: { readonly host: string; readonly path: string };
+  readonly codes: { readonly host: string; readonly path: string };
+  readonly livePage: string;
+}
+
+export interface MiyoliveSourceEntry {
+  readonly sourceId: string;
+  readonly game: GameId;
+  readonly region: "cn";
+  readonly adapterId: string;
+  readonly adapterKind: "miyolive";
+  readonly approvedHosts: readonly string[];
+  readonly verifiedPublishers: readonly string[];
+  readonly cursorModel: "full-snapshot-per-request";
+  readonly externalIdField: "act_id";
+  readonly pollPolicy: AnnouncementSourceEntry["pollPolicy"];
+  readonly verificationState: "verified-working";
+  readonly lastSuccessAtUtc: string;
+  readonly requestLimits: SourceRequestLimits;
+  readonly request: MiyoliveRequestProfile;
+  /** ADR-0030：不是个人日历的所需来源（contracts requiredCalendarSources）。 */
+  readonly freshnessExempt: true;
+}
+
+/** 游戏内公告源（ADR-0016）与直播兑换码来源（ADR-0030）。 */
+export type SourceRegistryEntry = AnnouncementSourceEntry | MiyoliveSourceEntry;
 
 const ANNOUNCEMENT_POLL_POLICY = {
   pollIntervalS: SOURCE_POLL,
@@ -199,8 +238,68 @@ const ZZZ_ANN: AnnouncementSourceEntry = {
   },
 };
 
-/** 正式来源注册表：三个游戏内公告源，事实来自 P0-02 登记。 */
-export const SOURCE_REGISTRY: readonly SourceRegistryEntry[] = [GENSHIN_ANN, HSR_ANN, ZZZ_ANN];
+const LIVE_HOSTS = [
+  "bbs-api.miyoushe.com",
+  "api-takumi.mihoyo.com",
+  "api-takumi-static.mihoyo.com",
+];
+
+/** ADR-0030：三个游戏的直播兑换码来源；事实登记见 fixtures/sources/miyolive/registry.json。 */
+function liveEntry(
+  sourceId: "genshin-live" | "hsr-live" | "zzz-live",
+  game: GameId,
+  gids: string,
+  lastSuccessAtUtc: string,
+): MiyoliveSourceEntry {
+  return {
+    sourceId,
+    game,
+    region: "cn",
+    adapterId: "miyolive-redeem-codes",
+    adapterKind: "miyolive",
+    approvedHosts: LIVE_HOSTS,
+    verifiedPublishers: [],
+    cursorModel: "full-snapshot-per-request",
+    externalIdField: "act_id",
+    pollPolicy: ANNOUNCEMENT_POLL_POLICY,
+    verificationState: "verified-working",
+    lastSuccessAtUtc,
+    requestLimits: {
+      timeoutMs: 10_000,
+      maxResponseBytes: SOURCE_LIMIT_PROFILE.responseCapsBytes[sourceId],
+    },
+    request: {
+      discovery: { host: "bbs-api.miyoushe.com", path: "/apihub/api/home/new", params: { gids } },
+      index: { host: "api-takumi.mihoyo.com", path: "/event/miyolive/index" },
+      codes: { host: "api-takumi-static.mihoyo.com", path: "/event/miyolive/refreshCode" },
+      livePage: "https://webstatic.mihoyo.com/bbs/event/live/index.html",
+    },
+    freshnessExempt: true,
+  };
+}
+
+/** 正式来源注册表：三个游戏内公告源（P0-02 登记）与三个直播兑换码来源（ADR-0030 登记）。 */
+export const SOURCE_REGISTRY: readonly SourceRegistryEntry[] = [
+  GENSHIN_ANN,
+  HSR_ANN,
+  ZZZ_ANN,
+  liveEntry("genshin-live", "genshin", "2", "2026-10-07T10:02:13.586Z"),
+  liveEntry("hsr-live", "hsr", "6", "2026-10-07T10:02:14.824Z"),
+  liveEntry("zzz-live", "zzz", "8", "2026-10-07T10:02:15.963Z"),
+];
+
+export function isAnnouncementEntry(entry: SourceRegistryEntry): entry is AnnouncementSourceEntry {
+  return entry.adapterKind === "announcement-webview";
+}
+
+export function isLiveEntry(entry: SourceRegistryEntry): entry is MiyoliveSourceEntry {
+  return entry.adapterKind === "miyolive";
+}
+
+/** ADR-0030：是否为直播兑换码来源（不在注册表的 ID 返回 false）。 */
+export function isLiveSource(sourceId: string): boolean {
+  return SOURCE_REGISTRY.some((entry) => entry.sourceId === sourceId && isLiveEntry(entry));
+}
 
 /**
  * 已下线来源（ADR-0016）。库里可能留有它们的来源行、文章与轮询待办：

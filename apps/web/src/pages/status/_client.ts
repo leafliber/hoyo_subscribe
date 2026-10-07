@@ -1,4 +1,4 @@
-import { GAME_NAMES } from "@hoyo/contracts";
+import { GAME_NAMES, PUBLIC_SOURCE_KIND_LABELS } from "@hoyo/contracts";
 import { sourceFeedback } from "../../features/schedule/source-status";
 import { type BadgeKind, badge, el, icon } from "../../lib/dom";
 import { stamp } from "../../lib/format";
@@ -117,6 +117,8 @@ async function refresh() {
                 gameIcon(source.game),
                 GAME_NAMES[source.game],
               ),
+              // ADR-0030：同一游戏有公告与直播兑换码两个来源，写明用途。
+              el("span", { class: "source-kind" }, PUBLIC_SOURCE_KIND_LABELS[source.kind]),
               el("span", { class: "source-id" }, source.sourceId),
               badge(feedback.label, feedback.affected ? "warning" : "success"),
               el("span", { class: "source-time" }, `最近成功：${stamp(source.verifiedAt)}`),

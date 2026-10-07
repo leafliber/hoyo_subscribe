@@ -27,8 +27,14 @@ import {
 // 合同清单的独立抄本：主方案 §3.3 与附录 A.1 SUPPORTED_SCOPE。测试用它钉住代码里的枚举
 // 不漂移；两处不一致即失败（这是验证层，不是第二份运行时定义）。
 describe("A-P1-CONTRACT 枚举完整性（主方案 §3.3）", () => {
-  it("事件类型、节点类型、审核状态、事件状态与合同一致", () => {
-    expect([...EVENT_TYPES]).toEqual(["livestream", "maintenance", "limited_event", "gacha"]);
+  it("事件类型、节点类型、审核状态、事件状态与合同一致（兑换码由 ADR-0030 增补）", () => {
+    expect([...EVENT_TYPES]).toEqual([
+      "livestream",
+      "maintenance",
+      "limited_event",
+      "gacha",
+      "redeem_code",
+    ]);
     expect([...NODE_TYPES]).toEqual([
       "start",
       "end",

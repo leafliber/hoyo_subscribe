@@ -1,5 +1,11 @@
 import { errorResponse, type ShellRoute } from "../shell";
-import { readCatalog, readEventArticles, readEventDetail, readEvents } from "./read";
+import {
+  readCatalog,
+  readEventArticles,
+  readEventDetail,
+  readEvents,
+  readRedeemCodes,
+} from "./read";
 
 // P3-22（ADR-0014）：/api/v2/events/{eventId}/articles 是同一事件的原文子资源，其余形状仍按详情处理。
 const ARTICLES_PATH = /^\/([^/]+)\/articles$/;
@@ -18,6 +24,14 @@ export const publicRoutes: readonly ShellRoute[] = [
     domain: "public",
     write: false,
     handler: (ctx) => readEvents(ctx.env.DB, ctx.url),
+  },
+  {
+    // ADR-0030：「有效兑换码」条。
+    method: "GET",
+    pattern: "/api/v2/redeem-codes",
+    domain: "public",
+    write: false,
+    handler: (ctx) => readRedeemCodes(ctx.env.DB, ctx.url),
   },
   {
     method: "GET",

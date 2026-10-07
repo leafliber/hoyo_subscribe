@@ -16,10 +16,16 @@ type SourceState = {
   job_status: string | null;
   job_last_error: string | null;
 };
+type LiveTracking = {
+  hints: { act_id: string; added_at: number }[];
+  tracked: { act_id: string; first_seen_at: number; closed_at: number | null }[];
+};
 type SourceInfo = {
   game: string;
   adapter: string;
   state: SourceState | null;
+  /** ADR-0030：直播兑换码来源的登记与正在跟踪的直播活动。 */
+  lives?: LiveTracking;
 };
 type ControlRow = {
   control: string;
@@ -67,6 +73,7 @@ const LABELS: Record<string, { name: string; desc: string; danger?: boolean }> =
 };
 const ADAPTERS: Record<string, string> = {
   "announcement-webview": "游戏内公告",
+  miyolive: "直播兑换码",
 };
 const REASONS: [string, string][] = [
   ["initial_deployment", "首次部署"],
@@ -121,8 +128,67 @@ function displayName(row: ControlRow): string {
   return `${meta.name} · ${gameName(row.info.game)}${ADAPTERS[row.info.adapter] ?? row.source}`;
 }
 
-/** 来源能抓什么：现役来源都是游戏内公告（ADR-0016 起不再有仅列表的来源）。 */
-const SOURCE_DESCRIPTION = "抓取公告列表（含图文资讯）与完整正文，版本公告、活动、卡池都从这里来。";
+/** 来源能抓什么：游戏内公告（ADR-0016 起不再有仅列表的来源）与直播兑换码（ADR-0030）。 */
+const SOURCE_DESCRIPTION: Record<string, string> = {
+  "announcement-webview": "抓取公告列表（含图文资讯）与完整正文，版本公告、活动、卡池都从这里来。",
+  miyolive:
+    "从米游社首页发现前瞻直播，读取官方直播页的兑换码：兑换码随即出现在首页「有效兑换码」条；兑换码事件（发放时刻与官方写明的有效期）随本开关自动发布到日历，不经「自动发布」。首页没出现直播入口时，可在下方登记官方直播页链接。",
+};
+
+/** ADR-0030：直播来源正在跟踪的活动与登记入口。登记只把活动 ID 交给下一次采集，采集照常核验。 */
+function liveTracking(row: ControlRow): HTMLElement | null {
+  const lives = row.info?.lives;
+  if (!lives || !row.source) return null;
+  const tracked = lives.tracked.length
+    ? el(
+        "ul",
+        { class: "control-lives" },
+        ...lives.tracked.map((live) =>
+          el(
+            "li",
+            {},
+            el("code", {}, live.act_id),
+            ` · 发现于 ${stamp(live.first_seen_at)}`,
+            live.closed_at === null ? " · 跟踪中" : ` · 官方已结束（${stamp(live.closed_at)}）`,
+          ),
+        ),
+      )
+    : el("p", { class: "control-desc" }, "正在跟踪的直播：暂无。");
+  const input = el("input", {
+    type: "text",
+    class: "input",
+    name: `live-${row.source}`,
+    inputmode: "url",
+    autocomplete: "off",
+    placeholder: "官方直播页链接或活动 ID",
+    "aria-label": `为「${displayName(row)}」登记直播活动`,
+  });
+  const submit = el(
+    "button",
+    { type: "submit", class: "button button--secondary button--sm" },
+    "登记",
+  );
+  submit.disabled = busy;
+  input.disabled = busy;
+  const form = el(
+    "form",
+    { class: "control-live-form" },
+    input,
+    submit,
+    lives.hints.length
+      ? el(
+          "p",
+          { class: "control-key" },
+          `已登记：${lives.hints.map((hint) => `${hint.act_id}（${stamp(hint.added_at)}）`).join("、")}`,
+        )
+      : null,
+  );
+  form.addEventListener("submit", (event) => {
+    event.preventDefault();
+    void registerLive(row, input.value);
+  });
+  return el("div", { class: "control-live" }, tracked, form);
+}
 
 /** 最近一次抓取得怎样；维护中给出解除入口说明。 */
 function sourceState(row: ControlRow): HTMLElement {
@@ -228,8 +294,13 @@ function controlRow(row: ControlRow): HTMLElement {
         unknown ? "未知" : on ? "开" : "关",
       ),
     ),
-    el("p", { class: "control-desc" }, row.info ? SOURCE_DESCRIPTION : meta.desc),
+    el(
+      "p",
+      { class: "control-desc" },
+      row.info ? (SOURCE_DESCRIPTION[row.info.adapter] ?? "") : meta.desc,
+    ),
     row.info ? sourceState(row) : null,
+    liveTracking(row),
     el(
       "p",
       { class: "control-key" },
@@ -363,6 +434,45 @@ async function write(row: ControlRow, enabled: boolean): Promise<void> {
         : error instanceof AdminRequestError && error.status === 401
           ? "管理端登录已失效，请重新登录。"
           : "修改未确认，已重新读取当前值；没有自动重试。";
+  }
+}
+
+/** ADR-0030：登记直播活动；需先选理由。认不出的链接由服务端拒绝（400），不自动重试。 */
+async function registerLive(row: ControlRow, value: string): Promise<void> {
+  if (busy || !status || !row.source) return;
+  if (!reasonSelect?.value) {
+    status.textContent = "请先在上方选择修改理由。";
+    reasonSelect?.focus();
+    return;
+  }
+  if (!value.trim()) {
+    status.textContent = "请填写官方直播页链接或活动 ID。";
+    return;
+  }
+  const name = displayName(row);
+  busy = true;
+  render();
+  status.textContent = "正在登记直播活动…";
+  try {
+    const reply = await request<{ act_id?: string }>("admin/redeem-lives", {
+      source: row.source,
+      live: value.trim(),
+      reason: reasonSelect.value,
+    });
+    busy = false;
+    await load();
+    status.textContent = `已为「${name}」登记直播活动 ${reply.act_id ?? ""}，下一次采集会读取它。`;
+  } catch (error) {
+    busy = false;
+    await load();
+    status.textContent =
+      error instanceof AdminRequestError && error.status === 400
+        ? "认不出这个链接：需要米游社官方直播页（webstatic.mihoyo.com/bbs/event/live/index.html）的链接或其中的 act_id。"
+        : error instanceof AdminRequestError && error.status === 409
+          ? "登记在别处同时变化，已重新读取，请核对后再试。"
+          : error instanceof AdminRequestError && error.status === 401
+            ? "管理端登录已失效，请重新登录。"
+            : "登记未确认，已重新读取当前状态；没有自动重试。";
   }
 }
 

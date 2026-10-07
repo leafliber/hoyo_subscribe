@@ -3,6 +3,7 @@ import type {
   BrowseRange,
   PublicCatalogResponse,
   PublicEventsResponse,
+  PublicRedeemCodesResponse,
   PublicStatusResponse,
 } from "@hoyo/contracts";
 import { PublicApiClient, PublicReadError } from "../../lib/public-api/client";
@@ -15,6 +16,8 @@ export interface ScheduleLoadState {
   extending: BrowseRange | null;
   catalog: PublicCatalogResponse | null;
   status: PublicStatusResponse | null;
+  /** ADR-0030「有效兑换码」条；读取失败时为 null，条不出现（不影响日程与来源提示）。 */
+  redeem: PublicRedeemCodesResponse | null;
   phase: "loading" | "ready" | "failed";
   error: unknown;
   metadataFailed: boolean;
@@ -29,6 +32,7 @@ export class ScheduleLoader {
     extending: null,
     catalog: null,
     status: null,
+    redeem: null,
     phase: "loading",
     error: null,
     metadataFailed: false,
@@ -111,12 +115,14 @@ export class ScheduleLoader {
   }
   private async metadata(revision: number, refresh: boolean) {
     const signal = this.controller.signal;
-    const results = await Promise.allSettled([
+    const [redeem, ...results] = await Promise.allSettled([
+      this.api.redeemCodes(signal, refresh),
       this.api.catalog(signal, refresh),
       this.api.status(signal, refresh),
     ]);
     if (revision !== this.revision || signal.aborted) return;
     const [catalog, status] = results;
+    if (redeem.status === "fulfilled") this.state.redeem = redeem.value;
     this.state.metadataFailed = catalog.status === "rejected" || status.status === "rejected";
     this.state.metadataError =
       catalog.status === "rejected"

@@ -139,6 +139,39 @@
   font-size: var(--font-size-micro);
 }
 
+/* ADR-0030：直播兑换码来源正在跟踪的活动与登记表单。 */
+.control-live {
+  display: grid;
+  gap: var(--space-2);
+  margin-top: var(--space-2);
+}
+
+.control-lives {
+  display: grid;
+  gap: var(--space-1);
+  margin: 0;
+  padding-left: var(--space-4);
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-small);
+}
+
+.control-live-form {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.control-live-form .input {
+  flex: 1 1 260px;
+  min-width: 0;
+}
+
+.control-live-form .control-key {
+  flex-basis: 100%;
+  margin: 0;
+}
+
 .admin-queue {
   display: grid;
   margin: 0;

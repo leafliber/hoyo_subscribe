@@ -289,11 +289,14 @@ describe("A-P3-PREVIEW 真实外壳/D1", () => {
     30000,
   );
   it("来源规则抽取保持 Feed 字节；预览序列化与真实 Feed 仅等长 namespace 不同", async () => {
+    // ADR-0030：直播兑换码来源（freshnessExempt）不是日历的所需来源，其余仍按原规则。
     const oldIds = SOURCE_REGISTRY.filter(
       (e) =>
+        !("freshnessExempt" in e) &&
         config.scope.games.includes(e.game) &&
         config.scope.regions.some((r) => r.toLowerCase() === e.region),
     ).map((e) => e.sourceId);
+    expect(oldIds).not.toContain("genshin-live");
     expect(requiredFeedSources(config)).toEqual(oldIds);
     expect(requiredCalendarSources(config, SOURCE_REGISTRY).map((s) => s.sourceId)).toEqual(oldIds);
     const corrected = node("expired-correction");

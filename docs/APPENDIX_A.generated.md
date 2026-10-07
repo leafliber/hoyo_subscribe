@@ -27,7 +27,7 @@ P0 待定项（`MODEL_MAX_INPUT`、`MODEL_MAX_BILLED_OUTPUT`）未填写前，�
 | SUPPORTED_SCOPE | {"games":["genshin","hsr","zzz"],"regions":["CN"]} | — | 仅开放验证通过的来源类别（genshin / hsr / zzz；CN）；不自动加入未来游戏 | 基线；取值引用 enums.ts（P1-02），单一运行时定义源 |
 | SUBSCRIPTION_INIT_STATE | uninitialized | 枚举 | 新账号订阅行初值；首次合法保存后转 initialized 且不可退回 | 基线 |
 | DEFAULT_SCOPE_GAMES | ["genshin","hsr","zzz"] | 游戏枚举数组 | 仅作界面预选（三款全选）；用户保存前不构成正式 scope | 界面预选；§4.4：服务端不得写入订阅行 |
-| DEFAULT_CALENDAR_EVENT_TYPES | ["livestream","maintenance","limited_event","gacha"] | 事件类型数组 | 界面预选的基础可见事件类型 | 界面预选；§4.4：服务端不得写入订阅行 |
+| DEFAULT_CALENDAR_EVENT_TYPES | ["livestream","maintenance","limited_event","gacha","redeem_code"] | 事件类型数组 | 界面预选的基础可见事件类型 | 界面预选；§4.4：服务端不得写入订阅行 |
 | DEFAULT_CALENDAR_NODE_TYPES | ["start","end","reward_deadline"] | 节点类型数组 | 界面预选的基础可见节点；phase_unlock 默认不选（噪音较高） | 界面预选；§4.4：服务端不得写入订阅行 |
 | DEFAULT_RULE_IDS | ["livestream_start_1h","maintenance_start_1h","limited_end_1d","gacha_end_1d"] | rule_id 数组 | 提醒推荐值，用户确认后生效；规则可以为空 | 界面预选；rule_id 定义源在 rules.ts（A.6），此处不复制 |
 | CALENDAR_ALARMS_DEFAULT | true | 布尔 | 首次启用展示关联节点及兼容提示；不代表外部客户端已授予提醒能力 | 基线 |
@@ -36,7 +36,11 @@ P0 待定项（`MODEL_MAX_INPUT`、`MODEL_MAX_BILLED_OUTPUT`）未填写前，�
 | SOURCE_HOT_POLL | 600 | 秒 | 前瞻/更新前后的热点轮询 | 基线 |
 | SOURCE_RECHECK_WINDOW | 7 | 天 | 近期公告正文复查范围 | 基线 |
 | SOURCE_RECHECK_INTERVAL | 21,600 | 秒 | 复查间隔；活跃关联公告继续受限跟踪 | 基线 |
-| SOURCE_LIMIT_PROFILE | {"status":"measured-by-p0-02","registryFile":"fixtures/sources/registry.draft.json","perSourceField":"sources[].limit_profile_measured","responseCapsBytes":{"genshin-ann":458752,"hsr-ann":524288,"zzz-ann":393216},"responseCapCeilingBytes":524288} | 按来源结构 | 页数、正文大小、请求超时、重定向和批量上限 | 实测引用；P0-02 实测见 fixtures/sources/registry.draft.json；P3-08 生产响应上限和统一安全界在本参数项；ADR-0016 起只登记三个游戏内公告源（米游社来源下线） |
+| SOURCE_LIMIT_PROFILE | {"status":"measured-by-p0-02","registryFile":"fixtures/sources/registry.draft.json","perSourceField":"sources[].limit_profile_measured","responseCapsBytes":{"genshin-ann":458752,"hsr-ann":524288,"zzz-ann":393216,"genshin-live":262144,"hsr-live":262144,"zzz-live":262144},"responseCapCeilingBytes":524288} | 按来源结构 | 页数、正文大小、请求超时、重定向和批量上限 | 实测引用；P0-02 实测见 fixtures/sources/registry.draft.json；P3-08 生产响应上限和统一安全界在本参数项；ADR-0016 起只登记三个游戏内公告源（米游社来源下线）；ADR-0030 增加三个直播兑换码来源（登记见 fixtures/sources/miyolive/registry.json） |
+| REDEEM_LIVE_TRACK_MAX | 4 | 个 | 每个直播兑换码来源同时跟踪的直播活动上限；一次轮询至多 1 次发现请求 + 每个活动 2 次请求 | ADR-0030 已批准 |
+| REDEEM_LIVE_TRACK_DAYS | 7 | 天 | 直播活动自首次发现起最多跟踪的天数；官方返回"活动已结束"时提前停止 | ADR-0030 已批准 |
+| REDEEM_CODE_REVEAL_GRACE | 60 | 秒 | 官方排定的兑换码发放时刻过后多久再取一次；直到取到兑换码或过了 SOURCE_HOT_POLL | ADR-0030 已批准 |
+| REDEEM_CODE_UNDATED_DISPLAY | 86,400 | 秒 | 官方没写有效期的兑换码自发放起在「有效兑换码」条里最多显示多久；只是显示上限，不是官方有效期 | ADR-0030 已批准 |
 | DISCOVERY_TARGET | 1,800 | 秒 | 自官方发布时间计的发现目标（不是 SLA） | 基线 |
 | PUBLICATION_TARGET | 2,700 | 秒 | 自官方发布时间计的发布目标（不是 SLA） | 基线 |
 | WATCHDOG_INTERVAL | 600 | 秒 | 修复两个固定执行器 | 基线 |
@@ -246,6 +250,8 @@ P0 待定项（`MODEL_MAX_INPUT`、`MODEL_MAX_BILLED_OUTPUT`）未填写前，�
 | year-completion-window-single-year | 时间推导 | YEAR_COMPLETION_WINDOW.beforeDays、afterDays 为正安全整数，且 beforeDays + afterDays < 365（窗口短于一年，至多一个年份符合） | beforeDays(30) + afterDays(330) < 365 |
 | year-completion-capture-window-narrower | 时间推导 | YEAR_COMPLETION_CAPTURE_WINDOW.beforeDays、afterDays 为正安全整数，且两端都不超过 YEAR_COMPLETION_WINDOW 对应的一端（首次采集晚于真实发布，窗口只能更窄；ADR-0027） | beforeDays(30) <= 30, afterDays(90) <= 330 |
 | source-response-caps-within-ceiling | 来源上限 | SOURCE_LIMIT_PROFILE 每来源响应上限 > 0 且 <= responseCapCeilingBytes | max(SOURCE_LIMIT_PROFILE.responseCapsBytes)(524288) <= responseCapCeilingBytes(524288) |
+| redeem-reveal-grace-below-hot-poll | 兑换码 | 0 < REDEEM_CODE_REVEAL_GRACE < SOURCE_HOT_POLL（发放时刻后的补取比热点轮询更密，且只补到热点轮询的间隔为止） | 0 < REDEEM_CODE_REVEAL_GRACE(60) < SOURCE_HOT_POLL(600) |
+| redeem-undated-display-within-tracking | 兑换码 | REDEEM_LIVE_TRACK_MAX、REDEEM_LIVE_TRACK_DAYS 为正整数；REDEEM_CODE_UNDATED_DISPLAY <= REDEEM_LIVE_TRACK_DAYS × 86400（没写有效期的兑换码只在其直播仍被跟踪时显示，官方"活动已结束"才能及时收回） | REDEEM_CODE_UNDATED_DISPLAY(86400) <= REDEEM_LIVE_TRACK_DAYS(7) × 86400 |
 | public-read-bounds | 公共读保护 | 公共读上限均为正整数；recentChanges <= scanPage <= detailNodes；nodeBytes × (recentChanges + 1) < responseBytes <= FEED_RESPONSE_MAX_BYTES；queryBytes <= nodeBytes | PUBLIC_READ_LIMITS({"scanPage":100,"recentChanges":20,"detailNodes":1000,"sourcesPerGame":16,"pendingCandidates":1000,"nodeBytes":8192,"responseBytes":524288,"queryBytes":4096}) <= FEED_RESPONSE_MAX_BYTES(2097152) |
 
 ### 语义条款（无法用参数数值校验，由实现阶段测试保证）
@@ -254,5 +260,5 @@ P0 待定项（`MODEL_MAX_INPUT`、`MODEL_MAX_BILLED_OUTPUT`）未填写前，�
 
 ### 等式数量核对
 
-数值等式 37 条、语义条款 1 条。
+数值等式 39 条、语义条款 1 条。
 `pnpm params:verify` 与 Worker 启动路径逐条校验数值等式，任一不成立即拒绝并指明该条。

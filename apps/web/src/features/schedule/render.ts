@@ -779,7 +779,11 @@ export function renderAside(state: ScheduleLoadState, filters: BrowseFilters) {
   const root = document.createDocumentFragment();
   const status = state.status;
   const sources = status?.sources ?? null;
-  const visibleSources = sources?.filter((source) => filters.games.includes(source.game)) ?? null;
+  // ADR-0030：这里说明日程数据的来源；直播兑换码来源的状态在服务状态页。
+  const visibleSources =
+    sources?.filter(
+      (source) => source.kind === "announcement" && filters.games.includes(source.game),
+    ) ?? null;
   const first = state.pages[0];
   const freshness = el(
     "details",

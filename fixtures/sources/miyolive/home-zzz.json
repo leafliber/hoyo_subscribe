@@ -1,0 +1,291 @@
+{
+  "schema_version": 1,
+  "synthetic": false,
+  "source_id": "zzz-live",
+  "kind": "discovery-response",
+  "purpose": "绝区零米游社首页（gids=8）",
+  "captured_at_utc": "2026-10-07T10:02:15.963Z",
+  "url": "https://bbs-api.miyoushe.com/apihub/api/home/new?gids=8",
+  "request_headers": [],
+  "http": {
+    "status": 200,
+    "headers": {
+      "content_type": "application/json",
+      "location": null,
+      "retry_after": null
+    }
+  },
+  "body_bytes": 9845,
+  "body_sha256": "395daf285c9c549e9dcb68d2d58e6712c763dfa5ded56bac85bb4c770ac666d0",
+  "redactions": [],
+  "extra": {},
+  "body": {
+    "retcode": 0,
+    "message": "OK",
+    "data": {
+      "navigator": [
+        {
+          "id": 804761049,
+          "name": "签到福利",
+          "icon": "https://bbs-static.miyoushe.com/static/2024/07/04/9b35c8b4daed8cc6e57b6f64ebf297e3_1685737437893639322.gif",
+          "app_path": "https://act.mihoyo.com/bbs/event/signin/zzz/e202406242138391.html?act_id=e202406242138391&mhy_auth_required=true&mhy_presentation_style=fullscreen&mhy_bg_style=dark&utm_source=bbs&utm_medium=zzz&utm_campaign=icon",
+          "reddot_online_time": 0,
+          "mys_event": "{\"module_type\":\"navigator\",\"resource_id\":\"6685d29d2bad250c8728c4fe\",\"app_path\":\"https://act.mihoyo.com/bbs/event/signin/zzz/e202406242138391.html?act_id=e202406242138391\\u0026mhy_auth_required=true\\u0026mhy_presentation_style=fullscreen\\u0026mhy_bg_style=dark\\u0026utm_source=bbs\\u0026utm_medium=zzz\\u0026utm_campaign=icon\"}",
+          "resource_id": "6685d29d2bad250c8728c4fe"
+        },
+        {
+          "id": 1809728352,
+          "name": "企业微信",
+          "icon": "https://bbs-static.miyoushe.com/static/2026/08/11/43454731dce49bbb24679c50f3c5ba66_8355981873039507466.png",
+          "app_path": "mihoyobbs://article/78074434?deep_source=navigator_6a7acdee8f1adc438e36c620&isMentor=0&viewType=1",
+          "reddot_online_time": 0,
+          "mys_event": "{\"module_type\":\"navigator\",\"resource_id\":\"6a7acdee8f1adc438e36c620\",\"app_path\":\"mihoyobbs://article/78074434?deep_source=navigator_6a7acdee8f1adc438e36c620\\u0026isMentor=0\\u0026viewType=1\"}",
+          "resource_id": "6a7acdee8f1adc438e36c620"
+        },
+        {
+          "id": 1885493437,
+          "name": "假日相册",
+          "icon": "https://bbs-static.miyoushe.com/static/2026/09/09/8397ecb70b0229487e7bb7729e12947c_3810253624661680362.png",
+          "app_path": "https://mhyurl.cn/6HIUc1QIo",
+          "reddot_online_time": 0,
+          "mys_event": "{\"module_type\":\"navigator\",\"resource_id\":\"6aa126afb9b6fe346edb1bcd\",\"app_path\":\"https://mhyurl.cn/6HIUc1QIo\"}",
+          "resource_id": "6aa126afb9b6fe346edb1bcd"
+        },
+        {
+          "id": 823979884,
+          "name": "养成指南",
+          "icon": "https://bbs-static.miyoushe.com/static/2024/08/30/e25540e2b46ad8837342d4bf4043996f_985945563197754600.gif",
+          "app_path": "https://act.mihoyo.com/zzz/event/character-builder/index.html?game_biz=nap_cn&mhy_auth_required=1&mhy_presentation_style=fullscreen&utm_source=media&utm_medium=mys&utm_campaign=icon#/",
+          "reddot_online_time": 0,
+          "mys_event": "{\"module_type\":\"navigator\",\"resource_id\":\"66b87973805aa0cb59391633\",\"app_path\":\"https://act.mihoyo.com/zzz/event/character-builder/index.html?game_biz=nap_cn\\u0026mhy_auth_required=1\\u0026mhy_presentation_style=fullscreen\\u0026utm_source=media\\u0026utm_medium=mys\\u0026utm_campaign=icon#/\"}",
+          "resource_id": "66b87973805aa0cb59391633"
+        },
+        {
+          "id": 2105739623,
+          "name": "战绩",
+          "icon": "https://bbs-static.miyoushe.com/static/2024/07/04/bc8f0b7384b306c80f2a1fcca9f3d14b_8590605504999484795.png",
+          "app_path": "https://act.mihoyo.com/app/mihoyo-zzz-game-record/m.html?mhy_presentation_style=fullscreen&mhy_bg_style=dark&utm_source=media&utm_medium=mys&utm_campaign=icon",
+          "reddot_online_time": 0,
+          "mys_event": "{\"module_type\":\"navigator\",\"resource_id\":\"6685d2f8001184a5997bacf0\",\"app_path\":\"https://act.mihoyo.com/app/mihoyo-zzz-game-record/m.html?mhy_presentation_style=fullscreen\\u0026mhy_bg_style=dark\\u0026utm_source=media\\u0026utm_medium=mys\\u0026utm_campaign=icon\"}",
+          "resource_id": "6685d2f8001184a5997bacf0"
+        },
+        {
+          "id": 174492402,
+          "name": "米游铺",
+          "icon": "https://bbs-static.miyoushe.com/static/2024/08/01/eab8c621343dc059157dcfff724be517_4302090384926277431.png",
+          "app_path": "https://www.mihoyogift.com/zzz?utm_source=bbs&utm_medium=mys&utm_campaign=icon&mhy_presentation_style=fullscreen",
+          "reddot_online_time": 0,
+          "mys_event": "{\"module_type\":\"navigator\",\"resource_id\":\"66ab2d9db9ce496bfe8227b9\",\"app_path\":\"https://www.mihoyogift.com/zzz?utm_source=bbs\\u0026utm_medium=mys\\u0026utm_campaign=icon\\u0026mhy_presentation_style=fullscreen\"}",
+          "resource_id": "66ab2d9db9ce496bfe8227b9"
+        },
+        {
+          "id": 1716459150,
+          "name": "情报站",
+          "icon": "https://bbs-static.miyoushe.com/static/2024/07/04/856a9dae1affd2c392b698eba229c738_211025460584719698.png",
+          "app_path": "https://baike.mihoyo.com/zzz/wiki/?mhy_presentation_style=fullscreen&visit_device=mobile&utm_source=bbs&utm_medium=zzz&utm_campaign=icon",
+          "reddot_online_time": 0,
+          "mys_event": "{\"module_type\":\"navigator\",\"resource_id\":\"6685d379c1939ac13373a9f1\",\"app_path\":\"https://baike.mihoyo.com/zzz/wiki/?mhy_presentation_style=fullscreen\\u0026visit_device=mobile\\u0026utm_source=bbs\\u0026utm_medium=zzz\\u0026utm_campaign=icon\"}",
+          "resource_id": "6685d379c1939ac13373a9f1"
+        },
+        {
+          "id": 477799435,
+          "name": "绳网月报",
+          "icon": "https://bbs-static.miyoushe.com/static/2024/09/25/54085a560686bda74c3025944b65260e_8414768992789038554.gif",
+          "app_path": "https://act.mihoyo.com/app/mihoyo-zzz-game-record/m.html?mhy_presentation_style=fullscreen&mhy_bg_style=dark&utm_source=bbs&utm_medium=zzz&utm_campaign=icon#/zzz/notebook",
+          "reddot_online_time": 1727237820,
+          "mys_event": "{\"module_type\":\"navigator\",\"resource_id\":\"66f38d9c55bbda75610f371d\",\"app_path\":\"https://act.mihoyo.com/app/mihoyo-zzz-game-record/m.html?mhy_presentation_style=fullscreen\\u0026mhy_bg_style=dark\\u0026utm_source=bbs\\u0026utm_medium=zzz\\u0026utm_campaign=icon#/zzz/notebook\"}",
+          "resource_id": "66f38d9c55bbda75610f371d"
+        }
+      ],
+      "discussion": {
+        "icon": "https://upload-bbs.miyoushe.com/upload/2022/12/13/6cd8d157f2357edb272d612361784aa1_4117411047526917707.png",
+        "title": "绝区零讨论区",
+        "prompt": "绳匠交流·攻略·同人分享"
+      },
+      "background": {
+        "image": "https://upload-bbs.miyoushe.com/upload/2022/12/08/2cfbfcc3cdfcddd3b6fab7bb12ef3383_4400971942786110117.webp",
+        "color": "000000"
+      },
+      "official": {
+        "position": 2,
+        "forum_id": 58,
+        "data": [
+          {
+            "post_id": "78513443",
+            "title": "《绝区零》洛克茜角色PV | 发条骑士",
+            "date": "1790654412",
+            "label": "资讯",
+            "is_top": false,
+            "view_type": 5,
+            "image_url": "https://upload-bbs.miyoushe.com/upload/2026/09/29/152039148/98fcdde955eb672fb41bccdc21e3c64e_4041955928048553685.png",
+            "image": {
+              "image_id": "0",
+              "url": "https://upload-bbs.miyoushe.com/upload/2026/09/29/152039148/98fcdde955eb672fb41bccdc21e3c64e_4041955928048553685.png",
+              "width": 3840,
+              "height": 1620
+            }
+          },
+          {
+            "post_id": "78396026",
+            "title": "《绝区零》洛克茜角色展示 | 神秘负棺人",
+            "date": "1790308819",
+            "label": "资讯",
+            "is_top": false,
+            "view_type": 5,
+            "image_url": "https://upload-bbs.miyoushe.com/upload/2026/09/24/152039148/208db57cda6436b4f31607e096d81321_2927915793801620513.png",
+            "image": {
+              "image_id": "0",
+              "url": "https://upload-bbs.miyoushe.com/upload/2026/09/24/152039148/208db57cda6436b4f31607e096d81321_2927915793801620513.png",
+              "width": 3840,
+              "height": 1620
+            }
+          },
+          {
+            "post_id": "78105565",
+            "title": "代理人档案丨赛维里安",
+            "date": "1789185614",
+            "label": "资讯",
+            "is_top": false,
+            "view_type": 1,
+            "image_url": "https://upload-bbs.miyoushe.com/upload/2026/09/12/152039148/d8329cf2e274f4fb9c698a69a2902c8b_3111275062130107049.png",
+            "image": {
+              "image_id": "259780538",
+              "url": "https://upload-bbs.miyoushe.com/upload/2026/09/12/152039148/d8329cf2e274f4fb9c698a69a2902c8b_3111275062130107049.png",
+              "width": 690,
+              "height": 320
+            }
+          },
+          {
+            "post_id": "78104666",
+            "title": "代理人档案丨菲欧妮",
+            "date": "1789182017",
+            "label": "资讯",
+            "is_top": false,
+            "view_type": 1,
+            "image_url": "https://upload-bbs.miyoushe.com/upload/2026/09/12/152039148/53b82eba36bcd413992ff28fdb89f308_3054606783282730930.png",
+            "image": {
+              "image_id": "259780427",
+              "url": "https://upload-bbs.miyoushe.com/upload/2026/09/12/152039148/53b82eba36bcd413992ff28fdb89f308_3054606783282730930.png",
+              "width": 690,
+              "height": 320
+            }
+          }
+        ]
+      },
+      "carousels": {
+        "position": 10,
+        "data": [
+          {
+            "cover": "https://bbs-static.miyoushe.com/static/2026/09/30/413675909e5c814814eba70cfc96c3b4_4595322479939496982.jpg",
+            "app_path": "mihoyobbs://article/78701776"
+          },
+          {
+            "cover": "https://bbs-static.miyoushe.com/static/2026/09/29/a5e2841886d418340e8cb3002459bcb5_3840351871466575131.png",
+            "app_path": "mihoyobbs://article/78513443"
+          },
+          {
+            "cover": "https://bbs-static.miyoushe.com/static/2026/09/24/1ad50754990a3118be169dbfec0ff63d_1924967731344761809.png",
+            "app_path": "mihoyobbs://article/78396026"
+          },
+          {
+            "cover": "https://bbs-static.miyoushe.com/static/2026/09/12/53b82eba36bcd413992ff28fdb89f308_4343921706010334849.png",
+            "app_path": "mihoyobbs://article/78104666"
+          },
+          {
+            "cover": "https://bbs-static.miyoushe.com/static/2026/09/12/d8329cf2e274f4fb9c698a69a2902c8b_1182812758844017918.png",
+            "app_path": "mihoyobbs://article/78105565"
+          }
+        ]
+      },
+      "hot_topics": null,
+      "game_receptions": [
+        {
+          "position": 0,
+          "data": {
+            "config": {
+              "id": 20,
+              "game_id": 0,
+              "name": "",
+              "description": "",
+              "icon": "",
+              "status": "ReceptionFinished",
+              "rules": {
+                "game_level": 0,
+                "community_level": 0
+              },
+              "questionnaire": {
+                "questionnaire_type": 0,
+                "questionnaire_url": "",
+                "questionnaire_status": 0
+              },
+              "pkg": {
+                "android_url": "",
+                "pkg_name": "",
+                "pkg_version": "",
+                "ios_url": "",
+                "pkg_length": "0",
+                "pkg_md5": "",
+                "pkg_version_code": "0",
+                "ios_version": "",
+                "new_filename": "",
+                "filename": "",
+                "pkg_version_name": "",
+                "ios_scheme_url": ""
+              },
+              "detail_servlet": {
+                "type": 0,
+                "normal_servlet": null,
+                "customize_detail": null
+              },
+              "pre_register_count": {
+                "show_count": false,
+                "count": "0"
+              },
+              "is_top": false,
+              "last_update_time": "0",
+              "app_store_switch": 0,
+              "download_switch": 0,
+              "developer": "",
+              "banner_card": {
+                "card_type": "NORMAL",
+                "card_media_type": "CardMediaType_UNKNOWN",
+                "card_rec_slogan": "",
+                "card_video_url": "",
+                "card_image_url": "",
+                "card_background_image_url": "",
+                "btn_color": "",
+                "btn_text_color": "",
+                "is_encrypt": false,
+                "encrypt_id": "0",
+                "encrypt_card_video_url": "",
+                "encrypt_card_image_url": "",
+                "encrypt_card_background_image_url": "",
+                "encrypt_card_video_md5": "",
+                "encrypt_card_image_md5": "",
+                "encrypt_card_background_image_md5": "",
+                "k": "",
+                "iv": "",
+                "is_pre_download": false
+              }
+            },
+            "user_status": null,
+            "exposure_times": 0
+          },
+          "expose_ticket": ""
+        }
+      ],
+      "posts": [],
+      "lives": [],
+      "recommend_villa": null,
+      "image_post_card": [],
+      "link_card": [],
+      "album_card": [],
+      "link_topic_card": [],
+      "is_resource_unchanged": false,
+      "exposed_resource_tickets": [],
+      "perspective_card": null,
+      "light_interactive_card": null,
+      "break_frame_card": null
+    }
+  }
+}

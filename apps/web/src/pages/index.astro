@@ -112,6 +112,9 @@ const filters = defaultBrowseFilters();
       <p id="browse-summary" class="sr-only" aria-live="polite"></p>
     </form>
 
+    <!-- ADR-0030：有效兑换码；有可显示的兑换码时才出现。 -->
+    <section id="redeem-codes" class="redeem-bar" aria-labelledby="redeem-title" hidden></section>
+
     <section id="ending-soon" class="ending-soon" aria-labelledby="ending-soon-title" aria-busy="true">
       <div class="ending-head">
         <h2 id="ending-soon-title" class="ending-heading">

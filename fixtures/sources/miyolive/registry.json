@@ -1,0 +1,170 @@
+{
+  "schema_version": 1,
+  "note": "ADR-0030 直播兑换码来源登记（与 P0-02 的 registry.draft.json 同形，来源各自登记、互不改写）。接口与字段取自米游社官方直播页前端（webstatic.mihoyo.com/bbs/event/live/，2026-10-07 读取其公开脚本，只用于定位接口，数据全部来自官方端点直接请求）。2026-10-07 三个游戏都没有进行中的直播：发现入口与\"活动已结束\"信封是实测，进行中的直播与兑换码字段尚无真实样本（绝区零 3.3 前瞻 2026-10-09 19:30 是第一次取证机会），见 docs/evidence/p3/miyolive-redeem-codes.md。",
+  "generated_at_utc": "2026-10-07T10:02:18.394Z",
+  "sources": [
+    {
+      "source_id": "genshin-live",
+      "game": "genshin",
+      "region": "cn",
+      "adapter": "miyolive-redeem-codes（ADR-0030）",
+      "approved_hosts": [
+        "bbs-api.miyoushe.com",
+        "api-takumi.mihoyo.com",
+        "api-takumi-static.mihoyo.com"
+      ],
+      "verified_publishers": [],
+      "verified_publishers_note": "活动由官方直播页的活动 ID 标识，来源身份由官方域名承载；首页条目不带发布者身份",
+      "cursor": {
+        "model": "full-snapshot-per-request",
+        "external_id_field": "act_id",
+        "observed": "每次轮询：首页接口一次（发现直播活动 ID）+ 每个跟踪中的活动两次（index 取 code_ver，refreshCode 取兑换码）；水位保存跟踪中的活动与各活动内容指纹"
+      },
+      "poll_policy": {
+        "poll_interval_s": 1800,
+        "hot_poll_interval_s": 600,
+        "recheck_window_days": 7,
+        "recheck_interval_s": 21600,
+        "basis": "附录 A.1 建议值；发放时刻另按 REDEEM_CODE_REVEAL_GRACE 补取（ADR-0030）"
+      },
+      "verification_state": "verified-working",
+      "last_success_at_utc": "2026-10-07T10:02:13.586Z",
+      "limit_profile_measured": {
+        "pages": 1,
+        "batch_upper_bound_items": "REDEEM_LIVE_TRACK_MAX 个活动",
+        "max_observed_content_bytes": 4784,
+        "max_observed_note": "首页接口响应；直播活动与兑换码接口只取得 69 B 的\"活动已结束\"信封",
+        "request_timeout_recommend_ms": 10000,
+        "redirects_observed": 0
+      },
+      "request": {
+        "discovery": {
+          "host": "bbs-api.miyoushe.com",
+          "path": "/apihub/api/home/new",
+          "params": { "gids": "2" }
+        },
+        "index": {
+          "host": "api-takumi.mihoyo.com",
+          "path": "/event/miyolive/index",
+          "header": "x-rpc-act_id"
+        },
+        "codes": {
+          "host": "api-takumi-static.mihoyo.com",
+          "path": "/event/miyolive/refreshCode",
+          "params": ["version", "time"],
+          "header": "x-rpc-act_id"
+        },
+        "live_page": "https://webstatic.mihoyo.com/bbs/event/live/index.html"
+      },
+      "samples": ["home-genshin.json", "index-closed.json", "refresh-code-closed.json"]
+    },
+    {
+      "source_id": "hsr-live",
+      "game": "hsr",
+      "region": "cn",
+      "adapter": "miyolive-redeem-codes（ADR-0030）",
+      "approved_hosts": [
+        "bbs-api.miyoushe.com",
+        "api-takumi.mihoyo.com",
+        "api-takumi-static.mihoyo.com"
+      ],
+      "verified_publishers": [],
+      "verified_publishers_note": "同 genshin-live",
+      "cursor": {
+        "model": "full-snapshot-per-request",
+        "external_id_field": "act_id",
+        "observed": "同 genshin-live"
+      },
+      "poll_policy": {
+        "poll_interval_s": 1800,
+        "hot_poll_interval_s": 600,
+        "recheck_window_days": 7,
+        "recheck_interval_s": 21600,
+        "basis": "同 genshin-live"
+      },
+      "verification_state": "verified-working",
+      "last_success_at_utc": "2026-10-07T10:02:14.824Z",
+      "limit_profile_measured": {
+        "pages": 1,
+        "batch_upper_bound_items": "REDEEM_LIVE_TRACK_MAX 个活动",
+        "max_observed_content_bytes": 10123,
+        "request_timeout_recommend_ms": 10000,
+        "redirects_observed": 0
+      },
+      "request": {
+        "discovery": {
+          "host": "bbs-api.miyoushe.com",
+          "path": "/apihub/api/home/new",
+          "params": { "gids": "6" }
+        },
+        "index": {
+          "host": "api-takumi.mihoyo.com",
+          "path": "/event/miyolive/index",
+          "header": "x-rpc-act_id"
+        },
+        "codes": {
+          "host": "api-takumi-static.mihoyo.com",
+          "path": "/event/miyolive/refreshCode",
+          "params": ["version", "time"],
+          "header": "x-rpc-act_id"
+        },
+        "live_page": "https://webstatic.mihoyo.com/bbs/event/live/index.html"
+      },
+      "samples": ["home-hsr.json"]
+    },
+    {
+      "source_id": "zzz-live",
+      "game": "zzz",
+      "region": "cn",
+      "adapter": "miyolive-redeem-codes（ADR-0030）",
+      "approved_hosts": [
+        "bbs-api.miyoushe.com",
+        "api-takumi.mihoyo.com",
+        "api-takumi-static.mihoyo.com"
+      ],
+      "verified_publishers": [],
+      "verified_publishers_note": "同 genshin-live",
+      "cursor": {
+        "model": "full-snapshot-per-request",
+        "external_id_field": "act_id",
+        "observed": "同 genshin-live"
+      },
+      "poll_policy": {
+        "poll_interval_s": 1800,
+        "hot_poll_interval_s": 600,
+        "recheck_window_days": 7,
+        "recheck_interval_s": 21600,
+        "basis": "同 genshin-live"
+      },
+      "verification_state": "verified-working",
+      "last_success_at_utc": "2026-10-07T10:02:15.963Z",
+      "limit_profile_measured": {
+        "pages": 1,
+        "batch_upper_bound_items": "REDEEM_LIVE_TRACK_MAX 个活动",
+        "max_observed_content_bytes": 9845,
+        "request_timeout_recommend_ms": 10000,
+        "redirects_observed": 0
+      },
+      "request": {
+        "discovery": {
+          "host": "bbs-api.miyoushe.com",
+          "path": "/apihub/api/home/new",
+          "params": { "gids": "8" }
+        },
+        "index": {
+          "host": "api-takumi.mihoyo.com",
+          "path": "/event/miyolive/index",
+          "header": "x-rpc-act_id"
+        },
+        "codes": {
+          "host": "api-takumi-static.mihoyo.com",
+          "path": "/event/miyolive/refreshCode",
+          "params": ["version", "time"],
+          "header": "x-rpc-act_id"
+        },
+        "live_page": "https://webstatic.mihoyo.com/bbs/event/live/index.html"
+      },
+      "samples": ["home-zzz.json"]
+    }
+  ]
+}

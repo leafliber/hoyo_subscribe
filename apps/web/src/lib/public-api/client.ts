@@ -6,6 +6,7 @@ import {
   PublicEventArticlesResponseSchema,
   PublicEventDetailResponseSchema,
   PublicEventsResponseSchema,
+  PublicRedeemCodesResponseSchema,
   PublicStatusResponseSchema,
 } from "@hoyo/contracts";
 
@@ -113,5 +114,10 @@ export class PublicApiClient {
 
   status(signal?: AbortSignal, reload = false) {
     return this.read("/api/v2/status", PublicStatusResponseSchema, signal, reload);
+  }
+
+  /** ADR-0030：「有效兑换码」条（米游社官方直播页的兑换码，只含仍在显示期内的）。 */
+  redeemCodes(signal?: AbortSignal, reload = false) {
+    return this.read("/api/v2/redeem-codes", PublicRedeemCodesResponseSchema, signal, reload);
   }
 }

@@ -11,12 +11,20 @@ import {
 import { clock, relative, remaining } from "../../lib/format";
 import { ScheduleLoader } from "./load";
 import { HOME_RANGES, homeRange } from "./ranges";
+import {
+  bindRedeemCopy,
+  nextRedeemChange,
+  redeemBarExpired,
+  renderRedeemBar,
+  tickRedeemBar,
+} from "./redeem-codes";
 import { countdownValue, renderAside, renderEndingSoon, renderResults } from "./render";
 
 const form = document.querySelector<HTMLFormElement>("#browse-filters");
 const results = document.querySelector<HTMLElement>("#schedule-results");
 const aside = document.querySelector<HTMLElement>("#schedule-aside-dynamic");
 const ending = document.querySelector<HTMLElement>("#ending-soon");
+const redeemBar = document.querySelector<HTMLElement>("#redeem-codes");
 const pageRoot = document.querySelector<HTMLElement>(".schedule-page");
 
 /** 白名单解析后再把已下线的档位映射到首页档位（旧链接 range=90d → 全部）。 */
@@ -109,6 +117,12 @@ if (form && results) {
       aside.replaceChildren(renderAside(loader.state, filters));
       restoreDisclosures(aside, asideOpened);
     }
+    // ADR-0030：有可显示的兑换码才出现，按选中的游戏筛；没有时整块隐藏、不占位。
+    if (redeemBar) {
+      const parts = renderRedeemBar(loader.state.redeem?.codes ?? null, filters.games, Date.now());
+      redeemBar.hidden = parts === null;
+      redeemBar.replaceChildren(...(parts ?? []));
+    }
     if (active) {
       const target = pageRoot?.querySelector<HTMLElement>(`[data-action="${active}"]`);
       // 已到最大一档时"显示更多"不再出现：焦点留在末行，不掉回页首。
@@ -157,6 +171,7 @@ if (form && results) {
         ? 0
         : loader.state.status.cache.freshUntil + 1,
       loader.state.retryAt,
+      nextRedeemChange(loader.state.redeem?.codes ?? null, filters.games, Date.now()) ?? 0,
     ].filter((time) => time > Date.now());
     if (deadlines.length) wake = setTimeout(render, Math.min(...deadlines) - Date.now());
   }
@@ -164,6 +179,7 @@ if (form && results) {
   /** 每分钟：相对时间文字、过去/未来分界与「现在」标记；不重建列表、不发请求。 */
   function tick() {
     const now = Date.now();
+    if (redeemBar && !redeemBar.hidden) tickRedeemBar(redeemBar, now);
     for (const node of document.querySelectorAll<HTMLElement>("[data-relative-to]")) {
       const target = Number(node.dataset.relativeTo);
       if (!Number.isFinite(target)) continue;
@@ -209,6 +225,8 @@ if (form && results) {
         card.classList.add(level);
       }
     }
+    // ADR-0030：兑换码到点（官方有效期或显示上限）从条里移除。
+    if (redeemBar && !redeemBar.hidden && redeemBarExpired(redeemBar, now)) expired = true;
     if (expired) render();
   }
   let lastMinute = Math.floor(Date.now() / 60_000);
@@ -320,6 +338,7 @@ if (form && results) {
     if (remote) loader.start({ range: filters.range, games: filters.games });
     else render();
   }
+  if (redeemBar) bindRedeemCopy(redeemBar);
   filterForm.addEventListener("submit", (event) => event.preventDefault());
   filterForm.addEventListener("change", (event) => {
     const data = new FormData(filterForm);

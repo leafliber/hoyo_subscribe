@@ -40,6 +40,7 @@ export * from "./public-calendar";
 export * from "./public-calendar-batches";
 export * from "./publishing";
 export * from "./push";
+export * from "./redeem-codes";
 export * from "./rules";
 export * from "./schedule-browse";
 export * from "./subscription";

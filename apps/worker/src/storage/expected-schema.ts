@@ -1,3 +1,4 @@
+// ADR-0030：登记 0030 events 重建（CHECK 增加 redeem_code）与 redeem_codes。
 // P6 获准跨卡：登记 0029 Push 激活/测试/暂停列、push_messages 与安全暂停触发器（ADR-0025）。
 // P3-19 获准跨卡：登记 0028 版本时间建议与确认表（ADR-0011）。
 // P3-17 获准跨卡：登记 0027 AI 草稿与 Workers AI 日账本（ADR-0009）。
@@ -478,6 +479,21 @@ export const EXPECTED_TABLES: Record<string, readonly string[]> = {
     "created_at",
     "updated_at",
   ],
+  // 0030（ADR-0030）：「有效兑换码」条的兑换码。
+  redeem_codes: [
+    "source_id",
+    "act_id",
+    "code",
+    "game",
+    "live_title",
+    "reward",
+    "revealed_at",
+    "expires_at",
+    "expiry_text",
+    "live_closed_at",
+    "first_seen_at",
+    "updated_at",
+  ],
   // 数据组 11：后台
   jobs: [
     "id",
@@ -871,6 +887,7 @@ export const EXPECTED_INDEXES: Record<string, ExpectedIndex> = {
     partial: true,
   },
   idx_audit_log_created: { table: "audit_log", columns: ["created_at"] },
+  idx_redeem_codes_revealed: { table: "redeem_codes", columns: ["revealed_at"] },
 };
 
 /** 合同级承载唯一性的 UNIQUE 约束（sqlite_autoindex_*，经 PRAGMA index_list origin='u' 校验）。 */

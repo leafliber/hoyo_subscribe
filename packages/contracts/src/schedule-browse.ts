@@ -46,6 +46,7 @@ export const EVENT_NAMES: Record<EventType, string> = {
   maintenance: "维护更新",
   limited_event: "限时活动",
   gacha: "卡池",
+  redeem_code: "兑换码",
 };
 export const NODE_NAMES: Record<NodeType, string> = {
   start: "开始",
@@ -124,6 +125,8 @@ export function nodeAction(node: Pick<ScheduleNode, "nodeType" | "eventType">): 
       maintenance: "维护开始",
       limited_event: "活动开始",
       gacha: "卡池开启",
+      // ADR-0030：兑换码事件的开始是第一个兑换码的官方发放时刻。
+      redeem_code: "兑换码发放",
     }[node.eventType];
   if (node.nodeType === "end")
     return {
@@ -132,6 +135,8 @@ export function nodeAction(node: Pick<ScheduleNode, "nodeType" | "eventType">): 
       // ADR-0015：界面统一叫"活动"；与"奖励领取截止"仍是两个节点。
       limited_event: "活动结束",
       gacha: "卡池结束",
+      // ADR-0030：结束只来自官方写明的有效期。
+      redeem_code: "兑换码过期",
     }[node.eventType];
   return NODE_NAMES[node.nodeType];
 }
@@ -179,7 +184,11 @@ export function nodeTime(node: Pick<ScheduleNode, "status" | "time">): string {
 export function isDeadline(node: Pick<ScheduleNode, "nodeType" | "eventType">): boolean {
   return (
     node.nodeType === "reward_deadline" ||
-    (node.nodeType === "end" && (node.eventType === "limited_event" || node.eventType === "gacha"))
+    (node.nodeType === "end" &&
+      (node.eventType === "limited_event" ||
+        node.eventType === "gacha" ||
+        // ADR-0030：兑换码过期也是玩家要赶在之前完成的截止。
+        node.eventType === "redeem_code"))
   );
 }
 export interface ScheduleDay<N = ScheduleNode> {
@@ -286,7 +295,11 @@ export function selectScheduleCore<
   const pending = live
     .filter((node) => nodeDate(node) === null && matches(node))
     .sort(compareScheduleNodes);
-  const sources = input.sources?.filter((source) => filters.games.includes(source.game)) ?? null;
+  // ADR-0030：只有日程事实的来源（游戏内公告）决定日程是否受影响；兑换码来源另由兑换码条说明。
+  const sources =
+    input.sources?.filter(
+      (source) => source.kind === "announcement" && filters.games.includes(source.game),
+    ) ?? null;
   const unavailable =
     sources?.filter(
       (source) =>
@@ -349,6 +362,7 @@ export function selectSchedule(snapshot: ScheduleSnapshot, filters: BrowseFilter
       sources: snapshot.sources.map((source) => ({
         sourceId: source.game,
         game: source.game,
+        kind: "announcement" as const,
         verifiedAt: source.verifiedAt,
         verificationState: source.unavailable ? "unavailable" : "verified",
         degradationReasons: [],

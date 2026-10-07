@@ -10,6 +10,8 @@ import {
   type PublicEventArticlesResponse,
   type PublicEventDetailResponse,
   type PublicEventsResponse,
+  type PublicRedeemCode,
+  type PublicRedeemCodesResponse,
   type PublicScheduleNode,
   type PublicStatusResponse,
   publicCache,
@@ -102,6 +104,7 @@ export function statusFixture(scenario: DemoScenario = "normal"): PublicStatusRe
     sources: SUPPORTED_SCOPE.games.map((game) => ({
       sourceId: `synthetic-${game}`,
       game,
+      kind: "announcement" as const,
       verifiedAt: Date.parse("2026-09-21T18:00:00+08:00"),
       verificationState: scenario === "source" ? "unavailable" : "verified",
       degradationReasons: scenario === "source" ? ["source_unavailable"] : [],
@@ -213,6 +216,10 @@ export function articlesFixture(id: string): PublicEventArticlesResponse | null 
     ],
   };
 }
+/** ADR-0030「有效兑换码」条：默认没有可显示的兑换码（条不出现）。 */
+export function redeemCodesFixture(codes: PublicRedeemCode[] = []): PublicRedeemCodesResponse {
+  return { cache: cache(), codes };
+}
 export async function mockPublicApi(page: Page) {
   const control = {
     scenario: "normal" as DemoScenario,
@@ -220,6 +227,7 @@ export async function mockPublicApi(page: Page) {
     status: statusFixture,
     detail: detailFixture,
     articles: articlesFixture,
+    redeem: () => redeemCodesFixture(),
     calls: [] as { path: string; method: string }[],
   };
   await page.clock.setFixedTime(clock);
@@ -232,6 +240,7 @@ export async function mockPublicApi(page: Page) {
       return route.fulfill({ json: control.events(url.searchParams, control.scenario) });
     if (url.pathname === "/api/v2/status")
       return route.fulfill({ json: control.status(control.scenario) });
+    if (url.pathname === "/api/v2/redeem-codes") return route.fulfill({ json: control.redeem() });
     const articles = /^\/api\/v2\/events\/([^/]+)\/articles$/.exec(url.pathname);
     if (articles?.[1]) {
       const result = control.articles(decodeURIComponent(articles[1]));

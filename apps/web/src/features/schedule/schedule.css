@@ -383,6 +383,216 @@
   cursor: default;
 }
 
+/* ------------------------------------------------------------- 有效兑换码（ADR-0030） */
+.redeem-bar {
+  margin-bottom: var(--space-5);
+  padding: var(--space-4);
+  border: var(--border-thin) solid var(--color-accent-border);
+  border-radius: var(--radius-card);
+  background: var(--color-accent-soft);
+}
+
+.redeem-bar[hidden] {
+  display: none;
+}
+
+.redeem-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--space-1) var(--space-3);
+  margin-bottom: var(--space-3);
+}
+
+.redeem-heading {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin: 0;
+  font-size: var(--font-size-title);
+  font-weight: 750;
+}
+
+.redeem-mark {
+  display: inline-grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border-radius: var(--radius-pill);
+  background: var(--color-bg-surface);
+  color: var(--color-accent-strong);
+}
+
+.redeem-mark .icon {
+  width: 18px;
+  height: 18px;
+}
+
+.redeem-sub {
+  margin: 0;
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-small);
+}
+
+.redeem-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: var(--space-3);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.redeem-list > li + li {
+  margin-top: 0;
+}
+
+.redeem-item {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  min-width: 0;
+  padding: var(--space-3) var(--space-4);
+  border: var(--border-thin) solid var(--color-border);
+  border-radius: var(--radius-control);
+  background: var(--color-bg-surface);
+  box-shadow: var(--shadow-xs);
+}
+
+.redeem-top {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+  font-size: var(--font-size-small);
+}
+
+.redeem-top .game-icon {
+  flex: none;
+  width: 18px;
+  height: 18px;
+}
+
+.redeem-game {
+  flex: none;
+  color: var(--color-text-secondary);
+  font-weight: 650;
+}
+
+.redeem-live {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--color-text-aux);
+  text-decoration: none;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.redeem-live:hover {
+  color: var(--color-accent-strong);
+  text-decoration: underline;
+}
+
+/* 兑换码放不下时把复制按钮挤到下一行，不把兑换码拆成两行 */
+.redeem-code-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+.redeem-code {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  color: var(--color-text-primary);
+  font-family: var(--font-family-mono);
+  font-size: var(--font-size-lead);
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+  user-select: all;
+}
+
+.redeem-copy {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 6px;
+  min-height: 36px;
+  padding: 0 var(--space-3);
+  border: var(--border-thin) solid var(--color-accent-border);
+  border-radius: var(--radius-pill);
+  background: var(--color-bg-surface);
+  color: var(--color-accent-strong);
+  font-family: inherit;
+  font-size: var(--font-size-aux);
+  font-weight: 650;
+  cursor: pointer;
+  transition: background-color var(--duration-fast) var(--ease-standard);
+}
+
+.redeem-copy:hover {
+  background: var(--color-accent-soft-strong);
+}
+
+.redeem-copy:focus-visible {
+  outline: 2px solid var(--color-focus-ring);
+  outline-offset: 2px;
+}
+
+.redeem-copy .icon {
+  width: 16px;
+  height: 16px;
+}
+
+.redeem-reward,
+.redeem-expiry {
+  margin: 0;
+  font-size: var(--font-size-small);
+}
+
+.redeem-reward {
+  color: var(--color-text-secondary);
+}
+
+.redeem-expiry {
+  color: var(--color-text-aux);
+  font-variant-numeric: tabular-nums;
+}
+
+.redeem-expiry.is-undated {
+  color: var(--color-warning);
+}
+
+/* 窄屏：横向滑动，不把日程挤到很远 */
+@media (max-width: 640px) {
+  .redeem-bar {
+    padding: var(--space-3);
+  }
+
+  .redeem-list {
+    grid-auto-columns: minmax(240px, 84%);
+    grid-auto-flow: column;
+    grid-template-columns: none;
+    margin: 0 calc(-1 * var(--space-3));
+    padding: 0 var(--space-3) var(--space-1);
+    overflow-x: auto;
+    overscroll-behavior-x: contain;
+    scroll-padding-inline: var(--space-3);
+    scroll-snap-type: x mandatory;
+  }
+
+  .redeem-list:has(> .redeem-item:only-child) {
+    grid-auto-columns: 100%;
+  }
+
+  .redeem-item {
+    scroll-snap-align: start;
+  }
+}
+
 /* ------------------------------------------------------------- 即将截止 */
 .ending-soon {
   margin-bottom: var(--space-6);

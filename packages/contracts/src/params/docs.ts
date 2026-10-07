@@ -27,6 +27,7 @@ const STATUS_LABELS: Record<ParamMeta["status"], string> = {
   "adr-0013": "ADR-0013 已批准",
   "adr-0015": "ADR-0015 修订",
   "adr-0027": "ADR-0027 已批准",
+  "adr-0030": "ADR-0030 已批准",
   "p5-02-approved": "P5-02 所有者已批准",
   baseline: "基线",
   "adr-0003": "ADR-0003 修订",
