@@ -176,6 +176,12 @@ export const CONTRAST_CHECKS: readonly ContrastCheck[] = [
     },
   ]),
   {
+    use: "正文 on 凹陷底（我的订阅分区标签悬停，ADR-0026）",
+    min: CONTRAST_NORMAL_TEXT,
+    text: { color: "--color-text-primary" },
+    background: { base: "--color-bg-sunken" },
+  },
+  {
     use: "链接 on 悬停底",
     min: CONTRAST_NORMAL_TEXT,
     text: { color: "--color-accent" },

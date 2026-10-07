@@ -41,7 +41,7 @@ const MARKUP = `
   <p class="callout callout--info" data-calendar="reason" hidden></p>
   <div class="button-row">
     <button type="button" class="button" data-calendar="begin">${svg("calendar-check")}<span data-calendar="begin-label">启用日历订阅</span></button>
-    <a class="button button--secondary" data-calendar="recovery" href="/recover#save" hidden>${svg("key")}保存恢复码</a>
+    <a class="button button--secondary" data-calendar="recovery" href="/recover#save" hidden>${svg("key")}保存新恢复码</a>
   </div>
 </div>
 <section class="channel-panel" data-calendar="draft" hidden aria-label="处理日历未保存改动">
@@ -277,7 +277,6 @@ export class CalendarPanel {
         ? {
             pending_activation: "请先完成登录激活。",
             recovery_code_unconfirmed: "请先保存并确认恢复登录后的新恢复码。",
-            recovery_code_not_saved: "启用前需要先保存恢复码（只需一次）。",
             subscription_uninitialized: "请先保存一次订阅设置。",
             recent_auth_required: "请重新验证身份。",
             capacity_full: "名额已满。",
@@ -290,8 +289,8 @@ export class CalendarPanel {
     const reasonEl = this.el("reason");
     reasonEl.textContent = reasonText;
     reasonEl.hidden = !reasonText || enabled;
-    this.el("recovery").hidden =
-      enabled || (reason !== "recovery_code_unconfirmed" && reason !== "recovery_code_not_saved");
+    // 恢复码可选（ADR-0026）；只有恢复登录后的受限会话要先保存新码。
+    this.el("recovery").hidden = enabled || reason !== "recovery_code_unconfirmed";
 
     const locked = this.busy || this.operation !== null;
     const previewing =

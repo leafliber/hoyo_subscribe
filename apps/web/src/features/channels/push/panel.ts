@@ -205,7 +205,7 @@ export class PushPanel {
       if (this.isOwnedElsewhere(error)) {
         this.conflict = true;
         this.message =
-          "这个浏览器的通知订阅已登记在另一个账号下。本站不会替你认领或删除它。你可以登录那个账号在账号页删除它，或在下面为当前账号重新创建本浏览器的通知订阅（原账号在这个浏览器上的通知随之失效）。";
+          "这个浏览器的通知订阅已登记在另一个账号下。本站不会替你认领或删除它。你可以登录那个账号在账号设置里删除它，或在下面为当前账号重新创建本浏览器的通知订阅（原账号在这个浏览器上的通知随之失效）。";
       } else if (error instanceof PushRequestError || isApiErrorBody(error)) {
         this.message = `未执行。${this.explain(error)}`;
       } else {
@@ -508,7 +508,7 @@ export class PushPanel {
             "a",
             { class: "link-button", href: "/account#account-push" },
             icon("monitor"),
-            "在账号页管理所有浏览器",
+            "在账号设置中管理所有浏览器",
           ),
           refresh,
         ),

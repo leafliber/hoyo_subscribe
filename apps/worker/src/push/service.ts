@@ -42,7 +42,6 @@ import {
   utcDayPeriod,
 } from "@hoyo/contracts";
 import { readSubscription } from "../accounts/subscription/service";
-import { currentRecoveryCodeSaved } from "../auth/recovery/credential";
 import { ApiError } from "../shell/errors";
 import {
   controlPredicate,
@@ -124,13 +123,11 @@ class Guard {
       now,
     );
   }
-  /** 开启类动作的共同前置：已保存订阅、已确认恢复码、Push 开关与外发总闸、非只读。 */
+  /** 开启类动作的共同前置：已保存订阅、Push 开关与外发总闸、非只读（恢复码可选，ADR-0026）。 */
   enabling(userId: string): this {
     return this.add(
       `AND EXISTS (SELECT 1 FROM user_subscriptions WHERE user_id=? AND state='initialized')
-        AND EXISTS (SELECT 1 FROM recovery_credentials WHERE user_id=? AND consumed_at IS NULL AND saved_confirmed_at IS NOT NULL)
         AND ${controlPredicate("push_enabled")} AND ${controlPredicate("outbound_enabled")} AND ${WRITABLE_PREDICATE}`,
-      userId,
       userId,
     );
   }
@@ -176,9 +173,8 @@ export async function readPushChannel(
 ): Promise<PushChannelView> {
   const { db } = deps;
   const facts = await readSessionFacts(db, session, now);
-  const [rows, saved, subscription, controls, config] = await Promise.all([
+  const [rows, subscription, controls, config] = await Promise.all([
     readBindingRows(db, session.userId),
-    currentRecoveryCodeSaved(db, session.userId),
     readSubscription(db, session.userId),
     readControls(db),
     deps.config(),
@@ -190,7 +186,6 @@ export async function readPushChannel(
     service: publicOperationalCapabilities(controls, { push_configured: config !== null }).push,
     session_state: facts.session_state,
     recovery_code_required: facts.recovery_code_required === 1,
-    recovery_code_saved: saved,
     subscription_state: subscription.state,
     remaining: await readCapacity(db, rows.length, now),
     bindings: rows.map(bindingView),

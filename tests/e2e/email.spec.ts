@@ -23,6 +23,7 @@ import {
   SUBSCRIPTION_SCHEMA_VERSION,
   SUPPORTED_SCOPE_REGIONS,
 } from "../../packages/contracts/src";
+import { showChannels, showContent } from "./subscription-tabs";
 
 // All account data is synthetic and masked; no live mail or account is used.
 const parsed = parseSubscriptionConfig("initialized", {
@@ -47,7 +48,6 @@ function facts(): WireView {
     channel_revision: 7,
     session_state: "active",
     recovery_code_required: false,
-    recovery_code_saved: true,
     subscription_state: "initialized",
     subscription: { state: "initialized", revision: base.revision, config: structuredClone(base) },
     email: { masked: "s***@example.invalid", email_version: 4 },
@@ -176,7 +176,7 @@ async function openSubscription(
     applyUpdate(state, body);
     await route.fulfill({ json: { result: "completed", state } });
   });
-  await page.goto("/subscription");
+  await page.goto("/subscription#channels");
   if (options.waitForReady !== false) await ready(page);
   if (options.dirty) await editRules(page);
   return { state, writes, saves, reads: () => reads, renewals: () => renewals };
@@ -200,9 +200,17 @@ async function openDetails(page: Page) {
   await page.locator("#mail-channel details.email-details > summary").click();
 }
 async function editRules(page: Page) {
+  await showContent(page);
   for (const input of await page.locator('input[name="rule_ids"]').all()) {
     if (await input.isChecked()) await input.uncheck();
   }
+  await showChannels(page);
+}
+/** 保存按钮在「订阅内容」分区：切过去保存，再回到「接收方式」看通道。 */
+async function saveFromContent(page: Page) {
+  await showContent(page);
+  await page.getByRole("button", { name: "保存订阅", exact: true }).click();
+  await showChannels(page);
 }
 async function screenshot(page: Page, name: string, fullPage = false) {
   const target =
@@ -320,7 +328,6 @@ test("U22 按 contracts 受阻原因置灰，写入拒绝优先使用 blocked_re
   const cases: Array<[EmailChannelBlockReason, Partial<EmailView>]> = [
     ["pending_activation", { session_state: "pending" }],
     ["recovery_code_unconfirmed", { recovery_code_required: true }],
-    ["recovery_code_not_saved", { recovery_code_saved: false }],
     ["address_suppressed", { deliverability: "suppressed" }],
     ["deliverability_unknown", { deliverability: "unknown" }],
     ["capacity_full", { remaining: { seat: 0, routine: 0 } }],
@@ -328,10 +335,13 @@ test("U22 按 contracts 受阻原因置灰，写入拒绝优先使用 blocked_re
   ];
   const run = await openSubscription(page, {
     write: async (route) =>
-      route.fulfill({ status: 401, json: emailChannelRefusal("recovery_code_not_saved", "seat") }),
+      route.fulfill({
+        status: 401,
+        json: emailChannelRefusal("recovery_code_unconfirmed", "seat"),
+      }),
   });
   await consent(page);
-  await expect(part(page, "message")).toContainText("请先保存并确认当前恢复码");
+  await expect(part(page, "message")).toContainText("请先保存并确认恢复登录后生成的新恢复码");
   for (const [_reason, patch] of cases) {
     Object.assign(run.state, facts(), patch);
     await refreshed(page);
@@ -558,17 +568,18 @@ test("U22 正式页首次加载等待身份和已保存版本，不把未知显�
   expect(run.saves).toEqual([]);
 });
 
-test("U22 正式页已开启事实覆盖占位，恢复码未保存不能开启也不会默认写订阅", async ({ page }) => {
+test("U22 正式页已开启事实覆盖占位；恢复码可选，不挡邮件也不会默认写订阅（ADR-0026）", async ({
+  page,
+}) => {
   const state = facts();
   state.enabled = true;
-  state.recovery_code_saved = false;
   const run = await openSubscription(page, { state });
   await expect(part(page, "seat-status")).toHaveText("已开启");
-  await expect(part(page, "routine-start")).toBeDisabled();
-  await expect(part(page, "routine-reason")).toContainText("请先保存并确认当前恢复码");
+  await expect(part(page, "routine-reason")).not.toContainText("恢复码");
+  await expect(page.locator("#mail-channel")).not.toContainText("恢复码");
   // #change-summary was removed in the redesign; the channel's own status pill is the summary now.
   await expect(part(page, "pill")).toHaveText("已开启");
-  await screenshot(page, "recovery-blocked");
+  await screenshot(page, "recovery-optional");
   expect(run.writes).toEqual([]);
   expect(run.saves).toEqual([]);
 });
@@ -651,7 +662,7 @@ test("U22 跨标签身份失效立即清空；重新确认后重读；页面保�
   await ready(page);
   expect(run.reads()).toBe(2);
   await editRules(page);
-  await page.getByRole("button", { name: "保存订阅", exact: true }).click();
+  await saveFromContent(page);
   await expect(page.locator("#draft-state")).toHaveText("云端版本 2");
   // The saved-version re-read is quiet now; the extra GET proves the panel re-read after saving.
   await expect.poll(run.reads).toBe(3);
@@ -707,7 +718,7 @@ test("U22 同账号保存更新之后迟到的旧邮件快照保持未知，重�
   });
   await expect.poll(run.reads).toBe(1);
   await editRules(page);
-  await page.getByRole("button", { name: "保存订阅", exact: true }).click();
+  await saveFromContent(page);
   await expect(page.locator("#draft-state")).toHaveText("云端版本 2");
   late.release();
   await expect(part(page, "facts")).toContainText("邮件状态未知");
@@ -766,7 +777,7 @@ for (const outcome of ["completed", "partial", "disabled"] as const)
     await written.promise;
     expect(run.renewals()).toBe(0);
     await editRules(page);
-    await page.getByRole("button", { name: "保存订阅", exact: true }).click();
+    await saveFromContent(page);
     await expect(page.locator("#draft-state")).toHaveText("云端版本 2");
     late.release();
     await expect(part(page, "message")).toContainText(
@@ -875,7 +886,7 @@ for (const failure of ["conflict", "validation", "rejected", "unknown", "malform
         if (failure === "rejected")
           return route.fulfill({
             status: 401,
-            json: emailChannelRefusal("recovery_code_not_saved", "seat"),
+            json: emailChannelRefusal("recovery_code_unconfirmed", "seat"),
           });
         await route.fulfill({
           status: failure === "conflict" ? 409 : 400,

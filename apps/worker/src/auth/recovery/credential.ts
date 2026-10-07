@@ -1,11 +1,14 @@
 // P2-05 · 离线恢复码的单一散列、生成与保存确认（§4.6，附录 A.2）。
-// 生成端只返回一次明文；普通会话须最近激活，受限恢复会话可随时补领新码。
+// 生成端只返回一次明文；受限恢复会话可随时补领新码。普通会话须最近激活，
+// 或出示本会话 recovery_code_rotate 用途的最近认证证明（ADR-0026：恢复码改为可选，
+// 用户可在账号设置里随时首次创建，证明随本次生成同批消费）。
 // 未确认码可作废重生，确认后的轮换留给 P2-07 最近认证流程。
 import { API_BODY_MAX_BYTES, RECENT_AUTH_TTL } from "@hoyo/contracts";
 import { ApiError } from "../../shell/errors";
-import { conditionalCommit } from "../../storage/cas";
+import { conditionalCommit, type GuardedEffect } from "../../storage/cas";
 import { constantTimeEqual, fromHex, toHex, utf8Encode } from "../../storage/crypto/bytes";
 import { generateSecretToken } from "../../storage/crypto/random";
+import { targetForAction } from "../recent-auth/target";
 
 interface CredentialRow {
   id: string;
@@ -14,7 +17,11 @@ interface CredentialRow {
 }
 
 const SECOND = 1_000;
-const GENERATION_ELIGIBILITY = "(s.recovery_code_required = 1 OR s.activated_at BETWEEN ? AND ?)";
+// 参数顺序：最近激活窗口起止、证明 ID、证明目标摘要、证明到期比较时刻。
+const GENERATION_ELIGIBILITY = `(s.recovery_code_required = 1 OR s.activated_at BETWEEN ? AND ?
+  OR EXISTS (SELECT 1 FROM recent_auth_proofs p WHERE p.id = ? AND p.user_id = s.user_id
+    AND p.session_id = s.id AND p.action = 'recovery_code_rotate' AND p.role = 'current'
+    AND p.target_digest = ? AND p.consumed_at IS NULL AND p.expires_at > ?))`;
 
 function invalidCode(): ApiError {
   return new ApiError("unauthorized", { code: "unauthorized", reason: "no_session" });
@@ -48,11 +55,15 @@ export interface ActiveRecoverySession {
   readonly sessionTokenHash: string;
 }
 
-/** 首次创建或作废未确认码后重新生成；确认码不得由本端点轮换。 */
+/**
+ * 首次创建或作废未确认码后重新生成；确认码不得由本端点轮换。
+ * 会话不在最近激活窗口内时，`proofId` 须是本会话未消费的 recovery_code_rotate 证明。
+ */
 export async function generateRecoveryCode(
   db: D1Database,
   session: ActiveRecoverySession,
   now: number,
+  proofId = "",
 ): Promise<{ recovery_id: string; secret: string; saved_confirmed: false }> {
   const current = await db
     .prepare(
@@ -73,6 +84,8 @@ export async function generateRecoveryCode(
   const secret = generateSecretToken().base64url;
   const secretHash = await hashRecoverySecret(secret);
   const recentStart = now - RECENT_AUTH_TTL * SECOND;
+  const proofTarget = (await targetForAction("recovery_code_rotate")).digest;
+  const eligibilityParams = [recentStart, now, proofId, proofTarget, now];
   const sessionPredicate = `EXISTS (SELECT 1 FROM sessions s JOIN users u ON u.id = s.user_id
       WHERE s.id = ? AND s.user_id = ? AND s.token_hash = ? AND s.state = 'active'
         AND s.expires_at > ? AND s.absolute_expires_at > ? AND u.status = 'active'
@@ -84,9 +97,24 @@ export async function generateRecoveryCode(
     session.sessionTokenHash,
     now,
     now,
-    recentStart,
-    now,
+    ...eligibilityParams,
   ];
+  // 出示的证明随本次生成单次消费；最近激活窗口已满足时证明可能无效，故允许零行。
+  const consumeProof: GuardedEffect[] = proofId
+    ? [
+        {
+          kind: "update",
+          table: "recent_auth_proofs",
+          set: { consumed_at: now },
+          where: {
+            sql: `id = ? AND user_id = ? AND session_id = ? AND action = 'recovery_code_rotate'
+              AND role = 'current' AND target_digest = ? AND consumed_at IS NULL AND expires_at > ?`,
+            params: [proofId, session.userId, session.sessionId, proofTarget, now],
+          },
+          allowZeroRowsIfLast: true,
+        },
+      ]
+    : [];
   const guard =
     current === null
       ? {
@@ -130,6 +158,7 @@ export async function generateRecoveryCode(
           ],
         ],
       },
+      ...consumeProof,
     ],
   });
   if (outcome.outcome !== "committed") {
@@ -140,7 +169,14 @@ export async function generateRecoveryCode(
         WHERE s.id = ? AND s.user_id = ? AND s.token_hash = ? AND s.state = 'active'
           AND s.expires_at > ? AND s.absolute_expires_at > ? AND u.status = 'active'
           AND s.auth_epoch = u.auth_epoch AND s.recovery_epoch = u.recovery_epoch`)
-      .bind(recentStart, now, session.sessionId, session.userId, session.sessionTokenHash, now, now)
+      .bind(
+        ...eligibilityParams,
+        session.sessionId,
+        session.userId,
+        session.sessionTokenHash,
+        now,
+        now,
+      )
       .first<{ allowed: number }>();
     if (eligibility === null) {
       throw invalidCode();

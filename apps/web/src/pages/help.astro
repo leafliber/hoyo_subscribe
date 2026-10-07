@@ -46,9 +46,8 @@ import "../features/info/info.css";
         <section id="calendar" class="card info-section" aria-labelledby="calendar-title">
           <h2 id="calendar-title">怎样订阅到日历？</h2>
           <ol class="info-steps">
-            <li><strong>选择内容</strong>：在<a href="/subscription">我的订阅</a>选好关注的游戏、活动类型和提醒，登录后保存。</li>
-            <li><strong>保存恢复码</strong>：第一次启用前，需要保存一份恢复码（只需一次）。</li>
-            <li><strong>启用并添加</strong>：在「日历订阅」中核对预览并确认启用，然后复制链接，或直接用日历应用打开。</li>
+            <li><strong>选择内容</strong>：在<a href="/subscription">我的订阅</a>的「订阅内容」里选好关注的游戏、活动类型和提醒，登录后保存。</li>
+            <li><strong>启用并添加</strong>：切到「接收方式」，在「日历订阅」中核对预览并确认启用，然后复制链接，或直接用日历应用打开。</li>
           </ol>
           <p>请在日历应用里选择<strong>「订阅日历」</strong>或「通过网址添加」，不要用「导入文件」——导入的内容不会自动更新。</p>
           <div class="callout callout--info">
@@ -112,14 +111,14 @@ import "../features/info/info.css";
             <li>收到通知或在本站操作会自动续期；连续 {PUSH_DISCLOSURE.lease_days} 天都没有确认收到，会自动暂停，暂停 {PUSH_DISCLOSURE.stale_grace_days} 天后清理。恢复时需要重新验证。</li>
             <li>iPhone / iPad 需要先用 Safari 把本站「添加到主屏幕」，再从主屏幕打开本站开启。部分浏览器依赖的推送服务在一些网络下可能无法连接。</li>
             <li>验证通过只说明此刻能收到，不承诺以后每条都送达；浏览器通知、邮件和日历相互独立，同一件事可能各提醒一次。</li>
-            <li>退出某台设备的登录不会关闭它的浏览器通知；请在账号页「浏览器通知」里暂停或删除。紧急停用、恢复登录与删除账号会立即暂停全部浏览器通知。</li>
+            <li>退出某台设备的登录不会关闭它的浏览器通知；请在账号设置的「浏览器通知」里暂停或删除。紧急停用、恢复登录与删除账号会立即暂停全部浏览器通知。</li>
           </ul>
         </section>
 
         <section id="account" class="card info-section" aria-labelledby="account-title">
           <h2 id="account-title">账号会被回收吗？恢复码是什么？</h2>
           <p>连续 {ACCOUNT_IDLE_DAYS} 天没有任何使用（包括网页操作和日历应用拉取），账号会进入 {ACCOUNT_GRACE_DAYS} 天回收宽限期；期间恢复使用即可保留。回收前维护者会人工复核；活动记录不可信时会暂停回收。删除或回收不会退还当天已用的发送额度，也无法擦除已送达的邮件、日历应用里的副本或尚未到期的备份。</p>
-          <p><strong>恢复码</strong>是邮箱无法使用时找回账号的凭证。首次启用日历订阅或邮件前需要保存一次，请离线保管、和邮箱分开存放。邮箱无法使用时，可以在<a href="/recover">恢复入口</a>：</p>
+          <p><strong>恢复码</strong>是邮箱无法使用时找回账号的凭证，<strong>可选</strong>：不创建也能正常使用日历、邮件和浏览器通知。需要的话可以随时在<a href="/account#account-security">账号设置</a>里创建或更换，请离线保管、和邮箱分开存放。邮箱无法使用时，可以在<a href="/recover">恢复入口</a>：</p>
           <ul>
             <li><strong>恢复登录</strong>：会消耗所用的恢复码，登录后必须保存新码。</li>
             <li><strong>紧急停用</strong>：撤销所有登录和日历链接、关闭邮件，不会消耗恢复码。</li>

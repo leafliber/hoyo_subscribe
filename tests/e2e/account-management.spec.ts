@@ -61,7 +61,6 @@ const pushView = (bindings: PushBindingView[] = []): PushChannelView => ({
   service: "open",
   session_state: "active",
   recovery_code_required: false,
-  recovery_code_saved: true,
   subscription_state: "initialized",
   remaining: {
     user: PUSH_USER_MAX - bindings.length,
@@ -318,8 +317,10 @@ test("U14a 账号事实、会话滞后，登录设备与浏览器通知分组展
     `${SESSION_RENEW_INTERVAL / (24 * 60 * 60)} 天`,
   );
   // No server reclaim deadline: the page must not invent one from web-login frequency.
-  await expect(page.locator("#account-reclaim")).toHaveText("正常使用中");
-  await expect(page.locator("#account-lease")).toContainText("后台续租状态未知");
+  // ADR-0026：不适用的回收行整行隐藏，不显示占位。
+  await expect(page.locator("#account-reclaim")).toBeHidden();
+  await expect(page.locator("#account-lease")).toBeVisible();
+  await expect(page.locator("#account-lease")).toContainText("后台续期的运行状态暂未确认");
   // F5-01：登录会话与浏览器通知分组展示，不把"设备"当万能对象（前端 §10.1）。
   await expect(page.getByRole("heading", { name: "登录设备", exact: true })).toBeVisible();
   await expect(page.getByRole("heading", { name: "浏览器通知", exact: true })).toBeVisible();
@@ -709,7 +710,7 @@ test("U14a U24 身份失效后迟到的浏览器通知读取不画回账号页",
   );
   await expect(page.locator("#account-push-list li")).toHaveCount(0);
   await expect(page.locator("#account-push-status")).toHaveText("浏览器通知状态未知，请刷新。");
-  await expect(page.locator("#account-push-summary")).toHaveText("未知");
+  await expect(page.locator("#account-email")).toHaveText("未知");
 });
 
 const renewalOperations = [

@@ -8,6 +8,7 @@ import {
   syntheticView,
 } from "../../apps/web/src/features/channels/calendar/testing/fixtures";
 import { buildApiErrorBody, CalendarPreviewResponseSchema } from "../../packages/contracts/src";
+import { showChannels, showContent } from "./subscription-tabs";
 
 test.use({ trace: "off" }); // Never retain private API response URLs in traces.
 const part = (page: Page, name: string) => page.locator(`[data-calendar="${name}"]`);
@@ -86,7 +87,8 @@ async function open(
       },
     });
   });
-  await page.goto("/subscription");
+  // ADR-0026：日历订阅在「我的订阅」的「接收方式」分区，直达 #channels。
+  await page.goto("/subscription#channels");
   // 面板挂载即只读读取 /me、/me/calendar（及公开 /status），不再需要先点刷新；
   // 链接状态只会在读取成功、忙碌结束后从「未知」变为具体状态。
   await expect(part(page, "address")).toHaveText(/^(未启用|有效|已停用)/);
@@ -157,10 +159,16 @@ test("U20 首次完整服务端预览、关联节点、三个版本与显式续�
   await expect(part(page, "polling")).toHaveText("还没有日历应用拉取过");
   await evidence(page, "enabled-states");
 });
+/** 在「订阅内容」里多关注一个游戏，制造未保存草稿，再回到「接收方式」。 */
+async function addHsr(page: Page) {
+  await showContent(page);
+  await page.locator('input[name="games"][value="hsr"]').check();
+  await showChannels(page);
+}
 for (const save of [false, true])
   test(`U11 未保存草稿：${save ? "保存后继续" : "使用已保存设置"}`, async ({ page }) => {
     const run = await open(page);
-    await page.locator('input[name="games"][value="hsr"]').check();
+    await addHsr(page);
     await part(page, "begin").click();
     await expect(part(page, "draft")).toBeVisible();
     expect(run.previews()).toBe(0);
@@ -338,7 +346,7 @@ test("U20 停用不受草稿阻挡，再启用必须重新预览", async ({ page
   const view = syntheticView();
   view.address_state = "enabled";
   const run = await open(page, { view });
-  await page.locator('input[name="games"][value="hsr"]').check();
+  await addHsr(page);
   page.on("dialog", (dialog) => dialog.accept());
   await openManage(page);
   await part(page, "disable").click();
@@ -351,16 +359,24 @@ test("U20 停用不受草稿阻挡，再启用必须重新预览", async ({ page
   expect(run.previews()).toBe(1);
   expect(run.writes[1].body.expected_generation).toBe(8);
 });
-for (const reason of ["unsaved-code", "restricted"])
-  test(`U20 恢复码准入 ${reason}`, async ({ page }) => {
-    const account = syntheticAccount();
-    account.recovery_code_saved = false;
-    account.session.recovery_code_required = reason === "restricted";
-    const run = await open(page, { account });
-    await expect(part(page, "begin")).toBeDisabled();
-    await expect(part(page, "recovery")).toBeVisible();
-    expect(run.previews()).toBe(0);
-  });
+test("U20 恢复码可选：没有保存恢复码也能开始启用（ADR-0026）", async ({ page }) => {
+  const account = syntheticAccount();
+  account.recovery_code_saved = false;
+  await open(page, { account });
+  await expect(part(page, "begin")).toBeEnabled();
+  await expect(part(page, "recovery")).toBeHidden();
+  await expect(part(page, "reason")).toBeHidden();
+});
+test("U20 恢复登录受限会话先保存新码，入口指向恢复页", async ({ page }) => {
+  const account = syntheticAccount();
+  account.recovery_code_saved = false;
+  account.session.recovery_code_required = true;
+  const run = await open(page, { account });
+  await expect(part(page, "begin")).toBeDisabled();
+  await expect(part(page, "recovery")).toBeVisible();
+  await expect(part(page, "recovery")).toHaveAttribute("href", "/recover#save");
+  expect(run.previews()).toBe(0);
+});
 test("U20 身份失效清除预览并丢弃迟到响应", async ({ page }) => {
   let release: (() => void) | undefined;
   const wait = new Promise<void>((resolve) => {
@@ -553,7 +569,7 @@ test("U11 保存冲突不续期、不预览、不启用", async ({ page }) => {
       },
     }),
   );
-  await page.locator('input[name="games"][value="hsr"]').check();
+  await addHsr(page);
   await part(page, "begin").click();
   await part(page, "save").click();
   await expect(part(page, "message")).toContainText("请先处理保存结果");
@@ -793,7 +809,7 @@ for (const entry of ["save", "alarms"] as const)
       });
       page.on("dialog", (dialog) => dialog.accept());
       if (entry === "save") {
-        await page.locator('input[name="games"][value="hsr"]').check();
+        await addHsr(page);
         await part(page, "begin").click();
       } else await openManage(page);
       await part(page, entry).click();

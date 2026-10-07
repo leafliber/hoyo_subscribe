@@ -54,6 +54,10 @@
   scroll-margin-top: calc(var(--header-height) + var(--space-4));
 }
 
+.account-section .card-header {
+  justify-content: flex-start;
+}
+
 .account-section .card-body {
   display: grid;
   gap: var(--space-3);
@@ -69,6 +73,26 @@
 
 .recovery-state {
   font-weight: 600;
+}
+
+.account-nav-note {
+  margin-left: auto;
+  color: var(--color-text-aux);
+  font-size: var(--font-size-micro);
+  font-weight: 500;
+}
+
+.account-links a {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: var(--font-size-aux);
+  font-weight: 550;
+  text-decoration: none;
+}
+
+.account-section .proof-card .button--ghost {
+  justify-self: start;
 }
 
 .account-sessions {

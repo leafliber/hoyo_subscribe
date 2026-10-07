@@ -90,13 +90,6 @@ export const UNAUTHORIZED_FEEDBACK: Readonly<Record<UnauthorizedReason, Feedback
     action: "save_recovery_code",
     actionHref: "/recover#save",
   },
-  recovery_code_not_saved: {
-    title: "先确认保存恢复码",
-    explanation: "恢复码尚未完成保存确认，这次开启没有执行。",
-    nextStep: "去保存恢复码：请先保存并确认恢复码，再重新开启。",
-    action: "save_recovery_code",
-    actionHref: "/recover#save",
-  },
   recent_auth_required: {
     title: "需要最近认证",
     explanation: "这次操作未执行，当前会话缺少有效的用途限定认证证明。",

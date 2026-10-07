@@ -82,7 +82,6 @@ export type UnauthorizedReason =
   | "session_expired" // 会话过期，需重新登录
   | "pending_activation" // 会话未激活，需完成激活
   | "recovery_code_unconfirmed" // 恢复会话须先生成并确认保存新码
-  | "recovery_code_not_saved" // 首次启用长期通道前确认已保存恢复码（§4.6）
   | "recent_auth_required" // 生成恢复码前须重新验证邮箱；P2-07 危险操作复用
   | "wrong_domain"; // 会话权限域不匹配（普通用户 vs 管理员，§8.3）
 

@@ -45,7 +45,6 @@ function facts(): WireView {
     channel_revision: 7,
     session_state: "active",
     recovery_code_required: false,
-    recovery_code_saved: true,
     subscription_state: "initialized",
     subscription: { state: "initialized", revision: base.revision, config: structuredClone(base) },
     email: { masked: "s***@example.invalid", email_version: 4 },
@@ -190,7 +189,8 @@ async function openSubscription(
     applyUpdate(state, body);
     await route.fulfill({ json: { result: "completed", state } });
   });
-  await page.goto("/subscription");
+  // ADR-0026：接收方式在「我的订阅」的第二个分区，直达 #channels。
+  await page.goto("/subscription#channels");
   if (options.waitForReady !== false) await ready(page);
   return { state, writes, saves, unexpected, renewals: () => renewals };
 }

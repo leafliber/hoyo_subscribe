@@ -39,7 +39,6 @@ test("U27 七类错误码与全部 UnauthorizedReason 都给出可执行下一�
     "session_expired",
     "pending_activation",
     "recovery_code_unconfirmed",
-    "recovery_code_not_saved",
     "recent_auth_required",
     "wrong_domain",
   ];
@@ -49,7 +48,8 @@ test("U27 七类错误码与全部 UnauthorizedReason 都给出可执行下一�
       buildApiErrorBody("unauthorized", { code: "unauthorized", reason }),
     );
     expect(feedback.nextStep).toBeTruthy();
-    if (reason === "recovery_code_unconfirmed" || reason === "recovery_code_not_saved") {
+    // ADR-0026：恢复码可选，只剩恢复登录受限会话需要先保存新码。
+    if (reason === "recovery_code_unconfirmed") {
       expect(feedback.action).toBe("save_recovery_code");
       expect(feedback.actionHref).toBe("/recover#save");
     }

@@ -572,3 +572,25 @@ test("U21 到达注册表新鲜期后重新获取整份数据", async ({ page })
   await expect(item(page, "old")).toHaveCount(0);
   expect(mock.count()).toBe(2);
 });
+
+test("ADR-0026 长预览列表的读屏文字留在滚动区内，不把页面撑出空白", async ({ page }) => {
+  // 2026-10-07 正式站点实测：113 条时页面比页脚多出约 7000px。
+  const nodes = Array.from({ length: 120 }, (_, index) =>
+    node(`long-${String(index).padStart(3, "0")}`, {
+      precision: "datetime",
+      utc_ms: now + index * 3_600_000,
+    }),
+  );
+  await open(page, (r) => r.fulfill({ json: dataset(nodes) }));
+  await ready(page);
+  await expect(preview(page).locator("[data-milestone]")).toHaveCount(120);
+  const overflow = await page.evaluate(() => {
+    const footer = document.querySelector(".app-footer")?.getBoundingClientRect();
+    return document.documentElement.scrollHeight - ((footer?.bottom ?? 0) + window.scrollY);
+  });
+  expect(overflow).toBeLessThanOrEqual(1);
+  // 预览自身仍可滚动看到全部条目。
+  expect(
+    await preview(page).evaluate((element) => element.scrollHeight > element.clientHeight),
+  ).toBe(true);
+});

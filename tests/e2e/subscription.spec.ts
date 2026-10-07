@@ -11,6 +11,7 @@ import {
   DEFAULT_SCOPE_GAMES,
   SUBSCRIPTION_RULE_COPY,
 } from "../../packages/contracts/src";
+import { showChannels, showContent } from "./subscription-tabs";
 
 test("U09a U10 清空全部提前规则仍可开变更消息；最后一条只提示，不要求确认", async ({ page }) => {
   const dialogs: string[] = [];
@@ -144,6 +145,8 @@ test("U09 U10 一个主按钮、无自由分钟输入；空游戏和空日历类
     await page.evaluate(() => document.documentElement.scrollWidth - innerWidth),
   ).toBeLessThanOrEqual(1);
   for (const selector of ["#event-type-error", "#mail-channel"]) {
+    // ADR-0026：通道卡片在「接收方式」分区。
+    if (selector === "#mail-channel") await showChannels(page);
     const el = page.locator(selector);
     await el.scrollIntoViewIfNeeded();
     const box = await el.boundingBox();
@@ -179,6 +182,8 @@ test("U09a 页面仅维护本机选择，不请求订阅 API；实际预览和�
   await page.goto("/subscription");
   await expect(page.locator("#actual-preview")).toContainText("未保存草稿");
   await expect(page.locator("#actual-preview")).toContainText("样例预览（合成数据）");
+  // ADR-0026：接收方式在第二个分区；切换分区不发任何请求。
+  await showChannels(page);
   await expect(page.locator("#calendar-channel")).toBeVisible();
   await expect(page.locator("#mail-channel")).toBeVisible();
   // 浏览器通知（Push）区域已从新界面移除；现有两个接收方式都给出明确的未登录状态。
@@ -193,9 +198,10 @@ test("U09a 页面仅维护本机选择，不请求订阅 API；实际预览和�
   const navigation = page.waitForRequest((request) =>
     request.url().endsWith("/login?returnTo=%2Fsubscription"),
   );
+  await showContent(page);
   await page.getByRole("button", { name: "登录并保存" }).click();
   expect((await navigation).isNavigationRequest()).toBe(true);
-  await expect(page).toHaveURL(/\/subscription$/);
+  await expect(page).toHaveURL(/\/subscription#content$/);
   expect(apiRequests.map((url) => new URL(url).pathname)).toEqual(["/api/v2/calendar/nodes"]);
 });
 
@@ -209,4 +215,41 @@ test("U09 U09a U10 E2 桌面与手机实际截图", async ({ page }, info) => {
   mkdirSync(folder, { recursive: true });
   const viewport = info.project.name.startsWith("mobile") ? "mobile" : "desktop";
   await page.screenshot({ path: `${folder}/${viewport}-subscription.png`, fullPage: true });
+});
+
+test("ADR-0026 订阅内容与接收方式分区：默认内容分区，方向键切换，#channels 与旧锚点直达接收方式", async ({
+  page,
+}) => {
+  await page.goto("/subscription");
+  const content = page.getByRole("tab", { name: /订阅内容/ });
+  const channels = page.getByRole("tab", { name: /接收方式/ });
+  // 引导只剩两步，不再要求保存恢复码。
+  await expect(page.locator("#setup-steps > li")).toHaveCount(2);
+  await expect(page.locator("#setup-steps")).not.toContainText("恢复码");
+  await expect(page.locator("#save-recovery-link")).toBeHidden();
+  await expect(content).toHaveAttribute("aria-selected", "true");
+  await expect(page.locator("#panel-content")).toBeVisible();
+  await expect(page.locator("#panel-channels")).toBeHidden();
+  await content.focus();
+  await page.keyboard.press("ArrowRight");
+  await expect(channels).toBeFocused();
+  await expect(channels).toHaveAttribute("aria-selected", "true");
+  await expect(content).toHaveAttribute("tabindex", "-1");
+  await expect(page.locator("#panel-channels")).toBeVisible();
+  await expect(page.locator("#panel-content")).toBeHidden();
+  await expect(page).toHaveURL(/\/subscription#channels$/);
+  await page.keyboard.press("Home");
+  await expect(content).toBeFocused();
+  await expect(page.locator("#panel-content")).toBeVisible();
+  for (const anchor of ["#channels", "#calendar-channel", "#mail-channel"]) {
+    await page.goto(`/subscription${anchor}`);
+    await expect(channels).toHaveAttribute("aria-selected", "true");
+    await expect(page.locator("#mail-channel")).toBeVisible();
+  }
+  // 地址片段变化（例如站内锚点）同样切换分区。
+  await page.evaluate(() => {
+    location.hash = "content";
+  });
+  await expect(content).toHaveAttribute("aria-selected", "true");
+  await expect(page.locator("#panel-content")).toBeVisible();
 });

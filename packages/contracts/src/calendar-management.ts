@@ -57,10 +57,12 @@ export const calendarViewSchema = z.object({
 });
 export type CalendarView = z.infer<typeof calendarViewSchema>;
 
-/** D3: presentation only; management API remains the authority. No recent OTP gate. */
+/**
+ * D3: presentation only; management API remains the authority. No recent OTP gate.
+ * ADR-0026：恢复码改为可选，启用与重置不再要求先保存；恢复登录的受限会话仍不能启用。
+ */
 export function deriveCalendarActions(facts: {
   session: { state: string; recovery_code_required: boolean };
-  recovery_code_saved: boolean;
   subscription: { state: string };
 }): Record<CalendarAction, import("./account-lifecycle").ActionAvailability> {
   const common =
@@ -69,18 +71,13 @@ export function deriveCalendarActions(facts: {
       : facts.session.recovery_code_required
         ? { allowed: false as const, reason: "recovery_code_unconfirmed" as const }
         : { allowed: true as const };
-  const credential = !common.allowed
-    ? common
-    : !facts.recovery_code_saved
-      ? { allowed: false as const, reason: "recovery_code_not_saved" as const }
-      : common;
   return {
     disable: common,
-    reset: credential,
-    enable: !credential.allowed
-      ? credential
+    reset: common,
+    enable: !common.allowed
+      ? common
       : facts.subscription.state !== "initialized"
         ? { allowed: false, reason: "subscription_uninitialized" }
-        : credential,
+        : common,
   };
 }

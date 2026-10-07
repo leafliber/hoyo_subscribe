@@ -8,13 +8,10 @@ import {
 import {
   type AccountSummary,
   buildApiErrorBody,
-  OTP_DIGITS,
   RECENT_AUTH_TTL,
-  recentAuthTurnstileAction,
   SESSION_RENEW_INTERVAL,
   type UnauthorizedReason,
 } from "../../packages/contracts/src/index";
-import { manualTurnstile, widgetState } from "./turnstile-support";
 
 test.use({ trace: "off", screenshot: "off", video: "off" });
 
@@ -352,8 +349,8 @@ test("U25 激活冲突不自动踢设备，手动选择后按逗号字符串提�
   expect(writes[1]?.body.revoke_session_ids).toBe("synthetic-old");
 });
 
-test("U15 首次保存单独下载，复制失败保留明文，不把码放进 URL 或存储", async ({ page }) => {
-  const state = await setup(page, "active", false);
+test("U15 受限会话的新码单独下载，复制失败保留明文，不把码放进 URL 或存储", async ({ page }) => {
+  const state = await setup(page, "active");
   await page.addInitScript(() =>
     Object.defineProperty(navigator, "clipboard", {
       value: { writeText: () => Promise.reject(new Error("synthetic-denied")) },
@@ -404,7 +401,7 @@ test("U15 保存确认响应丢失后读取摘要核对，不谎报失败或重�
 });
 
 test("U15 写入拒绝重新读取事实，最近认证提示重新验证邮箱", async ({ page }) => {
-  const state = await setup(page, "active", false);
+  const state = await setup(page, "active");
   state.rejectGenerate = true;
   await page.goto("/recover#save");
   const reads = state.calls.filter((call) => call.path === "me").length;
@@ -423,38 +420,17 @@ test("U15 摘要缺字段保持未知，不按 saved=true 放行", async ({ page
   await expect(page.locator("#confirmed-next")).toBeHidden();
 });
 
-test("U15 已确认旧码不重显，邮箱最近认证后两步轮换，确认前旧码有效", async ({ page }) => {
-  const state = await setup(page, "active", false, true);
-  await page.goto("/recover#save");
-  await expect(page.locator("#generate-code")).toBeHidden();
-  await expect(page.locator("#rotate-code")).toBeDisabled();
-  await page.locator("#request-rotation").click();
-  await page.locator("#request-rotation").click();
-  await page.locator("#rotation-otp").fill("1".repeat(OTP_DIGITS));
-  await page.locator("#verify-rotation").click();
-  await expect(page.locator("#rotate-code")).toBeEnabled();
-  await page.locator("#rotate-code").click();
-  await expect(page.locator("#code-output")).toHaveValue(
-    "synthetic-rotated-id\nsynthetic-rotated-secret",
-  );
-  expect(state.facts.recovery_code_generation).toBe(1);
-  await page.locator("#saved-check").check();
-  await page.locator("#confirm-code").click();
-  await expect(page.locator("#recovery-result")).toContainText("已确认保存");
-  expect(state.facts.recovery_code_generation).toBe(2);
-});
-
-test("U25 邮件全局故障不伪造最近认证，仍保留查看与导出", async ({ page }) => {
-  const state = await setup(page, "active", false, true);
-  state.mailFailure = true;
-  await page.goto("/recover#save");
-  await page.locator("#request-rotation").click();
-  await page.locator("#request-rotation").click();
-  await expect(page.locator("#recovery-result")).toContainText("服务暂不可用");
-  await expect(page.locator("#rotate-code")).toBeDisabled();
-  await expect(page.getByRole("button", { name: "导出偏好" })).toBeVisible();
-  expect(state.calls.some((call) => call.path === "me/recovery-code")).toBe(false);
-});
+for (const saved of [false, true])
+  test(`ADR-0026 普通会话打开恢复页保存分区（${saved ? "已" : "未"}保存）转到账号设置，不生成也不轮换`, async ({
+    page,
+  }) => {
+    const state = await setup(page, "active", false, saved);
+    await page.goto("/recover#save");
+    await expect(page).toHaveURL(/\/account#account-security$/);
+    expect(state.calls.some((call) => call.body.action === "generate")).toBe(false);
+    expect(state.calls.some((call) => call.path === "me/recovery-code")).toBe(false);
+    expect(state.calls.some((call) => call.path === "me/recent-auth/challenges")).toBe(false);
+  });
 
 test("U25 受限恢复会话可显式删除，状态只到清理中", async ({ page }) => {
   await setup(page, "active");
@@ -506,7 +482,10 @@ test("U25 完成回执上下文按注册表期限清理，不包含恢复秘密"
 test("U25 已登录普通会话仍可明确选择紧急停用，结果不留私人内容", async ({ page }) => {
   await setup(page, "active", false, true);
   await page.goto("/recover");
-  await page.locator("#use-recovery").click();
+  // ADR-0026：普通会话直接看到选择目的，恢复码管理在账号设置里。
+  await expect(page.locator("#purpose-section")).toBeVisible();
+  await expect(page.locator("#save-section")).toBeHidden();
+  await expect(page.locator("#recovery-result")).toContainText("账号设置");
   await enter(page, "stop");
   await expect(page.locator("#save-section")).toBeHidden();
   await expect(page.locator("#recovery-result")).toContainText("恢复码仍然有效");
@@ -621,36 +600,26 @@ async function expectCleared(page: Page) {
   await expect(page.locator("#code-output")).toHaveValue("");
   await expect(page.locator("#save-section")).toBeHidden();
   await expect(page.locator("#retry-recovery")).toBeHidden();
-  await expect(page.locator("#rotation-otp")).toHaveValue("");
-  await expect(page.locator("#rotation-form")).toBeHidden();
   await expect(page.locator("#recovery-result")).toContainText("身份已变化");
   await expect(page.locator("#recovery")).toHaveAttribute("aria-busy", "false");
 }
-async function verifiedRotation(page: Page) {
-  await page.locator("#request-rotation").click();
-  await page.locator("#request-rotation").click();
-  await page.locator("#rotation-otp").fill("1".repeat(OTP_DIGITS));
-  await page.locator("#verify-rotation").click();
-  await expect(page.locator("#rotate-code")).toBeEnabled();
-}
 
-test("U15 身份隔离：外部标签页失效立即清除已交付码、轮换证明及输入", async ({ page }) => {
-  await setup(page, "active", false, true);
+test("U15 身份隔离：外部标签页失效立即清除已交付码及输入", async ({ page }) => {
+  await setup(page, "active");
   await page.goto("/recover#save");
-  await verifiedRotation(page);
-  await page.locator("#rotate-code").click();
+  await page.locator("#generate-code").click();
   await expect(page.locator("#delivered-code")).toBeVisible();
   await page.locator("#saved-check").check();
   await externalInvalidate(page);
   await expectCleared(page);
   await expect(page.locator("#saved-check")).not.toBeChecked();
   await page.locator("#refresh-recovery").click();
-  await expect(page.locator("#rotation-section")).toBeVisible();
-  // /me still grants the action, but the old purpose-bound proof must be gone.
-  await expect(page.locator("#rotate-code")).toBeDisabled();
+  // 受限会话可以重新领取新码，但已交付的旧明文不会回来。
+  await expect(page.locator("#generate-code")).toBeEnabled();
+  await expect(page.locator("#code-output")).toHaveValue("");
   expect(
     await page.evaluate(() => JSON.stringify({ ...localStorage, ...sessionStorage })),
-  ).not.toMatch(/synthetic-(?:proof|rotated|secret|challenge)/);
+  ).not.toMatch(/synthetic-(?:proof|secret|challenge)/);
 });
 
 test("U15 身份隔离：生成挂起后失效，忽略不能中止的旧响应", async ({ page }) => {
@@ -679,14 +648,9 @@ test("U15 身份隔离：重新读取 me 确认不同 user_id 后清除旧码", 
   await expect(page.locator("#delivered-code")).toBeHidden();
 });
 
-for (const operation of ["summary", "confirmation", "proof", "activation"] as const) {
+for (const operation of ["summary", "confirmation", "activation"] as const) {
   test(`U15 身份隔离：${operation} 迟到结果不能恢复旧身份或权限`, async ({ page }) => {
-    const state = await setup(
-      page,
-      operation === "activation" ? "pending" : "active",
-      operation !== "proof",
-      operation === "proof",
-    );
+    const state = await setup(page, operation === "activation" ? "pending" : "active");
     await page.goto("/recover#save");
     await expect(page.locator("#recovery")).toHaveAttribute("aria-busy", "false");
     if (operation === "confirmation") {
@@ -694,12 +658,6 @@ for (const operation of ["summary", "confirmation", "proof", "activation"] as co
       await page.locator("#saved-check").check();
       await holdNext(page, "auth/recovery/code");
       await page.locator("#confirm-code").click();
-    } else if (operation === "proof") {
-      await page.locator("#request-rotation").click();
-      await page.locator("#request-rotation").click();
-      await page.locator("#rotation-otp").fill("1".repeat(OTP_DIGITS));
-      await holdNext(page, "me/recent-auth/challenges/verify");
-      await page.locator("#verify-rotation").click();
     } else {
       await holdNext(page, operation === "activation" ? "auth/activate" : "me");
       await page
@@ -712,11 +670,6 @@ for (const operation of ["summary", "confirmation", "proof", "activation"] as co
     await release(page);
     await expectCleared(page);
     expect(state.calls).toHaveLength(calls);
-    if (operation === "proof") {
-      await page.locator("#refresh-recovery").click();
-      await expect(page.locator("#rotation-section")).toBeVisible();
-      await expect(page.locator("#rotate-code")).toBeDisabled();
-    }
   });
 }
 
@@ -817,8 +770,6 @@ async function sessionCleared(page: Page) {
   await expect(page.locator("#delivered-code")).toBeHidden();
   await expect(page.locator("#save-section")).toBeHidden();
   await expect(page.locator("#pending-section")).toBeHidden();
-  await expect(page.locator("#rotation-form")).toBeHidden();
-  await expect(page.locator("#rotation-otp")).toHaveValue("");
   await expect(page.locator("#recovery-id")).toHaveValue("");
   await expect(page.locator("#recovery-secret")).toHaveValue("");
   await expect(page.locator("#saved-check")).not.toBeChecked();
@@ -830,19 +781,18 @@ for (const reason of ["no_session", "session_expired"] as const) {
     test(`U15 服务端失效：${reason} ${endpoint} 完成处理后清明文、证明、输入和重试`, async ({
       page,
     }) => {
-      const state = await setup(page, "active", false, true);
+      const state = await setup(page, "active");
       await page.goto("/recover#save");
-      await verifiedRotation(page);
-      await page.locator("#rotate-code").click();
+      await page.locator("#generate-code").click();
       await expect(page.locator("#delivered-code")).toBeVisible();
       await page.locator("#saved-check").check();
       // Include hidden credential inputs, so hiding sections alone cannot pass.
       await page.evaluate(() => {
-        for (const id of ["recovery-id", "recovery-secret", "rotation-otp"])
+        for (const id of ["recovery-id", "recovery-secret"])
           (document.getElementById(id) as HTMLInputElement).value = "synthetic-obsolete";
       });
       const path =
-        endpoint === "both" ? "me/sessions" : endpoint === "summary" ? "me" : "me/recovery-code";
+        endpoint === "both" ? "me/sessions" : endpoint === "summary" ? "me" : "auth/recovery/code";
       state.denied[path] = reason;
       if (endpoint === "both") state.denied.me = reason;
       await denyAndFinish(
@@ -853,10 +803,10 @@ for (const reason of ["no_session", "session_expired"] as const) {
       await sessionCleared(page);
       state.denied = {};
       await page.locator("#refresh-recovery").click();
-      await expect(page.locator("#rotation-section")).toBeVisible();
+      await expect(page.locator("#save-section")).toBeVisible();
       await expect(page.locator("#recovery")).toHaveAttribute("aria-busy", "false");
-      // Summary still permits rotation, but the old proof/operation closure is gone.
-      await expect(page.locator("#rotate-code")).toBeDisabled();
+      // The restricted session may fetch a new code, but the old delivery closure is gone.
+      await expect(page.locator("#generate-code")).toBeEnabled();
       await expect(page.locator("#code-output")).toHaveValue("");
       await expect(page.locator("#retry-recovery")).toBeHidden();
     });
@@ -899,43 +849,3 @@ for (const reason of ["recent_auth_required", "csrf_mismatch"] as const) {
     expect(state.calls.filter((call) => call.body.action === "generate")).toHaveLength(1);
   });
 }
-
-for (const result of ["success", "reject", "network", "csrf"] as const)
-  test(`A-P2-PREAUTH U15 轮换组件 action 与 ${result} 后 token 清理/reset`, async ({ page }) => {
-    const state = await setup(page, "active", false, true);
-    await manualTurnstile(page);
-    await page.goto("/recover#save");
-    await page.locator("#request-rotation").click();
-    await expect(page.locator("#captcha-status")).toContainText("已完成");
-    expect(await widgetState(page, "rotation-captcha")).toMatchObject({
-      action: recentAuthTurnstileAction("recovery_code_rotate", "current"),
-      sitekey: "synthetic-sitekey",
-    });
-    const requests: unknown[] = [];
-    page.on("request", (req) => {
-      if (req.url().endsWith("/me/recent-auth/challenges")) requests.push(req.postDataJSON());
-    });
-    if (result === "csrf")
-      await page.route("**/api/v2/me/sessions", (route) => route.abort("failed"));
-    else if (result !== "success")
-      await page.route("**/api/v2/me/recent-auth/challenges", (route) =>
-        result === "network"
-          ? route.abort("failed")
-          : route.fulfill({
-              status: 400,
-              json: buildApiErrorBody("validation", {
-                code: "validation",
-                fields: [{ path: "turnstile_token", reason: "verification_failed" }],
-              }),
-            }),
-      );
-    await page.locator("#request-rotation").click();
-    await expect.poll(() => widgetState(page, "rotation-captcha")).toMatchObject({ resets: 1 });
-    expect(requests).toHaveLength(result === "csrf" ? 0 : 1);
-    if (result !== "csrf")
-      expect(requests[0]).toMatchObject({ turnstile_token: "synthetic-first-rotation-captcha" });
-    await page.locator("#request-rotation").click();
-    await expect(page.locator("#recovery-result")).toContainText("请先完成人机验证");
-    expect(requests).toHaveLength(result === "csrf" ? 0 : 1);
-    expect(state.calls.some((c) => c.path === "me/recovery-code")).toBe(false);
-  });

@@ -8,12 +8,12 @@ import "../features/auth/sessions/account.css";
 const sitekey = import.meta.env.PUBLIC_TURNSTILE_SITE_KEY ?? "";
 const otpNote = `验证码 ${OTP_DIGITS} 位，${OTP_TTL / 60} 分钟内有效；重新发送至少间隔 ${OTP_COOLDOWN} 秒，最多可输错 ${OTP_ATTEMPTS} 次。`;
 ---
-<Layout title="账号与设备" noindex>
+<Layout title="账号设置" noindex>
   <div class="account-page" id="account-page" data-sitekey={sitekey}>
     <header class="page-header">
       <div>
-        <h1>账号与设备</h1>
-        <p class="lead">管理登录邮箱、登录设备、恢复码和账号数据。时间均为北京时间。</p>
+        <h1>账号设置</h1>
+        <p class="lead">管理登录邮箱、登录设备、浏览器通知和恢复码。时间均为北京时间。</p>
       </div>
       <div class="page-header-actions">
         <button class="button button--secondary" id="account-refresh" type="button"><Icon name="refresh" />刷新</button>
@@ -24,11 +24,11 @@ const otpNote = `验证码 ${OTP_DIGITS} 位，${OTP_TTL / 60} 分钟内有效�
     <p class="account-login-row"><a href="/login?returnTo=%2Faccount" id="account-login" class="button">登录或完成激活</a></p>
 
     <div class="account-layout">
-      <nav class="account-nav" aria-label="账号页目录">
+      <nav class="account-nav" aria-label="账号设置目录">
         <a href="#account-info"><Icon name="user" />账号信息</a>
         <a href="#account-devices"><Icon name="monitor" />登录设备</a>
         <a href="#account-push"><Icon name="bell" />浏览器通知</a>
-        <a href="#account-security"><Icon name="key" />恢复码</a>
+        <a href="#account-security"><Icon name="key" />恢复码<span class="account-nav-note">可选</span></a>
         <a href="#account-data"><Icon name="download" />数据导出</a>
         <a href="#account-danger"><Icon name="trash" />删除账号</a>
       </nav>
@@ -37,16 +37,15 @@ const otpNote = `验证码 ${OTP_DIGITS} 位，${OTP_TTL / 60} 分钟内有效�
         <section id="account-info" class="card account-section" aria-labelledby="account-info-title">
           <div class="card-header"><h2 id="account-info-title">账号信息</h2></div>
           <div class="card-body">
+            <!-- 只列账号本身的事实；订阅与各接收方式的状态在「我的订阅」查看。不适用的行隐藏。 -->
             <dl class="kv">
               <dt>邮箱</dt><dd id="account-email">未知</dd>
               <dt>登录有效期</dt><dd id="account-expiry">未知</dd>
-              <dt>订阅设置</dt><dd id="account-subscription">未知</dd>
-              <dt>邮件通知</dt><dd id="account-mail">未知</dd>
-              <dt>浏览器通知</dt><dd id="account-push-summary">未知</dd>
-              <dt>邮件名额租期</dt><dd id="account-lease">未知</dd>
-              <dt>账号回收</dt><dd id="account-reclaim">未知</dd>
+              <dt data-account-row="lease" hidden>邮件通知名额</dt><dd id="account-lease" data-account-row="lease" hidden>未知</dd>
+              <dt data-account-row="reclaim" hidden>账号回收</dt><dd id="account-reclaim" data-account-row="reclaim" hidden>未知</dd>
             </dl>
-            <p class="field-hint">长时间不打开网页可能需要重新登录，但这不代表账号不活跃：日历应用在拉取订阅也算在使用。邮件名额会按账号活动自动续期，不需要专门回来点击。</p>
+            <p class="field-hint">长时间不打开网页可能需要重新登录，但这不代表账号不活跃：日历应用在拉取订阅也算在使用。</p>
+            <p class="account-links"><a href="/subscription#channels"><Icon name="arrow-right" />查看订阅内容、日历订阅和邮件通知</a></p>
             <details id="email-maintenance" class="disclosure email-change">
               <summary><Icon name="mail" />更换登录邮箱</summary>
               <div class="email-change-body">
@@ -113,12 +112,43 @@ const otpNote = `验证码 ${OTP_DIGITS} 位，${OTP_TTL / 60} 分钟内有效�
           </div>
         </section>
 
-        <section id="account-security" class="card account-section" aria-labelledby="account-data-title">
-          <div class="card-header"><h2 id="account-data-title">恢复码</h2></div>
+        <section id="account-security" class="card account-section" aria-labelledby="account-recovery-title">
+          <div class="card-header"><h2 id="account-recovery-title">恢复码</h2><span class="badge">可选</span></div>
           <div class="card-body">
-            <p id="account-recovery" class="recovery-state">恢复码保存状态未知。</p>
-            <p class="text-secondary">邮箱无法使用时，用恢复码找回账号或紧急停用。旧码无法再次显示，找不到时可以换一个新码。</p>
-            <div class="button-row"><a class="button button--secondary" href="/recover#save"><Icon name="key" />管理恢复码</a><a class="button button--ghost" href="/recover">使用恢复码</a></div>
+            <p class="text-secondary">邮箱无法使用时，可以用恢复码找回账号，或紧急停用所有服务。不创建也能正常使用全部功能。</p>
+            <p id="account-recovery" class="recovery-state">恢复码状态未知。</p>
+            <div class="button-row">
+              <button id="recovery-create" class="button button--secondary" type="button" hidden><Icon name="key" />创建恢复码</button>
+              <button id="recovery-rotate" class="button button--secondary" type="button" hidden><Icon name="refresh" />更换恢复码</button>
+              <a id="recovery-restricted-link" class="button" href="/recover#save" hidden><Icon name="key" />保存新恢复码</a>
+            </div>
+            <div id="recovery-verify" class="proof-card" hidden>
+              <h3>先验证当前邮箱</h3>
+              <p id="recovery-verify-hint" class="field-hint">为了安全，需要先验证当前邮箱。</p>
+              <div id="recovery-current-turnstile"></div><p id="recovery-current-turnstile-status" class="field-hint" role="status"></p>
+              <button id="recovery-current-send" class="button button--secondary" type="button">向当前邮箱发送验证码</button>
+              <form id="recovery-current-form" autocomplete="off" class="inline-form">
+                <div class="field"><label for="recovery-current-code">当前邮箱验证码</label><input id="recovery-current-code" class="otp-input" type="password" inputmode="numeric" maxlength={OTP_DIGITS} autocomplete="off" required /></div>
+                <button id="recovery-current-verify" class="button" type="submit" disabled>验证</button>
+              </form>
+              <p id="recovery-current-status" class="proof-status" role="status">尚未验证。</p>
+              <p class="field-hint">{otpNote}发送成功不代表一定送达。</p>
+              <button id="recovery-verify-cancel" class="button button--ghost" type="button">取消</button>
+            </div>
+            <div id="recovery-delivered" class="code-box" hidden>
+              <label for="recovery-output" class="field-label">你的恢复码（ID 与秘密，请一起保存）</label>
+              <textarea id="recovery-output" class="input mono" readonly autocomplete="off" spellcheck="false" rows="3"></textarea>
+              <div class="button-row">
+                <button class="button button--secondary" id="recovery-copy" type="button"><Icon name="copy" />复制恢复码</button>
+                <button class="button button--secondary" id="recovery-download" type="button"><Icon name="download" />下载恢复码</button>
+              </div>
+              <p class="field-hint">只显示这一次。请保存在密码管理器等安全的地方，和邮箱分开保管，不要发给任何人。下载的文件只包含恢复码。</p>
+              <label class="check-label"><input id="recovery-saved-check" type="checkbox" />我已单独保存这份恢复码</label>
+              <div class="button-row"><button class="button" id="recovery-confirm" type="button" disabled>确认已保存</button></div>
+              <p class="field-hint">没有确认就离开页面的话，这份码会在重新创建时作废。你的确认不代表网站验证过外部备份。</p>
+            </div>
+            <p id="recovery-result" class="result-message callout callout--info" role="status"></p>
+            <p class="field-hint">需要用恢复码时（例如邮箱收不到验证码），在登录页选择「用恢复码找回账号」。</p>
           </div>
         </section>
 

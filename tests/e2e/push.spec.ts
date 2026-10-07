@@ -46,7 +46,6 @@ function view(bindings: PushBindingView[] = []): PushChannelView {
     service: "open",
     session_state: "active",
     recovery_code_required: false,
-    recovery_code_saved: true,
     subscription_state: "initialized",
     remaining: {
       user: PUSH_USER_MAX - bindings.length,
@@ -301,7 +300,8 @@ async function openSubscription(page: Page, server: Server) {
     }
     return route.fulfill({ status: 400, json: buildApiErrorBody("validation") });
   });
-  await page.goto("/subscription");
+  // ADR-0026：本浏览器通知在「我的订阅」的「接收方式」分区，直达 #channels。
+  await page.goto("/subscription#channels");
 }
 const card = (page: Page) => page.locator("#push-channel");
 const part = (page: Page, name: string) => page.locator(`[data-push="${name}"]`);

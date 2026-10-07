@@ -1,6 +1,5 @@
 ---
 import "../styles/base.css";
-import { OTP_DIGITS, OTP_TTL } from "@hoyo/contracts";
 import Icon from "../components/Icon.astro";
 import Layout from "./_Layout.astro";
 import "../features/auth/auth.css";
@@ -33,7 +32,7 @@ const sitekey = import.meta.env.PUBLIC_TURNSTILE_SITE_KEY ?? "";
           <button class="button button--danger" id="choose-stop" type="button">选择紧急停用</button>
         </div>
       </div>
-      <p class="text-aux">已经登录了？<a href="/recover#save" id="open-save">查看或保存恢复码</a></p>
+      <p class="text-aux">已经登录了？恢复码在<a href="/account#account-security">账号设置</a>里创建和更换。</p>
     </section>
 
     <section id="credential-section" class="card recovery-panel-card" hidden aria-labelledby="credential-title">
@@ -63,9 +62,8 @@ const sitekey = import.meta.env.PUBLIC_TURNSTILE_SITE_KEY ?? "";
 
     <section id="save-section" class="card recovery-panel-card" hidden aria-labelledby="save-title">
       <h2 id="save-title" tabindex="-1">保存恢复码</h2>
-      <p class="text-secondary">邮箱无法使用时，恢复码是找回账号的唯一凭证。它只会显示这一次，请保存在安全的地方（例如密码管理器），并且和邮箱分开保管。首次启用日历订阅或邮件通知前需要先保存。</p>
+      <p class="text-secondary">恢复登录已经用掉了原来的恢复码。新码只会显示这一次，请保存在安全的地方（例如密码管理器），并且和邮箱分开保管；确认保存之前，不能开启通知或更换邮箱。</p>
       <p id="recovery-pause" class="callout callout--warning" hidden>原来的日历地址已失效，邮件与 Push 已暂停；订阅设置仍然保留。保存新码后，请逐项重新开启需要的通知，并在日历应用里换成新地址。</p>
-      <div class="recovery-actions"><button class="button button--secondary" id="use-recovery" type="button" hidden>使用恢复码恢复登录或紧急停用</button></div>
       <p id="code-state" class="code-state">正在读取恢复码状态…</p>
       <div class="recovery-actions"><button class="button" id="generate-code" type="button"><Icon name="key" />生成新恢复码</button></div>
       <div id="delivered-code" class="code-box" hidden>
@@ -80,28 +78,12 @@ const sitekey = import.meta.env.PUBLIC_TURNSTILE_SITE_KEY ?? "";
         <div class="recovery-actions"><button class="button" id="confirm-code" type="button" disabled>确认已保存</button></div>
         <p class="field-hint">你的确认不代表网站已经验证外部备份可靠。</p>
       </div>
-      <section id="rotation-section" hidden aria-labelledby="rotation-title">
-        <h3 id="rotation-title">找不到以前保存的恢复码？</h3>
-        <p class="text-secondary">旧码无法重新显示，但可以换一个新码：先验证当前邮箱，再生成新码。新码确认保存前，旧码仍然有效。</p>
-        <div id="rotation-captcha"></div><p id="captcha-status" class="field-hint"></p>
-        <div class="recovery-actions"><button class="button button--secondary" id="request-rotation" type="button">验证邮箱以轮换恢复码</button></div>
-        <form id="rotation-form" hidden>
-          <div class="field">
-            <label for="rotation-otp">当前邮箱验证码</label>
-            <input id="rotation-otp" class="otp-input" inputmode="numeric" autocomplete="one-time-code" maxlength={OTP_DIGITS} required />
-            <p class="field-hint">可整段粘贴 {OTP_DIGITS} 位验证码，{OTP_TTL / 60} 分钟内有效。邮件可能稍晚到达。</p>
-          </div>
-          <div class="recovery-actions"><button class="button" id="verify-rotation" type="submit">验证本次轮换</button></div>
-        </form>
-        <div class="recovery-actions"><button class="button" id="rotate-code" type="button" disabled>交付轮换新码</button></div>
-        <p id="rotation-reason" class="field-hint"></p>
-      </section>
       <section aria-labelledby="capability-title" class="capability-list">
         <h3 id="capability-title">当前可用操作</h3>
         <div class="recovery-actions">
           <a class="button button--secondary" href="/subscription">查看订阅内容</a>
           <button class="button button--secondary" id="export-preferences" type="button"><Icon name="download" />导出偏好</button>
-          <a class="button button--ghost" href="/account">账号与设备</a>
+          <a class="button button--ghost" href="/account">账号设置</a>
         </div>
         <div id="restricted-actions" class="callout callout--warning" hidden>
           <div class="callout-body">
@@ -126,7 +108,7 @@ const sitekey = import.meta.env.PUBLIC_TURNSTILE_SITE_KEY ?? "";
       <button class="button button--ghost" id="cancel-recovery" type="button" hidden>停止等待</button>
       <button class="button button--ghost" id="refresh-recovery" type="button"><Icon name="refresh" />重新读取当前状态</button>
     </div>
-    <p id="reauth-link" class="callout callout--info" hidden><a href="/login?returnTo=%2Frecover%23save">重新验证邮箱并登录</a>，完成后回到本页保存恢复码。</p>
+    <p id="reauth-link" class="callout callout--info" hidden><a href="/login?returnTo=%2Faccount">重新验证邮箱并登录</a>，之后可以在账号设置里管理恢复码。</p>
     <p class="recovery-foot">新邮箱仍须验证。如果邮箱、登录设备和恢复码全部丢失，无法仅凭一封说明邮件接管账号。<a href="/status">查看服务状态</a> · <a href="/">返回公开日程</a></p>
     <noscript><p class="callout callout--warning">恢复操作需要 JavaScript；公开日程仍可浏览。</p></noscript>
   </div>

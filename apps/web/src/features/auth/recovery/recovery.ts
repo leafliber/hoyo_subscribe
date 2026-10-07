@@ -1,9 +1,4 @@
-import {
-  AccountSummarySchema,
-  isApiErrorBody,
-  recentAuthTurnstileAction,
-  subscriptionConfigSchemaFor,
-} from "@hoyo/contracts";
+import { AccountSummarySchema, isApiErrorBody, subscriptionConfigSchemaFor } from "@hoyo/contracts";
 import { announce } from "../../../components/status";
 import { feedbackForFailure } from "../../../lib/errors/feedback";
 import {
@@ -12,7 +7,6 @@ import {
   readDraftIdentityEvent,
 } from "../../../lib/storage/identity";
 import { request as apiRequest, type Json, object, sessions } from "../api";
-import { Turnstile } from "../turnstile";
 import {
   AccountFacts,
   type DeliveredCode,
@@ -34,12 +28,6 @@ let retry: (() => Promise<void>) | null = null;
 let code: DeliveredCode | null = null;
 let selectionRequired = false;
 let operationKey = "";
-let proofId = "";
-let challengeId = "";
-let rotationKey = "";
-let generationBefore: number | null = null;
-let captcha: Turnstile | null = null;
-let captchaReady = false;
 
 // Cancellation alone cannot stop a response that has already arrived. Every async
 // continuation belongs to this in-memory identity generation, including failures.
@@ -97,10 +85,6 @@ function clearIdentity(preserveReceipt = false): void {
   clearCredentials();
   facts.clear();
   knownUserId = null;
-  proofId = "";
-  challengeId = "";
-  rotationKey = "";
-  generationBefore = null;
   retry = null;
   selectionRequired = false;
   phase = "choose";
@@ -110,17 +94,7 @@ function clearIdentity(preserveReceipt = false): void {
   el("device-selection").hidden = true;
   el("session-list").replaceChildren();
   el("session-lag").textContent = "";
-  el("rotation-form").hidden = true;
   el("reauth-link").hidden = true;
-  el("use-recovery").hidden = true;
-  // Detach the widget's old DOM references as well as its token. A late widget
-  // callback may update only those detached nodes, never this identity's UI.
-  for (const id of ["rotation-captcha", "captcha-status"]) {
-    const previous = el(id);
-    previous.replaceWith(previous.cloneNode(false));
-  }
-  captcha = null;
-  captchaReady = false;
   el("code-state").textContent = "恢复码与账号状态未知，请重新读取后操作。";
   message("身份已变化，已清除本页恢复码与验证信息。请重新读取当前状态后操作。");
   render();
@@ -137,7 +111,6 @@ function forgetCode(): void {
 function clearCredentials(): void {
   input("recovery-id").value = "";
   input("recovery-secret").value = "";
-  input("rotation-otp").value = "";
 }
 function receipt(key: string): boolean {
   operationKey = key;
@@ -180,17 +153,11 @@ function render(): void {
   el("generate-code").hidden = !!code || summary?.recovery_code_saved === true;
   el<HTMLButtonElement>("generate-code").disabled = busy || !!retry || !summary;
   el<HTMLButtonElement>("confirm-code").disabled = busy || !code || !input("saved-check").checked;
-  el("rotation-section").hidden = !summary?.recovery_code_saved || restricted || !!code;
-  el<HTMLButtonElement>("rotate-code").disabled =
-    busy || !!retry || !proofId || !actions?.recovery_code_rotate.allowed;
-  el("rotation-reason").textContent = actions?.recovery_code_rotate.allowed
-    ? "本次轮换证明仍有效，交付前服务端会再次核对。"
-    : "轮换需要本次操作的最近认证；请先验证当前邮箱。";
   el<HTMLButtonElement>("delete-account").disabled =
     busy || !actions?.account_delete.allowed || !input("delete-check").checked;
   el("delete-reason").textContent = actions?.account_delete.allowed
     ? "当前可申请删除，提交时由服务端再次校验。"
-    : "删除需要用途限定的最近认证。可到账号与设备页处理。";
+    : "删除需要用途限定的最近认证。可到账号设置处理。";
   el<HTMLButtonElement>("activate-recovery").disabled =
     busy || !!retry || (selectionRequired && !root.querySelector("input[name=revoke]:checked"));
 }
@@ -277,15 +244,27 @@ async function refresh(): Promise<void> {
     message("检测到待激活会话，请确认激活。尚未开启任何通道。");
   } else if (current.current_session_state === "active") {
     receipt("");
+    // 读取摘要期间按保存分区处理：会话在此刻失效同样要清除本页凭证。
     phase = "save";
     await readFacts();
+    if (facts.summary?.session.recovery_code_required === false) {
+      // ADR-0026：普通会话在账号设置里创建和更换恢复码，本页只留恢复登录与紧急停用。
+      if (location.hash === "#save") {
+        phase = "choose";
+        location.replace("/account#account-security");
+        return;
+      }
+      // 回到选择目的前清除本页身份：之后凭证错误的 401 不会被当成本会话失效。
+      clearIdentity();
+      message("你已登录。恢复码在账号设置里创建和更换；这里只用于恢复登录和紧急停用。");
+      return;
+    }
     // Never regenerate on a read/refresh: users may have a usable delivered code in another tab.
-    if (!code && !rotationKey) retry = null;
-    el("use-recovery").hidden = facts.summary?.session.recovery_code_required !== false;
+    if (!code) retry = null;
     message(
       facts.summary?.recovery_code_saved
-        ? "你已经保存过恢复码。"
-        : "请生成并保存恢复码。查看本页不会自动开启任何通知。",
+        ? "你已经保存过新的恢复码。"
+        : "请生成并保存新的恢复码。查看本页不会自动开启任何通知。",
     );
   } else throw new Error("unknown_session_state");
 }
@@ -489,10 +468,8 @@ async function confirm(): Promise<void> {
   const attempt = async () => {
     await sessionCsrf();
     const result = await request(
-      delivered.rotation_id ? "me/recovery-code" : "auth/recovery/code",
-      delivered.rotation_id
-        ? { action: "confirm", rotation_id: delivered.rotation_id, secret: delivered.secret }
-        : { action: "confirm", recovery_id: delivered.recovery_id, secret: delivered.secret },
+      "auth/recovery/code",
+      { action: "confirm", recovery_id: delivered.recovery_id, secret: delivered.secret },
       undefined,
       abort?.signal,
     );
@@ -500,115 +477,19 @@ async function confirm(): Promise<void> {
       throw new Error("unknown_confirmation");
     forgetCode();
     retry = null;
-    proofId = "";
-    rotationKey = "";
     await readFacts();
-    if (delivered.rotation_id && document.visibilityState === "visible") {
-      try {
-        await request("auth/renew", {}, undefined, abort?.signal);
-      } catch (error) {
-        if (error instanceof StaleIdentityError) throw error;
-        /* Saved state remains authoritative. */
-      }
-    }
-    message("恢复码已确认保存。之后可以去「我的订阅」启用日历订阅；各项通知不会自动开启。");
+    message(
+      "恢复码已确认保存。之后可以去「我的订阅」逐项重新开启需要的通知；各项通知不会自动开启。",
+    );
   };
   setRetry(async () => {
     await readFacts();
-    if (
-      facts.summary?.recovery_code_saved &&
-      !facts.summary.session.recovery_code_required &&
-      (!delivered.rotation_id || facts.summary.recovery_code_generation !== generationBefore)
-    ) {
+    if (facts.summary?.recovery_code_saved && !facts.summary.session.recovery_code_required) {
       forgetCode();
       retry = null;
       message("已核对：当前恢复码已确认保存，通道没有自动开启。");
     } else await attempt();
   }, "核对恢复码保存结果");
-  await attempt();
-}
-async function requestRotation(): Promise<void> {
-  const generation = identityGeneration;
-  if (!captchaReady) {
-    captcha ??= new Turnstile(el("captcha-status"));
-    await captcha.load(
-      root.dataset.sitekey ?? "",
-      el("rotation-captcha"),
-      recentAuthTurnstileAction("recovery_code_rotate", "current"),
-    );
-    assertIdentity(generation);
-    captchaReady = true;
-    message("请完成人机验证后，再申请本次轮换的邮箱验证码。");
-    return;
-  }
-  const key = crypto.randomUUID();
-  const attempt = async () => {
-    const token = captcha?.take();
-    if (!token) {
-      message("请先完成人机验证。");
-      return;
-    }
-    try {
-      await sessionCsrf();
-      const result = await request(
-        "me/recent-auth/challenges",
-        {
-          action: "recovery_code_rotate",
-          role: "current",
-          idempotency_key: key,
-          turnstile_token: token,
-        },
-        undefined,
-        abort?.signal,
-      );
-      if (result.status !== 202 || typeof result.body.challenge_id !== "string")
-        throw new Error("unknown_challenge");
-      challengeId = result.body.challenge_id;
-      retry = null;
-      el("rotation-form").hidden = false;
-      message("本次轮换的验证请求已受理，不代表邮件已送达。请核对当前邮箱收到的验证码。");
-    } finally {
-      if (generation === identityGeneration) captcha?.reset();
-    }
-  };
-  setRetry(attempt, "重试原轮换验证申请");
-  await attempt();
-}
-async function verifyRotation(): Promise<void> {
-  await sessionCsrf();
-  const result = await request(
-    "me/recent-auth/challenges/verify",
-    { challenge_id: challengeId, code: input("rotation-otp").value.trim() },
-    undefined,
-    abort?.signal,
-  );
-  if (result.status !== 200 || typeof result.body.proof_id !== "string")
-    throw new Error("unknown_proof");
-  proofId = result.body.proof_id;
-  input("rotation-otp").value = "";
-  await readFacts();
-  message("本次轮换的邮箱验证已完成，请明确交付新码。");
-}
-async function rotate(): Promise<void> {
-  if (!facts.actions?.recovery_code_rotate.allowed || !proofId) return;
-  generationBefore = facts.summary?.recovery_code_generation ?? null;
-  rotationKey ||= crypto.randomUUID();
-  const attempt = async () => {
-    await sessionCsrf();
-    const result = await request(
-      "me/recovery-code",
-      { action: "start", proof_id: proofId, operation_key: rotationKey },
-      undefined,
-      abort?.signal,
-    );
-    if (result.status !== 200 || typeof result.body.rotation_id !== "string")
-      throw new Error("unknown_rotation");
-    showCode(result.body);
-  };
-  setRetry(async () => {
-    await readFacts();
-    await attempt();
-  }, "核对并重新交付本次轮换新码");
   await attempt();
 }
 async function deleteAccount(): Promise<void> {
@@ -618,7 +499,7 @@ async function deleteAccount(): Promise<void> {
   setRetry(async () => {
     try {
       await readFacts();
-      message("账号仍可读取，请到账号页核对删除状态后再操作。");
+      message("账号仍可读取，请到账号设置核对删除状态后再操作。");
     } catch (error) {
       if (error instanceof StaleIdentityError) throw error;
       message("当前账号已无法读取，删除结果待核对；无法据此确认数据清理完成。");
@@ -678,11 +559,6 @@ el("export-preferences").addEventListener("click", (event) => {
     message("已请求下载偏好，请核对文件。普通偏好导出不包含恢复码。");
   }, "正在导出偏好…");
 });
-el("use-recovery").addEventListener("click", () => {
-  if (busy || retry) return;
-  clearIdentity();
-  message("请选择目的后再输入恢复码。");
-});
 el("choose-stop").addEventListener("click", () => choose("emergency_stop"));
 el("choose-login").addEventListener("click", () => choose("recover_login"));
 el("change-purpose").addEventListener("click", () => {
@@ -719,22 +595,12 @@ el("download-code").addEventListener("click", () => {
     message("已请求下载恢复码，请确认文件已保存后勾选确认。");
   }
 });
-el("request-rotation").addEventListener(
-  "click",
-  () => void run(requestRotation, "正在准备本次轮换验证…"),
-);
-el("rotation-form").addEventListener("submit", (event) => {
-  event.preventDefault();
-  void run(verifyRotation, "正在验证本次轮换…");
-});
-el("rotate-code").addEventListener("click", () => void run(rotate, "正在交付轮换新码…"));
 el("delete-account").addEventListener("click", () => void run(deleteAccount, "正在申请删除账号…"));
 el("retry-recovery").addEventListener("click", () => {
   if (retry) void run(retry, "正在核对原操作结果…");
 });
 el("refresh-recovery").addEventListener("click", () => void run(refresh, "正在读取当前状态…"));
 el("cancel-recovery").addEventListener("click", () => abort?.abort());
-el("open-save").addEventListener("click", () => void run(refresh, "正在读取账号状态…"));
 root.addEventListener("change", render);
 identityChannel?.addEventListener("message", (event) => {
   if (event.data === "invalidate") clearIdentity();
