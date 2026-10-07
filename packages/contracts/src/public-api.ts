@@ -173,7 +173,11 @@ export type PublicStatusResponse = z.infer<typeof PublicStatusResponseSchema>;
 
 // 公开表现和窗口判断的单一定义源；Worker 只执行查询与传输。
 import { PUBLIC_CACHE_FRESH, PUBLIC_READ_LIMITS, SUPPORTED_SCOPE } from "./params/registry";
-import type { PublicSnapshotNode } from "./public-calendar";
+import {
+  CALENDAR_PATCH_KIND,
+  type PatchDecision,
+  type PublicSnapshotNode,
+} from "./public-calendar";
 import {
   BROWSE_DEFAULT_RANGE,
   BROWSE_RANGES,
@@ -184,6 +188,17 @@ import {
 
 export function publicCache(_publication: PublicPublication | null, now: number): PublicCache {
   return { generatedAt: now, freshUntil: now + PUBLIC_CACHE_FRESH * 1000, stale: false };
+}
+
+/**
+ * ADR-0028：改期却没有任何曾公开过的旧时间，是节点从"时间待定"第一次得到时间——多由本站补全年份、
+ * 版本推导或解析规则更新造成——不是前端 §4.4 所说的"有公开依据的改期"，不进公开变更。
+ * 只管公开浏览的表现；共享更正层与个人 Feed 仍按 decideCalendarPatch 的结果。
+ * 公开读取的变更查询（Worker `PUBLIC_CHANGES_SQL`）按同一条件在 SQL 里排除。
+ */
+export const PUBLIC_UNANNOUNCED_PATCH_KIND = CALENDAR_PATCH_KIND.RESCHEDULED;
+export function isPublicChange(patch: PatchDecision): boolean {
+  return !(patch.kind === PUBLIC_UNANNOUNCED_PATCH_KIND && patch.old_time === null);
 }
 
 /** 不把 ICS tombstone（删除补偿）误称为官方取消；它只能在变更区域出现。 */
@@ -206,7 +221,7 @@ export function publicNode(
     evidence: evidence?.node ?? p.milestone.time.raw_expression,
     noticePublishedAt,
     change:
-      patch === null
+      patch === null || !isPublicChange(patch)
         ? null
         : {
             kind,

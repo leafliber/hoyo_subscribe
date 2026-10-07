@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { PUBLIC_CACHE_FRESH } from "./params/registry";
 import {
+  isPublicChange,
   PublicCapabilitySchema,
   PublicEventsResponseSchema,
   publicCache,
@@ -10,11 +11,19 @@ import {
   publicNodeInWindow,
   publicSourceStatus,
 } from "./public-api";
-import type { PublicSnapshotNode } from "./public-calendar";
+import {
+  decideCalendarPatch,
+  type PatchDecision,
+  type PublicSnapshotNode,
+} from "./public-calendar";
 import { BROWSE_RANGES, browseDate, browseWindow } from "./schedule-browse";
 import { TimeValueSchema } from "./time";
 
 const now = Date.parse("2026-09-30T12:00:00+08:00");
+function must<T>(value: T | null): T {
+  if (value === null) throw new Error("missing test fixture");
+  return value;
+}
 type Mutable<T> = T extends string | number | boolean | null
   ? T
   : { -readonly [P in keyof T]: Mutable<T[P]> };
@@ -206,6 +215,52 @@ describe("A-P3-PUBLIC 公共读唯一纯函数", () => {
         expect(publicNodeInWindow(input, "all", now)).toBe(false);
       }
     }
+  });
+  it("ADR-0028 待定第一次得到时间不算改期；有旧时间的改期、延期后公布新时间照常公开", () => {
+    const at = (time: Record<string, unknown>) => {
+      const projection = structuredClone(node.projection);
+      projection.milestone.time = TimeValueSchema.parse({
+        source_timezone: "UTC+8",
+        time_basis: "deterministic_derived",
+        ...time,
+      });
+      return projection;
+    };
+    const unknown = at({ precision: "unknown", raw_expression: "10月09日 19:30" });
+    const derived = at({
+      precision: "datetime",
+      utc_ms: Date.parse("2026-10-09T19:30:00+08:00"),
+      raw_expression: "10月09日 19:30",
+    });
+    const moved = at({
+      precision: "datetime",
+      utc_ms: Date.parse("2026-10-10T19:30:00+08:00"),
+      raw_expression: "10月10日 19:30",
+    });
+    const show = (patch: PatchDecision | null) =>
+      publicNode({ ...structuredClone(node), patch }).change;
+
+    const firstTime = must(decideCalendarPatch(unknown, derived, null, now));
+    expect(firstTime).toMatchObject({ kind: "rescheduled", old_time: null });
+    expect(isPublicChange(firstTime)).toBe(false);
+    expect(show(firstTime)).toBeNull();
+
+    const real = must(decideCalendarPatch(derived, moved, null, now));
+    expect(isPublicChange(real)).toBe(true);
+    expect(show(real)?.historicalTime).toEqual(derived.milestone.time);
+
+    // 延期待定后公布新时间：当前旧时间未知，但累计水位保留了曾公开的原时间。
+    const postponedProjection = structuredClone(unknown);
+    postponedProjection.event.status = "postponed";
+    const postponed = must(decideCalendarPatch(derived, postponedProjection, null, now));
+    expect(postponed.kind).toBe("postponed_unknown");
+    const announced = must(decideCalendarPatch(postponedProjection, moved, postponed, now));
+    expect(announced).toMatchObject({ kind: "rescheduled", old_time: derived.milestone.time });
+    expect(show(announced)?.kind).toBe("rescheduled");
+
+    // 其余种类即使没有旧时间也照常公开。
+    for (const kind of ["restored", "classification_corrected"] as const)
+      expect(isPublicChange({ ...firstTime, kind })).toBe(true);
   });
   it("响应副本从生成时起新鲜，旧代次和无代次不把源站响应标陈旧", () => {
     for (const publication of [null, { generation: 1, publishedAt: now - 86400000 }]) {

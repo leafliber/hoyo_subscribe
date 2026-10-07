@@ -418,14 +418,15 @@ for (const choice of ["keep", "cloud"] as const) {
         expected_revision: 1,
         config: { notifications: { new_event: true } },
       });
-      // ADR-0026：恢复码可选，保存订阅后直接进入第 2 步「添加到日历」，不经过恢复页。
+      // ADR-0026：恢复码可选，保存订阅后直接进入第 2 步，不经过恢复页。
+      // ADR-0029：第 2 步是接收方式三选一；入口只跳到对应卡片，不开启任何通道。
       await expect(page.locator("#save-recovery-link")).toBeHidden();
-      await expect(page.locator("#cloud-flow-status")).toContainText("日历");
-      await expect(page.locator('#setup-steps [data-step="calendar"]')).toHaveAttribute(
+      await expect(page.locator("#cloud-flow-status")).toContainText("选一种接收方式");
+      await expect(page.locator('#setup-steps [data-step="receive"]')).toHaveAttribute(
         "data-state",
         "current",
       );
-      await page.locator("#setup-calendar-link").click();
+      await page.locator('[data-receive="calendar"]').click();
       await expect(page.locator("#panel-channels")).toBeVisible();
       await expect(page.locator("#calendar-channel")).toBeInViewport();
       expect(state.cloud.config?.notifications.new_event).toBe(true);
@@ -444,6 +445,8 @@ for (const choice of ["keep", "cloud"] as const) {
       await evidence(page, "calendar-confirmation");
       await part("confirm").click();
       await expect(part("address")).toContainText("日历订阅地址已创建");
+      // ADR-0029：任一种接收方式开启即完成第 2 步，引导隐藏。
+      await expect(page.locator("#setup-progress")).toBeHidden();
       await expect.poll(() => renewals(state).length).toBe(2);
       await page.evaluate(() =>
         Object.defineProperty(navigator, "clipboard", {
@@ -468,7 +471,7 @@ for (const choice of ["keep", "cloud"] as const) {
   });
 }
 
-test("U15a 新账号只有注册表预选，首次显式保存后直接引导添加日历（恢复码可选），三通道不附带开启", async ({
+test("U15a 新账号只有注册表预选，首次显式保存后直接引导选择接收方式（恢复码可选），三通道不附带开启", async ({
   page,
 }) => {
   const state = await setup(page, { uninitialized: true });
@@ -501,7 +504,11 @@ test("U15a 新账号只有注册表预选，首次显式保存后直接引导添
   await expectCloudRevision(page, 1);
   await expect.poll(() => renewals(state).length).toBe(1);
   await expect(page.locator("#save-recovery-link")).toBeHidden();
-  await expect(page.locator("#setup-calendar-link")).toBeVisible();
+  await expect(page.locator("#receive-choice")).toBeVisible();
+  await expect(page.locator('[data-receive="calendar"]')).toHaveAttribute(
+    "href",
+    "#calendar-channel",
+  );
   await showChannels(page);
   await page.locator('[data-calendar="refresh"]').click();
   await expect(page.locator('[data-calendar="begin"]')).toBeEnabled();

@@ -8,6 +8,8 @@ export interface EmailSubscriptionHost {
   phase(): Phase;
   save(): Promise<void>;
   current(): boolean;
+  /** 读到或改变了邮件席位状态（ADR-0029 引导据此判断第 2 步是否完成）。 */
+  stateChanged?(enabled: boolean): void;
 }
 export function hasUnsavedSubscription(host: EmailSubscriptionHost): boolean {
   const config = host.machine().getSnapshot()?.config;

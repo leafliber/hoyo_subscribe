@@ -24,7 +24,7 @@ export class SubscriptionTabs {
       tab.addEventListener("keydown", (event) => this.keydown(event, tab));
     }
     window.addEventListener("hashchange", () => this.followHash());
-    // 站内锚点（如「去添加到日历」）在浏览器滚动之前先切到目标分区；片段未变时也生效。
+    // 站内锚点（如引导第 2 步的接收方式入口）在浏览器滚动之前先切到目标分区；片段未变时也生效。
     document.addEventListener("click", (event) => {
       const link = event.target instanceof Element ? event.target.closest("a[href^='#']") : null;
       const tab = link ? tabForHash(link.getAttribute("href") ?? "") : null;

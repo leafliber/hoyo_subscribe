@@ -462,7 +462,7 @@ if (form instanceof HTMLFormElement) {
       current: () => drafts?.current() ?? false,
       addressChanged: (enabled) => {
         calendarEnabled = enabled;
-        flow?.setCalendarEnabled(enabled);
+        flow?.setChannel("calendar", enabled);
       },
       disableAlarms: async () => {
         if (flow?.saveBlocked()) return;
@@ -488,12 +488,16 @@ if (form instanceof HTMLFormElement) {
         void flow?.refresh();
       },
       current: () => drafts?.current() ?? false,
+      stateChanged: (enabled) => flow?.setChannel("mail", enabled),
     });
   }
   // F5-01：本浏览器通知卡片只在 Push 能力开放、或本人已有绑定时出现。
   const pushRoot = document.getElementById("push-channel");
   if (pushRoot)
-    push = new PushChannelLifecycle(pushRoot, { current: () => drafts?.current() ?? false });
+    push = new PushChannelLifecycle(pushRoot, {
+      current: () => drafts?.current() ?? false,
+      stateChanged: (active) => flow?.setChannel("push", active),
+    });
   flow = new SubscriptionCloudFlow({
     current: () => drafts?.current() ?? false,
     gateChanged: updateSaveGate,

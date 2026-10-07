@@ -576,6 +576,25 @@ test("首屏即将截止遵从游戏筛选；超过四项时「查看全部」�
   await expect(page.locator('[data-empty="filtered"]')).toBeVisible();
 });
 
+test("ADR-0028 没有即将截止的条目时整块不显示，日程照常", async ({ page }) => {
+  const control = controls.get(page);
+  if (!control) throw new Error("missing fixture");
+  control.events = (params, scenario) => {
+    const data = eventsFixture(params, scenario);
+    return {
+      ...data,
+      nodes: data.nodes.filter(
+        (node) => node.nodeType !== "end" && node.nodeType !== "reward_deadline",
+      ),
+    };
+  };
+  await page.goto("/");
+  await complete(page);
+  await expect(page.locator("#ending-soon")).toBeHidden();
+  await expect(page.locator("#ending-soon")).not.toContainText("没有即将截止");
+  await expect(page.locator('.timeline [data-node="morning"]')).toHaveCount(1);
+});
+
 test("筛选栏单行：桌面不换行，窄屏横向滑动且页面不横向溢出；筛选弹层不被裁切", async ({
   page,
 }, info) => {

@@ -56,6 +56,8 @@ import {
 export interface PushPanelHost {
   /** 身份与页面仍是挂载时的那一个；否则丢弃迟到结果。 */
   current(): boolean;
+  /** 读到或改变了绑定：账号下是否有已验证的浏览器（ADR-0029 引导据此判断第 2 步是否完成）。 */
+  stateChanged?(active: boolean): void;
 }
 
 type Busy = "idle" | "reading" | "writing";
@@ -121,6 +123,8 @@ export class PushPanel {
   private accept(view: PushChannelView): void {
     this.view = view;
     this.clockAnchor = { server: view.server_time, local: performance.now() };
+    if (this.current())
+      this.host.stateChanged?.(view.bindings.some((binding) => binding.state === "active"));
   }
 
   async refresh(quiet = false): Promise<void> {

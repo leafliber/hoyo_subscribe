@@ -702,7 +702,7 @@ function endingCard(node: PublicScheduleNode, today: string, now: number, index:
 
 /**
  * 首屏「即将截止」：只用已加载的公开数据。返回 null 表示整块隐藏
- * （尚无数据且不在加载、未发布、筛选排除了截止类节点）。
+ * （尚无数据且不在加载、未发布、筛选排除了截止类节点、没有即将截止的条目）。
  */
 export function renderEndingSoon(
   state: ScheduleLoadState,
@@ -748,20 +748,10 @@ export function renderEndingSoon(
       !filters.nodes.some((type) => type === "end" || type === "reward_deadline"));
   if (excludesDeadlines) return null;
   const nodes = endingSoonNodes(state, filters, now);
+  // ADR-0028：没有即将截止的条目时整块不显示，不留"没有即将截止的活动"占位。
+  if (!nodes.length) return null;
   const shownRange = state.loadedRange ?? filters.range;
   const scope = shownRange === "all" ? "已发布日程中" : `${rangeLabel(shownRange)}内`;
-  if (!nodes.length) {
-    if (filters.events.length || filters.nodes.length) return null;
-    return [
-      head(null),
-      el(
-        "p",
-        { class: "ending-none" },
-        icon("check-circle"),
-        state.phase === "loading" ? "正在读取截止安排…" : `${scope}没有即将截止的活动。`,
-      ),
-    ];
-  }
   const today = browseDate(first.window.start);
   const shown = nodes.slice(0, ENDING_LIMIT);
   const parts: HTMLElement[] = [

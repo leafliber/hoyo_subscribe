@@ -320,6 +320,7 @@ class EmailPanel {
         throw new Error("stale_email_subscription");
       }
       this.state = state;
+      this.host.stateChanged?.(state.enabled);
       return true;
     } catch (error) {
       if (!this.current()) return false;
@@ -476,6 +477,7 @@ class EmailPanel {
         );
       } else {
         this.state = result.state;
+        this.host.stateChanged?.(result.state.enabled);
         this.message(
           result.result === "partial"
             ? `部分完成。${actual}常规提醒子名额已满，本次未能开启常规层。`

@@ -401,7 +401,7 @@ async function scenario(name, existing) {
     assert.equal(saved.config.notifications.new_event, true);
     // ADR-0026：恢复码可选，保存订阅后直接进入「接收方式」，不经过恢复页。
     await expect(page.locator("#save-recovery-link")).toBeHidden();
-    await page.locator("#setup-calendar-link").click();
+    await page.locator('[data-receive="calendar"]').click();
     await expect(page.locator("#panel-channels")).toBeVisible();
     assert.equal((await row("SELECT COUNT(*) AS n FROM recovery_credentials")).n, 0);
     pass();

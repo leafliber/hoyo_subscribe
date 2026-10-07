@@ -3,6 +3,7 @@ import {
   BROWSE_RANGES,
   browseWindow,
   PUBLIC_READ_LIMITS as LIMITS,
+  type PatchDecision,
   PUBLIC_CACHE_FRESH,
   PublicEventArticlesResponseSchema,
   PublicEventDetailResponseSchema,
@@ -574,6 +575,47 @@ describe("A-P3-PUBLIC 真实本地 D1 公共闭环", () => {
     );
     expect(result.recentChanges).toHaveLength(LIMITS.recentChanges);
     expect(result.recentChangesTruncated).toBe(false);
+  });
+  it("ADR-0028 待定第一次得到时间不进近期变更，也不占条数上限；列表与详情都不标改期", async () => {
+    const patch = (
+      n: PublicSnapshotNode,
+      oldTime: PatchDecision["old_time"],
+      retainUntil: number,
+    ) => ({
+      ...n,
+      patch: {
+        kind: "rescheduled" as const,
+        fact_reason: "已公布新时间",
+        extends_window: true,
+        display_time: n.projection.milestone.time,
+        old_time: oldTime,
+        new_time: n.projection.milestone.time,
+        retain_until: retainUntil,
+      },
+    });
+    // 没有旧时间的改期保留期更晚，按排序本会排在前面占满上限。
+    const firstTimes = Array.from({ length: 3 }, (_, i) =>
+      patch(makeNode(`first-${i}`, "first-event"), null, NOW + 5000),
+    );
+    const real = Array.from({ length: LIMITS.recentChanges }, (_, i) => {
+      const n = makeNode(`moved-${i}`);
+      return patch(n, n.projection.milestone.time, NOW + 1000);
+    });
+    await seedNodes([...firstTimes, ...real]);
+    const list = PublicEventsResponseSchema.parse(
+      await (await readEvents(env.DB, url(), NOW)).json(),
+    );
+    expect(list.recentChanges.map((n) => n.id).sort()).toEqual(
+      real.map((n) => n.projection.milestone_id).sort(),
+    );
+    expect(list.recentChangesTruncated).toBe(false);
+    for (const n of firstTimes)
+      expect(list.nodes.find((x) => x.id === n.projection.milestone_id)?.change).toBeNull();
+    const detail = PublicEventDetailResponseSchema.parse(
+      await (await readEventDetail(env.DB, url("events/first-event"), "first-event", NOW)).json(),
+    );
+    expect(detail.event.milestones).toHaveLength(3);
+    expect(detail.event.changes).toEqual([]);
   });
   it("详情排除仍在保留期的墓碑节点", async () => {
     const live = makeNode("live"),

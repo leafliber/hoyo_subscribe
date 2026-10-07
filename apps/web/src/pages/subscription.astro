@@ -44,6 +44,33 @@ const changeMeta: Record<string, string> = {
   new_event: "有新的活动或卡池公布",
 };
 const changeOrder = ["cancelled_or_retracted", "important_change", "late_discovery", "new_event"];
+// ADR-0029：第 2 步三选一，浏览器通知与日历订阅标推荐；入口只跳到「接收方式」里对应的卡片。
+const receiveOptions = [
+  {
+    id: "push",
+    href: "#push-channel",
+    icon: "bell",
+    title: "浏览器通知",
+    desc: "在这台设备的浏览器里弹出通知，不用装应用。",
+    recommended: true,
+  },
+  {
+    id: "calendar",
+    href: "#calendar-channel",
+    icon: "calendar",
+    title: "日历订阅",
+    desc: "添加到手机或电脑的日历应用，新活动和改期自动同步。",
+    recommended: true,
+  },
+  {
+    id: "mail",
+    href: "#mail-channel",
+    icon: "mail",
+    title: "邮件通知",
+    desc: "活动取消、改期等重要变化发到你的邮箱。",
+    recommended: false,
+  },
+] as const;
 const changes = [...SUBSCRIPTION_CHANGE_COPY].sort(
   (a, b) => changeOrder.indexOf(a.key) - changeOrder.indexOf(b.key),
 );
@@ -54,7 +81,7 @@ const changes = [...SUBSCRIPTION_CHANGE_COPY].sort(
     <header class="page-header">
       <div>
         <h1>我的订阅</h1>
-        <p class="lead">选好关注的游戏和提醒方式，生成一个会自动更新的私人日历。</p>
+        <p class="lead">选好关注的游戏和提醒，再选择用浏览器通知、日历或邮件接收。</p>
       </div>
       <div class="sub-state" aria-live="polite">
         <span id="cloud-state" class="status-pill">正在读取…</span>
@@ -62,7 +89,7 @@ const changes = [...SUBSCRIPTION_CHANGE_COPY].sort(
       </div>
     </header>
 
-    <!-- 两步引导（ADR-0026）：保存订阅内容 → 添加到日历。恢复码可选，改在账号设置里管理；全部完成后隐藏。 -->
+    <!-- 两步引导（ADR-0026、ADR-0029）：保存订阅内容 → 选择接收方式（三选一）。恢复码可选，在账号设置里管理；全部完成后隐藏。 -->
     <section id="setup-progress" class="setup-card" aria-labelledby="setup-title">
       <div class="setup-main">
         <div class="setup-head">
@@ -74,16 +101,33 @@ const changes = [...SUBSCRIPTION_CHANGE_COPY].sort(
             <span class="step-index" aria-hidden="true">1</span>
             <div><p class="step-title">选择内容并保存</p><p class="step-desc">登录后保存到云端，任何设备都能修改。</p></div>
           </li>
-          <li data-step="calendar" data-state="todo">
+          <li data-step="receive" data-state="todo">
             <span class="step-index" aria-hidden="true">2</span>
-            <div><p class="step-title">添加到日历</p><p class="step-desc">生成私人链接，添加到手机或电脑日历。</p></div>
+            <div><p class="step-title">选择接收方式</p><p class="step-desc">浏览器通知、日历订阅、邮件通知，任选一种。</p></div>
           </li>
         </ol>
+        <div id="receive-choice" class="receive-choice" hidden>
+          <ul class="receive-options" aria-label="选择一种接收方式">
+            {receiveOptions.map((option) => (
+              <li data-receive-item={option.id} hidden={option.id === "push"}>
+                <a class="receive-option" data-receive={option.id} data-href={option.href} href={option.href} data-recommended={option.recommended ? "" : undefined}>
+                  <span class="receive-option-icon" aria-hidden="true"><Icon name={option.icon} /></span>
+                  <span class="receive-option-text">
+                    <span class="receive-option-title">{option.title}{option.recommended && <span class="badge badge--accent">推荐</span>}</span>
+                    <span class="receive-option-desc">{option.desc}</span>
+                    <span class="receive-option-note" data-receive-note hidden></span>
+                  </span>
+                  <Icon name="chevron-right" class="receive-option-go" />
+                </a>
+              </li>
+            ))}
+          </ul>
+          <p class="receive-choice-foot">任选一种就能用，之后可以在「接收方式」里增加或关闭；同时开启几种可能收到重复提醒。</p>
+        </div>
       </div>
       <div class="setup-actions">
         <a id="subscription-login" class="button" href="/login?returnTo=%2Fsubscription"><Icon name="user" />登录后保存</a>
         <a id="save-recovery-link" class="button" href="/recover#save" hidden><Icon name="key" />保存新恢复码</a>
-        <a id="setup-calendar-link" class="button" href="#calendar-channel" hidden><Icon name="calendar-check" />去添加到日历</a>
       </div>
     </section>
 
@@ -96,7 +140,7 @@ const changes = [...SUBSCRIPTION_CHANGE_COPY].sort(
       </button>
       <button type="button" class="sub-tab" role="tab" id="tab-channels" data-tab="channels" aria-controls="panel-channels" aria-selected="false" tabindex="-1">
         <span class="sub-tab-icon" aria-hidden="true"><Icon name="bell" /></span>
-        <span class="sub-tab-text"><span class="sub-tab-title">接收方式</span><span class="sub-tab-desc">日历订阅、邮件和浏览器通知</span></span>
+        <span class="sub-tab-text"><span class="sub-tab-title">接收方式</span><span class="sub-tab-desc">浏览器通知、日历订阅和邮件</span></span>
       </button>
     </div>
 
@@ -246,7 +290,7 @@ const changes = [...SUBSCRIPTION_CHANGE_COPY].sort(
     <div id="panel-channels" class="sub-panel receive-section" role="tabpanel" aria-labelledby="tab-channels" hidden>
       <h2 id="receive-heading" class="visually-hidden">接收方式</h2>
       <p id="channel-saved-summary" class="receive-summary">日历和邮件会使用你已保存的设置。</p>
-      <p id="calendar-first-save" class="callout callout--info" hidden>保存一次订阅后，就可以启用日历订阅和邮件通知。</p>
+      <p id="calendar-first-save" class="callout callout--info" hidden>保存一次订阅后，就可以开启浏览器通知、日历订阅或邮件通知。</p>
       <div class="receive-grid">
         <section id="calendar-channel" class="card channel-card" aria-labelledby="calendar-channel-heading">
           <div class="card-body">
