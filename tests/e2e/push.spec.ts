@@ -20,6 +20,7 @@ import {
   SUBSCRIPTION_SCHEMA_VERSION,
   SUPPORTED_SCOPE_REGIONS,
 } from "../../packages/contracts/src";
+import { showContent } from "./subscription-tabs";
 
 const parsed = parseSubscriptionConfig("initialized", {
   schema_version: SUBSCRIPTION_SCHEMA_VERSION,
@@ -362,6 +363,78 @@ test("U23 点击前不申请权限、不登记、不发通知；平台接受后�
   await expect(part(page, "facts")).toContainText("本浏览器接收验证通过");
   await expect(card(page)).toContainText("不承诺以后每条都送达");
   await expect(part(page, "test")).toBeEnabled();
+});
+
+test("ADR-0029 引导第 2 步三选一：浏览器与日历标推荐，不可用的写明原因；入口只跳转，本浏览器验证通过后引导完成", async ({
+  page,
+}) => {
+  await fakeBrowser(page);
+  const server: Server = { state: view(), capability: "open", writes: [] };
+  await openSubscription(page, server);
+  await showContent(page);
+  const choice = page.locator("#receive-choice");
+  const option = (id: string) => page.locator(`[data-receive="${id}"]`);
+  await expect(choice).toBeVisible();
+  await expect(page.locator('#setup-steps [data-step="receive"]')).toHaveAttribute(
+    "data-state",
+    "current",
+  );
+  await expect(option("push")).toBeVisible();
+  expect(
+    await choice
+      .locator("[data-receive]")
+      .evaluateAll((items) => items.map((item) => (item as HTMLElement).dataset.receive)),
+  ).toEqual(["push", "calendar", "mail"]);
+  await expect(option("push")).toContainText("推荐");
+  await expect(option("calendar")).toContainText("推荐");
+  await expect(option("mail")).not.toContainText("推荐");
+  // 本夹具的公开能力：浏览器通知开放，日历与邮件新席位关闭。
+  await expect(option("push")).toHaveAttribute("href", "#push-channel");
+  for (const [id, reason] of [
+    ["calendar", "暂未开放"],
+    ["mail", "暂未开放新的邮件名额"],
+  ]) {
+    await expect(option(id)).toHaveAttribute("aria-disabled", "true");
+    await expect(option(id)).not.toHaveAttribute("href");
+    await expect(option(id)).toContainText(reason);
+  }
+  // 入口只切到「接收方式」并定位卡片：不申请权限、不登记、不写任何通道。
+  await option("push").click();
+  await expect(page.locator("#panel-channels")).toBeVisible();
+  await expect(card(page)).toBeInViewport();
+  expect(await browserRecord(page)).toMatchObject({
+    permissionRequests: 0,
+    registrations: 0,
+    subscribes: 0,
+  });
+  expect(server.writes).toEqual([]);
+  // 验证中还不算开启；合法回执后账号下有已验证的浏览器，引导完成并隐藏。
+  await part(page, "enable").click();
+  await expect(part(page, "pill")).toHaveText("验证中");
+  await expect(page.locator("#setup-progress")).toBeVisible();
+  server.state = activeView();
+  await deliverReceipt(page);
+  await expect(part(page, "pill")).toHaveText("验证通过");
+  await expect(page.locator("#setup-progress")).toBeHidden();
+});
+
+test("ADR-0029 浏览器不支持通知时入口置灰并说明", async ({ page }) => {
+  await fakeBrowser(page, { supported: false });
+  await openSubscription(page, { state: view(), capability: "open", writes: [] });
+  const push = page.locator('[data-receive="push"]');
+  await expect(page.locator("#receive-choice")).toBeVisible();
+  await expect(push).toHaveAttribute("aria-disabled", "true");
+  await expect(push).not.toHaveAttribute("href");
+  await expect(push).toContainText("当前浏览器不支持通知");
+});
+
+test("ADR-0029 Push 未开放时引导不列浏览器通知入口", async ({ page }) => {
+  await fakeBrowser(page);
+  await openSubscription(page, { state: view(), capability: "closed", writes: [] });
+  await expect(page.locator("#receive-choice")).toBeVisible();
+  await expect(page.locator('[data-receive-item="push"]')).toBeHidden();
+  await expect(page.locator('[data-receive="calendar"]')).toBeVisible();
+  await expect(page.locator('[data-receive="mail"]')).toBeVisible();
 });
 
 test("U23 激活超时显示未完成且可重新开启；重发受冷却约束并显示可重试时间", async ({ page }) => {

@@ -8,6 +8,8 @@ import { PushPanel } from "./panel";
 export interface PushChannelHost {
   /** 页面会话边界仍是同一个（草稿控制器的身份核对，与邮件卡片同一来源）。 */
   current(): boolean;
+  /** 账号下是否有已验证的浏览器；转给引导（ADR-0029）。 */
+  stateChanged?(active: boolean): void;
 }
 
 export class PushChannelLifecycle {
@@ -50,6 +52,7 @@ export class PushChannelLifecycle {
           this.confirmed &&
           marker === csrfToken() &&
           this.host.current(),
+        stateChanged: (active) => this.host.stateChanged?.(active),
       });
       this.snapshotRevision = snapshot.revision;
       void this.panel.refresh(true);
