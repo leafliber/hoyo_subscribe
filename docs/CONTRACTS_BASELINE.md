@@ -20,7 +20,7 @@
 | §3.5 模型预算与降级 | 0009、0010 | 草稿模型 glm-5.3-flash，按实际输入预占，日累计不超过 `AI_SOFT_DAY`；模型抽取的计费 profile 仍未配置（P3-09 未做） |
 | §3.6 发布一致性 | 0011、0018 | 版本时间表、补全年份的变化不自动改已发布事件；系统批准的发布不加人工锁，疑似重复留给人工 |
 | §7.8 可选 Web Push | 0025 | 推送服务登记表（FCM、Mozilla、Apple 精确主机，WNS 单标签子域），登记与外发前各校验一次、不跟随重定向；登记与可见激活分两步（`POST` 交付一次 receipt token，页面存好后 `PATCH activate` 发激活通知）；状态 pending / active / paused / gone，暂停后恢复须重新验证；401/403 自动关闭 `push_enabled`、不动绑定；408/429/5xx 按 `WATCHDOG_INTERVAL` 翻倍退避；业务通知与邮件共用兴趣匹配、不分两层 |
-| §6.5 格式、提醒与完整性 | 0030 | 直播兑换码来源不计入 Feed 与日历预览的所需来源新鲜度（contracts `requiredCalendarSources` 的 `freshnessExempt`） |
+| §6.5 格式、提醒与完整性 | 0030、0031 | 直播兑换码来源不计入 Feed 与日历预览的所需来源新鲜度（contracts `requiredCalendarSources` 的 `freshnessExempt`）；条目标题、描述与链接由 contracts `calendarEntryText` 统一组装：标题"活动名 · 节点动作"，描述写时间、官方原文、推导依据、更正或状态与简介，URL 为本站活动详情页（ADR-0031），UID/SEQUENCE 不变 |
 | §8.1 逻辑数据契约 | 0003、0005、0007、0009、0011、0025、0030 | 管理员审计、系统审计各保留 180 天；新增 `ai_drafts`、`ai_usage_days`（0027）与版本时间表（0028）；`usage_periods` 不含 envelope/carry；0029 为 `push_bindings` 增加激活、测试、暂停事实，新增 `push_messages`（Push"实际哪一条"）与 `users.push_revocation_version` 触发器；0030（迁移）重建 `events` 表、CHECK 增加 `redeem_code`，新增 `redeem_codes`（「有效兑换码」条） |
 | §8.2 API 分组 | 0009、0011、0014、0025、0030 | 新增公开 `GET /api/v2/events/{eventId}/articles`；admin 下新增 `review/adopt-draft`、`versions` 等（预览接口见 D2；完整清单见本文 §12）；Push 路由已挂载（本文 §12）；新增公开 `GET /api/v2/redeem-codes`、管理端 `POST /api/v2/admin/redeem-lives`（ADR-0030） |
 | §8.3 安全、秘密与日志 | 0021、0022、0024 | 允许 Cloudflare 边缘自动注入的 Web Analytics 信标出现在全部页面（含认证与退订页面），站点自身代码仍不引入第三方追踪代码；静态页面 Referrer-Policy 为 `strict-origin-when-cross-origin`（`apps/web/public/_headers`），Worker 响应仍为 no-referrer；平台调用日志（Workers Logs）已开，会记下带 token 的完整 URL，接受与否待所有者确认 |
@@ -56,7 +56,7 @@
 | §11.3 错误与重试 | 0023 | 不设全站故障横幅；故障由各功能区状态区与服务状态页说明，本节的反馈要求对这些状态区照样适用 |
 | §12.2 对接责任 | D2、D3、0014 | 权威预览与展示状态字段由 D2、D3 定义；公开读取增加原文子资源 |
 | §13 D1′ 行 | F1-02 卡 D1′；0017、0020、0023 | 默认近 3 天；首页五档：今天 / 近3天 / 近7天 / 近30天 / 全部（旧链接 `range=90d` 按"全部"读，contracts 与公开接口保留 `90d`）；昨天在主轴顶部、默认折叠 |
-| §13.2 D2 的处理原则 | D2；0006、0008、0015 | 浏览器用 `/api/v2/calendar/nodes` 自己算；启用以 `/api/v2/me/calendar/preview` 为准并核对订阅版本与发布代次；极大 blocked 集合可能取不全；续页游标有效 1 小时 |
+| §13.2 D2 的处理原则 | D2；0006、0008、0015、0031 | 浏览器用 `/api/v2/calendar/nodes` 自己算；启用以 `/api/v2/me/calendar/preview` 为准并核对订阅版本与发布代次；极大 blocked 集合可能取不全；续页游标有效 1 小时；预览列表与启用确认列表的条目标题用 contracts `calendarEntryTitle`，与日历一致（ADR-0031） |
 | §13.3 D3 的最小语义清单 | D3 | 服务端只给事实，浏览器用 contracts 纯函数推导置灰；操作结果分四种；`GET /api/v2/me` 汇总 |
 | §14.1 体验与交互验收矩阵 | 0015 | U02 读作"活动结束与奖励截止"，验收语义不变 |
 

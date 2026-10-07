@@ -14,6 +14,19 @@ export interface IcalEvent {
 }
 const encoder = new TextEncoder();
 
+/**
+ * ADR-0031：日历条目链接与描述里的本站地址。取部署配置的 SITE_ORIGIN（无效或缺省时取请求自身的源）；
+ * 真实 Feed 与私人预览用同一来源，字节一致。
+ */
+export function calendarSiteOrigin(env: { SITE_ORIGIN?: string }, requestUrl: string): string {
+  try {
+    if (env.SITE_ORIGIN) return new URL(env.SITE_ORIGIN).origin;
+  } catch {
+    // 配置无效时退回请求的源。
+  }
+  return new URL(requestUrl).origin;
+}
+
 /** RFC 5545 §3.3.11：TEXT 不含 CONTROL（HTAB 除外）。换行随后转义，其余 C0 与 DEL 直接丢弃。 */
 function withoutControls(value: string): string {
   let result = "";

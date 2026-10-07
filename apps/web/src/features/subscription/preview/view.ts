@@ -2,6 +2,7 @@ import {
   browseDate,
   type CalendarNodesResponse,
   type CalendarPreviewItem,
+  calendarEntryTitle,
   explainCalendarPreview,
   FEED_DIAGNOSTICS,
   feedSourcesFresh,
@@ -95,7 +96,8 @@ function renderItem(item: CalendarPreviewItem): HTMLElement {
     el(
       "div",
       { class: "preview-main" },
-      el("p", { class: "preview-title" }, `${item.eventTitle} · ${item.milestoneTitle}`),
+      // ADR-0031：与日历里的条目标题一致。
+      el("p", { class: "preview-title" }, calendarEntryTitle(item)),
       el(
         "p",
         { class: "preview-meta" },

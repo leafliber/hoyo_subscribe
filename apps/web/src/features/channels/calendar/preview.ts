@@ -2,6 +2,7 @@ import {
   buildApiErrorBody,
   type CalendarPreviewResponse,
   CalendarPreviewResponseSchema,
+  calendarEntryTitle,
   FEED_DIAGNOSTICS,
   PUBLIC_CACHE_FRESH,
   SUBSCRIPTION_RULE_COPY,
@@ -170,7 +171,8 @@ export function renderSavedPreview(root: HTMLElement, preview: CalendarPreviewRe
         item.time.precision === "date" ? `${item.time.date} 全天` : time(item.time.utc_ms),
       ),
     );
-    const main = make("span", "confirm-what", `${item.eventTitle} · ${item.milestoneTitle}`);
+    // ADR-0031：与日历里的条目标题一致。
+    const main = make("span", "confirm-what", calendarEntryTitle(item));
     li.append(main);
     const notes: string[] = [];
     if (item.inclusion.kind === "reminder_associated")
