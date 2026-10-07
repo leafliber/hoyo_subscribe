@@ -656,7 +656,7 @@ describe("A-P3-PUBLIC 真实本地 D1 公共闭环", () => {
     expect(result.nodes[0]?.noticePublishedAt).toBeNull();
     expect(result.nodes[0]?.evidence).toBe(makeNode().projection.milestone.time.raw_expression);
   });
-  it("同游戏多个来源逐来源显示；已下线来源（ADR-0016）的历史行不出现；待审独立统计", async () => {
+  it("同游戏多个来源逐来源显示（兑换码来源单列，ADR-0030）；已下线来源（ADR-0016）的历史行不出现；待审独立统计", async () => {
     await seedApprovedEvidence();
     await env.DB.prepare("UPDATE sources SET verification_state = 'verified-working'").run();
     for (const sourceId of ["list-only", "miyoushe-news"])
@@ -665,11 +665,24 @@ describe("A-P3-PUBLIC 真实本地 D1 公共闭环", () => {
       )
         .bind(sourceId)
         .run();
+    // ADR-0030：直播兑换码来源单列为 live_codes，不算日程来源。
+    await env.DB.prepare(
+      "INSERT INTO sources SELECT 'genshin-live',game,region,adapter,approved_hosts_json,verified_publishers_json,cursor_json,poll_policy_json,'verified-working',last_success_at,created_at,updated_at FROM sources WHERE source_id='source'",
+    ).run();
     const result = await readPublicStatus(env.DB, NOW);
     expect(result.sources).toEqual([
       {
+        sourceId: "genshin-live",
+        game: "genshin",
+        kind: "live_codes",
+        verifiedAt: NOW - 100,
+        verificationState: "verified",
+        degradationReasons: [],
+      },
+      {
         sourceId: "list-only",
         game: "genshin",
+        kind: "announcement",
         verifiedAt: NOW - 100,
         verificationState: "verified",
         degradationReasons: ["content_unavailable"],
@@ -677,6 +690,7 @@ describe("A-P3-PUBLIC 真实本地 D1 公共闭环", () => {
       {
         sourceId: "source",
         game: "genshin",
+        kind: "announcement",
         verifiedAt: NOW - 100,
         verificationState: "verified",
         degradationReasons: [],

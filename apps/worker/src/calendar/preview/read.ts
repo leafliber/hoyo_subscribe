@@ -6,6 +6,7 @@ import {
   type CalendarPreviewSource,
   type CalendarPreviewCursor as Cursor,
   CalendarPreviewCursorSchema as CursorSchema,
+  calendarEntryText,
   calendarPreviewCandidates,
   explainCalendarPreview,
   FEED_DIAGNOSTICS,
@@ -158,6 +159,7 @@ export function previewIcs(
   config: SubscriptionConfig,
   asOf: number,
   feed: { view_revision: number; changed_at: number } | null,
+  origin: string,
 ): string {
   return serializeCalendar(
     personalCalendarNodes(config, snapshot.nodes, asOf).map((item) => {
@@ -174,11 +176,7 @@ export function previewIcs(
         ),
         modifiedAt: Math.max(changedAt as number, feed?.changed_at ?? asOf),
         time: item.time,
-        summary: `${p.event.title} · ${p.milestone.title}`,
-        description: [p.event.summary, item.patch ? item.node.patch?.fact_reason : null]
-          .filter(Boolean)
-          .join("\n"),
-        url: p.event.official_url,
+        ...calendarEntryText(item, origin),
         cancelled: item.cancelled,
         alarmSeconds: item.alarm_seconds,
       };
@@ -191,6 +189,8 @@ export async function readSavedCalendarPreview(
   url: URL,
   cache: FeedPublicCache,
   now: number,
+  /** ADR-0031：日历条目链接用的本站地址，与真实 Feed 相同（calendarSiteOrigin）。 */
+  origin: string = url.origin,
 ): Promise<Response> {
   const cursor = cursorFrom(url, true);
   const saved = await readSubscription(db, userId);
@@ -217,7 +217,7 @@ export async function readSavedCalendarPreview(
   let diagnostic = !fresh ? "source_stale" : explained.nodeLimit;
   if (
     diagnostic === null &&
-    new TextEncoder().encode(previewIcs(current, saved.config, asOf, feed)).byteLength >
+    new TextEncoder().encode(previewIcs(current, saved.config, asOf, feed, origin)).byteLength >
       FEED_RESPONSE_MAX_BYTES
   )
     diagnostic = "response_byte_limit";

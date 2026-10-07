@@ -457,6 +457,44 @@ export const PARAM_EQUATIONS: readonly EquationDefinition[] = [
       },
     },
   ),
+  // —— 页面复用公开副本（ADR-0032）——
+  eq(
+    "client-recheck-below-public-fresh",
+    "页面副本",
+    "0 < CLIENT_RECHECK_INTERVAL < PUBLIC_CACHE_FRESH（页面在副本被标为可能过时之前就会再核对一次）",
+    (v) =>
+      `0 < CLIENT_RECHECK_INTERVAL(${v.CLIENT_RECHECK_INTERVAL}) < PUBLIC_CACHE_FRESH(${v.PUBLIC_CACHE_FRESH})`,
+    (v) =>
+      Number.isSafeInteger(v.CLIENT_RECHECK_INTERVAL) &&
+      v.CLIENT_RECHECK_INTERVAL > 0 &&
+      v.CLIENT_RECHECK_INTERVAL < v.PUBLIC_CACHE_FRESH,
+    { CLIENT_RECHECK_INTERVAL: 3600 },
+  ),
+  // —— 直播兑换码来源（ADR-0030）——
+  eq(
+    "redeem-reveal-grace-below-hot-poll",
+    "兑换码",
+    "0 < REDEEM_CODE_REVEAL_GRACE < SOURCE_HOT_POLL（发放时刻后的补取比热点轮询更密，且只补到热点轮询的间隔为止）",
+    (v) =>
+      `0 < REDEEM_CODE_REVEAL_GRACE(${v.REDEEM_CODE_REVEAL_GRACE}) < SOURCE_HOT_POLL(${v.SOURCE_HOT_POLL})`,
+    (v) =>
+      Number.isSafeInteger(v.REDEEM_CODE_REVEAL_GRACE) &&
+      v.REDEEM_CODE_REVEAL_GRACE > 0 &&
+      v.REDEEM_CODE_REVEAL_GRACE < v.SOURCE_HOT_POLL,
+    { REDEEM_CODE_REVEAL_GRACE: 600 },
+  ),
+  eq(
+    "redeem-undated-display-within-tracking",
+    "兑换码",
+    'REDEEM_LIVE_TRACK_MAX、REDEEM_LIVE_TRACK_DAYS 为正整数；REDEEM_CODE_UNDATED_DISPLAY <= REDEEM_LIVE_TRACK_DAYS × 86400（没写有效期的兑换码只在其直播仍被跟踪时显示，官方"活动已结束"才能及时收回）',
+    (v) =>
+      `REDEEM_CODE_UNDATED_DISPLAY(${v.REDEEM_CODE_UNDATED_DISPLAY}) <= REDEEM_LIVE_TRACK_DAYS(${v.REDEEM_LIVE_TRACK_DAYS}) × 86400`,
+    (v) =>
+      [v.REDEEM_LIVE_TRACK_MAX, v.REDEEM_LIVE_TRACK_DAYS, v.REDEEM_CODE_UNDATED_DISPLAY].every(
+        (n) => Number.isSafeInteger(n) && n > 0,
+      ) && v.REDEEM_CODE_UNDATED_DISPLAY <= v.REDEEM_LIVE_TRACK_DAYS * 86_400,
+    { REDEEM_LIVE_TRACK_DAYS: 0 },
+  ),
   eq(
     "public-read-bounds",
     "公共读保护",

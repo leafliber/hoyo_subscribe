@@ -224,6 +224,8 @@ async function localBinding(page: Page) {
 
 interface Server {
   reads?: number;
+  /** ADR-0032：本页读取公开能力（`/api/v2/status`）的次数。 */
+  statusReads?: number;
   state: PushChannelView;
   capability: "open" | "closed";
   writes: { method: string; path: string; body: unknown; csrf: string | undefined }[];
@@ -250,8 +252,9 @@ async function openSubscription(page: Page, server: Server) {
   await page.route("**/api/v2/me/subscription", (route) =>
     route.fulfill({ json: { state: "initialized", revision: config.revision, config } }),
   );
-  await page.route("**/api/v2/status", (route) =>
-    route.fulfill({
+  await page.route("**/api/v2/status", (route) => {
+    server.statusReads = (server.statusReads ?? 0) + 1;
+    return route.fulfill({
       json: {
         registration_open: false,
         mail_sending_available: true,
@@ -262,8 +265,8 @@ async function openSubscription(page: Page, server: Server) {
           push: server.capability,
         },
       },
-    }),
-  );
+    });
+  });
   await page.route("**/api/v2/me/push-bindings**", async (route) => {
     const request = route.request();
     const path = new URL(request.url()).pathname.replace("/api/v2/me/push-bindings", "");
@@ -408,6 +411,8 @@ test("ADR-0029 引导第 2 步三选一：浏览器与日历标推荐，不可�
     subscribes: 0,
   });
   expect(server.writes).toEqual([]);
+  // ADR-0032：浏览器通知卡片、日历卡片与引导三处的公开能力合成一次读取（改动前 3 次）。
+  expect(server.statusReads).toBe(1);
   // 验证中还不算开启；合法回执后账号下有已验证的浏览器，引导完成并隐藏。
   await part(page, "enable").click();
   await expect(part(page, "pill")).toHaveText("验证中");

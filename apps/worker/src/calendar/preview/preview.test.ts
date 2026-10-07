@@ -4,6 +4,7 @@ import {
   CALENDAR_PREVIEW_RATE_WINDOW,
   CalendarNodesResponseSchema,
   CalendarPreviewResponseSchema,
+  calendarEntryTitle,
   decideCalendarPatch,
   explainCalendarPreview,
   FEED_BASE_NODE_MAX,
@@ -22,6 +23,7 @@ import { fakeExecutionContext } from "../../shell/test-support";
 import { SOURCE_REGISTRY } from "../../sources/registry";
 import { splitSqlStatements } from "../../storage/split-sql";
 import { makeFeedHandler } from "../feed/handler";
+import { calendarSiteOrigin } from "../feed/ical";
 import { FeedPublicCache, requiredFeedSources } from "../feed/public-read";
 import { encodePreviewCursor, previewIcs } from "./read";
 import { makeCalendarPreviewRoutes } from "./routes";
@@ -289,11 +291,14 @@ describe("A-P3-PREVIEW 真实外壳/D1", () => {
     30000,
   );
   it("来源规则抽取保持 Feed 字节；预览序列化与真实 Feed 仅等长 namespace 不同", async () => {
+    // ADR-0030：直播兑换码来源（freshnessExempt）不是日历的所需来源，其余仍按原规则。
     const oldIds = SOURCE_REGISTRY.filter(
       (e) =>
+        !("freshnessExempt" in e) &&
         config.scope.games.includes(e.game) &&
         config.scope.regions.some((r) => r.toLowerCase() === e.region),
     ).map((e) => e.sourceId);
+    expect(oldIds).not.toContain("genshin-live");
     expect(requiredFeedSources(config)).toEqual(oldIds);
     expect(requiredCalendarSources(config, SOURCE_REGISTRY).map((s) => s.sourceId)).toEqual(oldIds);
     const corrected = node("expired-correction");
@@ -323,10 +328,13 @@ describe("A-P3-PREVIEW 真实外壳/D1", () => {
     await request(privatePath, true);
     const after = await (await request(`/feeds/u/${address.token}.ics`)).text();
     expect(after).toBe(before);
-    const simulated = previewIcs({ generation: 1, published_at: T, nodes: values }, config, T, {
-      view_revision: 0,
-      changed_at: T,
-    });
+    const simulated = previewIcs(
+      { generation: 1, published_at: T, nodes: values },
+      config,
+      T,
+      { view_revision: 0, changed_at: T },
+      calendarSiteOrigin(env as typeof env & { SITE_ORIGIN?: string }, `${site}/feeds/u/x.ics`),
+    );
     expect(simulated).toBe(
       before.replaceAll(address.namespace, "00000000-0000-0000-0000-000000000000"),
     );
@@ -424,7 +432,8 @@ it("A-P3-PREVIEW 实际 VEVENT 逐项对应更正、取消、删除、纯日期�
     );
     if (!component) throw new Error("missing event");
     const event = new ICAL.Event(component);
-    expect(event.summary).toBe(`${item.eventTitle} · ${item.milestoneTitle}`);
+    // ADR-0031：日历标题与预览列表同一函数（calendarEntryTitle）。
+    expect(event.summary).toBe(calendarEntryTitle(item));
     expect(component.getFirstPropertyValue("status") === "CANCELLED").toBe(item.cancelled);
     if (item.time.precision === "datetime")
       expect(event.startDate.toJSDate().getTime()).toBe(item.time.utc_ms);
@@ -588,7 +597,7 @@ it("A-P3-PREVIEW Worker 真实入口跨请求保留限流桶，失败的读取�
   try {
     for (let i = 0; i < CALENDAR_PREVIEW_RATE_LIMIT; i++) {
       const r = await worker.fetch(
-        new Request(site + privatePath + "?cursor=bad", {
+        new Request(`${site}${privatePath}?cursor=bad`, {
           headers: { cookie: `__Host-session=${user.cookie}` },
         }),
         env,

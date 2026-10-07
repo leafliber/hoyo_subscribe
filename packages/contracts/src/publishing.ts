@@ -24,7 +24,8 @@ export const PUBLIC_SNAPSHOT_PENDING_STATE_KEY = "public_snapshot_pending";
 
 /**
  * P3-05/06 消费的公共 ICS 输入：事件/节点标题 → SUMMARY，事件简介、原始表达、
- * 来源时区、时间依据 → DESCRIPTION，官方地址 → URL，类型 → CATEGORIES 与筛选，
+ * 来源时区、时间依据 → DESCRIPTION（ADR-0031 起由 calendar-entry.ts 统一组装，URL 为本站活动详情页），
+ * 类型 → CATEGORIES 与筛选，
  * 状态 → STATUS/可见性，时间精度和值 → DTSTART/DTEND，依据/状态/类型/节点类型 → VALARM 资格。
  * 人锁与证据只影响审核/追溯，不进入 ICS。
  */

@@ -1,5 +1,6 @@
 import { ApiError, errorResponse } from "../../shell/errors";
 import type { ShellRoute } from "../../shell/router";
+import { calendarSiteOrigin } from "../feed/ical";
 import { FeedPublicCache } from "../feed/public-read";
 import { CalendarPreviewRateGate } from "./rate";
 import { readCalendarNodes, readSavedCalendarPreview, snapshotUnavailable } from "./read";
@@ -53,7 +54,14 @@ export function makeCalendarPreviewRoutes(
               code: "rate_limited",
               retry_after_ms: retryAfterMs,
             });
-          return readSavedCalendarPreview(ctx.env.DB, auth.userId, ctx.url, cache, at);
+          return readSavedCalendarPreview(
+            ctx.env.DB,
+            auth.userId,
+            ctx.url,
+            cache,
+            at,
+            calendarSiteOrigin(ctx.env as typeof ctx.env & { SITE_ORIGIN?: string }, ctx.url.href),
+          );
         }, true),
     },
   ];

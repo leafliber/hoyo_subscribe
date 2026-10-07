@@ -41,12 +41,13 @@ export const SUBSCRIPTION_INIT_STATE = "uninitialized" as const;
 /** 仅作界面预选；用户保存前不构成正式 scope。附录 A.1；§4.4。引用 SUPPORTED_SCOPE_GAMES。 */
 export const DEFAULT_SCOPE_GAMES = asUiPreset(SUPPORTED_SCOPE_GAMES);
 
-/** 界面预选的基础可见事件类型。附录 A.1。 */
+/** 界面预选的基础可见事件类型。附录 A.1；ADR-0030 加入兑换码（只影响新配置的预选，不改已保存的订阅）。 */
 export const DEFAULT_CALENDAR_EVENT_TYPES = asUiPreset([
   "livestream",
   "maintenance",
   "limited_event",
   "gacha",
+  "redeem_code",
 ] as const satisfies readonly EventType[]);
 
 /** 界面预选的基础可见节点；phase_unlock 默认不选，噪音较高。附录 A.1。 */
@@ -100,6 +101,11 @@ export const SOURCE_LIMIT_PROFILE = {
     "genshin-ann": 458_752,
     "hsr-ann": 524_288,
     "zzz-ann": 393_216,
+    // ADR-0030 直播兑换码来源：发现入口（米游社首页）实测 4.5–9.9 KB；直播活动接口在有效直播期间
+    // 尚无样本（2026-10-07 只取得"活动已结束"信封），先按 256 KiB 封顶，超过即转缺口并告警。
+    "genshin-live": 262_144,
+    "hsr-live": 262_144,
+    "zzz-live": 262_144,
   },
   // 工程安全上界：单次来源响应最多缓冲 512 KiB，远低于 Workers 128 MiB isolate 内存。
   // 增长超过本界时转缺口并发告警，不自动放大；不是允许额外请求/计费的额度。
@@ -115,6 +121,18 @@ export interface SourceLimitProfile {
   redirects_observed: number;
   [key: string]: unknown;
 }
+
+/** 每个直播兑换码来源同时跟踪的直播活动上限；一次轮询至多 1 次发现请求 + 每个活动 2 次请求。ADR-0030。 */
+export const REDEEM_LIVE_TRACK_MAX = 4 as const;
+
+/** 直播活动自首次发现起最多跟踪几天；官方返回"活动已结束"时提前停止。ADR-0030。 */
+export const REDEEM_LIVE_TRACK_DAYS = 7 as const;
+
+/** 官方排定的兑换码发放时刻过后多久再取一次（秒）；直到取到兑换码或过了 SOURCE_HOT_POLL。ADR-0030。 */
+export const REDEEM_CODE_REVEAL_GRACE = 60 as const;
+
+/** 官方没写有效期的兑换码，自发放起在「有效兑换码」条里最多显示多久（秒）；只是显示上限，不是官方有效期。ADR-0030。 */
+export const REDEEM_CODE_UNDATED_DISPLAY = 86_400 as const;
 
 /** 自官方发布时间计的发现目标，不是 SLA。附录 A.1；§3.1。 */
 export const DISCOVERY_TARGET = 1800 as const;
@@ -285,6 +303,12 @@ export const CAL_PATCH_GLOBAL_MAX = 10_000 as const;
 
 /** 公共快照新鲜窗口：公开副本超过这么久才标为可能过时。附录 A.3；§6.4。ADR-0015 由 300 改为 3600。 */
 export const PUBLIC_CACHE_FRESH = 3600 as const;
+
+/**
+ * 页面在站内切换、返回时直接复用上次核对过的公开数据（以及页头账号入口的上次核对结果）的最长时间（秒）；
+ * 超过后用条件请求再核对一次（内容没变只回 304）。刷新按钮与浏览器刷新总是立即核对。ADR-0032。
+ */
+export const CLIENT_RECHECK_INTERVAL = 300 as const;
 
 /** 私人预览每会话、每 isolate 的滑动窗口（秒）。ADR-0006；D2 §3.5。 */
 export const CALENDAR_PREVIEW_RATE_WINDOW = 60 as const;
@@ -635,6 +659,10 @@ export const PARAMS = {
   SOURCE_RECHECK_WINDOW,
   SOURCE_RECHECK_INTERVAL,
   SOURCE_LIMIT_PROFILE,
+  REDEEM_LIVE_TRACK_MAX,
+  REDEEM_LIVE_TRACK_DAYS,
+  REDEEM_CODE_REVEAL_GRACE,
+  REDEEM_CODE_UNDATED_DISPLAY,
   DISCOVERY_TARGET,
   PUBLICATION_TARGET,
   WATCHDOG_INTERVAL,
@@ -690,6 +718,7 @@ export const PARAMS = {
   CAL_PATCH_TAIL_DAYS,
   CAL_PATCH_GLOBAL_MAX,
   PUBLIC_CACHE_FRESH,
+  CLIENT_RECHECK_INTERVAL,
   CALENDAR_PREVIEW_RATE_WINDOW,
   CALENDAR_PREVIEW_RATE_LIMIT,
   PUBLIC_READ_LIMITS,
@@ -788,6 +817,8 @@ export type ParamStatus =
   | "adr-0013"
   | "adr-0015"
   | "adr-0027"
+  | "adr-0030"
+  | "adr-0032"
   | "p5-02-approved"
   | "measured"
   | "measured-ref"
@@ -890,7 +921,33 @@ export const PARAM_META: Readonly<Record<keyof ParamValues, ParamMeta>> = {
     unit: "按来源结构",
     description: "页数、正文大小、请求超时、重定向和批量上限",
     status: "measured-ref",
-    note: "P0-02 实测见 fixtures/sources/registry.draft.json；P3-08 生产响应上限和统一安全界在本参数项；ADR-0016 起只登记三个游戏内公告源（米游社来源下线）",
+    note: "P0-02 实测见 fixtures/sources/registry.draft.json；P3-08 生产响应上限和统一安全界在本参数项；ADR-0016 起只登记三个游戏内公告源（米游社来源下线）；ADR-0030 增加三个直播兑换码来源（登记见 fixtures/sources/miyolive/registry.json）",
+  },
+  REDEEM_LIVE_TRACK_MAX: {
+    section: "A.1",
+    unit: "个",
+    description:
+      "每个直播兑换码来源同时跟踪的直播活动上限；一次轮询至多 1 次发现请求 + 每个活动 2 次请求",
+    status: "adr-0030",
+  },
+  REDEEM_LIVE_TRACK_DAYS: {
+    section: "A.1",
+    unit: "天",
+    description: '直播活动自首次发现起最多跟踪的天数；官方返回"活动已结束"时提前停止',
+    status: "adr-0030",
+  },
+  REDEEM_CODE_REVEAL_GRACE: {
+    section: "A.1",
+    unit: "秒",
+    description: "官方排定的兑换码发放时刻过后多久再取一次；直到取到兑换码或过了 SOURCE_HOT_POLL",
+    status: "adr-0030",
+  },
+  REDEEM_CODE_UNDATED_DISPLAY: {
+    section: "A.1",
+    unit: "秒",
+    description:
+      "官方没写有效期的兑换码自发放起在「有效兑换码」条里最多显示多久；只是显示上限，不是官方有效期",
+    status: "adr-0030",
   },
   DISCOVERY_TARGET: {
     section: "A.1",
@@ -1226,7 +1283,15 @@ export const PARAM_META: Readonly<Record<keyof ParamValues, ParamMeta>> = {
     unit: "秒",
     description: "公共快照新鲜窗口：公开副本超过这么久才标为可能过时",
     status: "adr-0015",
-    note: "附录原值 300；ADR-0015 改为 3600（所有者 2026-10-05）。公开读取 HTTP 改为 no-cache，打开页面总取最新",
+    note: "附录原值 300；ADR-0015 改为 3600（所有者 2026-10-05）。公开读取 HTTP 改为 no-cache；ADR-0032 起页面在 CLIENT_RECHECK_INTERVAL 内复用上次核对的副本，超过后用条件请求核对",
+  },
+  CLIENT_RECHECK_INTERVAL: {
+    section: "A.3",
+    unit: "秒",
+    description:
+      "页面站内切换、返回时直接复用上次核对过的公开数据（及页头账号入口的核对结果）的最长时间；超过后条件请求再核对",
+    status: "adr-0032",
+    note: "刷新按钮与浏览器刷新总是立即核对；内容没变时服务端只回 304",
   },
   CALENDAR_PREVIEW_RATE_WINDOW: {
     section: "A.3",

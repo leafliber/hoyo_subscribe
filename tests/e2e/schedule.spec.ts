@@ -7,7 +7,13 @@ import {
   DateOnlySchema,
   ExactTimeSchema,
 } from "../../packages/contracts/src/index";
-import { clock, eventsFixture, mockPublicApi, statusFixture } from "./fixtures/public-schedule";
+import {
+  clock,
+  eventsFixture,
+  mockPublicApi,
+  redeemCodesFixture,
+  statusFixture,
+} from "./fixtures/public-schedule";
 
 const controls = new WeakMap<Page, Awaited<ReturnType<typeof mockPublicApi>>>();
 test.beforeEach(async ({ page }) => {
@@ -47,7 +53,7 @@ test("U01 游客读取公共 API，首屏显示时间动作与游戏，不创建
       .get(page)
       ?.calls.map((call) => call.path)
       .sort(),
-  ).toEqual(["/api/v2/catalog", "/api/v2/events", "/api/v2/status"]);
+  ).toEqual(["/api/v2/catalog", "/api/v2/events", "/api/v2/redeem-codes", "/api/v2/status"]);
   expect(controls.get(page)?.calls.every((call) => call.method === "GET")).toBe(true);
   expect(await context.cookies()).toEqual([]);
   expect(await page.evaluate(() => Object.keys(localStorage))).toEqual([]);
@@ -125,6 +131,7 @@ test("U05 来源逐行、维护原因优先；来源聚合与审核计数未知�
       {
         sourceId: "list-only",
         game: "genshin",
+        kind: "announcement",
         verifiedAt: clock.getTime(),
         verificationState: "verified",
         degradationReasons: ["content_unavailable"],
@@ -132,6 +139,7 @@ test("U05 来源逐行、维护原因优先；来源聚合与审核计数未知�
       {
         sourceId: "maintenance-unknown",
         game: "genshin",
+        kind: "announcement",
         verifiedAt: null,
         verificationState: "unknown",
         degradationReasons: ["maintenance_required"],
@@ -139,6 +147,7 @@ test("U05 来源逐行、维护原因优先；来源聚合与审核计数未知�
       {
         sourceId: "maintenance-unavailable",
         game: "genshin",
+        kind: "announcement",
         verifiedAt: clock.getTime(),
         verificationState: "unavailable",
         degradationReasons: ["maintenance_required"],
@@ -784,10 +793,11 @@ test("A-F1-POLISH 过时条幅只说信息获取时间，条幅里的刷新按�
   await warning.getByRole("button", { name: "刷新" }).click();
   await complete(page);
   await expect(page.locator("#schedule-results .cache-notice")).toHaveCount(0);
-  // 刷新重新读取目录、状态与日程，不沿用已加载的副本。
+  // 刷新重新读取目录、状态、日程与兑换码（ADR-0030），不沿用已加载的副本。
   expect([...new Set(reloads)].sort()).toEqual([
     "/api/v2/catalog",
     "/api/v2/events",
+    "/api/v2/redeem-codes",
     "/api/v2/status",
   ]);
 });
@@ -888,7 +898,8 @@ test("A-F1-BROWSE 末行写明已显示完的档位；「显示更多」读下�
   await expect(end.locator('[data-action="show-more"]')).toHaveCount(0);
   await expect(end).toBeFocused();
   expect(ranges).toEqual(["3d", "7d", "7d", "30d", "all"]);
-  expect(controls.get(page)?.calls.filter((call) => call.path !== "/api/v2/events").length).toBe(2);
+  // 目录、状态与兑换码各读一次（ADR-0030 增加兑换码）。
+  expect(controls.get(page)?.calls.filter((call) => call.path !== "/api/v2/events").length).toBe(3);
 });
 
 test("A-F1-BROWSE 加载提示在时间线顶部；读完之前不出现末行", async ({ page }) => {
@@ -1096,4 +1107,97 @@ test("A-F1-TIMELINE 日期点是实心圆角方块；已过的条目降权", asy
   expect(
     await page.locator('[data-node="morning"]').evaluate((e) => getComputedStyle(e).opacity),
   ).toBe("1");
+});
+
+// ADR-0030：有效兑换码条。
+test("ADR-0030 有效兑换码条：有可显示的兑换码才出现，按游戏筛，一键复制，到点自动移除", async ({
+  page,
+  context,
+}) => {
+  const control = controls.get(page);
+  if (!control) throw new Error("missing fixture");
+  await context.grantPermissions(["clipboard-read", "clipboard-write"]);
+  const now = clock.getTime();
+  const hour = 3_600_000;
+  control.redeem = () =>
+    redeemCodesFixture([
+      {
+        game: "genshin",
+        code: "GENSHINSYNTH1",
+        reward: "原石*100，精炼用魔矿*10",
+        liveTitle: "合成原神前瞻特别节目",
+        revealedAt: now - hour,
+        expiresAt: now + 2 * hour,
+        expiryText: "9月22日14:30",
+        hiddenAt: now + 2 * hour,
+        officialUrl: "https://webstatic.mihoyo.com/bbs/event/live/index.html?act_id=synthetic1",
+        eventId: "evt_morning",
+      },
+      {
+        game: "zzz",
+        code: "ZZZSYNTH2",
+        reward: "菲林*100",
+        liveTitle: "合成绝区零前瞻特别节目",
+        revealedAt: now - hour,
+        expiresAt: null,
+        expiryText: null,
+        hiddenAt: now + 23 * hour,
+        officialUrl: "https://webstatic.mihoyo.com/bbs/event/live/index.html?act_id=synthetic2",
+        eventId: null,
+      },
+    ]);
+  await page.goto("/");
+  await complete(page);
+  const bar = page.locator("#redeem-codes");
+  await expect(bar).toBeVisible();
+  await expect(bar.getByRole("heading", { name: "有效兑换码" })).toBeVisible();
+  await expect(bar.locator(".redeem-item")).toHaveCount(2);
+  const genshin = bar.locator('[data-redeem="genshin:GENSHINSYNTH1"]');
+  await expect(genshin).toContainText("原石*100，精炼用魔矿*10");
+  await expect(genshin).toContainText("9月22日 14:30 过期 · 还剩 2 小时");
+  await expect(genshin.getByRole("link", { name: "合成原神前瞻特别节目" })).toHaveAttribute(
+    "href",
+    "/events/evt_morning",
+  );
+  const zzz = bar.locator('[data-redeem="zzz:ZZZSYNTH2"]');
+  await expect(zzz).toContainText("官方未写有效期，请尽快兑换");
+  await expect(zzz.getByRole("link", { name: "合成绝区零前瞻特别节目" })).toHaveAttribute(
+    "href",
+    /webstatic\.mihoyo\.com\/bbs\/event\/live/,
+  );
+  // 条在「即将截止」之前、筛选栏之后；位于首屏。
+  expect((await bar.boundingBox())?.y).toBeLessThan(page.viewportSize()?.height ?? 0);
+
+  await genshin.getByRole("button", { name: "复制兑换码 GENSHINSYNTH1" }).click();
+  await expect(page.locator("#toast-region")).toContainText("已复制兑换码 GENSHINSYNTH1");
+  expect(await page.evaluate(() => navigator.clipboard.readText())).toBe("GENSHINSYNTH1");
+
+  // 按首页选中的游戏筛：取消绝区零后只剩原神；两个都取消则整块隐藏。
+  await page.locator('label.game-option[data-game="zzz"]').click();
+  await expect(bar.locator(".redeem-item")).toHaveCount(1);
+  await page.locator('label.game-option[data-game="genshin"]').click();
+  await expect(bar).toBeHidden();
+  await page.locator('label.game-option[data-game="genshin"]').click();
+  await expect(bar.locator(".redeem-item")).toHaveCount(1);
+
+  // 官方有效期到点：条目移除、整块隐藏，不发新请求。
+  const before = control.calls.length;
+  await page.clock.setFixedTime(now + 2 * hour + 1000);
+  await page.clock.runFor(2000);
+  await expect(bar).toBeHidden();
+  expect(control.calls.length).toBe(before);
+});
+
+test("ADR-0030 没有可显示的兑换码、或兑换码接口失败时整块不出现，日程照常", async ({ page }) => {
+  const control = controls.get(page);
+  if (!control) throw new Error("missing fixture");
+  await page.goto("/");
+  await complete(page);
+  await expect(page.locator("#redeem-codes")).toBeHidden();
+  await page.route("**/api/v2/redeem-codes", (route) => route.fulfill({ status: 503, json: {} }));
+  await page.reload();
+  await complete(page);
+  await expect(page.locator("#redeem-codes")).toBeHidden();
+  await expect(page.locator(".data-warning")).toHaveCount(0);
+  await expect(page.locator('[data-node="morning"]')).toBeVisible();
 });

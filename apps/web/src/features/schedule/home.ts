@@ -11,12 +11,20 @@ import {
 import { clock, relative, remaining } from "../../lib/format";
 import { ScheduleLoader } from "./load";
 import { HOME_RANGES, homeRange } from "./ranges";
+import {
+  bindRedeemCopy,
+  nextRedeemChange,
+  redeemBarExpired,
+  renderRedeemBar,
+  tickRedeemBar,
+} from "./redeem-codes";
 import { countdownValue, renderAside, renderEndingSoon, renderResults } from "./render";
 
 const form = document.querySelector<HTMLFormElement>("#browse-filters");
 const results = document.querySelector<HTMLElement>("#schedule-results");
 const aside = document.querySelector<HTMLElement>("#schedule-aside-dynamic");
 const ending = document.querySelector<HTMLElement>("#ending-soon");
+const redeemBar = document.querySelector<HTMLElement>("#redeem-codes");
 const pageRoot = document.querySelector<HTMLElement>(".schedule-page");
 
 /** 白名单解析后再把已下线的档位映射到首页档位（旧链接 range=90d → 全部）。 */
@@ -69,7 +77,8 @@ if (form && results) {
       const id = item.getAttribute(attribute);
       if (!id) continue;
       current.add(id);
-      if (previous.has(id)) continue;
+      // ADR-0032：直接取自本标签页副本的列表原地出现，不当作新内容播放入场动效。
+      if (previous.has(id) || loader.state.restored) continue;
       item.classList.add("is-entering");
       item.style.setProperty("--enter-delay", `${Math.min(order, 10) * 45}ms`);
       order++;
@@ -93,6 +102,7 @@ if (form && results) {
         : undefined;
     output.replaceChildren(renderResults(loader.state, filters));
     output.setAttribute("aria-busy", String(loader.state.phase === "loading"));
+    output.toggleAttribute("data-switching", loader.state.switching);
     restoreDisclosures(output, opened);
     shownRows = markEntering(output, "data-node", shownRows);
     if (ending) {
@@ -108,6 +118,12 @@ if (form && results) {
     if (aside) {
       aside.replaceChildren(renderAside(loader.state, filters));
       restoreDisclosures(aside, asideOpened);
+    }
+    // ADR-0030：有可显示的兑换码才出现，按选中的游戏筛；没有时整块隐藏、不占位。
+    if (redeemBar) {
+      const parts = renderRedeemBar(loader.state.redeem?.codes ?? null, filters.games, Date.now());
+      redeemBar.hidden = parts === null;
+      redeemBar.replaceChildren(...(parts ?? []));
     }
     if (active) {
       const target = pageRoot?.querySelector<HTMLElement>(`[data-action="${active}"]`);
@@ -157,6 +173,7 @@ if (form && results) {
         ? 0
         : loader.state.status.cache.freshUntil + 1,
       loader.state.retryAt,
+      nextRedeemChange(loader.state.redeem?.codes ?? null, filters.games, Date.now()) ?? 0,
     ].filter((time) => time > Date.now());
     if (deadlines.length) wake = setTimeout(render, Math.min(...deadlines) - Date.now());
   }
@@ -164,6 +181,7 @@ if (form && results) {
   /** 每分钟：相对时间文字、过去/未来分界与「现在」标记；不重建列表、不发请求。 */
   function tick() {
     const now = Date.now();
+    if (redeemBar && !redeemBar.hidden) tickRedeemBar(redeemBar, now);
     for (const node of document.querySelectorAll<HTMLElement>("[data-relative-to]")) {
       const target = Number(node.dataset.relativeTo);
       if (!Number.isFinite(target)) continue;
@@ -209,6 +227,8 @@ if (form && results) {
         card.classList.add(level);
       }
     }
+    // ADR-0030：兑换码到点（官方有效期或显示上限）从条里移除。
+    if (redeemBar && !redeemBar.hidden && redeemBarExpired(redeemBar, now)) expired = true;
     if (expired) render();
   }
   let lastMinute = Math.floor(Date.now() / 60_000);
@@ -320,6 +340,7 @@ if (form && results) {
     if (remote) loader.start({ range: filters.range, games: filters.games });
     else render();
   }
+  if (redeemBar) bindRedeemCopy(redeemBar);
   filterForm.addEventListener("submit", (event) => event.preventDefault());
   filterForm.addEventListener("change", (event) => {
     const data = new FormData(filterForm);
@@ -434,13 +455,17 @@ if (form && results) {
   });
   window.addEventListener("offline", render);
   window.addEventListener("online", render);
-  window.addEventListener("pageshow", () => {
+  window.addEventListener("pageshow", (event) => {
     if (loader.state.pages.length) render();
+    // 从浏览器的往返缓存恢复（后退、前进）：离开得够久才核对（ADR-0032）。
+    if (event.persisted) loader.recheckIfStale();
   });
   document.addEventListener("visibilitychange", () => {
     if (!document.hidden) {
       tick();
       render();
+      // ADR-0032：离开得够久才向服务端核对（条件请求，没变不下载）。
+      loader.recheckIfStale();
     }
   });
   window.addEventListener("popstate", () => {

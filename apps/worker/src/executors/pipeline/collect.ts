@@ -4,6 +4,7 @@ import { bodyHasVisibleText, denoiseTitle, splitBodyBlocks } from "../../sources
 import { type ArticleIngestPlan, buildArticleIngestPlan } from "../../sources/articles/ingest";
 import type { SourceRegistryEntry } from "../../sources/registry";
 import type { ArticleFetchResult, SourceItemStub } from "../../sources/types";
+import { collectLiveSource, type RedeemUpdate } from "./collect-live";
 import { isRecheckDue, runAnnouncementPollBatch, type SourcePollState } from "./source-poll";
 
 /**
@@ -22,13 +23,20 @@ export interface CollectedPage {
   nextState: SourcePollState;
   status: "ok" | "incomplete" | "maintenance-required";
   backfill: boolean;
+  /** ADR-0030：直播兑换码来源本次的兑换码与已结束的活动；runtime 落页时写入 redeem_codes 后删去。 */
+  redeem?: RedeemUpdate;
+  /** ADR-0030：有尚未发放的兑换码时下一次采集的时刻；没有则按常规间隔。 */
+  nextPollAtMs?: number | null;
 }
 export async function collectSource(
   entry: SourceRegistryEntry,
   state: SourcePollState,
   now: number,
   fetchFn: typeof fetch,
+  liveHints: readonly string[] = [],
 ): Promise<CollectedPage> {
+  if (entry.adapterKind === "miyolive")
+    return collectLiveSource(entry, state, now, fetchFn, liveHints);
   // 首轮（还没有水位）是历史补录：入账但不发新事件通知。
   const backfill = state.watermark === null;
   const plans: ArticleIngestPlan[] = [];

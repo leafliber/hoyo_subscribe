@@ -155,6 +155,12 @@
   display: none;
 }
 
+/* ADR-0032：刷新期间上一次的内容淡化保留，读完整体换上 */
+.status-grid[aria-busy="true"] {
+  opacity: 0.55;
+  transition: opacity var(--duration-base) var(--ease-standard);
+}
+
 .status-tiles {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -223,6 +229,12 @@
 .source-rows li + li,
 .gap-rows li + li {
   border-top: var(--border-thin) solid var(--color-border);
+}
+
+/* ADR-0030：来源用途（游戏内公告 / 直播兑换码） */
+.source-kind {
+  color: var(--color-text-secondary);
+  font-weight: 600;
 }
 
 .source-id {

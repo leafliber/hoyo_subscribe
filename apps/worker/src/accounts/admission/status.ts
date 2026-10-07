@@ -9,6 +9,7 @@
 
 import { PublicStatusResponseSchema, publicOperationalCapabilities } from "@hoyo/contracts";
 import { environmentMailAvailable } from "../../mail/provider/environment";
+import { conditionalPublic } from "../../public/conditional";
 import { publicResponse, readPublicStatus, validatePublicQuery } from "../../public/read";
 import { type PushEnvironment, pushConfigured } from "../../push/config";
 import type { ShellRoute } from "../../shell";
@@ -30,23 +31,27 @@ export const statusRoute: ShellRoute = {
       pushConfigured(ctx.env as Env & PushEnvironment).catch(() => false),
     ]);
     const controls = await readControls(ctx.env.DB);
-    return publicResponse(
-      PublicStatusResponseSchema.parse({
-        ...publicStatus,
-        capabilities: publicOperationalCapabilities(
-          {
-            ...controls,
-            mail_sending_available: mailSendingAvailable
-              ? controls.mail_sending_available
-              : controls.mail_sending_available === false
-                ? false
-                : "unknown",
-          },
-          { push_configured: pushReady },
-        ),
-        registration_open: registrationOpen,
-        mail_sending_available: mailSendingAvailable,
-      }),
+    // ADR-0032：与其他公开读取一样带 ETag，条件请求命中回 304。
+    return conditionalPublic(
+      ctx.request,
+      publicResponse(
+        PublicStatusResponseSchema.parse({
+          ...publicStatus,
+          capabilities: publicOperationalCapabilities(
+            {
+              ...controls,
+              mail_sending_available: mailSendingAvailable
+                ? controls.mail_sending_available
+                : controls.mail_sending_available === false
+                  ? false
+                  : "unknown",
+            },
+            { push_configured: pushReady },
+          ),
+          registration_open: registrationOpen,
+          mail_sending_available: mailSendingAvailable,
+        }),
+      ),
     );
   },
 };

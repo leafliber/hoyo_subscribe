@@ -1,6 +1,7 @@
 // P3-06 · §6.6：授权→当前完整代次→来源水位→组装→最终 CAS→守卫→HEAD/ETag。
 import {
   buildApiErrorBody,
+  calendarEntryText,
   FEED_DIAGNOSTICS,
   FEED_RESPONSE_MAX_BYTES,
   type FeedDiagnostic,
@@ -16,7 +17,7 @@ import { logEvent } from "../../shell/logger";
 import { recordMetric } from "../../shell/observability/metrics";
 import type { RouteContext } from "../../shell/router";
 import { toHex } from "../../storage/crypto/bytes";
-import { serializeCalendar } from "./ical";
+import { calendarSiteOrigin, serializeCalendar } from "./ical";
 import {
   FeedPublicCache,
   readFeedSourceWatermarks,
@@ -83,6 +84,7 @@ export function makeFeedHandler(
   return async (context) => {
     const { request, env } = context;
     if (request.method !== "GET" && request.method !== "HEAD") return failure(request, 405);
+    const origin = calendarSiteOrigin(env as typeof env & { SITE_ORIGIN?: string }, request.url);
     const hash = await hashFeedToken(context.params.token ?? "");
     if (hash === null) return failure(request, 404);
     let locked = false;
@@ -138,15 +140,9 @@ export function makeFeedHandler(
                 ),
                 modifiedAt: Math.max(changedAt as number, state.changed_at),
                 time: item.time,
-                summary: `${item.node.projection.event.title} · ${item.node.projection.milestone.title}`,
-                // 更正理由只随仍在保留期内的更正输出；模板保留过期更正只为缩水守卫重算。
-                description: [
-                  item.node.projection.event.summary,
-                  item.patch ? item.node.patch?.fact_reason : null,
-                ]
-                  .filter(Boolean)
-                  .join("\n"),
-                url: item.node.projection.event.official_url,
+                // ADR-0031：标题、描述与链接给人看（contracts calendarEntryText，预览共用）；
+                // 更正理由只随仍在保留期内的更正输出，模板保留过期更正只为缩水守卫重算。
+                ...calendarEntryText(item, origin),
                 cancelled: item.cancelled,
                 alarmSeconds: item.alarm_seconds,
               };

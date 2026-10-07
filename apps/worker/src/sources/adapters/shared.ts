@@ -61,10 +61,15 @@ export async function fetchJsonBody(
   entry: SourceRegistryEntry,
   url: string,
   fetchFn: typeof fetch,
+  extraHeaders?: Readonly<Record<string, string>>,
 ): Promise<{ body: FetchedBody } | { failure: SourceFetchFailure }> {
   const outcome = await guardedSourceFetch(
     url,
-    { ...entry.requestLimits, allowedHosts: entry.approvedHosts },
+    {
+      ...entry.requestLimits,
+      allowedHosts: entry.approvedHosts,
+      ...(extraHeaders ? { extraHeaders } : {}),
+    },
     fetchFn,
   );
   if (outcome.kind !== "ok") {

@@ -123,6 +123,7 @@ test("A-P5-RELEASE 来源逐项显示维护与核验未知，不以单一绿灯�
           {
             sourceId: "synthetic-maintenance",
             game: "genshin",
+            kind: "announcement",
             verifiedAt: null,
             verificationState: "unknown",
             degradationReasons: ["maintenance_required"],
@@ -130,6 +131,7 @@ test("A-P5-RELEASE 来源逐项显示维护与核验未知，不以单一绿灯�
           {
             sourceId: "synthetic-unknown",
             game: "hsr",
+            kind: "announcement",
             verifiedAt: null,
             verificationState: "unknown",
             degradationReasons: ["not_verified"],

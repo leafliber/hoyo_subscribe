@@ -1,4 +1,4 @@
-import type { PublicEventDetailResponse } from "@hoyo/contracts";
+import { type PublicEventDetailResponse, PublicEventDetailResponseSchema } from "@hoyo/contracts";
 import { el, emptyState, icon } from "../../lib/dom";
 import { PublicApiClient, PublicReadError } from "../../lib/public-api/client";
 import { openArticleDialog } from "./article-dialog";
@@ -136,15 +136,30 @@ if (target) {
       render();
       return;
     }
+    // ADR-0032：本标签页读过这个活动就先显示副本；在核对间隔内不再请求，过了就在后台用条件请求核对。
+    let quiet = false;
+    if (!reload && current === null) {
+      const path = PublicApiClient.detailPath(eventId);
+      const cached = api.peek(path, PublicEventDetailResponseSchema);
+      if (cached) {
+        current = cached.value;
+        render();
+        if (api.isFresh(path)) return;
+        quiet = true;
+      }
+    }
     busy = true;
     failure = null;
-    render();
+    if (!quiet) render();
     try {
       current = await api.detail(eventId, undefined, reload);
       missing = false;
     } catch (error) {
-      failure = error;
-      retryAt = Date.now() + (error instanceof PublicReadError ? (error.retryAfterMs ?? 0) : 0);
+      // 后台核对没成功时照旧显示副本（它带着自己的信息获取时间），只有 404 才说明活动已不在当前代次。
+      if (!quiet || (error instanceof PublicReadError && error.status === 404)) {
+        failure = error;
+        retryAt = Date.now() + (error instanceof PublicReadError ? (error.retryAfterMs ?? 0) : 0);
+      }
       if (error instanceof PublicReadError && error.status === 404) {
         current = null;
         missing = true;

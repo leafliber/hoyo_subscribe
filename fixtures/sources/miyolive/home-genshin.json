@@ -1,0 +1,224 @@
+{
+  "schema_version": 1,
+  "synthetic": false,
+  "source_id": "genshin-live",
+  "kind": "discovery-response",
+  "purpose": "原神米游社首页（gids=2）：直播卡片 lives、导航 navigator 与轮播 carousels",
+  "captured_at_utc": "2026-10-07T10:02:13.586Z",
+  "url": "https://bbs-api.miyoushe.com/apihub/api/home/new?gids=2",
+  "request_headers": [],
+  "http": {
+    "status": 200,
+    "headers": {
+      "content_type": "application/json",
+      "location": null,
+      "retry_after": null
+    }
+  },
+  "body_bytes": 4784,
+  "body_sha256": "f2e3a1007466016606b1e8b716ad4cf4306b8d1b51f52123e3e65ac6cc949dcd",
+  "redactions": [],
+  "extra": {},
+  "body": {
+    "retcode": 0,
+    "message": "OK",
+    "data": {
+      "navigator": [],
+      "discussion": {
+        "icon": "https://upload-bbs.miyoushe.com/upload/2022/12/13/3402805230b340bf33c14b5040cf4ad8_2717239020720990782.png",
+        "title": "旅行者讨论区",
+        "prompt": "原神玩家交流·攻略·同人分享"
+      },
+      "background": {
+        "image": "https://upload-bbs.miyoushe.com/upload/2022/12/08/cd02e2bafa27bebb6c6cf9756944b991_8822066169778590866.webp",
+        "color": "143877"
+      },
+      "official": {
+        "position": 4,
+        "forum_id": 28,
+        "data": [
+          {
+            "post_id": "78485921",
+            "title": "《原神》提瓦特冒险纪念视频：旅行六周年手札",
+            "date": "1790589613",
+            "label": "资讯",
+            "is_top": false,
+            "view_type": 5,
+            "image_url": "https://upload-bbs.miyoushe.com/upload/2026/09/28/75276539/0278b8eac13834e2489a895c3fd19151_8553544735243092432.jpg",
+            "image": {
+              "image_id": "0",
+              "url": "https://upload-bbs.miyoushe.com/upload/2026/09/28/75276539/0278b8eac13834e2489a895c3fd19151_8553544735243092432.jpg",
+              "width": 1920,
+              "height": 1080
+            }
+          },
+          {
+            "post_id": "78469922",
+            "title": "《原神》六周年主题曲《风的来信》",
+            "date": "1790567999",
+            "label": "资讯",
+            "is_top": false,
+            "view_type": 5,
+            "image_url": "https://upload-bbs.miyoushe.com/upload/2026/09/28/75276539/a18057f8eef52de5847cf9240fc49d11_8690366693616321712.png",
+            "image": {
+              "image_id": "0",
+              "url": "https://upload-bbs.miyoushe.com/upload/2026/09/28/75276539/a18057f8eef52de5847cf9240fc49d11_8690366693616321712.png",
+              "width": 1920,
+              "height": 1080
+            }
+          },
+          {
+            "post_id": "78467497",
+            "title": "【网页活动上线】周年拾光册——与派蒙一起回顾提瓦特之旅吧！",
+            "date": "1790564410",
+            "label": "活动",
+            "is_top": false,
+            "view_type": 1,
+            "image_url": "https://upload-bbs.miyoushe.com/upload/2026/09/24/75276539/75ff1e20326fd4277efa19521c1f7122_6718200261876559041.jpg",
+            "image": {
+              "image_id": "260387359",
+              "url": "https://upload-bbs.miyoushe.com/upload/2026/09/24/75276539/75ff1e20326fd4277efa19521c1f7122_6718200261876559041.jpg",
+              "width": 690,
+              "height": 320
+            }
+          },
+          {
+            "post_id": "78335167",
+            "title": "「往冥府的安魂歌」7.1版本更新说明",
+            "date": "1790118018",
+            "label": "公告",
+            "is_top": false,
+            "view_type": 1,
+            "image_url": "https://upload-bbs.miyoushe.com/upload/2026/09/22/75276539/98dbb3dacdf07461072eecaceefb1333_6405123880209218642.png",
+            "image": {
+              "image_id": "260270402",
+              "url": "https://upload-bbs.miyoushe.com/upload/2026/09/22/75276539/98dbb3dacdf07461072eecaceefb1333_6405123880209218642.png",
+              "width": 690,
+              "height": 320
+            }
+          },
+          {
+            "post_id": "78117353",
+            "title": "7.1版本《原神》六周年福利速览",
+            "date": "1789218912",
+            "label": "资讯",
+            "is_top": true,
+            "view_type": 1,
+            "image_url": "https://upload-bbs.miyoushe.com/upload/2026/09/12/75276539/b59709c9ce3c14ea16f233073a42eab0_8427954128596812703.jpg",
+            "image": {
+              "image_id": "259798335",
+              "url": "https://upload-bbs.miyoushe.com/upload/2026/09/12/75276539/b59709c9ce3c14ea16f233073a42eab0_8427954128596812703.jpg",
+              "width": 690,
+              "height": 320
+            }
+          },
+          {
+            "post_id": "78117350",
+            "title": "《原神》7.1版本PV：「往冥府的安魂歌」",
+            "date": "1789218910",
+            "label": "资讯",
+            "is_top": true,
+            "view_type": 5,
+            "image_url": "https://upload-bbs.miyoushe.com/upload/2026/09/12/75276539/1b175952ed8d66f60a229978cce99f60_2000893077777034356.png",
+            "image": {
+              "image_id": "0",
+              "url": "https://upload-bbs.miyoushe.com/upload/2026/09/12/75276539/1b175952ed8d66f60a229978cce99f60_2000893077777034356.png",
+              "width": 1920,
+              "height": 1080
+            }
+          }
+        ]
+      },
+      "carousels": null,
+      "hot_topics": null,
+      "game_receptions": [
+        {
+          "position": 2,
+          "data": {
+            "config": {
+              "id": 3,
+              "game_id": 0,
+              "name": "",
+              "description": "",
+              "icon": "",
+              "status": "ReceptionFinished",
+              "rules": {
+                "game_level": 0,
+                "community_level": 0
+              },
+              "questionnaire": {
+                "questionnaire_type": 0,
+                "questionnaire_url": "",
+                "questionnaire_status": 0
+              },
+              "pkg": {
+                "android_url": "",
+                "pkg_name": "",
+                "pkg_version": "",
+                "ios_url": "",
+                "pkg_length": "0",
+                "pkg_md5": "",
+                "pkg_version_code": "0",
+                "ios_version": "",
+                "new_filename": "",
+                "filename": "",
+                "pkg_version_name": "",
+                "ios_scheme_url": ""
+              },
+              "detail_servlet": {
+                "type": 0,
+                "normal_servlet": null,
+                "customize_detail": null
+              },
+              "pre_register_count": {
+                "show_count": false,
+                "count": "0"
+              },
+              "is_top": false,
+              "last_update_time": "0",
+              "app_store_switch": 0,
+              "download_switch": 0,
+              "developer": "",
+              "banner_card": {
+                "card_type": "NORMAL",
+                "card_media_type": "CardMediaType_UNKNOWN",
+                "card_rec_slogan": "",
+                "card_video_url": "",
+                "card_image_url": "",
+                "card_background_image_url": "",
+                "btn_color": "",
+                "btn_text_color": "",
+                "is_encrypt": false,
+                "encrypt_id": "0",
+                "encrypt_card_video_url": "",
+                "encrypt_card_image_url": "",
+                "encrypt_card_background_image_url": "",
+                "encrypt_card_video_md5": "",
+                "encrypt_card_image_md5": "",
+                "encrypt_card_background_image_md5": "",
+                "k": "",
+                "iv": "",
+                "is_pre_download": false
+              }
+            },
+            "user_status": null,
+            "exposure_times": 0
+          },
+          "expose_ticket": ""
+        }
+      ],
+      "posts": [],
+      "lives": [],
+      "recommend_villa": null,
+      "image_post_card": [],
+      "link_card": [],
+      "album_card": [],
+      "link_topic_card": [],
+      "is_resource_unchanged": false,
+      "exposed_resource_tickets": [],
+      "perspective_card": null,
+      "light_interactive_card": null,
+      "break_frame_card": null
+    }
+  }
+}

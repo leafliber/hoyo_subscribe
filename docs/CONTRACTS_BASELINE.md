@@ -12,15 +12,17 @@
 | 章节 | ADR | 现行规则 |
 | --- | --- | --- |
 | §1.2 本版明确改变的合同 | 0003 | "可持续邮件预算"改为纯 UTC 日额度，不再有月预算与日平滑 |
-| §3.1 来源适配 | 0001、0016 | 生产只登记三个游戏内公告来源（`level` + 登出态哑 `uid`），同一响应读 `data.list` 与 `data.pic_list`；米游社下线 |
+| §1.1 首版交付 | 0030 | 内容增加"兑换码"：米游社官方直播页发放的兑换码 |
+| §3.1 来源适配 | 0001、0016、0030 | 生产登记三个游戏内公告来源（`level` + 登出态哑 `uid`），同一响应读 `data.list` 与 `data.pic_list`；米游社资讯下线；另登记三个直播兑换码来源 `<game>-live`（米游社首页发现直播、官方直播页 `index`/`refreshCode` 取码；不是日历的所需来源） |
 | §3.2 采集与版本 | 0016、0019 | 图文资讯条目外部 ID 加 `pic-` 前缀；标题为空且正文没有可读文字的图文资讯条目不入库 |
-| §3.3 Event / Milestone 合同 | 0011、0013、0019、0027 | `deterministic_derived` 新增版本锚点推导与补全年份（参照依次为同篇日期、所属版本更新开始、发布日期、本站首次采集日期）；斜线、横线两种完整时刻都算 `official_explicit`（见本文 §1） |
-| §3.4 规则、模型与人工三条发布路径 | 0009、0010、0018 | AI 草稿只做预填，管理员按看到的草稿版本采用并批准；「跳过审核」开启时，合格的新草稿由系统按模型路径批准 |
+| §3.3 Event / Milestone 合同 | 0011、0013、0019、0027、0030 | `deterministic_derived` 新增版本锚点推导与补全年份（参照依次为同篇日期、所属版本更新开始、发布日期、本站首次采集日期）；斜线、横线两种完整时刻都算 `official_explicit`（见本文 §1）；事件类型增加 `redeem_code`（ADR-0030：开始=第一个兑换码的官方发放时刻，结束=官方说明写明的有效期，认不出不建） |
+| §3.4 规则、模型与人工三条发布路径 | 0009、0010、0018、0030 | AI 草稿只做预填，管理员按看到的草稿版本采用并批准；「跳过审核」开启时，合格的新草稿由系统按模型路径批准；直播兑换码来源的规则候选（模板 `miyolive-redeem-codes-v1`）随来源开关发布，不经「自动发布」 |
 | §3.5 模型预算与降级 | 0009、0010 | 草稿模型 glm-5.3-flash，按实际输入预占，日累计不超过 `AI_SOFT_DAY`；模型抽取的计费 profile 仍未配置（P3-09 未做） |
 | §3.6 发布一致性 | 0011、0018 | 版本时间表、补全年份的变化不自动改已发布事件；系统批准的发布不加人工锁，疑似重复留给人工 |
 | §7.8 可选 Web Push | 0025 | 推送服务登记表（FCM、Mozilla、Apple 精确主机，WNS 单标签子域），登记与外发前各校验一次、不跟随重定向；登记与可见激活分两步（`POST` 交付一次 receipt token，页面存好后 `PATCH activate` 发激活通知）；状态 pending / active / paused / gone，暂停后恢复须重新验证；401/403 自动关闭 `push_enabled`、不动绑定；408/429/5xx 按 `WATCHDOG_INTERVAL` 翻倍退避；业务通知与邮件共用兴趣匹配、不分两层 |
-| §8.1 逻辑数据契约 | 0003、0005、0007、0009、0011、0025 | 管理员审计、系统审计各保留 180 天；新增 `ai_drafts`、`ai_usage_days`（0027）与版本时间表（0028）；`usage_periods` 不含 envelope/carry；0029 为 `push_bindings` 增加激活、测试、暂停事实，新增 `push_messages`（Push"实际哪一条"）与 `users.push_revocation_version` 触发器 |
-| §8.2 API 分组 | 0009、0011、0014、0025 | 新增公开 `GET /api/v2/events/{eventId}/articles`；admin 下新增 `review/adopt-draft`、`versions` 等（预览接口见 D2；完整清单见本文 §12）；Push 路由已挂载（本文 §12） |
+| §6.5 格式、提醒与完整性 | 0030、0031 | 直播兑换码来源不计入 Feed 与日历预览的所需来源新鲜度（contracts `requiredCalendarSources` 的 `freshnessExempt`）；条目标题、描述与链接由 contracts `calendarEntryText` 统一组装：标题"活动名 · 节点动作"，描述写时间、官方原文、推导依据、更正或状态与简介，URL 为本站活动详情页（ADR-0031），UID/SEQUENCE 不变 |
+| §8.1 逻辑数据契约 | 0003、0005、0007、0009、0011、0025、0030 | 管理员审计、系统审计各保留 180 天；新增 `ai_drafts`、`ai_usage_days`（0027）与版本时间表（0028）；`usage_periods` 不含 envelope/carry；0029 为 `push_bindings` 增加激活、测试、暂停事实，新增 `push_messages`（Push"实际哪一条"）与 `users.push_revocation_version` 触发器；0030（迁移）重建 `events` 表、CHECK 增加 `redeem_code`，新增 `redeem_codes`（「有效兑换码」条） |
+| §8.2 API 分组 | 0009、0011、0014、0025、0030、0032 | 新增公开 `GET /api/v2/events/{eventId}/articles`；admin 下新增 `review/adopt-draft`、`versions` 等（预览接口见 D2；完整清单见本文 §12）；Push 路由已挂载（本文 §12）；新增公开 `GET /api/v2/redeem-codes`、管理端 `POST /api/v2/admin/redeem-lives`（ADR-0030）；公开读取（目录、日程、详情、原文、状态、兑换码）的 200 响应带弱 ETag，`If-None-Match` 一致时回 304（ADR-0032） |
 | §8.3 安全、秘密与日志 | 0021、0022、0024 | 允许 Cloudflare 边缘自动注入的 Web Analytics 信标出现在全部页面（含认证与退订页面），站点自身代码仍不引入第三方追踪代码；静态页面 Referrer-Policy 为 `strict-origin-when-cross-origin`（`apps/web/public/_headers`），Worker 响应仍为 no-referrer；平台调用日志（Workers Logs）已开，会记下带 token 的完整 URL，接受与否待所有者确认 |
 | §9.1 唯一预算口径 | 0003 | 只有 UTC 日池：认证 90（其中注册 10）、基础 50、紧急 120，池间不互借 |
 | §9.2 按月剩余自动平滑 | 0003 | 删去 envelope、carry、E=1、软线 S、月末片段；两个 floor 按当日剩余 ≤20 触发；恢复入口仍不依赖发信预算 |
@@ -29,21 +31,21 @@
 | §10.1 观测与开关 | 0003、0009、0018、0024、0025 | 新增 `review_skip_enabled`（默认关）；`model_enabled` 控制 AI 草稿；月额、envelope 指标作废（开关全表见本文 §13）；平台侧开启 Workers Logs；公开能力 `push` 另核对部署配置（VAPID 等），推送服务 401/403 时系统自动关闭 `push_enabled` |
 | §10.3 合并后的验收矩阵 | 0003 | 月末片段、envelope/carry、认证软线相关用例作废 |
 | §10.5 仓库、配置与迁移 | 0003 | 禁止项改为"不得恢复月度池、envelope、carry、认证软线"（AGENTS.md §3） |
-| 附录 A.1 产品、来源与后台 | 0012、0016 | `API_BODY_MAX_BYTES` 仍为 8 KiB，候选另有 `CANDIDATE_MAX_BYTES`；`SOURCE_LIMIT_PROFILE` 只保留三个来源 |
-| 附录 A.3 日历、通知有效期与模型 | 0006、0009、0010、0012、0013、0015、0027 | `PUBLIC_CACHE_FRESH` 3600；私人预览限流 60 秒 30 次；AI 草稿参数（单次最大预占 1,238）；候选上限 32 KiB；补全年份窗口 −30/+330 天，参照为首次采集日期时 −30/+90 天 |
+| 附录 A.1 产品、来源与后台 | 0012、0016、0030 | `API_BODY_MAX_BYTES` 仍为 8 KiB，候选另有 `CANDIDATE_MAX_BYTES`；`SOURCE_LIMIT_PROFILE` 为三个公告源与三个直播兑换码来源（各 256 KiB）；新增 `REDEEM_LIVE_TRACK_MAX`（4）、`REDEEM_LIVE_TRACK_DAYS`（7）、`REDEEM_CODE_REVEAL_GRACE`（60 秒）、`REDEEM_CODE_UNDATED_DISPLAY`（24 小时）；`DEFAULT_CALENDAR_EVENT_TYPES` 加入 `redeem_code`（只影响界面预选） |
+| 附录 A.3 日历、通知有效期与模型 | 0006、0009、0010、0012、0013、0015、0027、0032 | `PUBLIC_CACHE_FRESH` 3600；私人预览限流 60 秒 30 次；AI 草稿参数（单次最大预占 1,238）；候选上限 32 KiB；补全年份窗口 −30/+330 天，参照为首次采集日期时 −30/+90 天；页面副本核对间隔 `CLIENT_RECHECK_INTERVAL` 300 秒（ADR-0032） |
 | 附录 A.4 邮件与 Push | 0003 | 席位 100、常规 40；日池合计 260，不超过平台 1,000；两个 floor 各 20；删去五个 `*_MONTH` |
-| 附录 A.5 保留与配置依赖 | 0003、0005、0006、0007、0009、0010、0012、0013、0027 | 邮件等式改为日模型；新增两项审计 TTL，以及 AI、预览限流、候选字节、补全年份窗口（含首次采集窗口）的等式（全表见本文 §11） |
+| 附录 A.5 保留与配置依赖 | 0003、0005、0006、0007、0009、0010、0012、0013、0027、0030、0032 | 邮件等式改为日模型；新增两项审计 TTL，以及 AI、预览限流、候选字节、补全年份窗口（含首次采集窗口）、兑换码、页面副本核对间隔的等式（全表见本文 §11） |
 
 **前端 v1.0**
 
 | 章节 | ADR / 补充合同 | 现行规则 |
 | --- | --- | --- |
 | §1.3 首版范围 | 0011 | 管理端拆为 `/admin/`、`/admin/versions/`、`/admin/settings/` 三页，不进普通导航 |
-| §4.1 页面骨架 | 0017、0020、0028 | 筛选行为"游戏、临近截止、筛选"；时间轴自上而下：回看昨天（主轴第一行）→ 当前范围逐日 → "已显示完{档位}"与"显示更多"；时间待定在时间轴下方单独成卡；"即将截止"没有条目时整块不显示 |
+| §4.1 页面骨架 | 0017、0020、0028、0030 | 筛选行为"游戏、临近截止、筛选"；时间轴自上而下：回看昨天（主轴第一行）→ 当前范围逐日 → "已显示完{档位}"与"显示更多"；时间待定在时间轴下方单独成卡；"即将截止"没有条目时整块不显示；筛选栏之后是「有效兑换码」条（ADR-0030），有可显示的兑换码时才出现，按选中的游戏筛，可一键复制，到点自动移除 |
 | §4.2 筛选 | 0017 | 时间范围移入「筛选」弹层，按钮显示当前档位与筛选计数；清除时恢复默认档 |
 | §4.3 条目与排序 | 0015、0017、0020 | 先后顺序统一用 contracts `compareScheduleNodes`；全天条目排在当天精确条目之后；结束节点叫"活动结束"；用官方游戏图标；今天总在轴上 |
 | §4.4 时间与状态呈现 | 0011、0013、0027、0028 | 推导出的时间在详情里写明推导依据（版本锚点、补全年份；补全年份的依据句涵盖首次采集日期）；近期重要变更与节点、详情的 `change` 不收没有任何曾公开旧时间的改期（contracts `isPublicChange`），共享更正层不变 |
-| §4.5 数据状态与空结果 | 0015 | 公开读取为 `no-cache`；页面开满 1 小时显示"内容可能已过时/当前离线"与信息获取时间，并给刷新按钮 |
+| §4.5 数据状态与空结果 | 0015、0032 | 公开读取为 `no-cache`，另带弱 ETag；页面开满 1 小时显示"内容可能已过时/当前离线"与信息获取时间，并给刷新按钮；同一标签页站内切换时复用上次核对过的公开副本，超过 `CLIENT_RECHECK_INTERVAL` 用条件请求核对，刷新按钮与浏览器刷新立即核对；切换筛选只重读日程，旧列表淡化保留到新的一档读完（失败时清空），不退回骨架 |
 | §5 事件详情 | 0014、0015、0017 | "查看官方公告"打开本站存档的原文弹窗；删去说明句；时间线用同一先后规则 |
 | §6.1 页面结构 | 0026、0029 | 「订阅内容」「接收方式」两个标签页；顶部引导两步：保存订阅内容 → 选择接收方式（浏览器通知、日历订阅、邮件通知任选一种，前两项标推荐；Push 未开放时不列），任一种开启后引导隐藏 |
 | §7.1 主流程 | 0026、0029 | 保存订阅 → 选择一种接收方式；引导入口只跳到对应卡片，不附带开启任何通道、不申请浏览器权限；恢复码不在主流程里 |
@@ -53,8 +55,9 @@
 | §11.1 视觉方向 | 0015、0020 | 游戏色只用于已选胶囊；截止 24 小时内为高危、72 小时内为临近；已过条目用次要文字色 |
 | §11.3 错误与重试 | 0023 | 不设全站故障横幅；故障由各功能区状态区与服务状态页说明，本节的反馈要求对这些状态区照样适用 |
 | §12.2 对接责任 | D2、D3、0014 | 权威预览与展示状态字段由 D2、D3 定义；公开读取增加原文子资源 |
+| §12.3 缓存、安全与性能 | 0032 | 不引入 Service Worker；公开接口响应可在本标签页 `sessionStorage` 留副本（键前缀 `hoyo:public:v1:`），私人接口不进副本；页头账号入口在本标签页记一个确认时刻（不含账号标识与凭证，只决定页头文字）；同源导航用跨文档视图过渡，减少动效偏好下关闭 |
 | §13 D1′ 行 | F1-02 卡 D1′；0017、0020、0023 | 默认近 3 天；首页五档：今天 / 近3天 / 近7天 / 近30天 / 全部（旧链接 `range=90d` 按"全部"读，contracts 与公开接口保留 `90d`）；昨天在主轴顶部、默认折叠 |
-| §13.2 D2 的处理原则 | D2；0006、0008、0015 | 浏览器用 `/api/v2/calendar/nodes` 自己算；启用以 `/api/v2/me/calendar/preview` 为准并核对订阅版本与发布代次；极大 blocked 集合可能取不全；续页游标有效 1 小时 |
+| §13.2 D2 的处理原则 | D2；0006、0008、0015、0031 | 浏览器用 `/api/v2/calendar/nodes` 自己算；启用以 `/api/v2/me/calendar/preview` 为准并核对订阅版本与发布代次；极大 blocked 集合可能取不全；续页游标有效 1 小时；预览列表与启用确认列表的条目标题用 contracts `calendarEntryTitle`，与日历一致（ADR-0031） |
 | §13.3 D3 的最小语义清单 | D3 | 服务端只给事实，浏览器用 contracts 纯函数推导置灰；操作结果分四种；`GET /api/v2/me` 汇总 |
 | §14.1 体验与交互验收矩阵 | 0015 | U02 读作"活动结束与奖励截止"，验收语义不变 |
 
@@ -62,7 +65,7 @@
 
 | 维度 | 取值 |
 | --- | --- |
-| 事件类型 | `livestream` / `maintenance` / `limited_event` / `gacha` |
+| 事件类型 | `livestream` / `maintenance` / `limited_event` / `gacha` / `redeem_code`（兑换码，ADR-0030） |
 | 节点类型 | `start` / `end` / `phase_unlock` / `reward_deadline` / `expected_end` / `actual_end` |
 | 审核状态 | `pending` / `approved` / `rejected` |
 | 事件状态 | `scheduled` / `postponed` / `cancelled` / `retracted`（`retracted` = 本站纠错，**不是**官方取消） |
@@ -397,7 +400,7 @@ pending 期限重合，没有问题。**若把 `AUTH_COMPLETION_TTL` 调得比 `
 
 ## 11. 附录 A.5 启动等式（`pnpm params:verify` 必须实现全部）
 
-`pnpm params:verify` 与 Worker 启动路径执行同一份校验（`packages/contracts/src/params/verify.ts`），任一不成立即非零退出、拒绝启动。2026-10-06（main `cea8145`）共 36 条数值等式；P3-26（ADR-0027）新增 1 条，现为 **37 条**，全部成立；另有 1 条语义条款由实现保证。新增等式时同步本表（AGENTS.md §4 允许的例外）。
+`pnpm params:verify` 与 Worker 启动路径执行同一份校验（`packages/contracts/src/params/verify.ts`），任一不成立即非零退出、拒绝启动。2026-10-06（main `cea8145`）共 36 条数值等式；P3-26（ADR-0027）新增 1 条，ADR-0030 新增 2 条，ADR-0032 新增 1 条，现为 **40 条**，全部成立；另有 1 条语义条款由实现保证。新增等式时同步本表（AGENTS.md §4 允许的例外）。
 
 | 组 | 等式 ID | 内容 | 依据 |
 | --- | --- | --- | --- |
@@ -432,8 +435,11 @@ pending 期限重合，没有问题。**若把 `AUTH_COMPLETION_TTL` 调得比 `
 | 时间推导 | `year-completion-window-single-year` | `YEAR_COMPLETION_WINDOW` 两端为正安全整数且 `beforeDays + afterDays < 365` | ADR-0013 |
 | 时间推导 | `year-completion-capture-window-narrower` | `YEAR_COMPLETION_CAPTURE_WINDOW` 两端为正安全整数，且两端都不超过 `YEAR_COMPLETION_WINDOW` 对应的一端 | ADR-0027 |
 | 来源上限 | `source-response-caps-within-ceiling` | 每来源 `responseCapsBytes > 0` 且 `<= responseCapCeilingBytes` | P3-08 |
+| 兑换码 | `redeem-reveal-grace-below-hot-poll` | `0 < REDEEM_CODE_REVEAL_GRACE < SOURCE_HOT_POLL` | ADR-0030 |
+| 兑换码 | `redeem-undated-display-within-tracking` | `REDEEM_LIVE_TRACK_MAX`、`REDEEM_LIVE_TRACK_DAYS` 为正整数；`REDEEM_CODE_UNDATED_DISPLAY <= REDEEM_LIVE_TRACK_DAYS × 86400` | ADR-0030 |
 | 公共读保护 | `public-read-bounds` | `PUBLIC_READ_LIMITS` 为正整数；`recentChanges <= scanPage <= detailNodes`；`nodeBytes × (recentChanges + 1) < responseBytes <= FEED_RESPONSE_MAX_BYTES`；`queryBytes <= nodeBytes` | P3-14 |
 | 私人预览限流 | `calendar-preview-rate-bounds` | 两参数为正安全整数；`CALENDAR_PREVIEW_RATE_WINDOW < PUBLIC_CACHE_FRESH` | ADR-0006 |
+| 页面副本 | `client-recheck-below-public-fresh` | `0 < CLIENT_RECHECK_INTERVAL < PUBLIC_CACHE_FRESH`（页面在副本被标为可能过时之前就会再核对一次） | ADR-0032 |
 | 回收维护 | `reclaim-query-budget` | `RECLAIM_QUERY_BUDGET` 为安全整数，`>= 9 × MATCH_PAGE + 6` 且低于 D1 每调用 1,000 条 | P5-02 |
 | 系统审计 | `system-audit-retention` | `SYSTEM_AUDIT_TTL` 为正安全整数，×1000 后仍为安全整数 | ADR-0007 |
 | 观测 | `observability-capacity-ratio` | `0 < OBS_CAPACITY_WARN_RATIO < 1` | P5-01 |
@@ -519,6 +525,7 @@ P3-15 / ADR-0006 启动校验 `calendar-preview-rate-bounds`：`CALENDAR_PREVIEW
 | --- | --- |
 | `/api/v2/catalog`、`/api/v2/events`、`/api/v2/events/{eventId}`、`/api/v2/status` | GET 公开；不创建身份、不读 Cookie；`/status` 公布全局 `registration_open`、`mail_sending_available`、来源与能力状态，**不提供按邮箱查询是否注册** |
 | `/api/v2/events/{eventId}/articles` | GET 公开（ADR-0014）：该事件本代已发布节点所依据的官方公告正文版本；超过 `PUBLIC_READ_LIMITS.responseBytes` 返回 503 而不截断 |
+| `/api/v2/redeem-codes` | GET 公开（ADR-0030）：当前在「有效兑换码」条里的兑换码（contracts `redeemCodeVisible`），不接受查询参数 |
 | `/api/v2/calendar/nodes` | GET 公开节点数据（D2 §2），浏览器按草稿自己算预览 |
 | `/api/v2/auth/preauth` | POST 同源初始化预认证 Cookie/CSRF |
 | `/api/v2/auth/challenges`（+ `resend` / `verify`） | 用途、预占、限额、浏览器绑定 |
@@ -541,6 +548,7 @@ P3-15 / ADR-0006 启动校验 `calendar-preview-rate-bounds`：`CALENDAR_PREVIEW
 | `/api/v2/admin/versions`（+ `confirm` / `clear`） | 版本时间表（ADR-0011） |
 | `/api/v2/admin/controls` | GET/PUT 运行开关（本文 §13） |
 | `/api/v2/admin/observability`（+ `platform`）、`/api/v2/admin/sources/resume`、`/api/v2/admin/delivery/rearm` | 观测视图与平台事实录入；来源维护、投递终态的人工解除（#90） |
+| `/api/v2/admin/redeem-lives` | POST 为直播兑换码来源登记官方直播页链接或活动 ID（ADR-0030）：闭合理由、条件写入并审计，至多 `REDEEM_LIVE_TRACK_MAX` 个，跟踪期后失效 |
 | `/api/v2/admin/reclaim`（+ `confirm/{id}`、`resume`） | 回收清单复核与恢复（P5-02） |
 
 ## 13. 运行开关（§10.1；P5-01，ADR-0009、ADR-0018）
@@ -564,13 +572,14 @@ P3-15 / ADR-0006 启动校验 `calendar-preview-rate-bounds`：`CALENDAR_PREVIEW
 
 读取失败一律是未知（`unknown`），执行时失败关闭；默认值只能是 false，不能借默认值打开任何能力。公开 `GET /api/v2/status` 只导出 `registration_open`、`mail_sending_available` 与 `capabilities`（calendar / email_seats / routine_email / push）的 open / closed / unknown，不输出预算或私人数据。首次关闭门初始化（2026-10-03）写入的"18 项"是当时 13 个全局开关、4 个来源开关与 `reclaim_paused`。
 
-## 14. 来源注册表（§3.1；ADR-0001、ADR-0016、ADR-0019）
+## 14. 来源注册表（§3.1；ADR-0001、ADR-0016、ADR-0019、ADR-0030）
 
 | source_id | 游戏 | 抓取内容 |
 | --- | --- | --- |
 | `genshin-ann` | 原神 | 游戏内公告 API `getAnnList` / `getAnnContent`：公告目录 `data.list` 与图文资讯目录 `data.pic_list`（外部 ID 加 `pic-` 前缀） |
 | `hsr-ann` | 崩坏：星穹铁道 | 同上（跃迁在 `pic_list`） |
 | `zzz-ann` | 绝区零 | 同上（调频在 `pic_list`） |
+| `genshin-live` / `hsr-live` / `zzz-live` | 三款游戏 | ADR-0030 直播兑换码：米游社首页 `apihub/api/home/new?gids=2/6/8` 发现官方直播页活动 ID（或管理员登记），官方直播页接口 `event/miyolive/index`（`x-rpc-act_id`）与 `refreshCode` 取兑换码；外部 ID 为活动 ID；不是日历的所需来源；登记与样本见 `fixtures/sources/miyolive/` |
 
 - 请求参数沿用 P0-02 核验的参数集（含 ADR-0001 的登出态哑 `uid` 与 `level`），不自行调整；生产响应上限取 `SOURCE_LIMIT_PROFILE`，读取 `pic_list` 不改变上限。
 - 米游社官方资讯（`miyoushe-news`）2026-10-05 下线（ADR-0016）：不再注册，遗留数据按 `RETIRED_SOURCE_IDS` 隔离——轮询待办直接结束、公开状态不列、历史文章不能再用于抽取与发布。

@@ -1,0 +1,37 @@
+{
+  "schema_version": 1,
+  "synthetic": true,
+  "source_id": "zzz-live",
+  "kind": "code-response",
+  "purpose": "合成样本：直播进行到第二个兑换码之后的兑换码列表。字段按米游社官方直播页前端实际读取的字段构造（code_list[].code 未到发放时刻为空串、title 为奖励说明 HTML、img、to_get_time 为发放时刻的秒数字符串）；2026-10-07 没有进行中的直播，尚无真实样本。",
+  "captured_at_utc": null,
+  "url": "https://api-takumi-static.mihoyo.com/event/miyolive/refreshCode?version=a1b2c3d4&time=1791548600",
+  "request_headers": ["x-rpc-act_id"],
+  "extra": { "act_id": "ea202610091930001", "act_id_note": "合成 ID" },
+  "body": {
+    "retcode": 0,
+    "message": "OK",
+    "data": {
+      "code_list": [
+        {
+          "title": "<p>菲林*100，<span>高级资质认证*2</span></p>",
+          "code": "ZZZ33SYNTHA1",
+          "img": "https://example.invalid/reward-1.png",
+          "to_get_time": "1791546300"
+        },
+        {
+          "title": "<p>菲林*100，&amp;邦布插件*1</p>",
+          "code": "ZZZ33SYNTHB2",
+          "img": "https://example.invalid/reward-2.png",
+          "to_get_time": "1791547500"
+        },
+        {
+          "title": "<p>菲林*100，丁尼*30000</p>",
+          "code": "",
+          "img": "https://example.invalid/reward-3.png",
+          "to_get_time": "1791548700"
+        }
+      ]
+    }
+  }
+}

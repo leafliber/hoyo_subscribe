@@ -21,6 +21,7 @@
 // 不静默双版本。
 
 import { logEvent } from "../../shell/logger";
+import { liveOfficialUrl } from "../adapters/miyolive";
 import { buildSourceUrl } from "../adapters/shared";
 import type { SourceRegistryEntry } from "../registry";
 import { sha256Hex } from "../snapshot-diff";
@@ -68,10 +69,11 @@ export async function articleRowId(sourceId: string, externalId: string): Promis
 }
 
 /**
- * 官方取材端点 URL：全量正文端点（getAnnContent，该文章正文的实际取得处）。
- * 单篇官方页 URL 模式未核验（见交付报告已知问题），不虚构。
+ * 官方取材地址。公告：全量正文端点（getAnnContent，该文章正文的实际取得处），单篇官方页 URL 模式未核验，
+ * 不虚构。直播兑换码（ADR-0030）：官方直播页（带活动 ID），本站只作展示链接、不请求它。
  */
-function officialUrlForEntry(entry: SourceRegistryEntry): string {
+function officialUrlForEntry(entry: SourceRegistryEntry, stub: SourceItemStub): string {
+  if (entry.adapterKind === "miyolive") return liveOfficialUrl(entry, stub.externalId);
   return buildSourceUrl(
     entry.approvedHosts[0],
     entry.request.contentPath,
@@ -182,7 +184,7 @@ export async function buildArticleIngestPlan(
     plan: {
       sourceId: stub.sourceId,
       externalId: stub.externalId,
-      officialUrl: officialUrlForEntry(entry),
+      officialUrl: officialUrlForEntry(entry, stub),
       blocks,
       mediaRefs,
       contentHash: await articleContentHash(blocks, mediaRefs),

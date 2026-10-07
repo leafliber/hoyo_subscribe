@@ -1,14 +1,18 @@
 import {
   API_BODY_MAX_BYTES,
   ControlWriteSchema,
+  liveActIdFromInput,
   OPERATIONAL_CONTROLS,
   OperationalReasonSchema,
   PlatformFactSchema,
+  RedeemLiveRegisterSchema,
 } from "@hoyo/contracts";
 import { auditStatement } from "../../admin/audit";
 import { adminCsrfBinding, requireAdmin } from "../../admin/session-routes";
+import type { SourcePollState, TrackedLive } from "../../executors/pipeline/source-poll";
 import { ApiError, jsonResponse, type ShellRoute } from "../../shell";
-import { SOURCE_REGISTRY } from "../../sources/registry";
+import { mergeRedeemHints, readRedeemHints, redeemHintKey } from "../../sources/redeem-store";
+import { isLiveEntry, SOURCE_REGISTRY } from "../../sources/registry";
 import { controlKey, readControl } from "./controls";
 import { DELIVERY_TERMINAL_JOBS, readObservability, readSourceStates } from "./views";
 
@@ -31,6 +35,28 @@ function recoveryInput(
   )
     throw new ApiError("validation");
   return { expected, reason: reason.data };
+}
+/** ADR-0030：来源采集水位里正在跟踪的直播活动，以及管理员登记、仍在跟踪期内的活动 ID。 */
+async function readLiveTracking(db: D1Database, sourceId: string, now: number) {
+  const row = await db
+    .prepare("SELECT cursor_json FROM sources WHERE source_id = ?")
+    .bind(sourceId)
+    .first<{ cursor_json: string }>();
+  let tracked: TrackedLive[] = [];
+  try {
+    const lives = row === null ? undefined : (JSON.parse(row.cursor_json) as SourcePollState).lives;
+    tracked = Array.isArray(lives) ? [...lives] : [];
+  } catch {
+    tracked = [];
+  }
+  return {
+    hints: await readRedeemHints(db, sourceId, now),
+    tracked: tracked.map((live) => ({
+      act_id: live.actId,
+      first_seen_at: live.firstSeenAtMs,
+      closed_at: live.closedAtMs,
+    })),
+  };
 }
 function noStore(value: unknown) {
   const response = jsonResponse(value);
@@ -65,6 +91,7 @@ export function makeObservabilityRoutes(clock: () => number = Date.now): ShellRo
           })),
         );
         const states = await readSourceStates(ctx.env.DB);
+        const now = clock();
         const sources = await Promise.all(
           SOURCE_REGISTRY.map(async (entry) => {
             const state = states?.find((row) => row.source_id === entry.sourceId);
@@ -76,6 +103,10 @@ export function makeObservabilityRoutes(clock: () => number = Date.now): ShellRo
               info: {
                 game: entry.game,
                 adapter: entry.adapterKind,
+                // ADR-0030：直播兑换码来源另列管理员登记的活动与正在跟踪的活动。
+                ...(isLiveEntry(entry)
+                  ? { lives: await readLiveTracking(ctx.env.DB, entry.sourceId, now) }
+                  : {}),
                 state:
                   state === undefined || state.verification_state === null
                     ? null
@@ -90,7 +121,7 @@ export function makeObservabilityRoutes(clock: () => number = Date.now): ShellRo
             };
           }),
         );
-        return noStore({ server_time: clock(), controls: [...controls, ...sources] });
+        return noStore({ server_time: now, controls: [...controls, ...sources] });
       },
     },
     {
@@ -282,6 +313,72 @@ export function makeObservabilityRoutes(clock: () => number = Date.now): ShellRo
           }),
         ]);
         return noStore({ recorded: true, server_time: now });
+      },
+    },
+    {
+      // ADR-0030：米游社首页没出现直播入口时，管理员登记官方直播页链接或活动 ID（兜底）。
+      // 只把活动 ID 交给该来源的下一次采集，采集照常走受限请求与官方接口校验，不放宽来源规则；
+      // 同一来源至多保留 REDEEM_LIVE_TRACK_MAX 个、跟踪期过后自动失效。
+      method: "POST",
+      pattern: "/api/v2/admin/redeem-lives",
+      domain: "admin",
+      write: true,
+      csrfBinding: adminCsrfBinding,
+      bodySchema: { fields: { source: text, live: text, reason: text } },
+      handler: async (ctx) => {
+        const parsed = RedeemLiveRegisterSchema.safeParse(ctx.body);
+        if (!parsed.success || ctx.url.search) throw new ApiError("validation");
+        const admin = requireAdmin(ctx.auth);
+        const entry = SOURCE_REGISTRY.find((source) => source.sourceId === parsed.data.source);
+        const actId = liveActIdFromInput(parsed.data.live);
+        if (entry === undefined || !isLiveEntry(entry) || actId === null)
+          throw new ApiError("validation");
+        const now = clock();
+        const key = redeemHintKey(entry.sourceId);
+        const previous = await ctx.env.DB.prepare(
+          "SELECT value_json, updated_at FROM system_state WHERE key = ?",
+        )
+          .bind(key)
+          .first<{ value_json: string; updated_at: number }>();
+        const hints = mergeRedeemHints(previous?.value_json ?? null, actId, now);
+        const results = await ctx.env.DB.batch([
+          // 按读到的版本条件写入：并发登记时后到的一次返回冲突，不丢前一次。
+          ctx.env.DB.prepare(
+            `INSERT INTO system_state(key,value_json,updated_at) SELECT ?,?,?
+              WHERE ? = 0 OR EXISTS(SELECT 1 FROM system_state WHERE key = ? AND updated_at = ?)
+             ON CONFLICT(key) DO UPDATE SET value_json=excluded.value_json,updated_at=excluded.updated_at
+              WHERE system_state.updated_at = ?`,
+          ).bind(
+            key,
+            JSON.stringify(hints),
+            now,
+            previous === null ? 0 : 1,
+            key,
+            previous?.updated_at ?? 0,
+            previous?.updated_at ?? 0,
+          ),
+          ctx.env.DB.prepare(`INSERT INTO audit_log(id,actor_type,actor_id,action,target_type,target_id,reason,created_at,expires_at)
+ SELECT ?, 'admin', ?, 'redeem_live_register', 'source', ?, ?, ?, ? WHERE changes()=1`).bind(
+            crypto.randomUUID(),
+            admin.adminId,
+            entry.sourceId,
+            parsed.data.reason,
+            now,
+            now + ADMIN_AUDIT_TTL * 1000,
+          ),
+          // 登记后尽快采集一次：待办在等常规间隔时提前到现在（租约中的不动）。
+          ctx.env.DB.prepare(
+            `UPDATE jobs SET due_at = ?, updated_at = ? WHERE id = ? AND status = 'pending' AND due_at > ?`,
+          ).bind(now, now, `pipeline:source:${entry.sourceId}`, now),
+        ]);
+        if (results[0].meta.changes !== 1) throw new ApiError("conflict");
+        return noStore({
+          registered: true,
+          source: entry.sourceId,
+          act_id: actId,
+          tracked: hints.length,
+          server_time: now,
+        });
       },
     },
   ];

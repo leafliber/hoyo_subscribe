@@ -251,18 +251,24 @@ export const FEED_DIAGNOSTICS = {
 } as const;
 export type FeedDiagnostic = keyof typeof FEED_DIAGNOSTICS;
 
-/** D2：来源规则从 Feed 原样移入；区服沿用旧实现的小写比较。 */
+/**
+ * D2：来源规则从 Feed 原样移入；区服沿用旧实现的小写比较。
+ * ADR-0030：直播兑换码来源（freshnessExempt）不是日历的所需来源——它只产出短期的兑换码事件，
+ * 暂时取不到不能让整份日历 503；兑换码事件照常按已发布的事实输出。
+ */
 export function requiredCalendarSources<
   T extends {
     sourceId: string;
     game: string;
     region: string;
     contentChannelDisabled?: boolean;
+    freshnessExempt?: boolean;
   },
 >(config: Pick<CalendarProjectionSource, "scope">, sources: readonly T[]): T[] {
   return sources.filter(
     (entry) =>
       !entry.contentChannelDisabled &&
+      !entry.freshnessExempt &&
       config.scope.games.some((game) => game === entry.game) &&
       config.scope.regions.some((region) => region.toLowerCase() === entry.region),
   );

@@ -9,7 +9,7 @@
 | --- | --- | --- |
 | [HOYO_OFFICIAL_EVENT_SUBSCRIPTION_PLAN_v2.1.md](HOYO_OFFICIAL_EVENT_SUBSCRIPTION_PLAN_v2.1.md) | 产品范围、平台预案、抽取管线、认证与恢复、云端订阅、个人 ICS、通知调度、数据与接口、预算与生命周期、运维验收、附录 A 参数基线 | 全体 |
 | [HOYO_SUBSCRIPTION_FRONTEND_DESIGN_v1.0.md](HOYO_SUBSCRIPTION_FRONTEND_DESIGN_v1.0.md) | 信息架构、状态归属、各页面交互、保存状态机、接收方式呈现、视觉与可访问性、前端验收 U01–U29 | 前端轮次 F1–F6；后端在设计对外字段时 |
-| [adr/](adr/README.md) | 变更合同的决策记录（0001–0025；0002 被 0003 取代，0004 为预留编号）。改动禁止清单中的任何一条、改动合同语义，都必须先有 ADR | 全体；改合同前必读 |
+| [adr/](adr/README.md) | 变更合同的决策记录（0001–0032；0002 被 0003 取代，0004 为预留编号）。改动禁止清单中的任何一条、改动合同语义，都必须先有 ADR | 全体；改合同前必读 |
 | [D2_CALENDAR_PREVIEW.md](D2_CALENDAR_PREVIEW.md) | 前端 §13 待确认项 D2 的答案：实际日历预览、启用时的版本核对、公开变更数据（**2026-09-30 所有者审定**；F2-02 正式预览与 F3-04 开通体验以它为准） | 日历预览、启用相关的卡 |
 | [D3_STATE_VIEWS.md](D3_STATE_VIEWS.md) | 前端 §13 待确认项 D3 的答案：状态视图与操作结果（**2026-09-30 所有者审定**，§1.2 改为浏览器推导；F3 联调以它为准） | 账号、通道状态相关的卡 |
 
@@ -31,6 +31,7 @@ D1′（浏览时间范围预设）的定案写在 [F1-02 卡](tasks/F1-F2.md)�
 | [P5-04 关闭门部署与E3清单](evidence/p5/owner-handoff.md) | 首次关闭门发布记录、之后每次部署的顺序、E3 取证表（仍未完成） |
 | [P5-04 本地交付证据](evidence/p5/results.md) | 负载13组、离线对账、公开限制和历史失败；仅E1/E2，不当目标计费证据 |
 | [P0 证据目录](evidence/p0/README.md) | 来源样本、平台事实、日历客户端与邮件链路的 P0 证据（结论见 `evidence/p0/CONCLUSIONS.md`） |
+| [ADR-0030 直播兑换码接口取证](evidence/p3/miyolive-redeem-codes.md) | 米游社首页发现入口与官方直播页 `index`/`refreshCode` 的实测（2026-10-07，当天无直播，活动与兑换码字段用合成样本）；直播期间的取证待补 |
 | [P3-17 真实调用取证](evidence/p3/ai-draft-probe.md) | 6 次真实调用的响应形状、计费口径与 `/no_think` 结论（ADR-0009 依据，不是 P0-03b 质量评估） |
 | [P6-03 Web Push 客户端取证清单](evidence/p6/README.md) | 桌面、Android、iOS 主屏幕与目标网络的逐项取证步骤与记录模板（ADR-0025）；**尚无记录**，需所有者执行 |
 

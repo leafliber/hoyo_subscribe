@@ -6,6 +6,7 @@ import {
   type PushSendOutcome,
   PushSendOutcomeSchema,
 } from "@hoyo/contracts";
+import { PublicApiClient } from "../../../lib/public-api/client";
 import { csrfToken } from "../../subscription/save/machine";
 import type { BrowserSubscription } from "./browser";
 
@@ -97,10 +98,8 @@ export const deletePush = (id: string) => action(`/${id}`, "DELETE", {});
 /** 公开能力：只有 open 才显示开启入口（前端 §9.3 第一段）；读取失败按 unknown。 */
 export async function pushCapability(): Promise<"open" | "closed" | "unknown"> {
   try {
-    const response = await fetch("/api/v2/status", { credentials: "omit" });
-    const body = (await response.json()) as { capabilities?: { push?: unknown } };
-    const value = body.capabilities?.push;
-    return value === "open" || value === "closed" ? value : "unknown";
+    // ADR-0032：与本页其他入口共用一次 `/api/v2/status` 读取。
+    return (await new PublicApiClient().capabilities()).push;
   } catch {
     return "unknown";
   }

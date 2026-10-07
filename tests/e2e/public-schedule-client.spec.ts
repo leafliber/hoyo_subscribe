@@ -127,6 +127,7 @@ for (const verificationState of ["unknown", "unavailable", "verified"] as const)
     const source: PublicSourceStatus = {
       sourceId: "synthetic-maintenance",
       game: "genshin",
+      kind: "announcement",
       verifiedAt: null,
       verificationState,
       degradationReasons: ["maintenance_required"],
@@ -139,6 +140,7 @@ test("U05 同游戏来源分别呈现；仅列表可用不把正常官方来源�
   const official: PublicSourceStatus = {
     sourceId: "synthetic-official",
     game: "genshin",
+    kind: "announcement",
     verifiedAt: now,
     verificationState: "verified",
     degradationReasons: [],

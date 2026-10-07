@@ -24,7 +24,14 @@ import { logEvent } from "../../shell/logger";
 import { readControl } from "../../shell/observability/controls";
 import { recordMetric } from "../../shell/observability/metrics";
 import { articleRowId, saveArticleVersion } from "../../sources/articles/ingest";
-import { getSourceEntry, isRetiredSource, SOURCE_REGISTRY } from "../../sources/registry";
+import { persistRedeemUpdate, readRedeemHints } from "../../sources/redeem-store";
+import {
+  getSourceEntry,
+  isLiveEntry,
+  isLiveSource,
+  isRetiredSource,
+  SOURCE_REGISTRY,
+} from "../../sources/registry";
 import { boundedDatabase, ReclaimQueryLimit } from "../cron/query-budget";
 import { type CollectedPage, collectSource } from "./collect";
 import type { PipelineControlReader } from "./controls";
@@ -314,6 +321,10 @@ export class PipelineRuntime {
     }
     const nextDue = this.now() + pollIntervalSeconds(entry, setting.mode) * 1000;
     if (data.page === undefined) {
+      // ADR-0030：直播兑换码来源另带管理员登记的活动 ID（首页没出现直播入口时的兜底）。
+      const hints = isLiveEntry(entry)
+        ? (await readRedeemHints(this.db, entry.sourceId, this.now())).map((hint) => hint.act_id)
+        : [];
       data.page = await collectSource(
         {
           ...entry,
@@ -326,6 +337,7 @@ export class PipelineRuntime {
         JSON.parse(source.cursor_json) as SourcePollState,
         this.now(),
         this.deps.fetchFn ?? fetch,
+        hints,
       );
       if (data.page.status === "maintenance-required") {
         await this.db
@@ -337,6 +349,11 @@ export class PipelineRuntime {
         logEvent("warn", "pipeline_source_maintenance", { source: data.sourceId });
         await this.finish(job, "failed", JSON.stringify(data), nextDue, "source_maintenance");
         return;
+      }
+      // ADR-0030：兑换码条的数据随采集立即写入（与文章入账无关、时效最强）；写完从持久页里删去。
+      if (data.page.redeem !== undefined && isLiveEntry(entry)) {
+        await persistRedeemUpdate(this.db, entry, data.page.redeem, this.now());
+        delete data.page.redeem;
       }
       // 先落持久页，再触碰文章。硬中断只会重放幂等入口。
       await this.finish(job, "pending", JSON.stringify(data), this.now());
@@ -403,11 +420,19 @@ export class PipelineRuntime {
         count: job.attempts,
         kind: job.kind,
       });
+    // ADR-0030：有尚未发放的兑换码时，按官方发放时刻提前再取一次（不晚于常规到期）。
+    const revealDue =
+      typeof data.page.nextPollAtMs === "number" && Number.isSafeInteger(data.page.nextPollAtMs)
+        ? Math.max(this.now(), data.page.nextPollAtMs)
+        : Number.POSITIVE_INFINITY;
     await this.finish(
       job,
       "pending",
       JSON.stringify({ sourceId: data.sourceId }),
-      data.page.status === "ok" ? nextDue : this.now() + WATCHDOG_INTERVAL * 1000,
+      Math.min(
+        data.page.status === "ok" ? nextDue : this.now() + WATCHDOG_INTERVAL * 1000,
+        revealDue,
+      ),
       data.page.status === "ok" ? null : "source_incomplete",
     );
   }
@@ -433,9 +458,19 @@ export class PipelineRuntime {
       await this.finish(job, "done", job.payload_json, this.now(), "candidate_rejected");
       return;
     }
+    // ADR-0030：直播兑换码来源的规则候选来自官方结构化字段，来源开关开着就发布（兑换码只在一两天内有用，
+    // 等人工审核就失去意义）；公告的规则模板仍受「自动发布」开关约束。
+    const liveSource = isLiveSource(result.candidate.sourceId);
     if (result.candidate.reviewStatus !== "approved") reason = "awaiting_review";
-    else if (result.candidate.path === "rule" && controls?.automaticPublication !== true)
-      reason = "automatic_publication_unavailable_or_disabled";
+    else if (
+      result.candidate.path === "rule" &&
+      (liveSource
+        ? controls?.sources[result.candidate.sourceId]?.enabled !== true
+        : controls?.automaticPublication !== true)
+    )
+      reason = liveSource
+        ? "source_switch_unavailable_or_disabled"
+        : "automatic_publication_unavailable_or_disabled";
     else if (
       (await readNoncriticalPublicationPause(this.db)) &&
       !(await isCriticalPublication(this.db, result.candidate))

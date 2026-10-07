@@ -18,19 +18,31 @@ import genshinContent from "../../../../fixtures/sources/genshin-ann/content-218
 import genshinIndex from "../../../../fixtures/sources/genshin-ann/index.json";
 import hsrContent from "../../../../fixtures/sources/hsr-ann/content-1195.json";
 import hsrIndex from "../../../../fixtures/sources/hsr-ann/index.json";
+import liveRegistry from "../../../../fixtures/sources/miyolive/registry.json";
 import registryDraft from "../../../../fixtures/sources/registry.draft.json";
 import zzzContent from "../../../../fixtures/sources/zzz-ann/content-1301.json";
 import zzzIndex from "../../../../fixtures/sources/zzz-ann/index.json";
 import sourcesVerified from "../../../../scripts/probes/source-samples/sources.verified.json";
 import {
   getSourceEntry,
+  isAnnouncementEntry,
+  isLiveEntry,
+  isLiveSource,
   isRetiredSource,
   listSourceEntries,
   RETIRED_SOURCE_IDS,
   SOURCE_REGISTRY,
 } from "./registry";
 
-const draft = registryDraft as { sources: Array<Record<string, unknown>> };
+// ADR-0030：公告源对照 P0-02 登记，直播兑换码来源对照它自己的登记（fixtures/sources/miyolive/registry.json）。
+const draft = {
+  sources: [
+    ...(registryDraft as { sources: Array<Record<string, unknown>> }).sources,
+    ...(liveRegistry as { sources: Array<Record<string, unknown>> }).sources,
+  ],
+};
+const ANNOUNCEMENT_REGISTRY = SOURCE_REGISTRY.filter(isAnnouncementEntry);
+const LIVE_REGISTRY = SOURCE_REGISTRY.filter(isLiveEntry);
 const verified = sourcesVerified as { sources: Array<Record<string, unknown>> };
 const annIndexes: Record<string, { list_observation: { page_size: number } }> = {
   "genshin-ann": genshinIndex as { list_observation: { page_size: number } },
@@ -141,7 +153,7 @@ describe("A-P3-FETCH 来源注册表与 P0-02 登记零漂移", () => {
   });
 
   it("请求形状沿用 sources.verified.json 的已核验参数集（level/uid 门控不自行调整，ADR-0001）", () => {
-    for (const entry of SOURCE_REGISTRY) {
+    for (const entry of ANNOUNCEMENT_REGISTRY) {
       const verifiedSource = verifiedEntry(entry.sourceId);
       const list = verifiedSource.list as Record<string, unknown>;
       expect(entry.request.listPath).toBe(list.path);
@@ -155,7 +167,7 @@ describe("A-P3-FETCH 来源注册表与 P0-02 登记零漂移", () => {
   it("公告源分页参数与 P0-02 已核验请求形状一致（服务端忽略，page_size 取采集实测值）", () => {
     for (const [sourceId, index] of Object.entries(annIndexes)) {
       const entry = getSourceEntry(sourceId);
-      expect(entry.adapterKind).toBe("announcement-webview");
+      if (!isAnnouncementEntry(entry)) throw new Error(`${sourceId} 应为公告源`);
       expect(entry.request.paginationParams).toEqual({
         page: "1",
         page_size: String(index.list_observation.page_size),
@@ -174,6 +186,32 @@ describe("A-P3-FETCH 来源注册表与 P0-02 登记零漂移", () => {
       expect(isRetiredSource(entry.sourceId)).toBe(false);
       expect(entry.verificationState).toBe("verified-working");
     }
+  });
+
+  it("A-P3-FETCH ADR-0030 直播兑换码来源的请求形状与登记一致，且不是日历的所需来源", () => {
+    expect(LIVE_REGISTRY.map((entry) => entry.sourceId)).toEqual([
+      "genshin-live",
+      "hsr-live",
+      "zzz-live",
+    ]);
+    for (const entry of LIVE_REGISTRY) {
+      const request = draftEntry(entry.sourceId).request as Record<string, Record<string, unknown>>;
+      expect(entry.request.discovery).toEqual({
+        host: request.discovery.host,
+        path: request.discovery.path,
+        params: request.discovery.params,
+      });
+      expect(entry.request.index).toEqual({ host: request.index.host, path: request.index.path });
+      expect(entry.request.codes).toEqual({ host: request.codes.host, path: request.codes.path });
+      expect(entry.request.livePage).toBe(request.live_page);
+      // 发现、活动与兑换码三类请求的主机都在白名单里；官方直播页只是展示链接，不在白名单。
+      for (const host of [request.discovery.host, request.index.host, request.codes.host])
+        expect(entry.approvedHosts).toContain(host);
+      expect(entry.approvedHosts).not.toContain(new URL(entry.request.livePage).hostname);
+      expect(entry.freshnessExempt).toBe(true);
+      expect(isLiveSource(entry.sourceId)).toBe(true);
+    }
+    for (const entry of ANNOUNCEMENT_REGISTRY) expect(isLiveSource(entry.sourceId)).toBe(false);
   });
 
   it("未知来源拒绝：不在登记内即抛错", () => {

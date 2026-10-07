@@ -457,7 +457,7 @@ describe("A-P3-ICS Feed HTTP 读路径与完整快照", () => {
     await fresh();
     expect(await events(await request())).toHaveLength(0);
   });
-  it("更正到期后描述不再带更正理由；时间、UID 与序列不变", async () => {
+  it("ADR-0031 标题与描述可读、链接指向本站详情；更正到期后描述不再带更正理由，时间、UID 与序列不变", async () => {
     const old = node("synthetic-reschedule", T);
     const next = node("synthetic-reschedule", T + 100 * day);
     const value = {
@@ -467,13 +467,38 @@ describe("A-P3-ICS Feed HTTP 读路径与完整快照", () => {
     };
     await snapshot([value]);
     const [during] = await events(await request());
-    expect(during?.description).toBe("官方说明,分号;\n已公布新时间");
+    const tail = [
+      "说明：官方说明,分号;",
+      "详情与官方公告原文：https://example.invalid/events/synthetic-event",
+      "时间与安排以官方公告为准。",
+    ];
+    expect(during?.summary).toBe("中文😀合成活动 · 活动开始");
+    expect(during?.description).toBe(
+      [
+        "原神 · 限时活动 · 活动开始",
+        "时间：2027年1月8日 周五 20:00（北京时间）",
+        "官方原文：明确时间",
+        "更正：已公布新时间（原时间 2026年9月30日 周三 20:00（北京时间））",
+        ...tail,
+      ].join("\n"),
+    );
+    // 链接是本站活动详情页，不再是官方取材接口地址。
+    expect(during?.component.getFirstPropertyValue("url")).toBe(
+      "https://example.invalid/events/synthetic-event",
+    );
     at = (value.patch?.retain_until ?? 0) + 1;
     await fresh();
     const response = await request();
     expect(response.status).toBe(200);
     const [expired] = await events(response);
-    expect(expired?.description).toBe("官方说明,分号;");
+    expect(expired?.description).toBe(
+      [
+        "原神 · 限时活动 · 活动开始",
+        "时间：2027年1月8日 周五 20:00（北京时间）",
+        "官方原文：明确时间",
+        ...tail,
+      ].join("\n"),
+    );
     expect([expired?.uid, expired?.sequence, expired?.startDate.toJSDate().getTime()]).toEqual([
       during?.uid,
       during?.sequence,

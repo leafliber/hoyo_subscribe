@@ -9,7 +9,8 @@
 - 继续加载时使用原筛选及 `cursor=encodeURIComponent(nextCursor)`。每页是稳定节点身份序的有界扫描结果，前端按时间分组；空页也必须继续检查 `nextCursor`。只有它为 `null` 才加载完毕。换代、跨北京时间日或换筛选使用旧游标时返回 `409 conflict`，清空后重新加载，不跨代拼接。
 - `GET /api/v2/events/{eventId}`：使用节点的 `eventId`，不是 Milestone `id`。缺少本代事件返回 404。`importantNodeId` 只选择实际存在、尚未到计划时刻/日期或待定的节点；没有当前安排时为 null，不虚构“实际进行中”。
 - `GET /api/v2/events/{eventId}/articles`（P3-22 / ADR-0014）：该事件依据的官方公告原文，见下文「公告原文」。
-- `GET /api/v2/status`：保留原有注册和全局邮件可用字段；公开来源状态、缺口聚合、代次、客户端实测范围。能力四项由 P5-01 在状态路由（`accounts/admission/status.ts`）用 `publicOperationalCapabilities` 按运行开关推导；本模块 `readPublicStatus` 只给 `unknown` 占位。
+- `GET /api/v2/redeem-codes`（ADR-0030）：「有效兑换码」条，见下文「有效兑换码」。
+- `GET /api/v2/status`：保留原有注册和全局邮件可用字段；公开来源状态（ADR-0030 起每条带 `kind`：`announcement` 游戏内公告 / `live_codes` 直播兑换码，日程是否受影响只看前者）、缺口聚合、代次、客户端实测范围。能力四项由 P5-01 在状态路由（`accounts/admission/status.ts`）用 `publicOperationalCapabilities` 按运行开关推导；本模块 `readPublicStatus` 只给 `unknown` 占位。
 - 不传 Cookie 或私人参数；服务端公开路由不读取 Cookie、不鉴权、不建身份、不续会话。
 
 `PublicScheduleNode` 沿用样例节点的 `id/title/game/eventType/nodeType/status/time/evidence/noticePublishedAt`，新增 `eventId`；未知公告发布时间为 null，`change` 缺失时为 null（样例为 undefined）。真实列表有独立 `recentChanges` 和分页字段，不能强转成 `synthetic: true` 的 `ScheduleSnapshot`。
@@ -35,9 +36,15 @@
 - `html` 块是官方原始 HTML，网页只能惰性解析后按白名单重建（`apps/web/src/features/schedule/article.ts`），不得放进 `innerHTML`。
 - 路由在 `/api/v2/events/*` 内分派：`/{eventId}/articles` 读原文，其他多段路径仍按详情校验返回 400。
 
+## 有效兑换码（ADR-0030）
+
+- 数据来自 `redeem_codes`：直播兑换码来源采集时写入的官方兑换码（码、奖励说明、发放时刻、官方写明的有效期、官方"活动已结束"的观察时刻），不经审核。
+- `readVisibleRedeemCodes`（`sources/redeem-store.ts`）先按发放时刻取跟踪期（`REDEEM_LIVE_TRACK_DAYS`）内、注册表里的直播来源的行，再逐条用 contracts `redeemCodeVisible` 判定；返回 `hiddenAt`（contracts `redeemCodeHiddenAt`）供页面到点隐藏。兑换码事件已发布时带 `eventId`（按规则模板的事件身份计算后核对存在）。
+- 不接受查询参数；查询失败返回 503。`officialUrl` 是官方直播页（本站不请求它）。
+
 ## 缓存、失败和读量
 
-公共副本 `freshUntil = generatedAt + PUBLIC_CACHE_FRESH`（秒转毫秒；ADR-0015 起为 1 小时）；源站实时响应 `stale=false`。HTTP 为 `no-cache`（ADR-0015）：浏览器每次打开都向源站取最新，不复用旧响应；freshUntil 只用于页面开着太久时标注"可能已过时"并给出刷新按钮。前端使用已过 freshUntil 的副本时标注并显示 generatedAt；publication.publishedAt 与每来源 verifiedAt 单独展示数据水位。此模块没有源站旧副本兜底，不供私人 Feed 使用。
+公共副本 `freshUntil = generatedAt + PUBLIC_CACHE_FRESH`（秒转毫秒；ADR-0015 起为 1 小时）；源站实时响应 `stale=false`。HTTP 为 `no-cache`（ADR-0015）：浏览器不在 HTTP 缓存里复用旧响应；freshUntil 只用于页面开着太久时标注"可能已过时"并给出刷新按钮。ADR-0032 起目录、日程、详情、原文、状态、兑换码的 200 响应带弱 ETag（`conditional.ts`：去掉 `cache` 字段后的 SHA-256 前 128 位），`If-None-Match` 一致时回 304、无正文；页面在同一标签页留副本，站内切换时在 `CLIENT_RECHECK_INTERVAL` 内直接复用，超过后带 ETag 核对，刷新立即核对（`apps/web/src/lib/public-api/`）。错误响应不带 ETag。前端使用已过 freshUntil 的副本时标注并显示 generatedAt；publication.publishedAt 与每来源 verifiedAt 单独展示数据水位。此模块没有源站旧副本兜底，不供私人 Feed 使用。
 
 没有完整代次：catalog/status 的 `publication=null`；events/detail 返回 503。events/detail 查询失败、行超字节保护、详情超节点/字节保护明确不可用。
 

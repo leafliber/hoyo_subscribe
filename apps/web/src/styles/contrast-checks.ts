@@ -219,6 +219,12 @@ export const CONTRAST_CHECKS: readonly ContrastCheck[] = [
     background: { base: "--color-accent-soft" },
   },
   {
+    use: "强调深色文字 on 强调较深浅底（兑换码复制按钮悬停，ADR-0030）",
+    min: CONTRAST_NORMAL_TEXT,
+    text: { color: "--color-accent-strong" },
+    background: { base: "--color-accent-soft-strong" },
+  },
+  {
     use: "焦点环 on 强调浅底",
     min: CONTRAST_UI_COMPONENT,
     text: { color: "--color-focus-ring" },

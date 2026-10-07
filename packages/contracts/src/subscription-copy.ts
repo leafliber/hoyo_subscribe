@@ -15,6 +15,7 @@ export const SUBSCRIPTION_EVENT_TYPE_LABELS = {
   maintenance: "维护",
   limited_event: "限时活动",
   gacha: "卡池",
+  redeem_code: "兑换码",
 } as const satisfies Record<EventType, string>;
 
 export const SUBSCRIPTION_NODE_TYPE_LABELS = {

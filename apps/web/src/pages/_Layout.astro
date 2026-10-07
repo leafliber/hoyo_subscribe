@@ -1,5 +1,6 @@
 ---
 import "../styles/base.css";
+import { CLIENT_RECHECK_INTERVAL } from "@hoyo/contracts";
 import Icon from "../components/Icon.astro";
 
 interface Props {
@@ -47,7 +48,7 @@ const siteName = "HoYo日历";
             </li>
           </ul>
         </nav>
-        <a class="account-entry" href="/login" data-account-entry>
+        <a class="account-entry" href="/login" data-account-entry data-recheck-seconds={CLIENT_RECHECK_INTERVAL}>
           <Icon name="user" />
           <span data-account-label>登录</span>
         </a>

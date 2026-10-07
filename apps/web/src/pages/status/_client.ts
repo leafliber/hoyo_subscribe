@@ -1,4 +1,4 @@
-import { GAME_NAMES } from "@hoyo/contracts";
+import { GAME_NAMES, PUBLIC_SOURCE_KIND_LABELS } from "@hoyo/contracts";
 import { sourceFeedback } from "../../features/schedule/source-status";
 import { type BadgeKind, badge, el, icon } from "../../lib/dom";
 import { stamp } from "../../lib/format";
@@ -43,7 +43,8 @@ async function refresh() {
   clearTimeout(expiry);
   if (retry instanceof HTMLButtonElement) retry.disabled = true;
   setMessage("正在读取公开状态…", "info");
-  facts.replaceChildren();
+  // ADR-0032：刷新期间保留上一次读到的内容（不整块清空再出现）；读完整体换上，失败才清空。
+  facts.setAttribute("aria-busy", "true");
   try {
     const status = await api.status(undefined, true);
     const stale = status.cache.stale || Date.now() > status.cache.freshUntil;
@@ -66,7 +67,8 @@ async function refresh() {
       { class: "status-tiles list-plain" },
       ...tiles.map(([label, desc, value]) => capabilityTile(label, desc, value, stale)),
     );
-    facts.append(
+    const sections: Node[] = [];
+    sections.push(
       el(
         "section",
         { class: "card info-section", "aria-labelledby": "capability-heading" },
@@ -117,6 +119,8 @@ async function refresh() {
                 gameIcon(source.game),
                 GAME_NAMES[source.game],
               ),
+              // ADR-0030：同一游戏有公告与直播兑换码两个来源，写明用途。
+              el("span", { class: "source-kind" }, PUBLIC_SOURCE_KIND_LABELS[source.kind]),
               el("span", { class: "source-id" }, source.sourceId),
               badge(feedback.label, feedback.affected ? "warning" : "success"),
               el("span", { class: "source-time" }, `最近成功：${stamp(source.verifiedAt)}`),
@@ -138,10 +142,13 @@ async function refresh() {
       ),
       el("p", { class: "text-aux" }, `公开副本有效至：${stamp(status.cache.freshUntil)}`),
     );
-    facts.append(data);
+    sections.push(data);
+    facts.replaceChildren(...sections);
   } catch {
+    facts.replaceChildren();
     setMessage("公开状态读取失败，当前状态未知。请稍后刷新，或查看帮助中的限制说明。", "warning");
   } finally {
+    facts.removeAttribute("aria-busy");
     busy = false;
     if (retry instanceof HTMLButtonElement) retry.disabled = false;
   }

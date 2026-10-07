@@ -1,4 +1,8 @@
-import { ARTICLE_COMPLETENESS_NOTES, type PublicEventArticlesResponse } from "@hoyo/contracts";
+import {
+  ARTICLE_COMPLETENESS_NOTES,
+  type PublicEventArticlesResponse,
+  PublicEventArticlesResponseSchema,
+} from "@hoyo/contracts";
 import { closeDialog, openDialog } from "../../components/dialog";
 import { callout, el, icon } from "../../lib/dom";
 import { stamp } from "../../lib/format";
@@ -141,17 +145,29 @@ function failureText(error: unknown): string {
   return "网络连接失败或服务没有回应，请检查网络后重试。";
 }
 
-async function load(eventId: string, officialUrl: string | null) {
+async function load(eventId: string, officialUrl: string | null, retrying = false) {
   request?.abort();
   const controller = new AbortController();
   request = controller;
+  // ADR-0032：本标签页读过、且在核对间隔内的原文直接显示（原文版本不可变）；
+  // 上次没有可确认的版本（可能正在更新发布数据）或用户点了重试时，照旧向服务端读取。
+  const path = PublicApiClient.articlesPath(eventId);
+  const cached = retrying ? null : api.peek(path, PublicEventArticlesResponseSchema);
+  if (cached && cached.value.articles.length > 0 && api.isFresh(path)) {
+    body.removeAttribute("aria-busy");
+    renderLoaded(cached.value, officialUrl);
+    return;
+  }
   body.setAttribute("aria-busy", "true");
   body.replaceChildren(
     el("p", { class: "text-aux", role: "status" }, "正在读取本站保存的公告原文…"),
     el("div", { class: "skeleton skeleton-block" }),
   );
   try {
-    renderLoaded(await api.articles(eventId, controller.signal), officialUrl);
+    renderLoaded(
+      (await api.load(path, PublicEventArticlesResponseSchema, controller.signal, "fresh")).value,
+      officialUrl,
+    );
   } catch (error) {
     if (controller.signal.aborted) return;
     const retry = el(
@@ -160,7 +176,7 @@ async function load(eventId: string, officialUrl: string | null) {
       icon("refresh"),
       "重试",
     );
-    retry.addEventListener("click", () => void load(eventId, officialUrl));
+    retry.addEventListener("click", () => void load(eventId, officialUrl, true));
     body.replaceChildren(
       callout("warning", failureText(error), { title: "原文没有读取成功", role: "status" }),
       el("div", { class: "button-row" }, retry),
