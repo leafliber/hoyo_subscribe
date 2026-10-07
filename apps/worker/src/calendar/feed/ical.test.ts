@@ -47,6 +47,35 @@ describe("A-P3-ICS RFC 5545 格式", () => {
     ]);
     expect(foldLine(`${"a".repeat(74)}😀`)).toBe(`${"a".repeat(74)}\r\n 😀`);
   });
+  it("按码位计算字节数与 TextEncoder 逐字编码的折行结果完全一致（1–4 字节字符、落单代理项）", () => {
+    const encoder = new TextEncoder();
+    const reference = (value: string) => {
+      const lines: string[] = [];
+      let line = "";
+      let bytes = 0;
+      for (const char of value) {
+        const width = encoder.encode(char).length;
+        if (bytes + width > 75) {
+          lines.push(line);
+          line = " ";
+          bytes = 1;
+        }
+        line += char;
+        bytes += width;
+      }
+      lines.push(line);
+      return lines.join("\r\n");
+    };
+    const pieces = ["a", "é", "ß", "中", "文", "😀", "𝄞", "\ud800", "\udfff", "߿", "ࠀ"];
+    for (let seed = 0; seed < 50; seed++) {
+      const value = Array.from(
+        { length: 40 + seed * 7 },
+        (_, i) => pieces[(i * 7 + seed * 3) % pieces.length],
+      ).join("");
+      // 比较 JSON 形式：落单代理项在失败输出里转义，不打断测试运行器的传输。
+      expect(JSON.stringify(foldLine(value))).toBe(JSON.stringify(reference(value)));
+    }
+  });
   it("UTC Z、稳定变更时间、DISPLAY VALARM，取消只是单节点状态", () => {
     const time = TimeValueSchema.parse({
       precision: "datetime",

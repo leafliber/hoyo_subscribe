@@ -12,7 +12,6 @@ export interface IcalEvent {
   readonly cancelled: boolean;
   readonly alarmSeconds: readonly number[];
 }
-const encoder = new TextEncoder();
 
 /**
  * ADR-0031：日历条目链接与描述里的本站地址。取部署配置的 SITE_ORIGIN（无效或缺省时取请求自身的源）；
@@ -44,13 +43,21 @@ export function escapeText(value: string): string {
     .replace(/;/g, "\\;")
     .replace(/,/g, "\\,");
 }
+/**
+ * 一个码位的 UTF-8 字节数。按码位算，不为每个字符分配编码缓冲（ADR-0031 起描述较长，Feed 与预览每次都要折行）。
+ * 落单的代理项按 TextEncoder 的做法记为替换字符 U+FFFD，同为 3 字节。
+ */
+function utf8Width(char: string): number {
+  const code = char.codePointAt(0) ?? 0;
+  return code < 0x80 ? 1 : code < 0x800 ? 2 : code < 0x10000 ? 3 : 4;
+}
 /** RFC 5545 §3.1：每物理行至多 75 octets，续行空格也占一字节。 */
 export function foldLine(value: string): string {
   let line = "";
   let bytes = 0;
   const lines: string[] = [];
   for (const char of value) {
-    const width = encoder.encode(char).length;
+    const width = utf8Width(char);
     if (bytes + width > 75) {
       lines.push(line);
       line = " ";

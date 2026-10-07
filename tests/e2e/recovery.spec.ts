@@ -629,10 +629,15 @@ test("U15 身份隔离：生成挂起后失效，忽略不能中止的旧响应"
   await holdNext(page, "auth/recovery/code");
   await page.locator("#generate-code").click();
   await held(page);
+  // 失效之后不再读 me。加载期间页头账号入口也可能读一次 me（本页先读 me/sessions，
+  // 种下 CSRF Cookie 后页头脚本才执行时就会读），所以只数失效之后的读取。
+  const reads = (calls: Call[]) => calls.filter((call) => call.path === "me");
+  expect(reads(state.calls).length).toBeGreaterThanOrEqual(1);
+  const mark = state.calls.length;
   await externalInvalidate(page);
   await release(page);
   await expectCleared(page);
-  expect(state.calls.filter((call) => call.path === "me")).toHaveLength(1);
+  expect(reads(state.calls.slice(mark))).toHaveLength(0);
 });
 
 test("U15 身份隔离：重新读取 me 确认不同 user_id 后清除旧码", async ({ page }) => {
