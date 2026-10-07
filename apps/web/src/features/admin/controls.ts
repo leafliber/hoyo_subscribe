@@ -116,6 +116,8 @@ const workspace = document.getElementById("workspace");
 let rows: ControlRow[] = [];
 let busy = false;
 let pending: Pending | null = null;
+/** 展开了"手动登记"的直播来源：重绘后保持展开（ADR-0033）。 */
+const manualOpen = new Set<string>();
 
 function key(row: ControlRow): string {
   return row.source ? `source:${row.source}` : row.control;
@@ -132,7 +134,7 @@ function displayName(row: ControlRow): string {
 const SOURCE_DESCRIPTION: Record<string, string> = {
   "announcement-webview": "抓取公告列表（含图文资讯）与完整正文，版本公告、活动、卡池都从这里来。",
   miyolive:
-    "从米游社首页发现前瞻直播，读取官方直播页的兑换码：兑换码随即出现在首页「有效兑换码」条；兑换码事件（发放时刻与官方写明的有效期）随本开关自动发布到日历，不经「自动发布」。首页没出现直播入口时，可在下方登记官方直播页链接。",
+    "开启后全自动：每次轮询从米游社首页发现前瞻直播，读取官方直播页的兑换码——兑换码随即出现在首页「有效兑换码」条，兑换码事件（发放时刻与官方写明的有效期）随本开关自动发布到日历，不经「自动发布」。正常情况下不需要手动登记。",
 };
 
 /** ADR-0030：直播来源正在跟踪的活动与登记入口。登记只把活动 ID 交给下一次采集，采集照常核验。 */
@@ -153,7 +155,13 @@ function liveTracking(row: ControlRow): HTMLElement | null {
           ),
         ),
       )
-    : el("p", { class: "control-desc" }, "正在跟踪的直播：暂无。");
+    : el(
+        "p",
+        { class: "control-desc" },
+        row.value === true
+          ? "正在跟踪的直播：暂无（每次轮询自动从米游社首页发现）。"
+          : "正在跟踪的直播：暂无（开启后自动从米游社首页发现）。",
+      );
   const input = el("input", {
     type: "text",
     class: "input",
@@ -187,7 +195,29 @@ function liveTracking(row: ControlRow): HTMLElement | null {
     event.preventDefault();
     void registerLive(row, input.value);
   });
-  return el("div", { class: "control-live" }, tracked, form);
+  // ADR-0033：手动登记只是备用方案（首页没有放出直播入口时），默认收起。
+  const source = row.source;
+  const manual = el(
+    "details",
+    { class: "control-live-manual" },
+    el(
+      "summary",
+      {},
+      `备用：手动登记直播${lives.hints.length ? `（已登记 ${lives.hints.length} 个）` : ""}`,
+    ),
+    el(
+      "p",
+      { class: "control-desc" },
+      "只在官方已经公布直播、但开启后这里一直没有出现在「正在跟踪的直播」时使用（例如米游社首页没有放出直播入口）。登记的活动 ID 交给下一次轮询，照常核验。",
+    ),
+    form,
+  );
+  manual.open = manualOpen.has(source);
+  manual.addEventListener("toggle", () => {
+    if (manual.open) manualOpen.add(source);
+    else manualOpen.delete(source);
+  });
+  return el("div", { class: "control-live" }, tracked, manual);
 }
 
 /** 最近一次抓取得怎样；维护中给出解除入口说明。 */

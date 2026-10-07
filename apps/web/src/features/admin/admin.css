@@ -102,6 +102,15 @@
   gap: var(--space-2);
 }
 
+/* 说明文字很长时按钮不被挤成竖排（"开/启"） */
+.control-actions {
+  flex-shrink: 0;
+}
+
+.control-actions .button {
+  white-space: nowrap;
+}
+
 /* P3-20：页面内二次确认（内嵌浏览器会吞掉 window.confirm）。 */
 .control-confirm {
   display: grid;
@@ -153,6 +162,27 @@
   padding-left: var(--space-4);
   color: var(--color-text-secondary);
   font-size: var(--font-size-small);
+}
+
+/* ADR-0033：手动登记是备用方案，默认收起 */
+.control-live-manual {
+  display: grid;
+  gap: var(--space-2);
+}
+
+.control-live-manual > summary {
+  width: fit-content;
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-small);
+  cursor: pointer;
+}
+
+.control-live-manual[open] > summary {
+  margin-bottom: var(--space-2);
+}
+
+.control-live-manual > .control-desc {
+  margin: 0;
 }
 
 .control-live-form {

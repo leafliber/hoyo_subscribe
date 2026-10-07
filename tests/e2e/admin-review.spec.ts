@@ -1244,4 +1244,51 @@ test.describe("P3-20 运行开关", () => {
       },
     ]);
   });
+
+  test("ADR-0033 直播兑换码来源没有开关记录时显示「关」、可以开启（首行以版本 0 写入）；开启即全自动，手动登记是收起的备用方案", async ({
+    page,
+  }) => {
+    const state = await setup(page);
+    state.controls.push({
+      control: "source_enabled",
+      source: "zzz-live",
+      value: false,
+      updated_at: 0,
+      info: { game: "zzz", adapter: "miyolive", state: null, lives: { hints: [], tracked: [] } },
+    });
+    await page.goto("/admin/settings/");
+    await expect(page.locator("#controls-status")).toHaveText(
+      `已读取 ${controlRows.length + 1} 个开关。每次修改都会写入审计记录。`,
+    );
+    const row = page.locator(".control-row").filter({ hasText: "绝区零直播兑换码" });
+    await expect(row.locator(".control-name .badge")).toHaveText("关");
+    await expect(row).toContainText("开启后全自动");
+    await expect(row).toContainText("正在跟踪的直播：暂无（开启后自动从米游社首页发现）");
+    // 手动登记默认收起，展开后才看到输入框；重绘后保持展开。
+    const manual = row.locator("details.control-live-manual");
+    await expect(manual.locator("summary")).toHaveText("备用：手动登记直播");
+    await expect(row.getByRole("textbox")).toBeHidden();
+    await manual.locator("summary").click();
+    await expect(row.getByRole("textbox")).toBeVisible();
+    const toggle = row.getByRole("button", { name: "开启", exact: true });
+    await expect(toggle).toBeEnabled();
+    await page.getByLabel("修改理由（每次修改都会记录）").selectOption("verified_configuration");
+    await toggle.click();
+    await row.getByRole("button", { name: "确认开启", exact: true }).click();
+    await expect(page.locator("#controls-status")).toHaveText(
+      "已开启「来源抓取 · 绝区零直播兑换码」，已重新读取核实。",
+    );
+    expect(state.calls.filter((call) => call.method === "PUT").map((call) => call.body)).toEqual([
+      {
+        control: "source_enabled",
+        source: "zzz-live",
+        enabled: true,
+        expected_updated_at: 0,
+        reason: "verified_configuration",
+      },
+    ]);
+    await expect(row.locator(".control-name .badge")).toHaveText("开");
+    await expect(row).toContainText("正在跟踪的直播：暂无（每次轮询自动从米游社首页发现）");
+    await expect(row.getByRole("textbox")).toBeVisible();
+  });
 });

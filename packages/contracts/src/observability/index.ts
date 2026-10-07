@@ -41,6 +41,9 @@ export type OperationalControl = z.infer<typeof OperationalControlSchema>;
  */
 export const OPERATIONAL_CONTROL_DEFAULTS: Readonly<Partial<Record<OperationalControl, false>>> = {
   review_skip_enabled: false,
+  // ADR-0033：首次初始化之后才登记的来源（如 ADR-0030 的直播兑换码来源）没有开关行，读作关闭；
+  // 否则管理端显示"未知"、无法开启。已有行照旧按行读。
+  source_enabled: false,
 };
 export type ControlFact = boolean | "unknown";
 export type ControlFacts = Partial<Record<OperationalControl, ControlFact>>;
