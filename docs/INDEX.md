@@ -28,6 +28,7 @@ D1′（浏览时间范围预设）的定案写在 [F1-02 卡](tasks/F1-F2.md)�
 | [DEPLOYMENT_PREREQUISITES.md](DEPLOYMENT_PREREQUISITES.md) | 各卡产生的「需所有者执行」项汇总：secrets、平台配置、待取得实测值、各次部署须知 |
 | [tasks/](tasks/) | 每阶段的任务卡：P0–P6（后端与管线）、F1–F5（前端轮次）、F6（管理端，`tasks/F6.md`） |
 | [备份恢复手册](runbooks/backup-restore.md) | P5-03 本地加密备份/校验/隔离恢复、分离保管与所有者目标环境证据门；工具已合，正式备份未执行 |
+| [2026-10-09 兑换码改期清理](runbooks/redeem-reschedule-cleanup-2026-10-09.md) | ADR-0034 第 7 条一次性清理：删除绝区零 3.3 前瞻兑换码事件那条错误的公开改期并重建公共快照；所有者执行，SQL 已在测试中按真实 ID 复现验证；2026-10-09 已执行并核对 |
 | [P5-04 关闭门部署与E3清单](evidence/p5/owner-handoff.md) | 首次关闭门发布记录、之后每次部署的顺序、E3 取证表（仍未完成） |
 | [P5-04 本地交付证据](evidence/p5/results.md) | 负载13组、离线对账、公开限制和历史失败；仅E1/E2，不当目标计费证据 |
 | [P0 证据目录](evidence/p0/README.md) | 来源样本、平台事实、日历客户端与邮件链路的 P0 证据（结论见 `evidence/p0/CONCLUSIONS.md`） |

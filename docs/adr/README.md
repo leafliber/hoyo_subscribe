@@ -69,6 +69,6 @@
 
 | [0033](0033-source-switch-default-and-live-auto.md) | 来源开关没有记录时读作关闭、版本 0（`OPERATIONAL_CONTROL_DEFAULTS.source_enabled = false`），初始化之后才登记的直播兑换码来源因此能在「运行开关」页开启；直播来源以自动发现为主，手动登记收进默认收起的"备用"区。补充 ADR-0018、ADR-0030 | 已接受（所有者 2026-10-08 提出）；代码在工作区完成，待验收与部署 |
 
-| [0034](0034-redeem-expiry-and-status-checks.md) | 兑换码取到才进日程（预告时刻、码还空着的条目不写正文，免得实际发放时官方改时刻造成改期），取到的这一轮发布并重建公共快照；管理端可为正在跟踪的直播照官方说明登记截止时间（`POST /api/v2/admin/redeem-expiry`），首页条立即按它显示，日历发布"兑换码过期"、改动即改期；直播收尾后有截止时间的不再请求，没有截止时间的按北京时间 0、3、6……21 点核对官方是否还列出（`REDEEM_CODE_STATUS_CHECK` 取代 `REDEEM_CODE_UNDATED_DISPLAY`），消失即从首页收回；没有截止时间时首页写"请尽快兑换"。迁移 0031 新增 `redeem_codes.gone_at` 与 `redeem_live_expiry`。修订 ADR-0030 | 已接受（所有者 2026-10-09 提出）；代码在工作区完成，待验收与部署 |
+| [0034](0034-redeem-expiry-and-status-checks.md) | 兑换码取到才进日程（预告时刻、码还空着的条目不写正文，免得实际发放时官方改时刻造成改期），取到的这一轮发布并重建公共快照；管理端可为正在跟踪的直播照官方说明登记截止时间（`POST /api/v2/admin/redeem-expiry`），首页条立即按它显示，日历发布"兑换码过期"、改动即改期；直播收尾后有截止时间的不再请求，没有截止时间的按北京时间 0、3、6……21 点核对官方是否还列出（`REDEEM_CODE_STATUS_CHECK` 取代 `REDEEM_CODE_UNDATED_DISPLAY`），消失即从首页收回；没有截止时间时首页写"请尽快兑换"。迁移 0031 新增 `redeem_codes.gone_at` 与 `redeem_live_expiry`。另有一次性清理：删除 2026-10-09 那条错误的改期（[手册](../runbooks/redeem-reschedule-cleanup-2026-10-09.md)）。修订 ADR-0030 | 已接受（所有者 2026-10-09 提出）；代码在工作区完成，待验收与部署；清理已由所有者 2026-10-09 执行并核对 |
 
 下一个编号 0035。

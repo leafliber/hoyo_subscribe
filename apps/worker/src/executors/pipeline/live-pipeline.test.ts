@@ -5,12 +5,19 @@ import { REDEEM_CODE_REVEAL_GRACE, SOURCE_POLL } from "@hoyo/contracts";
 import { beforeAll, beforeEach, describe, expect, it } from "vitest";
 import indexActive from "../../../../../fixtures/sources/miyolive/synthetic-index-active.json";
 import codesActive from "../../../../../fixtures/sources/miyolive/synthetic-refresh-code.json";
-import { readRedeemCodes } from "../../public/read";
+import { eventIdentity, milestoneIdentity } from "../../extraction/identity";
+import { readEventDetail, readEvents, readRedeemCodes } from "../../public/read";
 import { splitSqlStatements } from "../../storage/split-sql";
 import type { PipelineControls } from "./controls";
 import { PipelineRuntime } from "./runtime";
 
 const migrations = import.meta.glob("../../../../../migrations/*.sql", {
+  query: "?raw",
+  import: "default",
+  eager: true,
+});
+// ADR-0034 第 7 条：所有者在正式 D1 上执行的一次性清理 SQL，这里原样执行同一份文件。
+const runbooks = import.meta.glob("../../../../../docs/runbooks/*.sql", {
   query: "?raw",
   import: "default",
   eager: true,
@@ -529,5 +536,136 @@ describe("ADR-0034 取到兑换码才进日程；截止时间与整点核对", (
       await rows("SELECT time_exact_ms FROM milestones WHERE milestone_key = 'codes_expiry'"),
     ).toEqual([{ time_exact_ms: expiry }]);
     expect(await shownCodes()).toEqual(["ZZZ33SYNTHA1", "ZZZ33SYNTHB2"]);
+  });
+});
+
+describe("ADR-0034 第 7 条 一次性清理 2026-10-09 那条错误的改期", () => {
+  const REAL_ACT = "ea202609241643161324";
+  const EVENT = "e55afff692f1118b5bfa41a8af258c6b4757dfe2db30cbd8d930b24b0003b8bf";
+  const MILESTONE = "3143c4fdf86d0451a684abed24106eb78934e8a0dc1bc4a5d984034918bfed88";
+  const cleanupSql = String(
+    runbooks["../../../../../docs/runbooks/redeem-reschedule-cleanup-2026-10-09.sql"],
+  );
+  const runCleanup = async () => {
+    for (const sql of splitSqlStatements(cleanupSql)) await env.DB.prepare(sql).run();
+  };
+  type Detail = {
+    event: { changes: unknown[]; milestones: { id: string; change?: unknown }[] };
+  };
+  const detail = async () =>
+    (await (
+      await readEventDetail(env.DB, new URL(`https://hoyo.test/api/v2/events/${EVENT}`), EVENT, now)
+    ).json()) as Detail;
+  const recentChanges = async () =>
+    (
+      (await (
+        await readEvents(env.DB, new URL("https://hoyo.test/api/v2/events?range=7d&games=zzz"), now)
+      ).json()) as { recentChanges: unknown[] }
+    ).recentChanges;
+
+  it("同一活动 ID 得到线上同一个事件与节点 ID", async () => {
+    expect(await eventIdentity("zzz-live", REAL_ACT, "redeem_codes")).toBe(EVENT);
+    expect(await milestoneIdentity(EVENT, "codes_release")).toBe(MILESTONE);
+  });
+
+  /** 用真实活动 ID 走一遍采集与发布：先按 from 发布开始节点，官方再把发放时刻改成 to，产生一次改期。 */
+  async function reproduce(from: string, to: string) {
+    homeLives = [
+      {
+        title: "前瞻特别节目",
+        app_path: `https://webstatic.mihoyo.com/bbs/event/live/index.html?act_id=${REAL_ACT}`,
+      },
+    ];
+    indexBody.data.template = JSON.stringify({ actTitle: "合成", codeVisible: true });
+    now = at("19:50:00");
+    codeList = [{ ...codeList[0], code: "PHOENIX1021", to_get_time: String(at(from) / 1000) }];
+    await runtime().watchdog();
+    await drain();
+    now = at("19:56:00");
+    codeList = [{ ...codeList[0], code: "PHOENIX1021", to_get_time: String(at(to) / 1000) }];
+    await env.DB.prepare("UPDATE jobs SET due_at = ? WHERE id = 'pipeline:source:zzz-live'")
+      .bind(now)
+      .run();
+    await drain();
+  }
+
+  it("复现线上的改期（19:49 → 19:43:30）；执行清理后重建快照，详情与近期变更不再有改期；再执行一次没有副作用", async () => {
+    await reproduce("19:49:00", "19:43:30");
+    expect(
+      await rows(
+        "SELECT milestone_id, patch_kind, old_time_exact_ms, new_time_exact_ms FROM calendar_patches",
+      ),
+    ).toEqual([
+      {
+        milestone_id: MILESTONE,
+        patch_kind: "rescheduled",
+        old_time_exact_ms: 1_791_546_540_000,
+        new_time_exact_ms: 1_791_546_210_000,
+      },
+    ]);
+    expect((await detail()).event.changes).toHaveLength(1);
+    expect(await recentChanges()).toHaveLength(1);
+    const [before] = await rows<{ time_exact_ms: number; schedule_revision: number }>(
+      "SELECT m.time_exact_ms, e.schedule_revision FROM milestones m JOIN events e ON e.id = m.event_id",
+    );
+
+    now = at("20:40:00");
+    await runCleanup();
+    expect(await rows("SELECT id FROM calendar_patches")).toEqual([]);
+    expect(
+      await rows(
+        "SELECT action, target_type, target_id, reason FROM audit_log WHERE action = 'calendar_patch_withdraw'",
+      ),
+    ).toEqual([
+      {
+        action: "calendar_patch_withdraw",
+        target_type: "milestone",
+        target_id: MILESTONE,
+        reason: "evidence_reviewed",
+      },
+    ]);
+    // 下一次 Cron 看门狗重建公共快照。
+    await runtime().watchdog();
+    const after = await detail();
+    expect(after.event.changes).toEqual([]);
+    expect(after.event.milestones.map((milestone) => milestone.change ?? null)).toEqual([null]);
+    expect(await recentChanges()).toEqual([]);
+    expect(
+      await rows(
+        "SELECT dispatch_state FROM outbox WHERE dedupe_key = 'manual:adr0034-redeem-reschedule-cleanup-2026-10-09'",
+      ),
+    ).toEqual([{ dispatch_state: "dispatched" }]);
+    // 事件、节点时间与修订号都不动。
+    expect(
+      await rows(
+        "SELECT m.time_exact_ms, e.schedule_revision FROM milestones m JOIN events e ON e.id = m.event_id",
+      ),
+    ).toEqual([before]);
+
+    // 再执行一次：不多删、不重复记审计，也不会把"待重建"打开成没有请求的状态（否则重建器会报错）。
+    await runCleanup();
+    expect(
+      (
+        await rows<{ n: number }>(
+          "SELECT COUNT(*) AS n FROM audit_log WHERE action = 'calendar_patch_withdraw'",
+        )
+      )[0]?.n,
+    ).toBe(1);
+    expect(
+      await rows("SELECT value_json FROM system_state WHERE key = 'public_snapshot_pending'"),
+    ).toEqual([{ value_json: '{"pending":false}' }]);
+    await runtime().watchdog();
+    expect((await detail()).event.changes).toEqual([]);
+  });
+
+  it("对不上的更正（同一节点、别的时刻）一条也不删", async () => {
+    await reproduce("19:50:00", "19:44:00");
+    const patches = await rows("SELECT id, old_time_exact_ms FROM calendar_patches");
+    expect(patches).toHaveLength(1);
+    now = at("20:40:00");
+    await runCleanup();
+    expect(await rows("SELECT id, old_time_exact_ms FROM calendar_patches")).toEqual(patches);
+    await runtime().watchdog();
+    expect((await detail()).event.changes).toHaveLength(1);
   });
 });
