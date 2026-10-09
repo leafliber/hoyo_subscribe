@@ -10,8 +10,10 @@ import {
   FEED_PATCH_NODE_MAX,
   FEED_RESPONSE_MAX_BYTES,
   feedNaturalExitAt,
+  PUBLIC_SNAPSHOT_PENDING_STATE_KEY,
   type PublicSnapshotNode,
   personalCalendarNodes,
+  SNAPSHOT_REBUILD_TOPIC,
   type SubscriptionConfig,
   TimeValueSchema,
 } from "@hoyo/contracts";
@@ -20,6 +22,7 @@ import { beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { createApiShell } from "../../shell/router";
 import { generateSecretToken } from "../../storage/crypto/random";
 import { splitSqlStatements } from "../../storage/split-sql";
+import { buildPublicSnapshot, readCurrentPublicSnapshot } from "../public/snapshot";
 import { makeFeedHandler } from "./handler";
 import { FeedPublicCache } from "./public-read";
 import { hashFeedToken } from "./store";
@@ -183,6 +186,10 @@ beforeEach(async () => {
   token = generateSecretToken().base64url;
   hash = (await hashFeedToken(token)) ?? "";
   for (const table of [
+    "calendar_patches",
+    "calendar_projections",
+    "outbox",
+    "system_state",
     "public_snapshot_nodes",
     "public_snapshots",
     "milestones",
@@ -898,4 +905,141 @@ describe("A-P3-ICS Feed HTTP 读路径与完整快照", () => {
     expect(response.status).toBe(503);
     expect(await response.json()).toMatchObject({ calendar: { reason: "response_byte_limit" } });
   }, 60_000);
+});
+
+describe("A-P3-TRIM P3-06 交接与裁剪前提", () => {
+  it("展示时间早于事实时间：更正到期重新进入，兜底上界覆盖事实时间退出", async () => {
+    const factAt = T + (FEED_FUTURE_DAYS + CAL_PATCH_MIN_DAYS) * day;
+    const values = nodes().map((old) => {
+      const fact = node(old.projection.milestone_id, factAt);
+      const next = {
+        ...fact,
+        projection: {
+          ...fact.projection,
+          event: { ...fact.projection.event, status: "cancelled" as const },
+        },
+      };
+      return {
+        ...next,
+        public_ical_revision: 2,
+        patch: decideCalendarPatch(old.projection, next.projection, null, T),
+      };
+    });
+    const exit = (Math.floor(factAt / day) + FEED_PAST_DAYS + 1) * day;
+    await snapshot(values);
+    const initial = await events(await request());
+    expect(initial).toHaveLength(values.length);
+    expect(initial.every((event) => event.startDate.toJSDate().getTime() === T)).toBe(true);
+    expect(await one("SELECT last_served_natural_exit_at FROM calendar_feeds")).toEqual({
+      last_served_natural_exit_at: exit,
+    });
+    at = values[0]?.patch?.retain_until ?? 0;
+    expect(at).toBeLessThan(exit);
+    await fresh();
+    const reentered = await events(await request());
+    expect(reentered).toHaveLength(values.length);
+    expect(reentered.every((event) => event.startDate.toJSDate().getTime() === factAt)).toBe(true);
+    expect(reentered.map((event) => [event.uid, event.sequence])).toEqual(
+      initial.map((event) => [event.uid, event.sequence]),
+    );
+    await replaceAndReclaim([]);
+    for (const instant of [at, exit - 1]) {
+      at = instant;
+      await fresh();
+      expect((await request()).status).toBe(503);
+      expect(await one("SELECT last_served_natural_exit_at FROM calendar_feeds")).toEqual({
+        last_served_natural_exit_at: exit,
+      });
+    }
+    at = exit;
+    await fresh();
+    expect(await events(await request())).toHaveLength(0);
+  });
+
+  it("待裁定反例：已裁历史节点改回窗口时，现有构建器的响应与 ETag 不同", async () => {
+    // 此用例复现方案 A 的前提冲突，不把不相等当成通过逐字节验收。
+    // 历史早于过去窗口与证据余量候选值，且从未有过更正；裁剪不会影响当次输出。
+    const historyAge = FEED_PAST_DAYS + FEED_FUTURE_DAYS + CAL_PATCH_MIN_DAYS;
+    const old = node("returning-history", T - historyAge * day);
+    const historical = { ...old, source_projection_json: JSON.stringify(old.projection) };
+    await snapshot([historical]);
+    const empty = await request();
+    expect(empty.status).toBe(200);
+    const emptyBody = await empty.text();
+    const emptyTag = empty.headers.get("etag");
+    const next = node(old.projection.milestone_id, T + day);
+    await run(
+      "INSERT INTO calendar_projections(milestone_id,event_id,public_ical_revision,projection_json,updated_at) VALUES (?,?,2,?,?)",
+      next.projection.milestone_id,
+      next.projection.event_id,
+      JSON.stringify(next.projection),
+      T,
+    );
+    await run("UPDATE milestones SET public_ical_revision=2,updated_at=?", T);
+    const results: { body: string; etag: string | null; patch: string | null }[] = [];
+    for (const trimmed of [false, true]) {
+      if (trimmed) {
+        await run("DELETE FROM public_snapshot_nodes");
+        await run("DELETE FROM public_snapshots");
+        await run("DELETE FROM calendar_patches");
+        await run("DELETE FROM outbox");
+        await snapshot([], 1);
+        await run(`UPDATE calendar_feeds SET last_served_node_count=NULL,
+          last_served_view_revision=NULL,last_served_generation=NULL,last_served_at=NULL,
+          last_served_natural_exit_at=NULL`);
+        handler = makeFeedHandler({ now: () => at, metric: (name) => metrics.push(name) });
+        const firstTrim = await request();
+        expect(firstTrim.status).toBe(200);
+        expect(await firstTrim.text()).toBe(emptyBody);
+        expect(firstTrim.headers.get("etag")).toBe(emptyTag);
+      }
+      await run(
+        `INSERT INTO system_state(key,value_json,updated_at) VALUES (?, ?, ?)
+        ON CONFLICT(key) DO UPDATE SET value_json=excluded.value_json,updated_at=excluded.updated_at`,
+        PUBLIC_SNAPSHOT_PENDING_STATE_KEY,
+        JSON.stringify({ pending: true }),
+        T,
+      );
+      await run(
+        `INSERT INTO outbox(id,topic,dedupe_key,payload_json,dispatch_state,created_at)
+        VALUES (?,? ,?,'{}','pending',?)`,
+        `return-${trimmed}`,
+        SNAPSHOT_REBUILD_TOPIC,
+        `return-${trimmed}`,
+        T,
+      );
+      expect((await buildPublicSnapshot(env.DB, T)).outcome).toBe("built");
+      const response = await request();
+      expect(response.status).toBe(200);
+      results.push({
+        body: await response.text(),
+        etag: response.headers.get("etag"),
+        patch: (await readCurrentPublicSnapshot(env.DB, T))?.nodes[0]?.patch?.kind ?? null,
+      });
+    }
+    expect(results[0]?.patch).toBe("rescheduled");
+    expect(results[1]?.patch).toBeNull();
+    expect(results[0]?.body).toContain("已公布新时间");
+    expect(results[1]?.body).not.toContain("已公布新时间");
+    const identities = results.map(({ body }) => {
+      const calendar = new ICAL.Component(ICAL.parse(body));
+      const list = calendar.getAllSubcomponents("vevent").map((entry) => new ICAL.Event(entry));
+      expect(list).toHaveLength(1);
+      return list.map((entry) => [entry.uid, entry.sequence]);
+    });
+    expect(identities[0]).toEqual(identities[1]);
+    expect(results[0]?.body).not.toBe(results[1]?.body);
+    expect(results[0]?.etag).not.toBe(results[1]?.etag);
+    console.log(
+      JSON.stringify({
+        event: "p3_13_trim_return_counterexample",
+        before_bytes: new TextEncoder().encode(results[0]?.body).length,
+        after_bytes: new TextEncoder().encode(results[1]?.body).length,
+        body_equal: results[0]?.body === results[1]?.body,
+        etag_equal: results[0]?.etag === results[1]?.etag,
+        before_patch: results[0]?.patch,
+        after_patch: results[1]?.patch,
+      }),
+    );
+  });
 });
