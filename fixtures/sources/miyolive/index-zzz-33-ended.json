@@ -1,0 +1,60 @@
+{
+  "schema_version": 1,
+  "synthetic": false,
+  "source_id": "zzz-live",
+  "kind": "index-response",
+  "purpose": "真实样本：同一场直播过了官方结束时刻（20:30）之后：retcode 仍为 0（不是\"活动已结束\"），is_end 变为 true，code_ver 已变化，codeTipText 仍为空（ADR-0034 据 is_end 判断直播收尾）。",
+  "captured_at_utc": "2026-10-09T12:31:10Z",
+  "url": "https://api-takumi.mihoyo.com/event/miyolive/index",
+  "request_headers": ["x-rpc-act_id"],
+  "extra": {
+    "act_id": "ea202609241643161324",
+    "act_id_note": "官方直播页 act_id（绝区零 3.3 前瞻特别节目）"
+  },
+  "body": {
+    "retcode": 0,
+    "message": "OK",
+    "data": {
+      "is_login": false,
+      "live": {
+        "act_type": "ActPGC",
+        "title": "《绝区零》3.3版本前瞻特别节目",
+        "live_time": "4570",
+        "start": "2026-10-09 19:15:00",
+        "end": "2026-10-09 20:30:00",
+        "remain": 0,
+        "now": "1791549070",
+        "is_end": true,
+        "code_ver": "b3a393"
+      },
+      "streamer": {
+        "aid": "152039148",
+        "nickname": "绝区零",
+        "avatar": "https://bbs-static.miyoushe.com/communityweb/upload/aa97b034ebe314fc2d1b28c3f2131a17.png",
+        "fans": 3517206,
+        "cert_label": "官方认证：绝区零官方账号",
+        "cert_type": "1",
+        "followed": false
+      },
+      "template": "{\"appType\":\"zzz_live\",\"endText\":\"本次直播节目已结束\",\"versionToast\":\"请更新米游社最新版本，使用全屏播放功能\",\"gainTitle\":\"直播抽奖\",\"noJoinTitle\":\"直播抽奖\",\"noWinTitle\":\"中奖名单\",\"resultTitle\":\"中奖名单\",\"notAirTip\":\"敬请期待\",\"taskTitle\":\"直播抽奖\",\"ruleTitle\":\"活动规则\",\"notAirText\":\"10月9日19:30开始\",\"reviewText\":\"查看回顾\",\"commentPlaceholder\":\"快来一起聊聊吧\",\"qrDesktop\":\"https://act-webstatic.mihoyo.com/event-static/2024/06/25/89da4d5a721778146949bea1bf744320_5337980815691064718.png\",\"topDesktop\":\"https://webstatic.mihoyo.com/upload/static-resource/2023/04/19/81dbfdb1bd42a5b688f8b09664a47d43_1739024152252642983.png\",\"reviewUrl\":{\"host\":\"mihoyo\",\"type\":\"article\",\"args\":{\"game_id\":8,\"post_id\":\"78804974\"}},\"reviewTitlePic\":\"https://act-webstatic.mihoyo.com/event-static/2026/09/24/a0642700a73a472ce258f7b7889f46c0_3748428935964680065.png\",\"liveConfig\":[{\"label\":\"斗鱼\",\"type\":\"douyu\",\"desktop\":\"https://open.douyu.com/tpl/h5/chain2/miyoushe/12118287?version=2.0&bulletComments=1&hcdm=1&rate=0&visitMobile=1&chat=1&recom=0&visitRoom=1&dyIcon=0&clout=1\",\"app\":\"https://open.douyu.com/tpl/h5/chain2/miyoushe/12118287?version=2.0&bulletComments=1&hcdm=1&rate=0&visitMobile=1&chat=1&recom=0&visitRoom=1&dyIcon=0&clout=1\"}],\"users\":[{\"uid\":\"152039148\",\"avatar\":\"https://bbs-static.miyoushe.com/communityweb/upload/aa97b034ebe314fc2d1b28c3f2131a17.png\",\"nickname\":\"绝区零\",\"iden_icon\":\"https://webstatic.mihoyo.com/upload/static-resource/2023/04/11/2a6efea7d6da75790754cf1e41500cf2_140770709637752187.png\",\"is_followed\":false,\"desc\":\"官方认证：绝区零官方账号\"},{\"uid\":\"152039072\",\"avatar\":\"https://bbs-static.miyoushe.com/communityweb/upload/59c1c96fba12ab3c5e863168f1ba1476.png\",\"nickname\":\"绝区米游姬\",\"iden_icon\":\"https://webstatic.mihoyo.com/upload/static-resource/2023/04/11/2a6efea7d6da75790754cf1e41500cf2_140770709637752187.png\",\"is_followed\":false,\"desc\":\"官方认证：米游社大BOSS\"},{\"uid\":\"152039149\",\"avatar\":\"https://bbs-static.miyoushe.com/communityweb/upload/6d7c2aab3ecf5932985e3aa5ccd7c0d7.png\",\"nickname\":\"米仔\",\"iden_icon\":\"https://webstatic.mihoyo.com/upload/static-resource/2023/04/11/2a6efea7d6da75790754cf1e41500cf2_140770709637752187.png\",\"is_followed\":false,\"desc\":\"官方认证：原装邦布，型号：mi。\"},{\"uid\":\"378227982\",\"avatar\":\"https://upload-bbs.miyoushe.com/upload/2024/06/22/378227982/0e4da7b3b4ef77b29208cb941b696012_7756419765671043478.jpg\",\"nickname\":\"绝区零第一可爱兔宝\",\"iden_icon\":\"https://webstatic.mihoyo.com/upload/static-resource/2023/04/11/2a6efea7d6da75790754cf1e41500cf2_140770709637752187.png\",\"is_followed\":false,\"desc\":\"官方认证：绝区零第一可爱兔宝官方账号\"}],\"tools\":[],\"articles\":[{\"img\":\"https://upload-bbs.miyoushe.com/upload/2026/10/09/152039148/107b9506ddae07fddf71e1ea24ffb809_8087543367200679812.png\",\"config\":{\"host\":\"mihoyo\",\"type\":\"article\",\"args\":{\"post_id\":78804836,\"game_id\":8}},\"title\":\"《绝区零》3.3版本PV | 重返天空的旅程\"},{\"img\":\"https://upload-bbs.miyoushe.com/upload/2026/10/09/152039148/93e27324f07ff9bc75aebe7fd08e9ce2_1500591380149260377.jpg\",\"config\":{\"host\":\"mihoyo\",\"type\":\"article\",\"args\":{\"post_id\":78804749,\"game_id\":8}},\"title\":\"《绝区零》×《崩坏：星穹铁道》联动角色公开！\"},{\"img\":\"https://upload-bbs.miyoushe.com/upload/2026/09/30/152039148/748ef46255b56f29808b45436db27560_1684782796556922577.jpg\",\"config\":{\"host\":\"mihoyo\",\"type\":\"article\",\"args\":{\"post_id\":78610194,\"game_id\":8}},\"title\":\"《绝区零》2026年10月月历壁纸\"},{\"img\":\"https://upload-bbs.miyoushe.com/upload/2026/09/30/152039148/58f816d0d3b34029c5cce03927eaa7f5_6285004578162668404.png\",\"config\":{\"host\":\"mihoyo\",\"type\":\"article\",\"args\":{\"post_id\":78574794,\"game_id\":8}},\"title\":\"「跛脚乌鸦奇探录」活动说明\"}],\"bannerList\":[{\"img\":\"https://act-webstatic.mihoyo.com/event-static/2026/09/24/85ab256b107a63e83cde3105f1c9f8a0_3426546415967941588.png\",\"config\":{\"host\":\"mihoyo\",\"type\":\"h5\",\"args\":{\"url\":\"https://www.douyu.com/g_jql\"}}}],\"banner2List\":[],\"banner3List\":[{\"img\":\"https://act-webstatic.mihoyo.com/event-static/2026/09/24/ea90b05034037fd58227af9503b16e58_6786123996623026252.png\",\"config\":{\"host\":\"mihoyo\",\"type\":\"h5\",\"args\":{\"url\":\"https://act-api-takumi.mihoyo.com/event/download_porter/link/nap_cn/official/pc_bbs\"}}}],\"banner4List\":[{\"img\":\"https://act-webstatic.mihoyo.com/event-static/2026/09/24/c20cff6ddd32133f4ffd2ed282bcfffa_7180759947609520652.png\",\"config\":{\"host\":\"mihoyo\",\"type\":\"h5\",\"args\":{\"url\":\"https://www.douyu.com/g_jql\"}}}],\"banner5List\":[],\"actTitle\":\"《绝区零》3.3版本前瞻特别节目\",\"commentAppId\":\"8\",\"commentPowerAppId\":\"30\",\"commentEntityKey\":\"zzz20261009\",\"commentStart\":\"2026-10-09T11:20:00.000Z\",\"commentEnd\":\"2026-10-09 20:45:00\",\"var_act_bg_color\":\"#1C1B1B\",\"var_btn_bg_color\":\"#FAAC04\",\"var_comment_primary_bg_color\":\"#FAAC04\",\"moreArticleConfig\":{\"host\":\"mihoyo\",\"type\":\"forum\",\"args\":{\"game_id\":8,\"forum_id\":\"58\"}},\"shareTitle\":\"米游社《绝区零》版本前瞻特别节目\",\"shareDescription\":\"更多绝区零官方资讯、专属工具、攻略内容尽在米游社\",\"shareImage\":\"https://act-webstatic.mihoyo.com/event-static/2024/06/24/a261219a9266251f80dde227609c6ba0_4289375781349277312.png\",\"codeTipText\":\"\",\"codeEmptyTipText\":\"兑换码尚未发放，敬请期待~\",\"codeVisible\":true,\"appTitle\":\"《绝区零》3.3版本前瞻特别节目\",\"kvApp\":\"https://act-webstatic.mihoyo.com/event-static/2026/09/24/e0452ebabbeca17f98836b7df58c6746_6370243686295040140.png\",\"appAttach\":\"https://act-webstatic.mihoyo.com/event-static/2025/02/26/31865428887e9f97edc97c528195dcf2_7035811460918240847.png\",\"moduleTop\":\"https://act-webstatic.mihoyo.com/event-static/2026/09/24/b2145fb60d7c947ec74f9c23d0a7bba4_6256312866594411389.png\",\"moduleMiddle\":\"https://act-webstatic.mihoyo.com/event-static/2026/09/24/c5f74191874d59ec19532222f2fc129c_6633020901686295031.png\",\"moduleBottom\":\"https://act-webstatic.mihoyo.com/event-static/2026/09/24/6b0ec4dc3745ed55cc51683024710f2a_2890833286364949922.png\",\"codeTitleApp\":\"https://act-webstatic.mihoyo.com/event-static/2026/09/24/957c19105524eeb94b14d99b09aa3992_1903663741338387514.png\",\"codeEmptyApp\":\"https://act-webstatic.mihoyo.com/event-static/2024/06/24/4f4380e7829bfd1c2ef36665435aaaef_6263758973824784359.png\",\"usersTitleApp\":\"https://act-webstatic.mihoyo.com/event-static/2026/09/24/e58014666946377f148f8a249bb54d53_258808494778896168.png\",\"toolsTitleApp\":\"https://act-webstatic.mihoyo.com/event-static/2026/09/24/add7eac219465d1a8b20c699b8decfd2_1985813894405780513.png\",\"articleTitleApp\":\"https://act-webstatic.mihoyo.com/event-static/2026/09/24/e4c91b635607b9601de2858f2beb0db6_3755954167079799749.png\",\"kvDesktop\":\"https://act-webstatic.mihoyo.com/event-static/2026/09/24/dd23643f1a919d74314559a86d802cca_3616849710441725778.png\",\"codeTitleDesktop\":\"https://act-webstatic.mihoyo.com/event-static/2026/09/24/d8cb3e673d76863e8120f41be73a6854_3598047930870265273.png\",\"codeEmptyDesktop\":\"https://act-webstatic.mihoyo.com/event-static/2024/06/24/4f4380e7829bfd1c2ef36665435aaaef_1524222765912461492.png\",\"usersTitleDesktop\":\"https://act-webstatic.mihoyo.com/event-static/2026/09/24/93e5c5c25ef4ebe9f464882d53101239_1950248514810729160.png\",\"articleTitleDesktop\":\"https://act-webstatic.mihoyo.com/event-static/2026/09/24/8c967145a0a8f395f7174428fdbbe454_1669290929569120691.png\",\"ruleCont\":\"<ol><li><p style=\\\"white-space: pre-wrap;\\\"><span style=\\\"background-color:rgb(255, 255, 255)\\\">参与抽奖需同时满足以下条件：关注当前UP主；累计观看本场直播至少1分钟。</span></p></li></ol><ol start=\\\"2\\\"><li><p style=\\\"white-space: pre-wrap;\\\"><span style=\\\"background-color:rgb(255, 255, 255)\\\">抽奖活动中奖后请于5日内填写发奖信息。若未能于时限内提供发奖所需信息，则视为用户放弃奖励。</span></p></li></ol><p style=\\\"white-space: pre-wrap; min-height: 1.5em;\\\"></p>\",\"var_comment_main_color\":null}",
+      "game": "nap",
+      "play_list": [],
+      "match": {
+        "title": "",
+        "match_id": "",
+        "template": "",
+        "stage": null,
+        "subscribe_all": false,
+        "type": "ActDefault",
+        "result_type": "MatchResultDefault"
+      },
+      "live_list": {
+        "total": 0,
+        "list": [],
+        "title": "",
+        "page_token": "0",
+        "list_id": ""
+      }
+    }
+  }
+}

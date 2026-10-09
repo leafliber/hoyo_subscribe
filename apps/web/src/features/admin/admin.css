@@ -157,11 +157,32 @@
 
 .control-lives {
   display: grid;
-  gap: var(--space-1);
+  gap: var(--space-2);
   margin: 0;
-  padding-left: var(--space-4);
-  color: var(--color-text-secondary);
-  font-size: var(--font-size-small);
+  padding: 0;
+  list-style: none;
+}
+
+/* ADR-0034：每场直播一块：标题、采集阶段、兑换码、截止时间与登记表单 */
+.control-live-item {
+  display: grid;
+  gap: var(--space-1);
+  padding: var(--space-2) var(--space-3);
+  border: var(--border-thin) solid var(--color-border);
+  border-radius: var(--radius-sm);
+}
+
+.control-live-item > p {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.control-live-title {
+  font-weight: 600;
+}
+
+.control-live-item .control-confirm {
+  margin-top: var(--space-1);
 }
 
 /* ADR-0033：手动登记是备用方案，默认收起 */

@@ -13,6 +13,7 @@
 // 2026-10-07 没有进行中的直播，活动与兑换码字段的形状来自官方页面脚本，尚无真实样本：
 // 字段缺失或类型不符时按"格式不符"失败，不猜。
 import { LIVE_ACT_ID_PATTERN, liveActIdFromUrl } from "@hoyo/contracts";
+import { parseAnnouncementExactTime } from "../../extraction/time";
 import { decodeHtmlEntities, denoiseTitle, stripHtmlTags } from "../articles/blocks";
 import { classifyRestriction } from "../guarded-fetch";
 import type { MiyoliveSourceEntry } from "../registry";
@@ -37,15 +38,23 @@ export interface LiveCodeEntry {
   readonly revealAtMs: number;
 }
 
+/** 活动信息里与直播是否收尾有关的官方字段（ADR-0034）。 */
+export interface LiveSchedule {
+  /** 官方 live.end（北京时间"YYYY-MM-DD HH:MM:SS"）换算的 UTC 毫秒；没给或认不出为 null。 */
+  readonly endAtMs: number | null;
+  /** 官方 live.is_end。 */
+  readonly ended: boolean;
+}
+
 export type LiveSnapshot =
-  | {
+  | ({
       readonly actId: string;
       readonly status: "open";
       readonly title: string;
       readonly codes: readonly LiveCodeEntry[];
       /** 页面模板里的兑换码说明（纯文本）；没有为 null。 */
       readonly tip: string | null;
-    }
+    } & LiveSchedule)
   | { readonly actId: string; readonly status: "closed" };
 
 function readableText(html: string): string {
@@ -137,11 +146,11 @@ function tipFromTemplate(template: unknown): string | null {
   return text === "" ? null : text;
 }
 
-/** 活动信息：retcode 0 → 标题、code_ver、说明；-500012 → closed。其余 → 失败。纯函数。 */
+/** 活动信息：retcode 0 → 标题、code_ver、说明、结束时刻；-500012 → closed。其余 → 失败。纯函数。 */
 export function parseLiveIndex(
   bodyText: string,
 ):
-  | { status: "open"; title: string; codeVer: string | null; tip: string | null }
+  | ({ status: "open"; title: string; codeVer: string | null; tip: string | null } & LiveSchedule)
   | { status: "closed" }
   | { failure: SourceFetchFailure } {
   const envelope = parseEnvelope(bodyText);
@@ -164,7 +173,17 @@ export function parseLiveIndex(
       : typeof live.code_ver === "number"
         ? String(live.code_ver)
         : null;
-  return { status: "open", title, codeVer, tip: tipFromTemplate(envelope.data.template) };
+  // ADR-0034：官方给的直播结束时刻与 is_end（2026-10-09 实测样本有这两个字段）；判断直播是否收尾。
+  const endAtMs =
+    typeof live.end === "string" ? (parseAnnouncementExactTime(live.end)?.utc_ms ?? null) : null;
+  return {
+    status: "open",
+    title,
+    codeVer,
+    tip: tipFromTemplate(envelope.data.template),
+    endAtMs,
+    ended: live.is_end === true,
+  };
 }
 
 /** 兑换码列表：retcode 0 → 条目；-500012 → closed。条目形状不符整份按失败处理。纯函数。 */
@@ -225,8 +244,11 @@ export async function fetchLiveSnapshot(
   const info = parseLiveIndex(index.body.bodyText);
   if ("failure" in info) return info;
   if (info.status === "closed") return { live: { actId, status: "closed" } };
+  const schedule = { endAtMs: info.endAtMs, ended: info.ended };
   if (info.codeVer === null)
-    return { live: { actId, status: "open", title: info.title, codes: [], tip: info.tip } };
+    return {
+      live: { actId, status: "open", title: info.title, codes: [], tip: info.tip, ...schedule },
+    };
   const codesUrl = buildSourceUrl(entry.request.codes.host, entry.request.codes.path, {
     version: info.codeVer,
     time: codeTimeParam(nowMs),
@@ -236,7 +258,16 @@ export async function fetchLiveSnapshot(
   const list = parseCodeList(codes.body.bodyText);
   if ("failure" in list) return list;
   if (list.status === "closed") return { live: { actId, status: "closed" } };
-  return { live: { actId, status: "open", title: info.title, codes: list.codes, tip: info.tip } };
+  return {
+    live: {
+      actId,
+      status: "open",
+      title: info.title,
+      codes: list.codes,
+      tip: info.tip,
+      ...schedule,
+    },
+  };
 }
 
 /** 官方直播页（展示用链接，本站不请求它）。 */

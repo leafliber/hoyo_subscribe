@@ -293,6 +293,26 @@ async function setup(page: Page, options: { loggedIn?: boolean; pages?: QueuePag
       if (info?.state) Object.assign(info.state, { verification_state: "verified-working" });
       return route.fulfill({ json: { resumed: true, source: call.body.source } });
     }
+    // ADR-0034：登记兑换码截止时间；合成回执，写回该直播的登记以便重新读取时看到。
+    if (path === "admin/redeem-expiry" && req.method() === "POST") {
+      state.writes++;
+      const row = state.controls.find((item) => item.source === call.body.source);
+      const lives = (row?.info as { lives?: { tracked: Record<string, unknown>[] } } | undefined)
+        ?.lives;
+      const live = lives?.tracked.find((item) => item.act_id === call.body.act_id);
+      const text = String(call.body.expires_at).replace("T", " ").replace(/-/g, "/");
+      if (live)
+        Object.assign(live, {
+          phase: "deadline",
+          next_check_at: null,
+          manual_expiry: {
+            expires_at: Date.parse(`${call.body.expires_at}+08:00`),
+            text,
+            updated_at: 1_900_000_000_200,
+          },
+        });
+      return route.fulfill({ json: { saved: true, text } });
+    }
     if (path === "admin/session/logout") {
       await state.logoutWait;
       if (state.logoutNetworkFailure) return route.abort("failed");
@@ -1290,5 +1310,91 @@ test.describe("P3-20 运行开关", () => {
     await expect(row.locator(".control-name .badge")).toHaveText("开");
     await expect(row).toContainText("正在跟踪的直播：暂无（每次轮询自动从米游社首页发现）");
     await expect(row.getByRole("textbox")).toBeVisible();
+  });
+
+  test("ADR-0034 每场直播列出兑换码、截止时间与核对安排；官方没写时可照官方说明登记截止时间（先选理由、页面内确认、首次以版本 0 写入）", async ({
+    page,
+  }) => {
+    const state = await setup(page);
+    const title = "《绝区零》3.3版本前瞻特别节目";
+    const act = "ea202609241643161324";
+    state.controls.push({
+      control: "source_enabled",
+      source: "zzz-live",
+      value: true,
+      updated_at: 1_899_000_000_000,
+      info: {
+        game: "zzz",
+        adapter: "miyolive",
+        state: null,
+        lives: {
+          hints: [],
+          tracked: [
+            {
+              act_id: act,
+              first_seen_at: Date.parse("2026-10-09T19:40:00+08:00"),
+              closed_at: null,
+              title,
+              checked_at: Date.parse("2026-10-09T20:40:00+08:00"),
+              phase: "checking",
+              next_check_at: Date.parse("2026-10-09T21:00:00+08:00"),
+              codes: [
+                {
+                  code: "PHOENIX1021",
+                  revealed_at: Date.parse("2026-10-09T19:43:30+08:00"),
+                  gone_at: null,
+                },
+              ],
+              official_expiry: null,
+              manual_expiry: null,
+            },
+          ],
+        },
+      },
+    });
+    await page.goto("/admin/settings/");
+    const status = page.locator("#controls-status");
+    await expect(status).toHaveText(
+      `已读取 ${controlRows.length + 1} 个开关。每次修改都会写入审计记录。`,
+    );
+    const item = page
+      .locator(".control-row")
+      .filter({ hasText: "绝区零直播兑换码" })
+      .locator(".control-live-item");
+    await expect(item).toContainText(title);
+    await expect(item).toContainText("PHOENIX1021");
+    await expect(item).toContainText(
+      "北京时间每天 0、3、6、9、12、15、18、21 点核对官方是否还列出兑换码",
+    );
+    await expect(item).toContainText("截止时间：官方未写");
+    const input = item.getByLabel(`「${title}」的兑换码截止时间（北京时间）`);
+    await input.fill("2026-10-11T23:59:59");
+    const submit = item.getByRole("button", { name: "登记截止时间", exact: true });
+    await submit.click();
+    await expect(status).toHaveText("请先在上方选择修改理由。");
+    await page.getByLabel("修改理由（每次修改都会记录）").selectOption("evidence_reviewed");
+    await submit.click();
+    await expect(item.getByRole("group", { name: "确认登记" })).toContainText(
+      "设为 2026/10/11 23:59:59（北京时间）",
+    );
+    expect(state.calls.filter((call) => call.path === "admin/redeem-expiry")).toEqual([]);
+    await item.getByRole("button", { name: "确认登记", exact: true }).click();
+    await expect(status).toHaveText(
+      `已登记「${title}」的兑换码截止时间 2026/10/11 23:59:59（北京时间）：首页条已按它显示，日历在下一次采集后更新。`,
+    );
+    expect(
+      state.calls.filter((call) => call.path === "admin/redeem-expiry").map((call) => call.body),
+    ).toEqual([
+      {
+        source: "zzz-live",
+        act_id: act,
+        expires_at: "2026-10-11T23:59:59",
+        reason: "evidence_reviewed",
+        expected_updated_at: 0,
+      },
+    ]);
+    await expect(item).toContainText("截止时间：2026/10/11 23:59:59（管理员登记");
+    await expect(item).toContainText("直播已收尾、有截止时间，不再读取官方");
+    await expect(item.getByRole("button", { name: "修改截止时间", exact: true })).toBeVisible();
   });
 });

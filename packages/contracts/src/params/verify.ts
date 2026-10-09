@@ -483,17 +483,21 @@ export const PARAM_EQUATIONS: readonly EquationDefinition[] = [
       v.REDEEM_CODE_REVEAL_GRACE < v.SOURCE_HOT_POLL,
     { REDEEM_CODE_REVEAL_GRACE: 600 },
   ),
+  // ADR-0034 取代 ADR-0030 的 redeem-undated-display-within-tracking（24 小时显示上限改为按整点核对）。
   eq(
-    "redeem-undated-display-within-tracking",
+    "redeem-status-check-aligned",
     "兑换码",
-    'REDEEM_LIVE_TRACK_MAX、REDEEM_LIVE_TRACK_DAYS 为正整数；REDEEM_CODE_UNDATED_DISPLAY <= REDEEM_LIVE_TRACK_DAYS × 86400（没写有效期的兑换码只在其直播仍被跟踪时显示，官方"活动已结束"才能及时收回）',
+    "REDEEM_LIVE_TRACK_MAX、REDEEM_LIVE_TRACK_DAYS、REDEEM_CODE_STATUS_CHECK 为正整数；SOURCE_HOT_POLL < REDEEM_CODE_STATUS_CHECK <= 86400 且 86400 能被 REDEEM_CODE_STATUS_CHECK 整除（核对时刻每天都落在同样的北京时间整点，且比热点轮询稀）",
     (v) =>
-      `REDEEM_CODE_UNDATED_DISPLAY(${v.REDEEM_CODE_UNDATED_DISPLAY}) <= REDEEM_LIVE_TRACK_DAYS(${v.REDEEM_LIVE_TRACK_DAYS}) × 86400`,
+      `SOURCE_HOT_POLL(${v.SOURCE_HOT_POLL}) < REDEEM_CODE_STATUS_CHECK(${v.REDEEM_CODE_STATUS_CHECK}) <= 86400，86400 % REDEEM_CODE_STATUS_CHECK = ${86_400 % v.REDEEM_CODE_STATUS_CHECK}`,
     (v) =>
-      [v.REDEEM_LIVE_TRACK_MAX, v.REDEEM_LIVE_TRACK_DAYS, v.REDEEM_CODE_UNDATED_DISPLAY].every(
+      [v.REDEEM_LIVE_TRACK_MAX, v.REDEEM_LIVE_TRACK_DAYS, v.REDEEM_CODE_STATUS_CHECK].every(
         (n) => Number.isSafeInteger(n) && n > 0,
-      ) && v.REDEEM_CODE_UNDATED_DISPLAY <= v.REDEEM_LIVE_TRACK_DAYS * 86_400,
-    { REDEEM_LIVE_TRACK_DAYS: 0 },
+      ) &&
+      v.REDEEM_CODE_STATUS_CHECK > v.SOURCE_HOT_POLL &&
+      v.REDEEM_CODE_STATUS_CHECK <= 86_400 &&
+      86_400 % v.REDEEM_CODE_STATUS_CHECK === 0,
+    { REDEEM_CODE_STATUS_CHECK: 7_000 },
   ),
   eq(
     "public-read-bounds",

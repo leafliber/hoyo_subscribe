@@ -24,7 +24,11 @@ import { logEvent } from "../../shell/logger";
 import { readControl } from "../../shell/observability/controls";
 import { recordMetric } from "../../shell/observability/metrics";
 import { articleRowId, saveArticleVersion } from "../../sources/articles/ingest";
-import { persistRedeemUpdate, readRedeemHints } from "../../sources/redeem-store";
+import {
+  persistRedeemUpdate,
+  readRedeemExpiries,
+  readRedeemHints,
+} from "../../sources/redeem-store";
 import {
   getSourceEntry,
   isLiveEntry,
@@ -321,10 +325,16 @@ export class PipelineRuntime {
     }
     const nextDue = this.now() + pollIntervalSeconds(entry, setting.mode) * 1000;
     if (data.page === undefined) {
-      // ADR-0030：直播兑换码来源另带管理员登记的活动 ID（首页没出现直播入口时的兜底）。
-      const hints = isLiveEntry(entry)
-        ? (await readRedeemHints(this.db, entry.sourceId, this.now())).map((hint) => hint.act_id)
-        : [];
+      // ADR-0030：直播兑换码来源另带管理员登记的活动 ID（首页没出现直播入口时的兜底）；
+      // ADR-0034：以及管理员照官方说明登记的截止时间。
+      const liveInputs = isLiveEntry(entry)
+        ? {
+            hints: (await readRedeemHints(this.db, entry.sourceId, this.now())).map(
+              (hint) => hint.act_id,
+            ),
+            expiries: await readRedeemExpiries(this.db, entry.sourceId),
+          }
+        : undefined;
       data.page = await collectSource(
         {
           ...entry,
@@ -337,7 +347,7 @@ export class PipelineRuntime {
         JSON.parse(source.cursor_json) as SourcePollState,
         this.now(),
         this.deps.fetchFn ?? fetch,
-        hints,
+        liveInputs,
       );
       if (data.page.status === "maintenance-required") {
         await this.db
@@ -420,7 +430,8 @@ export class PipelineRuntime {
         count: job.attempts,
         kind: job.kind,
       });
-    // ADR-0030：有尚未发放的兑换码时，按官方发放时刻提前再取一次（不晚于常规到期）。
+    // ADR-0030：有尚未发放的兑换码时，按官方发放时刻提前再取一次（不晚于常规到期）；
+    // ADR-0034：收尾后没有截止时间的直播，按下一个北京时间整点再核对一次。
     const revealDue =
       typeof data.page.nextPollAtMs === "number" && Number.isSafeInteger(data.page.nextPollAtMs)
         ? Math.max(this.now(), data.page.nextPollAtMs)

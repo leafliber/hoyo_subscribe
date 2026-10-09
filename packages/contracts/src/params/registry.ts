@@ -131,8 +131,11 @@ export const REDEEM_LIVE_TRACK_DAYS = 7 as const;
 /** 官方排定的兑换码发放时刻过后多久再取一次（秒）；直到取到兑换码或过了 SOURCE_HOT_POLL。ADR-0030。 */
 export const REDEEM_CODE_REVEAL_GRACE = 60 as const;
 
-/** 官方没写有效期的兑换码，自发放起在「有效兑换码」条里最多显示多久（秒）；只是显示上限，不是官方有效期。ADR-0030。 */
-export const REDEEM_CODE_UNDATED_DISPLAY = 86_400 as const;
+/**
+ * 直播收尾后仍没有截止时间的兑换码，多久核对一次官方是否还列出它（秒）；从北京时间 0 点起算，
+ * 即每天 0、3、6……21 点整。官方不再列出即从「有效兑换码」条移除。ADR-0034。
+ */
+export const REDEEM_CODE_STATUS_CHECK = 10_800 as const;
 
 /** 自官方发布时间计的发现目标，不是 SLA。附录 A.1；§3.1。 */
 export const DISCOVERY_TARGET = 1800 as const;
@@ -662,7 +665,7 @@ export const PARAMS = {
   REDEEM_LIVE_TRACK_MAX,
   REDEEM_LIVE_TRACK_DAYS,
   REDEEM_CODE_REVEAL_GRACE,
-  REDEEM_CODE_UNDATED_DISPLAY,
+  REDEEM_CODE_STATUS_CHECK,
   DISCOVERY_TARGET,
   PUBLICATION_TARGET,
   WATCHDOG_INTERVAL,
@@ -819,6 +822,7 @@ export type ParamStatus =
   | "adr-0027"
   | "adr-0030"
   | "adr-0032"
+  | "adr-0034"
   | "p5-02-approved"
   | "measured"
   | "measured-ref"
@@ -942,12 +946,12 @@ export const PARAM_META: Readonly<Record<keyof ParamValues, ParamMeta>> = {
     description: "官方排定的兑换码发放时刻过后多久再取一次；直到取到兑换码或过了 SOURCE_HOT_POLL",
     status: "adr-0030",
   },
-  REDEEM_CODE_UNDATED_DISPLAY: {
+  REDEEM_CODE_STATUS_CHECK: {
     section: "A.1",
     unit: "秒",
     description:
-      "官方没写有效期的兑换码自发放起在「有效兑换码」条里最多显示多久；只是显示上限，不是官方有效期",
-    status: "adr-0030",
+      "直播收尾后仍没有截止时间的兑换码，从北京时间 0 点起每隔多久核对一次官方是否还列出（每天 0、3、6……21 点整）；不再列出即从「有效兑换码」条移除",
+    status: "adr-0034",
   },
   DISCOVERY_TARGET: {
     section: "A.1",

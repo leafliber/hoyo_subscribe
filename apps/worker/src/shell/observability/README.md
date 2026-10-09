@@ -48,7 +48,8 @@
 - `POST /api/v2/admin/sources/resume` `{source, expected_updated_at, reason}`：仅 `maintenance-required` 且来源待办不在租约中时，恢复注册表登记状态，丢弃残留抓取页并只放回一次正常受控轮询；仍受限时同一抓取重新标维护并告警。不做周期探测，不绕过官方访问控制。
 - `POST /api/v2/admin/delivery/rearm` `{job, expected_updated_at, reason}`：只接受固定清单中的 failed 行；退避行置 done 解除，`delivery:dispatch` 回到 pending 续跑同一批。不修改 `mail_sending_available`，开启外发仍是单独一步（顺序见 `mail/outbox/README.md`）。
 - 逐封、逐发生项与发布/通知待办的 failed 不提供批量重置。
-- `POST /api/v2/admin/redeem-lives` `{source, live, reason}`（ADR-0030）：为直播兑换码来源登记官方直播页链接或活动 ID（米游社首页没出现直播入口时的兜底）。只接受直播来源与 contracts `liveActIdFromInput` 认得的形状；登记存在 `system_state` 的 `redeem_live_hints:<source>`，按读到的版本条件写入（并发后到的返回 409），与审计同批；同一来源至多 `REDEEM_LIVE_TRACK_MAX` 个、`REDEEM_LIVE_TRACK_DAYS` 天后失效，并把该来源的轮询待办提前到现在。登记只把活动 ID 交给下一次采集，采集照常经受限请求与官方接口校验。`GET /api/v2/admin/controls` 的直播来源行另带 `info.lives`（登记与正在跟踪的活动）。
+- `POST /api/v2/admin/redeem-lives` `{source, live, reason}`（ADR-0030）：为直播兑换码来源登记官方直播页链接或活动 ID（米游社首页没出现直播入口时的兜底）。只接受直播来源与 contracts `liveActIdFromInput` 认得的形状；登记存在 `system_state` 的 `redeem_live_hints:<source>`，按读到的版本条件写入（并发后到的返回 409），与审计同批；同一来源至多 `REDEEM_LIVE_TRACK_MAX` 个、`REDEEM_LIVE_TRACK_DAYS` 天后失效，并把该来源的轮询待办提前到现在。登记只把活动 ID 交给下一次采集，采集照常经受限请求与官方接口校验。`GET /api/v2/admin/controls` 的直播来源行另带 `info.lives`（登记与正在跟踪的活动；ADR-0034 起每场直播另列兑换码及是否已从官方列表消失、官方说明认出的与管理员登记的截止时间、采集阶段与下一个整点核对时刻）。
+- `POST /api/v2/admin/redeem-expiry` `{source, act_id, expires_at, reason, expected_updated_at}`（ADR-0034）：为正在跟踪的一场直播登记兑换码截止时间（北京时间，contracts `parseRedeemExpiryInput`；须晚于这场直播第一个兑换码的发放时刻）。存在 `redeem_live_expiry`，按页面上看到的版本条件写入（还没有登记时为 0，并发后到的返回 409），与审计 `redeem_expiry_set` 同批，并把该来源的轮询待办提前到现在。首页条立即按它显示；下一次采集把它写进该直播的正文，日历的"兑换码过期"随之发布或改期。不提供清除：节点缺失不等于官方取消，改错了就改成正确时间。
 
 公开只导出已有 capabilities 的 open/closed/unknown，不输出预算或私人数据。缺失值保持 unknown；执行时失败关闭（只读维护未配置不自行宣称开启）。
 

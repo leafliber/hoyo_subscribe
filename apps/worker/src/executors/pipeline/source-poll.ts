@@ -15,6 +15,7 @@ import {
   createAnnouncementAdapter,
   fetchAnnouncementContentSet,
 } from "../../sources/adapters/announcement";
+import type { RevealedLiveCode } from "../../sources/adapters/miyolive-article";
 import type { AnnouncementSourceEntry, SourceRegistryEntry } from "../../sources/registry";
 import {
   advanceFullSnapshotWatermark,
@@ -45,6 +46,27 @@ export interface TrackedLive {
   readonly actId: string;
   readonly firstSeenAtMs: number;
   readonly closedAtMs: number | null;
+  /** ADR-0034：最近一次读到的官方内容；不请求官方时据此重写正文、判断直播是否收尾。旧水位没有这一项。 */
+  readonly record?: LiveRecord;
+  /** ADR-0034：最近一次成功读取这场直播的时刻；没有截止时间时按它排下一个整点核对。 */
+  readonly checkedAtMs?: number;
+}
+
+/** ADR-0034：本站记下的一场直播的官方内容（每次成功读取后更新）。 */
+export interface LiveRecord {
+  readonly title: string;
+  /** 官方兑换码说明（纯文本）；没有为 null。 */
+  readonly tip: string | null;
+  /** 官方直播结束时刻（live.end）；没给为 null。 */
+  readonly endAtMs: number | null;
+  /** 官方 live.is_end。 */
+  readonly ended: boolean;
+  /** 曾经发放的兑换码（按发放时刻）；官方后来不再列出的也保留，正文与日历不因此变动。 */
+  readonly codes: readonly RevealedLiveCode[];
+  /** 最近一次读到的、码还是空的条目的官方排定发放时刻。 */
+  readonly pendingRevealAtMs: readonly number[];
+  /** 官方兑换码说明里认出的有效期（截止时刻与原文写法）；认不出为 null。 */
+  readonly officialExpiry: { readonly atMs: number; readonly text: string } | null;
 }
 
 export const INITIAL_SOURCE_POLL_STATE: SourcePollState = {

@@ -9,7 +9,7 @@
 | --- | --- | --- |
 | [HOYO_OFFICIAL_EVENT_SUBSCRIPTION_PLAN_v2.1.md](HOYO_OFFICIAL_EVENT_SUBSCRIPTION_PLAN_v2.1.md) | 产品范围、平台预案、抽取管线、认证与恢复、云端订阅、个人 ICS、通知调度、数据与接口、预算与生命周期、运维验收、附录 A 参数基线 | 全体 |
 | [HOYO_SUBSCRIPTION_FRONTEND_DESIGN_v1.0.md](HOYO_SUBSCRIPTION_FRONTEND_DESIGN_v1.0.md) | 信息架构、状态归属、各页面交互、保存状态机、接收方式呈现、视觉与可访问性、前端验收 U01–U29 | 前端轮次 F1–F6；后端在设计对外字段时 |
-| [adr/](adr/README.md) | 变更合同的决策记录（0001–0033；0002 被 0003 取代，0004 为预留编号）。改动禁止清单中的任何一条、改动合同语义，都必须先有 ADR | 全体；改合同前必读 |
+| [adr/](adr/README.md) | 变更合同的决策记录（0001–0034；0002 被 0003 取代，0004 为预留编号）。改动禁止清单中的任何一条、改动合同语义，都必须先有 ADR | 全体；改合同前必读 |
 | [D2_CALENDAR_PREVIEW.md](D2_CALENDAR_PREVIEW.md) | 前端 §13 待确认项 D2 的答案：实际日历预览、启用时的版本核对、公开变更数据（**2026-09-30 所有者审定**；F2-02 正式预览与 F3-04 开通体验以它为准） | 日历预览、启用相关的卡 |
 | [D3_STATE_VIEWS.md](D3_STATE_VIEWS.md) | 前端 §13 待确认项 D3 的答案：状态视图与操作结果（**2026-09-30 所有者审定**，§1.2 改为浏览器推导；F3 联调以它为准） | 账号、通道状态相关的卡 |
 
@@ -28,6 +28,7 @@ D1′（浏览时间范围预设）的定案写在 [F1-02 卡](tasks/F1-F2.md)�
 | [DEPLOYMENT_PREREQUISITES.md](DEPLOYMENT_PREREQUISITES.md) | 各卡产生的「需所有者执行」项汇总：secrets、平台配置、待取得实测值、各次部署须知 |
 | [tasks/](tasks/) | 每阶段的任务卡：P0–P6（后端与管线）、F1–F5（前端轮次）、F6（管理端，`tasks/F6.md`） |
 | [备份恢复手册](runbooks/backup-restore.md) | P5-03 本地加密备份/校验/隔离恢复、分离保管与所有者目标环境证据门；工具已合，正式备份未执行 |
+| [2026-10-09 兑换码改期清理](runbooks/redeem-reschedule-cleanup-2026-10-09.md) | ADR-0034 第 7 条一次性清理：删除绝区零 3.3 前瞻兑换码事件那条错误的公开改期并重建公共快照；所有者执行，SQL 已在测试中按真实 ID 复现验证；2026-10-09 已执行并核对 |
 | [P5-04 关闭门部署与E3清单](evidence/p5/owner-handoff.md) | 首次关闭门发布记录、之后每次部署的顺序、E3 取证表（仍未完成） |
 | [P5-04 本地交付证据](evidence/p5/results.md) | 负载13组、离线对账、公开限制和历史失败；仅E1/E2，不当目标计费证据 |
 | [P0 证据目录](evidence/p0/README.md) | 来源样本、平台事实、日历客户端与邮件链路的 P0 证据（结论见 `evidence/p0/CONCLUSIONS.md`） |

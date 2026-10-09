@@ -7,7 +7,7 @@ import {
   redeemCodeHiddenAt,
   redeemCodeVisible,
 } from "@hoyo/contracts";
-import type { RedeemUpdate } from "../executors/pipeline/collect-live";
+import type { ManualRedeemExpiry, RedeemUpdate } from "../executors/pipeline/collect-live";
 import { eventIdentity } from "../extraction/identity";
 import { liveOfficialUrl } from "./adapters/miyolive";
 import { isLiveEntry, type MiyoliveSourceEntry, SOURCE_REGISTRY } from "./registry";
@@ -74,7 +74,10 @@ export function mergeRedeemHints(
     .slice(0, REDEEM_LIVE_TRACK_MAX);
 }
 
-/** 采集结果写入：新码插入、已有的更新说明与有效期；官方"活动已结束"的活动记下时刻（只记第一次）。 */
+/**
+ * 采集结果写入：新码插入、已有的更新说明与有效期（官方重新列出的清掉"已消失"）；官方"活动已结束"的
+ * 活动记下时刻（只记第一次）；ADR-0034：官方列表里不再有的兑换码记下消失时刻（只记第一次）。
+ */
 export async function persistRedeemUpdate(
   db: D1Database,
   entry: MiyoliveSourceEntry,
@@ -91,7 +94,7 @@ export async function persistRedeemUpdate(
            ON CONFLICT (source_id, act_id, code) DO UPDATE SET
              live_title = excluded.live_title, reward = excluded.reward,
              revealed_at = excluded.revealed_at, expires_at = excluded.expires_at,
-             expiry_text = excluded.expiry_text, updated_at = excluded.updated_at`,
+             expiry_text = excluded.expiry_text, gone_at = NULL, updated_at = excluded.updated_at`,
         )
         .bind(
           entry.sourceId,
@@ -115,8 +118,32 @@ export async function persistRedeemUpdate(
         )
         .bind(now, now, entry.sourceId, actId),
     ),
+    ...update.gone.map((item) =>
+      db
+        .prepare(
+          `UPDATE redeem_codes SET gone_at = ?, updated_at = ?
+            WHERE source_id = ? AND act_id = ? AND code = ? AND gone_at IS NULL`,
+        )
+        .bind(now, now, entry.sourceId, item.actId, item.code),
+    ),
   ];
   if (statements.length > 0) await db.batch(statements);
+}
+
+/** ADR-0034：管理员照官方说明登记的截止时间，按活动 ID。 */
+export async function readRedeemExpiries(
+  db: D1Database,
+  sourceId: string,
+): Promise<Map<string, ManualRedeemExpiry>> {
+  const rows = (
+    await db
+      .prepare("SELECT act_id, expires_at, expression FROM redeem_live_expiry WHERE source_id = ?")
+      .bind(sourceId)
+      .all<{ act_id: string; expires_at: number; expression: string }>()
+  ).results;
+  return new Map(
+    rows.map((row) => [row.act_id, { expiresAt: row.expires_at, expression: row.expression }]),
+  );
 }
 
 interface RedeemCodeDbRow {
@@ -130,10 +157,21 @@ interface RedeemCodeDbRow {
   expires_at: number | null;
   expiry_text: string | null;
   live_closed_at: number | null;
+  gone_at: number | null;
+}
+
+function codeWindow(row: RedeemCodeDbRow) {
+  return {
+    revealedAt: row.revealed_at,
+    expiresAt: row.expires_at,
+    liveClosedAt: row.live_closed_at,
+    goneAt: row.gone_at,
+  };
 }
 
 /**
  * 当前在条里的兑换码：SQL 先按发放时刻取跟踪期内的行（有界），再逐条用 contracts redeemCodeVisible 判定。
+ * 截止时间取管理员照官方说明登记的（ADR-0034），没有再取官方兑换码说明里认出的。
  * 只取注册表里的直播来源；事件已发布时带上事件 ID（按规则模板的事件身份计算后核对存在）。
  */
 export async function readVisibleRedeemCodes(
@@ -144,12 +182,15 @@ export async function readVisibleRedeemCodes(
   const rows = (
     await db
       .prepare(
-        `SELECT source_id, act_id, code, game, live_title, reward, revealed_at, expires_at,
-                expiry_text, live_closed_at
-           FROM redeem_codes
-          WHERE revealed_at <= ? AND revealed_at >= ?
-            AND source_id IN (SELECT value FROM json_each(?))
-          ORDER BY revealed_at, source_id, act_id, code`,
+        `SELECT c.source_id, c.act_id, c.code, c.game, c.live_title, c.reward, c.revealed_at,
+                COALESCE(x.expires_at, c.expires_at) AS expires_at,
+                CASE WHEN x.expires_at IS NULL THEN c.expiry_text ELSE x.expression END AS expiry_text,
+                c.live_closed_at, c.gone_at
+           FROM redeem_codes c
+           LEFT JOIN redeem_live_expiry x ON x.source_id = c.source_id AND x.act_id = c.act_id
+          WHERE c.revealed_at <= ? AND c.revealed_at >= ?
+            AND c.source_id IN (SELECT value FROM json_each(?))
+          ORDER BY c.revealed_at, c.source_id, c.act_id, c.code`,
       )
       .bind(
         now,
@@ -157,12 +198,7 @@ export async function readVisibleRedeemCodes(
         JSON.stringify(entries.map((entry) => entry.sourceId)),
       )
       .all<RedeemCodeDbRow>()
-  ).results.filter((row) =>
-    redeemCodeVisible(
-      { revealedAt: row.revealed_at, expiresAt: row.expires_at, liveClosedAt: row.live_closed_at },
-      now,
-    ),
-  );
+  ).results.filter((row) => redeemCodeVisible(codeWindow(row), now));
   if (rows.length === 0) return [];
   const eventIds = new Map<string, string>();
   for (const row of rows) {
@@ -191,11 +227,7 @@ export async function readVisibleRedeemCodes(
         revealedAt: row.revealed_at,
         expiresAt: row.expires_at,
         expiryText: row.expiry_text,
-        hiddenAt: redeemCodeHiddenAt({
-          revealedAt: row.revealed_at,
-          expiresAt: row.expires_at,
-          liveClosedAt: row.live_closed_at,
-        }),
+        hiddenAt: redeemCodeHiddenAt(codeWindow(row)),
         officialUrl: liveOfficialUrl(entry, row.act_id),
         eventId: eventId !== null && published.has(eventId) ? eventId : null,
       },

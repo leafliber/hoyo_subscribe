@@ -27,18 +27,24 @@ const encoder = new TextEncoder();
 
 /**
  * ADR-0030 白名单 3：直播兑换码来源的正文是本站按官方结构化字段逐行写成的（miyolive-article），
- * 时间都是官方字段：开始 = 第一个兑换码的官方发放时刻（to_get_time），结束 = 兑换码说明里写明的有效期
- * （认不出就不建结束节点，不猜）。还没有任何兑换码条目的活动不产出事件。
+ * 时间都是官方字段：开始 = 第一个已发放兑换码的官方发放时刻（to_get_time，ADR-0034：还没发放的预告时刻
+ * 不算），结束 = 管理员照官方说明登记的截止时间（ADR-0034），其次兑换码说明里写明的有效期
+ * （都没有就不建结束节点，不猜）。还没有已发放兑换码的活动不产出事件。
  */
 function miyoliveRedeemCodes(article: StoredArticleVersion): RuleOutcome {
   const live = readLiveArticle(article.blocks);
   if (live === null) return { kind: "review", reason: "直播兑换码正文格式不符" };
-  const first = live.codes[0];
-  if (first === undefined) return { kind: "review", reason: "直播活动还没有兑换码条目" };
+  const first = live.codes.find((code) => code.code !== null);
+  if (first === undefined) return { kind: "review", reason: "直播活动还没有已发放的兑换码" };
   const start = parseAnnouncementExactTime(first.revealExpression);
   if (start === null) return { kind: "review", reason: "兑换码发放时刻无效" };
   const reference = earliestExplicitDate(article.blocks.map(readableBlockText));
-  const expiry = live.tip === null ? null : redeemExpiryTime(live.tip.text, reference);
+  const manual =
+    live.manualExpiry === null ? null : parseAnnouncementExactTime(live.manualExpiry.expression);
+  if (live.manualExpiry !== null && manual === null)
+    return { kind: "review", reason: "登记的截止时间无效" };
+  const expiryBlock = manual !== null ? live.manualExpiry : live.tip;
+  const expiry = manual ?? (live.tip === null ? null : redeemExpiryTime(live.tip.text, reference));
   const revealed = live.codes.flatMap((code) => (code.code === null ? [] : [code.code]));
   let summary: string | null = null;
   for (let count = revealed.length; count > 0; count--) {
@@ -73,7 +79,7 @@ function miyoliveRedeemCodes(article: StoredArticleVersion): RuleOutcome {
               tag: null,
             },
           },
-          ...(expiry === null || live.tip === null
+          ...(expiry === null || expiryBlock === null
             ? []
             : [
                 {
@@ -82,7 +88,7 @@ function miyoliveRedeemCodes(article: StoredArticleVersion): RuleOutcome {
                   title: "兑换码过期",
                   time: expiry,
                   time_evidence: {
-                    block_ref: `blocks/${live.tip.blockIndex}`,
+                    block_ref: `blocks/${expiryBlock.blockIndex}`,
                     quote: expiry.raw_expression,
                     tag: null,
                   },
