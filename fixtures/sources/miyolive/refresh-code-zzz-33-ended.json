@@ -1,0 +1,28 @@
+{
+  "schema_version": 1,
+  "synthetic": false,
+  "source_id": "zzz-live",
+  "kind": "code-response",
+  "purpose": "真实样本：直播结束后兑换码接口仍列出同一个兑换码（这一场只发了一个）。",
+  "captured_at_utc": "2026-10-09T12:31:11Z",
+  "url": "https://api-takumi-static.mihoyo.com/event/miyolive/refreshCode?version=b3a393&time=1791549060",
+  "request_headers": ["x-rpc-act_id"],
+  "extra": {
+    "act_id": "ea202609241643161324",
+    "act_id_note": "官方直播页 act_id（绝区零 3.3 前瞻特别节目）"
+  },
+  "body": {
+    "retcode": 0,
+    "message": "OK",
+    "data": {
+      "code_list": [
+        {
+          "title": "<p style=\"white-space: pre-wrap;\"><span style=\"font-size:16px\">菲林</span><span style=\"color:rgba(255,169,64,1)\"><span style=\"font-size:16px\">*300</span></span></p><p style=\"white-space: pre-wrap;\"><span style=\"font-size:16px\">资深调查员记录</span><span style=\"color:rgba(255,169,64,1)\"><span style=\"font-size:16px\">*2</span></span></p><p style=\"white-space: pre-wrap;\"><span style=\"font-size:16px\">音擎能源模块</span><span style=\"color:rgba(255,169,64,1)\"><span style=\"font-size:16px\">*3</span></span></p><p style=\"white-space: pre-wrap;\"><span style=\"font-size:16px\">丁尼</span><span style=\"color:rgba(255,169,64,1)\"><span style=\"font-size:16px\">*30000</span></span></p>",
+          "code": "PHOENIX1021",
+          "img": "https://act-webstatic.mihoyo.com/event-static/2024/09/11/a6cd5697d9f69e7a20c45c9da50e7086_886618304261582437.png",
+          "to_get_time": "1791546210"
+        }
+      ]
+    }
+  }
+}

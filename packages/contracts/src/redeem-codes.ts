@@ -5,10 +5,17 @@
 // 所以这里只认"有效期至……""……前有效""……过期/失效"这类明确写法里的完整日期，认不出或有两个不同的日期
 // 时返回 null，按"官方没写有效期"处理，不猜"次日中午"之类的惯例（主方案 §3.3 不猜固定时刻）。
 // 认出的片段保持原文（raw_expression 与证据引用都用它），换算交给已有的时间解析与补全年份规则。
+// ADR-0034：官方没写时，管理员可照官方在别处发布的说明登记截止时间（parseRedeemExpiryInput）；
+// 都没有截止时间的兑换码在直播收尾后按北京时间整点核对（redeemStatusCheckAfter），官方不再列出即收回。
 // 本模块是纯函数，不读库、不联网。
 import { z } from "zod";
 import { OperationalReasonSchema } from "./observability";
-import { REDEEM_CODE_UNDATED_DISPLAY } from "./params/registry";
+import { REDEEM_CODE_STATUS_CHECK, REDEEM_LIVE_TRACK_DAYS } from "./params/registry";
+
+// 单位换算，非业务参数。
+const SECOND = 1000;
+const DAY = 86_400_000;
+const UTC8 = 8 * 3_600_000;
 
 /** 官方直播活动 ID 的形状（实测见到 ea2026…、e2024… 之类）；也是 x-rpc-act_id 请求头放行的取值。 */
 export const LIVE_ACT_ID_PATTERN = /^[A-Za-z0-9_-]{1,64}$/;
@@ -103,27 +110,80 @@ export function redeemExpiryExpression(text: string): string | null {
   return found.size === 1 ? [...found][0] : null;
 }
 
-/** 「有效兑换码」条里一条兑换码的显示所需事实（发放时刻、官方有效期、官方活动结束的观察时刻）。 */
+/** 「有效兑换码」条里一条兑换码的显示所需事实（发放时刻、截止时间、官方是否还列出它）。 */
 export interface RedeemCodeWindow {
   /** 官方发放时刻（to_get_time，UTC 毫秒）。 */
   readonly revealedAt: number;
-  /** 官方写明的有效期截止（UTC 毫秒）；只写了日期的取该日北京时间结束；没写为 null。 */
+  /**
+   * 截止时间（UTC 毫秒）：管理员照官方说明登记的优先，其次官方兑换码说明里认出的有效期；
+   * 只写了日期的取该日北京时间结束；都没有为 null。
+   */
   readonly expiresAt: number | null;
   /** 本站观察到官方返回"活动已结束"的时刻；仍在进行为 null。 */
   readonly liveClosedAt: number | null;
+  /** ADR-0034：本站核对时发现官方兑换码列表里不再有这个兑换码的时刻；仍列出为 null。 */
+  readonly goneAt: number | null;
 }
 
 /**
- * 当前是否显示在「有效兑换码」条里：已经发放；官方写了有效期的到期即止；
- * 没写有效期的，官方活动结束或发放满 REDEEM_CODE_UNDATED_DISPLAY 秒即止（只是显示上限，不是有效期）。
+ * 当前是否显示在「有效兑换码」条里（ADR-0034 修订 ADR-0030 第 4 条）：已经发放；
+ * 有截止时间的到截止时间为止（之后不再核对官方状态）；没有截止时间的，官方仍列出它（没有消失、
+ * 活动也没结束）就一直显示，最长到直播的跟踪期（REDEEM_LIVE_TRACK_DAYS）满。
  */
 export function redeemCodeVisible(code: RedeemCodeWindow, now: number): boolean {
   if (code.revealedAt > now) return false;
   if (code.expiresAt !== null) return now < code.expiresAt;
-  return code.liveClosedAt === null && now < code.revealedAt + REDEEM_CODE_UNDATED_DISPLAY * 1000;
+  return code.liveClosedAt === null && code.goneAt === null && now < redeemCodeHiddenAt(code);
 }
 
-/** 条目从条里消失的时刻（页面据此到点隐藏，不必重新请求）。 */
+/** 条目最晚从条里消失的时刻（页面据此到点隐藏）：截止时间，没有截止时间时是跟踪期满。 */
 export function redeemCodeHiddenAt(code: RedeemCodeWindow): number {
-  return code.expiresAt ?? code.revealedAt + REDEEM_CODE_UNDATED_DISPLAY * 1000;
+  return code.expiresAt ?? code.revealedAt + REDEEM_LIVE_TRACK_DAYS * DAY;
 }
+
+/**
+ * ADR-0034：上次核对之后的下一个核对时刻——北京时间 0 点起每 REDEEM_CODE_STATUS_CHECK 秒一个整点
+ * （默认 0、3、6……21 点），严格晚于给定时刻。
+ */
+export function redeemStatusCheckAfter(ms: number): number {
+  const period = REDEEM_CODE_STATUS_CHECK * SECOND;
+  return Math.floor((ms + UTC8) / period) * period - UTC8 + period;
+}
+
+/** 每天的核对时刻（北京时间的整点小时），由 REDEEM_CODE_STATUS_CHECK 推出，供页面说明（默认 0、3……21）。 */
+export const REDEEM_STATUS_CHECK_HOURS: readonly number[] = Array.from(
+  { length: DAY / (REDEEM_CODE_STATUS_CHECK * SECOND) },
+  (_, index) => (index * REDEEM_CODE_STATUS_CHECK * SECOND) / (DAY / 24),
+);
+
+/** 管理员登记截止时间的输入：北京时间"YYYY-MM-DDTHH:MM(:SS)"（datetime-local），也认空格与斜线写法。 */
+const EXPIRY_INPUT = /^(\d{4})[-/](\d{2})[-/](\d{2})[T ](\d{2}):(\d{2})(?::(\d{2}))?$/;
+
+/**
+ * ADR-0034：管理员照官方说明登记的截止时间 → UTC 毫秒与写进正文的写法"YYYY/MM/DD HH:MM(:SS)"
+ * （与公告已核验的斜线写法同形，没输入秒就不写秒）。不存在的日子、形状不符返回 null。
+ */
+export function parseRedeemExpiryInput(raw: string): { utcMs: number; expression: string } | null {
+  const match = EXPIRY_INPUT.exec(raw.trim());
+  if (match === null) return null;
+  const [, year, month, day, hour, minute, second] = match;
+  const full = `${year}-${month}-${day}T${hour}:${minute}:${second ?? "00"}`;
+  const utcMs = Date.parse(`${full}+08:00`);
+  if (!Number.isSafeInteger(utcMs)) return null;
+  // Date.parse 可能把不存在的日子顺延；往返校验阻止这种"修复"。
+  if (new Date(utcMs + UTC8).toISOString().slice(0, 19) !== full) return null;
+  const clock = second === undefined ? `${hour}:${minute}` : `${hour}:${minute}:${second}`;
+  return { utcMs, expression: `${year}/${month}/${day} ${clock}` };
+}
+
+/**
+ * POST /api/v2/admin/redeem-expiry（ADR-0034）：为正在跟踪的一场直播登记兑换码截止时间。
+ * expected_updated_at 是页面上看到的登记版本（还没有登记时为 0），并发修改时后到的一次返回冲突。
+ */
+export const RedeemExpirySetSchema = z.strictObject({
+  source: z.string().min(1).max(64),
+  act_id: z.string().regex(LIVE_ACT_ID_PATTERN),
+  expires_at: z.string().min(1).max(32),
+  reason: OperationalReasonSchema,
+  expected_updated_at: z.int().min(0),
+});

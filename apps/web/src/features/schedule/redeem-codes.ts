@@ -1,7 +1,8 @@
 /**
  * ADR-0030 「有效兑换码」条：米游社官方直播页接口取得、仍在显示期内的兑换码。
  * 有可显示的兑换码时才出现（按首页选中的游戏），没有时整块隐藏、不占位。
- * 每条可一键复制；到点（官方有效期，或没写有效期时的显示上限）自动从条里移除，不必重新请求。
+ * 每条可一键复制；到截止时间自动从条里移除，不必重新请求（ADR-0034：没有截止时间的，服务端在
+ * 官方不再列出时收回，页面只按跟踪期满兜底）。
  * 兑换码、奖励说明都按文本写入，不执行任何来自接口的 HTML。
  */
 import type { GameId, PublicRedeemCode } from "@hoyo/contracts";
@@ -22,7 +23,8 @@ export function visibleRedeemCodes(
 }
 
 function expiryText(code: PublicRedeemCode, now: number): string {
-  if (code.expiresAt === null) return "官方未写有效期，请尽快兑换";
+  // ADR-0034：没有截止时间时只提示尽快兑换（所有者 2026-10-09 定的文案）。
+  if (code.expiresAt === null) return "请尽快兑换";
   const left = remaining(code.expiresAt, now);
   return `${dateTime(code.expiresAt)} 过期${left ? ` · ${left}` : ""}`;
 }

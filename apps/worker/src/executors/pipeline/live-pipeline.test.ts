@@ -76,7 +76,12 @@ async function redeemCodes() {
     now,
   );
   return (await response.json()) as {
-    codes: { code: string; eventId: string | null; expiresAt: number | null }[];
+    codes: {
+      code: string;
+      eventId: string | null;
+      expiresAt: number | null;
+      expiryText: string | null;
+    }[];
   };
 }
 
@@ -226,7 +231,7 @@ describe("ADR-0030 直播兑换码来源全链", () => {
   });
 
   it("官方返回活动已结束：记下时刻、以后不再请求；没写有效期的兑换码随之从条里收回", async () => {
-    // 页面模板没有兑换码说明：兑换码"没写有效期"，日历只有发放节点，条里按显示上限。
+    // 页面模板没有兑换码说明：兑换码"没写有效期"，日历只有发放节点。
     indexBody.data.template = JSON.stringify({ actTitle: "合成", codeVisible: true });
     await runtime().watchdog();
     await drain();
@@ -252,8 +257,8 @@ describe("ADR-0030 直播兑换码来源全链", () => {
     const [source] = await rows<{ cursor_json: string }>(
       "SELECT cursor_json FROM sources WHERE source_id = 'zzz-live'",
     );
-    expect(JSON.parse(source?.cursor_json ?? "{}").lives).toEqual([
-      { actId: ACT, firstSeenAtMs: at("20:10:00"), closedAtMs: now },
+    expect(JSON.parse(source?.cursor_json ?? "{}").lives).toMatchObject([
+      { actId: ACT, firstSeenAtMs: at("20:10:00"), closedAtMs: now, checkedAtMs: at("20:10:00") },
     ]);
     // 下一轮只请求首页：已结束的活动即使首页仍挂着链接也不再请求。
     now += SOURCE_POLL * 1000;
@@ -305,5 +310,224 @@ describe("ADR-0030 直播兑换码来源全链", () => {
     await drain();
     expect(requests).toEqual([]);
     expect(await rows("SELECT id FROM events")).toEqual([]);
+  });
+});
+
+describe("ADR-0034 取到兑换码才进日程；截止时间与整点核对", () => {
+  const HOME = "bbs-api.miyoushe.com/apihub/api/home/new";
+  const INDEX = "api-takumi.mihoyo.com/event/miyolive/index";
+  const CODES = "api-takumi-static.mihoyo.com/event/miyolive/refreshCode";
+  const beijing = (text: string) => Date.parse(`${text}+08:00`);
+  const sourceDue = async () =>
+    (
+      await rows<{ due_at: number }>(
+        "SELECT due_at FROM jobs WHERE id = 'pipeline:source:zzz-live'",
+      )
+    )[0]?.due_at;
+  const shownCodes = async () => (await redeemCodes()).codes.map((code) => code.code);
+  /** 直播已收尾：官方 is_end 为真，三个兑换码都已发放。 */
+  function endedLive(tip: boolean) {
+    if (!tip) indexBody.data.template = JSON.stringify({ actTitle: "合成", codeVisible: true });
+    indexBody.data.live.is_end = true;
+    codeList[2] = { ...codeList[2], code: "ZZZ33SYNTHC3" };
+    now = at("20:40:00");
+  }
+  /** 管理员登记截止时间（接口本身见 redeem-expiry.test.ts）：写登记表，并把来源待办提前到现在。 */
+  async function register(expression: string, instant: number) {
+    await env.DB.batch([
+      env.DB.prepare(
+        `INSERT INTO redeem_live_expiry(source_id,act_id,expires_at,expression,created_at,updated_at)
+         VALUES ('zzz-live',?,?,?,?,?) ON CONFLICT(source_id,act_id) DO UPDATE SET
+           expires_at=excluded.expires_at, expression=excluded.expression, updated_at=excluded.updated_at`,
+      ).bind(ACT, instant, expression, now, now),
+      env.DB.prepare(
+        "UPDATE jobs SET due_at = ? WHERE id = 'pipeline:source:zzz-live' AND status = 'pending'",
+      ).bind(now),
+    ]);
+  }
+
+  it("官方只预告了发放时刻、码还空着时不进日程；取到兑换码的这一轮发布并更新日历，官方改了发放时刻也不产生改期", async () => {
+    // 2026-10-09 绝区零 3.3 实测：预告 19:49，实际 19:43:30 发放，官方随之把 to_get_time 改成实际时刻；
+    // 官方没写兑换码说明。
+    now = at("19:40:00");
+    indexBody.data.template = JSON.stringify({ actTitle: "合成", codeVisible: true });
+    codeList = [{ ...codeList[0], code: "", to_get_time: String(at("19:49:00") / 1000) }];
+    await runtime().watchdog();
+    await drain();
+    expect(requests).toEqual([HOME, INDEX, CODES]);
+    expect(await rows("SELECT id FROM article_versions")).toEqual([]);
+    expect(await rows("SELECT id FROM events")).toEqual([]);
+    expect(await shownCodes()).toEqual([]);
+    expect(await sourceDue()).toBe(at("19:49:00") + REDEEM_CODE_REVEAL_GRACE * 1000);
+
+    now = at("19:49:00") + REDEEM_CODE_REVEAL_GRACE * 1000;
+    codeList = [
+      { ...codeList[0], code: "PHOENIX1021", to_get_time: String(at("19:43:30") / 1000) },
+    ];
+    requests = [];
+    await drain();
+    expect(requests).toEqual([HOME, INDEX, CODES]);
+    const [event] = await rows<{ id: string; summary: string }>("SELECT id, summary FROM events");
+    expect(event?.summary).toBe("兑换码：PHOENIX1021");
+    expect(
+      await rows("SELECT milestone_key, time_exact_ms, raw_expression FROM milestones"),
+    ).toEqual([
+      {
+        milestone_key: "codes_release",
+        time_exact_ms: at("19:43:30"),
+        raw_expression: "2026/10/09 19:43:30",
+      },
+    ]);
+    // 同一轮里发布并重建公共快照：日历已经有这个兑换码事件，且没有改期记录。
+    const current = await rows<{ id: string }>(
+      "SELECT id FROM public_snapshots WHERE state = 'current'",
+    );
+    expect(current).toHaveLength(1);
+    expect(
+      await rows(
+        "SELECT n.milestone_id FROM public_snapshot_nodes n JOIN milestones m ON m.id = n.milestone_id WHERE n.snapshot_id = ? AND m.event_id = ?",
+        current[0]?.id,
+        event?.id,
+      ),
+    ).toHaveLength(1);
+    expect(await rows("SELECT patch_kind FROM calendar_patches")).toEqual([]);
+    expect((await redeemCodes()).codes.map((code) => [code.code, code.eventId])).toEqual([
+      ["PHOENIX1021", event?.id],
+    ]);
+  });
+
+  it("直播收尾后没有截止时间：只在北京时间整点核对；兑换码从官方列表消失即从条里收回，正文与日历不变", async () => {
+    endedLive(false);
+    await runtime().watchdog();
+    await drain();
+    expect(requests).toEqual([HOME, INDEX, CODES]);
+    // is_end 只表示直播节目结束：兑换码仍有效，照常显示，直到官方列表里不再有它。
+    expect(await shownCodes()).toEqual(["ZZZ33SYNTHA1", "ZZZ33SYNTHB2", "ZZZ33SYNTHC3"]);
+    expect((await redeemCodes()).codes.every((code) => code.expiresAt === null)).toBe(true);
+    // 下一次采集排在 21:00 整点，早于常规间隔（20:40 + 30 分钟）。
+    expect(await sourceDue()).toBe(at("21:00:00"));
+
+    now = at("21:00:00");
+    requests = [];
+    await drain();
+    expect(requests).toEqual([HOME, INDEX, CODES]);
+    expect(await sourceDue()).toBe(now + SOURCE_POLL * 1000);
+
+    // 常规间隔到了：只请求首页，这场直播等下一个整点（0 点）。
+    now += SOURCE_POLL * 1000;
+    requests = [];
+    await drain();
+    expect(requests).toEqual([HOME]);
+
+    const versions = await rows("SELECT id FROM article_versions");
+    const [before] = await rows<{ summary: string; event_revision: number }>(
+      "SELECT summary, event_revision FROM events",
+    );
+    codeList.splice(1, 1);
+    now = beijing("2026-10-10T00:00:00");
+    requests = [];
+    await drain();
+    expect(requests).toEqual([HOME, INDEX, CODES]);
+    expect(await shownCodes()).toEqual(["ZZZ33SYNTHA1", "ZZZ33SYNTHC3"]);
+    expect(await rows("SELECT code, gone_at FROM redeem_codes WHERE gone_at IS NOT NULL")).toEqual([
+      { code: "ZZZ33SYNTHB2", gone_at: now },
+    ]);
+    expect(await rows("SELECT id FROM article_versions")).toEqual(versions);
+    expect(await rows("SELECT summary, event_revision FROM events")).toEqual([before]);
+    expect(await sourceDue()).toBe(beijing("2026-10-10T00:30:00"));
+
+    // 不再有 24 小时显示上限：发放 30 小时后官方仍列出的照常显示。
+    now = at("19:45:00") + 30 * 3_600_000;
+    expect(await shownCodes()).toEqual(["ZZZ33SYNTHA1", "ZZZ33SYNTHC3"]);
+  });
+
+  it("直播收尾后有截止时间（官方说明认出）：不再请求这场直播，到截止时间从条里收回", async () => {
+    endedLive(true);
+    await runtime().watchdog();
+    await drain();
+    expect(requests).toEqual([HOME, INDEX, CODES]);
+    expect(await sourceDue()).toBe(now + SOURCE_POLL * 1000);
+    now += SOURCE_POLL * 1000;
+    requests = [];
+    await drain();
+    expect(requests).toEqual([HOME]);
+    now = beijing("2026-10-10T11:59:59");
+    expect(await shownCodes()).toHaveLength(3);
+    now = beijing("2026-10-10T12:00:00");
+    expect(await shownCodes()).toEqual([]);
+  });
+
+  it("管理员登记截止时间：条立即按它显示；采集不再请求官方，把它写进正文，日历出现兑换码过期；改动即改期", async () => {
+    endedLive(false);
+    await runtime().watchdog();
+    await drain();
+    expect(await rows("SELECT milestone_key FROM milestones")).toEqual([
+      { milestone_key: "codes_release" },
+    ]);
+
+    const first = beijing("2026-10-11T23:59:59");
+    await register("2026/10/11 23:59:59", first);
+    expect((await redeemCodes()).codes.map((code) => [code.expiresAt, code.expiryText])).toEqual(
+      Array(3).fill([first, "2026/10/11 23:59:59"]),
+    );
+    requests = [];
+    await drain();
+    expect(requests).toEqual([HOME]);
+    expect(
+      await rows(
+        "SELECT time_exact_ms, raw_expression, time_basis FROM milestones WHERE milestone_key = 'codes_expiry'",
+      ),
+    ).toEqual([
+      {
+        time_exact_ms: first,
+        raw_expression: "2026/10/11 23:59:59",
+        time_basis: "official_explicit",
+      },
+    ]);
+    const [before] = await rows<{ schedule_revision: number }>(
+      "SELECT schedule_revision FROM events",
+    );
+
+    now += 60_000;
+    const second = beijing("2026-10-12T12:00:00");
+    await register("2026/10/12 12:00", second);
+    requests = [];
+    await drain();
+    expect(requests).toEqual([HOME]);
+    expect(
+      await rows("SELECT time_exact_ms FROM milestones WHERE milestone_key = 'codes_expiry'"),
+    ).toEqual([{ time_exact_ms: second }]);
+    const [after] = await rows<{ schedule_revision: number }>(
+      "SELECT schedule_revision FROM events",
+    );
+    expect(after?.schedule_revision).toBeGreaterThan(before?.schedule_revision ?? 0);
+    expect(
+      await rows(
+        "SELECT patch_kind, old_time_exact_ms, new_time_exact_ms FROM calendar_patches WHERE superseded_at IS NULL",
+      ),
+    ).toEqual([{ patch_kind: "rescheduled", old_time_exact_ms: first, new_time_exact_ms: second }]);
+    // 截止时间一到，条里收回；有截止时间后不再核对官方状态。
+    now = second;
+    expect(await shownCodes()).toEqual([]);
+  });
+
+  it("官方已返回活动已结束的直播也能登记截止时间：不再请求官方，正文与日历照样更新，条里重新显示到截止时间", async () => {
+    indexBody.data.template = JSON.stringify({ actTitle: "合成", codeVisible: true });
+    await runtime().watchdog();
+    await drain();
+    now = at("20:30:00");
+    closed = true;
+    await drain();
+    expect(await shownCodes()).toEqual([]);
+
+    const expiry = beijing("2026-10-11T23:59:59");
+    await register("2026/10/11 23:59:59", expiry);
+    requests = [];
+    await drain();
+    expect(requests).toEqual([HOME]);
+    expect(
+      await rows("SELECT time_exact_ms FROM milestones WHERE milestone_key = 'codes_expiry'"),
+    ).toEqual([{ time_exact_ms: expiry }]);
+    expect(await shownCodes()).toEqual(["ZZZ33SYNTHA1", "ZZZ33SYNTHB2"]);
   });
 });

@@ -227,7 +227,7 @@ if (form && results) {
         card.classList.add(level);
       }
     }
-    // ADR-0030：兑换码到点（官方有效期或显示上限）从条里移除。
+    // ADR-0030/ADR-0034：兑换码到点（截止时间，没有截止时间时是跟踪期满）从条里移除。
     if (redeemBar && !redeemBar.hidden && redeemBarExpired(redeemBar, now)) expired = true;
     if (expired) render();
   }

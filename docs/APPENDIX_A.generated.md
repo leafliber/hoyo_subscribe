@@ -40,7 +40,7 @@ P0 待定项（`MODEL_MAX_INPUT`、`MODEL_MAX_BILLED_OUTPUT`）未填写前，�
 | REDEEM_LIVE_TRACK_MAX | 4 | 个 | 每个直播兑换码来源同时跟踪的直播活动上限；一次轮询至多 1 次发现请求 + 每个活动 2 次请求 | ADR-0030 已批准 |
 | REDEEM_LIVE_TRACK_DAYS | 7 | 天 | 直播活动自首次发现起最多跟踪的天数；官方返回"活动已结束"时提前停止 | ADR-0030 已批准 |
 | REDEEM_CODE_REVEAL_GRACE | 60 | 秒 | 官方排定的兑换码发放时刻过后多久再取一次；直到取到兑换码或过了 SOURCE_HOT_POLL | ADR-0030 已批准 |
-| REDEEM_CODE_UNDATED_DISPLAY | 86,400 | 秒 | 官方没写有效期的兑换码自发放起在「有效兑换码」条里最多显示多久；只是显示上限，不是官方有效期 | ADR-0030 已批准 |
+| REDEEM_CODE_STATUS_CHECK | 10,800 | 秒 | 直播收尾后仍没有截止时间的兑换码，从北京时间 0 点起每隔多久核对一次官方是否还列出（每天 0、3、6……21 点整）；不再列出即从「有效兑换码」条移除 | ADR-0034 已批准 |
 | DISCOVERY_TARGET | 1,800 | 秒 | 自官方发布时间计的发现目标（不是 SLA） | 基线 |
 | PUBLICATION_TARGET | 2,700 | 秒 | 自官方发布时间计的发布目标（不是 SLA） | 基线 |
 | WATCHDOG_INTERVAL | 600 | 秒 | 修复两个固定执行器 | 基线 |
@@ -253,7 +253,7 @@ P0 待定项（`MODEL_MAX_INPUT`、`MODEL_MAX_BILLED_OUTPUT`）未填写前，�
 | source-response-caps-within-ceiling | 来源上限 | SOURCE_LIMIT_PROFILE 每来源响应上限 > 0 且 <= responseCapCeilingBytes | max(SOURCE_LIMIT_PROFILE.responseCapsBytes)(524288) <= responseCapCeilingBytes(524288) |
 | client-recheck-below-public-fresh | 页面副本 | 0 < CLIENT_RECHECK_INTERVAL < PUBLIC_CACHE_FRESH（页面在副本被标为可能过时之前就会再核对一次） | 0 < CLIENT_RECHECK_INTERVAL(300) < PUBLIC_CACHE_FRESH(3600) |
 | redeem-reveal-grace-below-hot-poll | 兑换码 | 0 < REDEEM_CODE_REVEAL_GRACE < SOURCE_HOT_POLL（发放时刻后的补取比热点轮询更密，且只补到热点轮询的间隔为止） | 0 < REDEEM_CODE_REVEAL_GRACE(60) < SOURCE_HOT_POLL(600) |
-| redeem-undated-display-within-tracking | 兑换码 | REDEEM_LIVE_TRACK_MAX、REDEEM_LIVE_TRACK_DAYS 为正整数；REDEEM_CODE_UNDATED_DISPLAY <= REDEEM_LIVE_TRACK_DAYS × 86400（没写有效期的兑换码只在其直播仍被跟踪时显示，官方"活动已结束"才能及时收回） | REDEEM_CODE_UNDATED_DISPLAY(86400) <= REDEEM_LIVE_TRACK_DAYS(7) × 86400 |
+| redeem-status-check-aligned | 兑换码 | REDEEM_LIVE_TRACK_MAX、REDEEM_LIVE_TRACK_DAYS、REDEEM_CODE_STATUS_CHECK 为正整数；SOURCE_HOT_POLL < REDEEM_CODE_STATUS_CHECK <= 86400 且 86400 能被 REDEEM_CODE_STATUS_CHECK 整除（核对时刻每天都落在同样的北京时间整点，且比热点轮询稀） | SOURCE_HOT_POLL(600) < REDEEM_CODE_STATUS_CHECK(10800) <= 86400，86400 % REDEEM_CODE_STATUS_CHECK = 0 |
 | public-read-bounds | 公共读保护 | 公共读上限均为正整数；recentChanges <= scanPage <= detailNodes；nodeBytes × (recentChanges + 1) < responseBytes <= FEED_RESPONSE_MAX_BYTES；queryBytes <= nodeBytes | PUBLIC_READ_LIMITS({"scanPage":100,"recentChanges":20,"detailNodes":1000,"sourcesPerGame":16,"pendingCandidates":1000,"nodeBytes":8192,"responseBytes":524288,"queryBytes":4096}) <= FEED_RESPONSE_MAX_BYTES(2097152) |
 
 ### 语义条款（无法用参数数值校验，由实现阶段测试保证）

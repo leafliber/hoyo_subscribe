@@ -4,7 +4,12 @@ import { bodyHasVisibleText, denoiseTitle, splitBodyBlocks } from "../../sources
 import { type ArticleIngestPlan, buildArticleIngestPlan } from "../../sources/articles/ingest";
 import type { SourceRegistryEntry } from "../../sources/registry";
 import type { ArticleFetchResult, SourceItemStub } from "../../sources/types";
-import { collectLiveSource, type RedeemUpdate } from "./collect-live";
+import {
+  collectLiveSource,
+  type LiveCollectInputs,
+  NO_LIVE_INPUTS,
+  type RedeemUpdate,
+} from "./collect-live";
 import { isRecheckDue, runAnnouncementPollBatch, type SourcePollState } from "./source-poll";
 
 /**
@@ -25,7 +30,10 @@ export interface CollectedPage {
   backfill: boolean;
   /** ADR-0030：直播兑换码来源本次的兑换码与已结束的活动；runtime 落页时写入 redeem_codes 后删去。 */
   redeem?: RedeemUpdate;
-  /** ADR-0030：有尚未发放的兑换码时下一次采集的时刻；没有则按常规间隔。 */
+  /**
+   * ADR-0030/ADR-0034：有尚未发放的兑换码时按发放时刻、收尾后没有截止时间时按下一个整点排的
+   * 下一次采集时刻；没有则按常规间隔。
+   */
   nextPollAtMs?: number | null;
 }
 export async function collectSource(
@@ -33,10 +41,10 @@ export async function collectSource(
   state: SourcePollState,
   now: number,
   fetchFn: typeof fetch,
-  liveHints: readonly string[] = [],
+  liveInputs: LiveCollectInputs = NO_LIVE_INPUTS,
 ): Promise<CollectedPage> {
   if (entry.adapterKind === "miyolive")
-    return collectLiveSource(entry, state, now, fetchFn, liveHints);
+    return collectLiveSource(entry, state, now, fetchFn, liveInputs);
   // 首轮（还没有水位）是历史补录：入账但不发新事件通知。
   const backfill = state.watermark === null;
   const plans: ArticleIngestPlan[] = [];

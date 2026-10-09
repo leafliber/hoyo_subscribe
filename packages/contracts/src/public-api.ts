@@ -173,7 +173,7 @@ export const PublicStatusResponseSchema = z.strictObject({
   ),
 });
 /**
- * GET /api/v2/redeem-codes（ADR-0030）：当前在「有效兑换码」条里的兑换码，来自米游社官方直播页接口。
+ * GET /api/v2/redeem-codes（ADR-0030、ADR-0034）：当前在「有效兑换码」条里的兑换码，来自米游社官方直播页接口。
  * 只含已发放、仍在显示期内的条目（contracts redeemCodeVisible）；code 与 reward 按文本渲染。
  */
 export const PublicRedeemCodeSchema = z.strictObject({
@@ -184,11 +184,14 @@ export const PublicRedeemCodeSchema = z.strictObject({
   liveTitle: z.string(),
   /** 官方发放时刻。 */
   revealedAt: Timestamp,
-  /** 官方写明的有效期截止；没写为 null（此时只按显示上限隐藏）。 */
+  /**
+   * 截止时间：管理员照官方说明登记的优先，其次官方兑换码说明里认出的有效期（ADR-0034）；
+   * 都没有为 null（此时官方不再列出即从条里移除，最长到跟踪期满）。
+   */
   expiresAt: Timestamp.nullable(),
-  /** 有效期原文，例如"10月10日12:00"；没写为 null。 */
+  /** 截止时间的写法，例如"10月10日12:00""2026/10/11 23:59:59"；没有为 null。 */
   expiryText: z.string().nullable(),
-  /** 用于页面到点隐藏的时刻（官方有效期，或没写有效期时的显示上限）。 */
+  /** 用于页面到点隐藏的时刻（截止时间，没有截止时间时是跟踪期满）。 */
   hiddenAt: Timestamp,
   /** 官方直播页。 */
   officialUrl: z.url(),

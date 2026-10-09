@@ -4,6 +4,7 @@
  * P3-20：二次确认在页面内完成，不用 window.confirm——内嵌浏览器会直接吞掉确认框、视为取消，
  * 点击后毫无反应。来源行另外说明它能抓什么、最近抓取状态，维护中可在此解除。
  */
+import { browseTimestamp, REDEEM_STATUS_CHECK_HOURS } from "@hoyo/contracts";
 import { el } from "../../lib/dom";
 import { stamp } from "../../lib/format";
 import { AdminRequestError, request } from "./api";
@@ -16,9 +17,22 @@ type SourceState = {
   job_status: string | null;
   job_last_error: string | null;
 };
+/** ADR-0034：正在跟踪的一场直播（兑换码、截止时间与采集阶段）。 */
+type TrackedLive = {
+  act_id: string;
+  first_seen_at: number;
+  closed_at: number | null;
+  title: string | null;
+  checked_at: number | null;
+  phase: "reading" | "deadline" | "checking";
+  next_check_at: number | null;
+  codes: { code: string; revealed_at: number; gone_at: number | null }[];
+  official_expiry: { expires_at: number; text: string } | null;
+  manual_expiry: { expires_at: number; text: string; updated_at: number } | null;
+};
 type LiveTracking = {
   hints: { act_id: string; added_at: number }[];
-  tracked: { act_id: string; first_seen_at: number; closed_at: number | null }[];
+  tracked: TrackedLive[];
 };
 type SourceInfo = {
   game: string;
@@ -35,7 +49,10 @@ type ControlRow = {
   info?: SourceInfo;
 };
 /** 等待页面内确认的一次修改；同一时间只有一项。 */
-type Pending = { kind: "toggle"; key: string; enabled: boolean } | { kind: "resume"; key: string };
+type Pending =
+  | { kind: "toggle"; key: string; enabled: boolean }
+  | { kind: "resume"; key: string }
+  | { kind: "expiry"; key: string; source: string; live: TrackedLive; value: string };
 
 const LABELS: Record<string, { name: string; desc: string; danger?: boolean }> = {
   read_only: {
@@ -130,31 +147,121 @@ function displayName(row: ControlRow): string {
   return `${meta.name} · ${gameName(row.info.game)}${ADAPTERS[row.info.adapter] ?? row.source}`;
 }
 
+/** ADR-0034：没有截止时间时的核对时刻（北京时间），由 contracts 参数推出，不另写一份。 */
+const CHECK_HOURS = `${REDEEM_STATUS_CHECK_HOURS.join("、")} 点`;
+
 /** 来源能抓什么：游戏内公告（ADR-0016 起不再有仅列表的来源）与直播兑换码（ADR-0030）。 */
 const SOURCE_DESCRIPTION: Record<string, string> = {
   "announcement-webview": "抓取公告列表（含图文资讯）与完整正文，版本公告、活动、卡池都从这里来。",
-  miyolive:
-    "开启后全自动：每次轮询从米游社首页发现前瞻直播，读取官方直播页的兑换码——兑换码随即出现在首页「有效兑换码」条，兑换码事件（发放时刻与官方写明的有效期）随本开关自动发布到日历，不经「自动发布」。正常情况下不需要手动登记。",
+  miyolive: `开启后全自动：每次轮询从米游社首页发现前瞻直播，读取官方直播页的兑换码——兑换码随即出现在首页「有效兑换码」条，取到兑换码时兑换码事件随本开关自动发布到日历，不经「自动发布」。官方直播页没写有效期时，可在下方照官方在别处发布的说明登记截止时间；没有截止时间的，直播收尾后每天 ${CHECK_HOURS}（北京时间）核对一次，官方不再列出即从首页收回。正常情况下不需要手动登记直播。`,
 };
+
+/** 北京时间"YYYY-MM-DDTHH:MM:SS"，作 datetime-local 输入框的值。 */
+function beijingInputValue(ms: number): string {
+  const seconds = String(Math.floor(ms / 1000) % 60).padStart(2, "0");
+  return `${browseTimestamp(ms).replace(" ", "T")}:${seconds}`;
+}
+
+/** 这场直播现在怎么采集（ADR-0034）。 */
+function livePhase(live: TrackedLive): string {
+  if (live.closed_at !== null) return `官方已结束（${stamp(live.closed_at)}），不再读取`;
+  if (live.phase === "deadline") return "直播已收尾、有截止时间，不再读取官方";
+  if (live.phase === "checking")
+    return `直播已收尾、没有截止时间：北京时间每天 ${CHECK_HOURS}核对官方是否还列出兑换码，下一次 ${stamp(live.next_check_at)}`;
+  return "直播进行中或还有待发放的兑换码，每次轮询读取";
+}
+
+/** 截止时间的来源与写法：管理员登记的优先，其次官方兑换码说明。 */
+function liveExpiry(live: TrackedLive): string {
+  if (live.manual_expiry)
+    return `截止时间：${live.manual_expiry.text}（管理员登记，${stamp(live.manual_expiry.updated_at)}）`;
+  if (live.official_expiry) return `截止时间：${live.official_expiry.text}（官方兑换码说明）`;
+  return "截止时间：官方未写。可照官方在别处发布的说明登记。";
+}
+
+/**
+ * ADR-0034：一场直播的兑换码、截止时间与登记表单。登记后首页条立即按它显示；
+ * 日历由下一次采集写进正文后发布"兑换码过期"，已有截止时间时改动即一次改期。
+ */
+function trackedLive(row: ControlRow, live: TrackedLive): HTMLElement {
+  const source = row.source ?? "";
+  const liveKey = `expiry:${source}:${live.act_id}`;
+  const codes = live.codes.length
+    ? `兑换码：${live.codes
+        .map(
+          (code) =>
+            `${code.code}（${stamp(code.revealed_at)} 发放${code.gone_at === null ? "" : `；${stamp(code.gone_at)} 起官方不再列出`}）`,
+        )
+        .join("、")}`
+    : "兑换码：还没有发放";
+  const current = live.manual_expiry?.expires_at ?? live.official_expiry?.expires_at ?? null;
+  const input = el("input", {
+    type: "datetime-local",
+    step: "1",
+    class: "input",
+    name: `expiry-${source}-${live.act_id}`,
+    "aria-label": `「${live.title ?? live.act_id}」的兑换码截止时间（北京时间）`,
+  });
+  if (current !== null) input.value = beijingInputValue(current);
+  const submit = el(
+    "button",
+    { type: "submit", class: "button button--secondary button--sm" },
+    live.manual_expiry ? "修改截止时间" : "登记截止时间",
+  );
+  input.disabled = busy || pending?.key === liveKey;
+  submit.disabled = busy || pending?.key === liveKey;
+  const form = el(
+    "form",
+    { class: "control-live-form" },
+    el("span", { class: "control-desc" }, "北京时间"),
+    input,
+    submit,
+  );
+  form.addEventListener("submit", (event) => {
+    event.preventDefault();
+    if (!status) return;
+    if (!input.value) {
+      status.textContent = "请填写截止时间（北京时间，照官方说明）。";
+      input.focus();
+      return;
+    }
+    ask({ kind: "expiry", key: liveKey, source, live, value: input.value });
+  });
+  let confirm: HTMLElement | null = null;
+  if (pending?.kind === "expiry" && pending.key === liveKey) {
+    const value = pending.value.replace("T", " ").replace(/-/g, "/");
+    confirm = confirmBox(
+      `确认把「${live.title ?? live.act_id}」的兑换码截止时间${live.manual_expiry || live.official_expiry ? "改为" : "设为"} ${value}（北京时间）？首页「有效兑换码」条立即按它显示、到点收回；日历随后发布「兑换码过期」${live.manual_expiry || live.official_expiry ? "，这是一次改期，订阅了兑换码的用户会收到变更通知" : ""}。请确认这是官方写明的时间。`,
+      "确认登记",
+      () => {
+        if (pending?.kind === "expiry") void saveExpiry(pending);
+      },
+    );
+  }
+  return el(
+    "li",
+    { class: "control-live-item" },
+    el(
+      "p",
+      { class: "control-live-title" },
+      live.title ?? "（还没读到标题）",
+      " ",
+      el("code", {}, live.act_id),
+    ),
+    el("p", { class: "control-desc" }, `发现于 ${stamp(live.first_seen_at)} · ${livePhase(live)}`),
+    el("p", { class: "control-desc" }, codes),
+    el("p", { class: "control-desc" }, liveExpiry(live)),
+    form,
+    confirm,
+  );
+}
 
 /** ADR-0030：直播来源正在跟踪的活动与登记入口。登记只把活动 ID 交给下一次采集，采集照常核验。 */
 function liveTracking(row: ControlRow): HTMLElement | null {
   const lives = row.info?.lives;
   if (!lives || !row.source) return null;
   const tracked = lives.tracked.length
-    ? el(
-        "ul",
-        { class: "control-lives" },
-        ...lives.tracked.map((live) =>
-          el(
-            "li",
-            {},
-            el("code", {}, live.act_id),
-            ` · 发现于 ${stamp(live.first_seen_at)}`,
-            live.closed_at === null ? " · 跟踪中" : ` · 官方已结束（${stamp(live.closed_at)}）`,
-          ),
-        ),
-      )
+    ? el("ul", { class: "control-lives" }, ...lives.tracked.map((live) => trackedLive(row, live)))
     : el(
         "p",
         { class: "control-desc" },
@@ -500,6 +607,43 @@ async function registerLive(row: ControlRow, value: string): Promise<void> {
         ? "认不出这个链接：需要米游社官方直播页（webstatic.mihoyo.com/bbs/event/live/index.html）的链接或其中的 act_id。"
         : error instanceof AdminRequestError && error.status === 409
           ? "登记在别处同时变化，已重新读取，请核对后再试。"
+          : error instanceof AdminRequestError && error.status === 401
+            ? "管理端登录已失效，请重新登录。"
+            : "登记未确认，已重新读取当前状态；没有自动重试。";
+  }
+}
+
+/**
+ * ADR-0034：登记一场直播的兑换码截止时间（北京时间）。带页面上看到的登记版本（还没有登记为 0），
+ * 已在别处修改时 409 重新读取；认不出的时间、不晚于第一个兑换码发放、不在跟踪的直播由服务端拒绝（400）。
+ */
+async function saveExpiry(next: Extract<Pending, { kind: "expiry" }>): Promise<void> {
+  if (busy || !status) return;
+  const title = next.live.title ?? next.live.act_id;
+  const reason = reasonSelect?.value ?? "";
+  busy = true;
+  pending = null;
+  render();
+  status.textContent = "正在登记截止时间…";
+  try {
+    const reply = await request<{ text?: string }>("admin/redeem-expiry", {
+      source: next.source,
+      act_id: next.live.act_id,
+      expires_at: next.value,
+      reason,
+      expected_updated_at: next.live.manual_expiry?.updated_at ?? 0,
+    });
+    busy = false;
+    await load();
+    status.textContent = `已登记「${title}」的兑换码截止时间 ${reply.text ?? ""}（北京时间）：首页条已按它显示，日历在下一次采集后更新。`;
+  } catch (error) {
+    busy = false;
+    await load();
+    status.textContent =
+      error instanceof AdminRequestError && error.status === 400
+        ? "没有登记：时间认不出、不晚于这场直播第一个兑换码的发放时刻，或这场直播已不在跟踪。"
+        : error instanceof AdminRequestError && error.status === 409
+          ? "截止时间已在别处修改，已重新读取，请核对后再试。"
           : error instanceof AdminRequestError && error.status === 401
             ? "管理端登录已失效，请重新登录。"
             : "登记未确认，已重新读取当前状态；没有自动重试。";

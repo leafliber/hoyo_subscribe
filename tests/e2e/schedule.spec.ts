@@ -1141,7 +1141,8 @@ test("ADR-0030 有效兑换码条：有可显示的兑换码才出现，按游�
         revealedAt: now - hour,
         expiresAt: null,
         expiryText: null,
-        hiddenAt: now + 23 * hour,
+        // ADR-0034：没有截止时间时，页面只按跟踪期满（7 天）兜底隐藏。
+        hiddenAt: now - hour + 7 * 24 * hour,
         officialUrl: "https://webstatic.mihoyo.com/bbs/event/live/index.html?act_id=synthetic2",
         eventId: null,
       },
@@ -1160,7 +1161,8 @@ test("ADR-0030 有效兑换码条：有可显示的兑换码才出现，按游�
     "/events/evt_morning",
   );
   const zzz = bar.locator('[data-redeem="zzz:ZZZSYNTH2"]');
-  await expect(zzz).toContainText("官方未写有效期，请尽快兑换");
+  // ADR-0034：没有截止时间时只写"请尽快兑换"。
+  await expect(zzz.locator(".redeem-expiry")).toHaveText("请尽快兑换");
   await expect(zzz.getByRole("link", { name: "合成绝区零前瞻特别节目" })).toHaveAttribute(
     "href",
     /webstatic\.mihoyo\.com\/bbs\/event\/live/,

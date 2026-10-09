@@ -1,12 +1,17 @@
 // ADR-0030 · 直播兑换码适配器：发现入口用 2026-10-07 实测样本，活动与兑换码接口用合成样本
-// （字段按官方直播页前端构造，见 fixtures/sources/miyolive/）。全部离线，不访问官方。
+// （字段按官方直播页前端构造，见 fixtures/sources/miyolive/），另有 2026-10-09 绝区零 3.3 前瞻的
+// 真实样本（ADR-0034）。全部离线，不访问官方。
 import { SOURCE_LIMIT_PROFILE } from "@hoyo/contracts";
 import { describe, expect, it } from "vitest";
 import homeGenshin from "../../../../../fixtures/sources/miyolive/home-genshin.json";
 import homeHsr from "../../../../../fixtures/sources/miyolive/home-hsr.json";
 import homeZzz from "../../../../../fixtures/sources/miyolive/home-zzz.json";
 import indexClosed from "../../../../../fixtures/sources/miyolive/index-closed.json";
+import indexEnded from "../../../../../fixtures/sources/miyolive/index-zzz-33-ended.json";
+import indexLive from "../../../../../fixtures/sources/miyolive/index-zzz-33-live.json";
 import codeClosed from "../../../../../fixtures/sources/miyolive/refresh-code-closed.json";
+import codesEnded from "../../../../../fixtures/sources/miyolive/refresh-code-zzz-33-ended.json";
+import codesLive from "../../../../../fixtures/sources/miyolive/refresh-code-zzz-33-live.json";
 import indexActive from "../../../../../fixtures/sources/miyolive/synthetic-index-active.json";
 import codesActive from "../../../../../fixtures/sources/miyolive/synthetic-refresh-code.json";
 import { splitBodyBlocks } from "../articles/blocks";
@@ -129,7 +134,39 @@ describe("ADR-0030 直播活动与兑换码接口", () => {
       title: "《绝区零》3.3版本「重返天空的旅程」前瞻特别节目",
       codeVer: "a1b2c3d4",
       tip: "兑换码有效期至10月10日12:00，请绳匠们尽快兑换~",
+      endAtMs: Date.parse("2026-10-09T20:30:00+08:00"),
+      ended: false,
     });
+  });
+
+  it("2026-10-09 实测（绝区零 3.3 前瞻）：直播中与结束后的活动信息；官方没写兑换码说明", () => {
+    for (const sample of [indexLive, indexEnded, codesLive, codesEnded])
+      expect(sample.synthetic).toBe(false);
+    expect(parseLiveIndex(JSON.stringify(indexLive.body))).toEqual({
+      status: "open",
+      title: "《绝区零》3.3版本前瞻特别节目",
+      codeVer: "8b62ca",
+      tip: null,
+      endAtMs: Date.parse("2026-10-09T20:30:00+08:00"),
+      ended: false,
+    });
+    // 过了结束时刻仍是 retcode 0（不是"活动已结束"），is_end 变为 true。
+    expect(parseLiveIndex(JSON.stringify(indexEnded.body))).toMatchObject({
+      status: "open",
+      tip: null,
+      ended: true,
+    });
+  });
+
+  it("2026-10-09 实测：兑换码条目只有 title、code、img、to_get_time，没有有效期字段", () => {
+    for (const sample of [codesLive, codesEnded]) {
+      for (const item of sample.body.data.code_list)
+        expect(Object.keys(item).sort()).toEqual(["code", "img", "title", "to_get_time"]);
+      expect(parseCodeList(JSON.stringify(sample.body))).toMatchObject({
+        status: "open",
+        codes: [{ code: "PHOENIX1021", revealAtMs: 1_791_546_210_000 }],
+      });
+    }
   });
 
   it("合成：兑换码按发放时刻排序；未发放的为 null；奖励说明去掉标签并解码", () => {
@@ -239,14 +276,14 @@ describe("ADR-0030 正文写法：本站按官方字段逐行写成，读回时�
           reward: "菲林*100 <限定>",
           revealAtMs: Date.parse("2026-10-09T19:45:00+08:00"),
         },
-        { code: null, reward: "丁尼*30000", revealAtMs: Date.parse("2026-10-09T20:25:00+08:00") },
       ],
       "兑换码有效期至10月10日12:00 & 请尽快",
+      "2026/10/11 23:59:59",
     );
     expect(html).toBe(
       "<p>发放时间：2026/10/09 19:45｜兑换码：ZZZ33SYNTHA1｜奖励：菲林*100 &lt;限定&gt;</p>" +
-        "<p>发放时间：2026/10/09 20:25｜兑换码：待发放｜奖励：丁尼*30000</p>" +
-        "<p>兑换码说明：兑换码有效期至10月10日12:00 &amp; 请尽快</p>",
+        "<p>兑换码说明：兑换码有效期至10月10日12:00 &amp; 请尽快</p>" +
+        "<p>有效期至：2026/10/11 23:59:59（本站依据官方说明登记）</p>",
     );
     const article = readLiveArticle([
       { kind: "title", text: "合成直播" },
@@ -261,9 +298,24 @@ describe("ADR-0030 正文写法：本站按官方字段逐行写成，读回时�
           code: "ZZZ33SYNTHA1",
           reward: "菲林*100 <限定>",
         },
-        { blockIndex: 2, revealExpression: "2026/10/09 20:25", code: null, reward: "丁尼*30000" },
       ],
-      tip: { blockIndex: 3, text: "兑换码有效期至10月10日12:00 & 请尽快" },
+      tip: { blockIndex: 2, text: "兑换码有效期至10月10日12:00 & 请尽快" },
+      manualExpiry: { blockIndex: 3, expression: "2026/10/11 23:59:59" },
+    });
+  });
+
+  it("ADR-0030 时写下的旧正文：待发放行照常读回（ADR-0034 起不再写）", () => {
+    const article = readLiveArticle([
+      { kind: "title", text: "合成直播" },
+      ...splitBodyBlocks("<p>发放时间：2026/10/09 20:25｜兑换码：待发放｜奖励：丁尼*30000</p>"),
+    ]);
+    expect(article).toEqual({
+      title: "合成直播",
+      codes: [
+        { blockIndex: 1, revealExpression: "2026/10/09 20:25", code: null, reward: "丁尼*30000" },
+      ],
+      tip: null,
+      manualExpiry: null,
     });
   });
 });
