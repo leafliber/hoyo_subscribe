@@ -795,7 +795,7 @@ test.describe("A-F6-REVIEW", () => {
     await expect(page.getByText(/建议用单独的浏览器配置文件/)).toBeVisible();
     // 只有管理端内部的三个页签，不出现公共站点导航或指向公共页面的链接。
     const tabs = page.getByRole("navigation", { name: "管理后台页面" }).getByRole("link");
-    await expect(tabs).toHaveText(["审核", "版本时间表", "运行开关"]);
+    await expect(tabs).toHaveText(["审核", "版本时间表", "兑换码", "运行开关"]);
     await expect(page.locator("nav")).toHaveCount(1);
     await expect(
       page.locator('a[href="/"], a[href^="/subscription"], a[href^="/account"]'),
@@ -915,7 +915,7 @@ test.describe("A-P3-DRAFT", () => {
 });
 
 test.describe("P3-19 管理端拆页", () => {
-  test("运行开关在独立页面：登录一次三页通用，审核页不再读取开关", async ({ page }) => {
+  test("运行开关在独立页面：登录一次各管理页通用，审核页不再读取开关", async ({ page }) => {
     const state = await setup(page, {
       loggedIn: false,
       pages: [{ candidates: [], next_cursor: null }],
@@ -1057,6 +1057,7 @@ test.describe("P3-19 管理端拆页", () => {
       expected_updated_at: 1_900_000_000_500,
       reason: "已对照版本公告原文核对",
     });
+    await card.locator(".version-edit > summary").click();
     await card.getByRole("button", { name: "清除确认", exact: true }).click();
     const clear = state.calls.find((call) => call.path === "admin/versions/clear");
     expect(clear?.body).toEqual({
@@ -1126,6 +1127,7 @@ test.describe("P3-19 管理端拆页", () => {
     // 4.6 的下一版本是 4.7（只有摘录、未确认）：提示先确认，不跳过去取 4.8。
     await expect(card("4.6")).toContainText("下一版本 4.7 的更新开始尚未确认");
     await expect(card("4.6")).not.toContainText("取 4.8 版本的更新开始");
+    await page.locator(".version-completed > summary").click();
     // 4.5 已按 4.6 的更新开始确认且值一致：不重复列出。
     await expect(card("4.5")).toContainText("（取下一版本的更新开始）");
     await expect(card("4.5")).not.toContainText("取 4.6 版本的更新开始");
@@ -1276,9 +1278,9 @@ test.describe("P3-20 运行开关", () => {
       updated_at: 0,
       info: { game: "zzz", adapter: "miyolive", state: null, lives: { hints: [], tracked: [] } },
     });
-    await page.goto("/admin/settings/");
+    await page.goto("/admin/redeem-codes/");
     await expect(page.locator("#controls-status")).toHaveText(
-      `已读取 ${controlRows.length + 1} 个开关。每次修改都会写入审计记录。`,
+      "已读取 1 个兑换码来源。每次修改都会写入审计记录。",
     );
     const row = page.locator(".control-row").filter({ hasText: "绝区零直播兑换码" });
     await expect(row.locator(".control-name .badge")).toHaveText("关");
@@ -1352,11 +1354,9 @@ test.describe("P3-20 运行开关", () => {
         },
       },
     });
-    await page.goto("/admin/settings/");
+    await page.goto("/admin/redeem-codes/");
     const status = page.locator("#controls-status");
-    await expect(status).toHaveText(
-      `已读取 ${controlRows.length + 1} 个开关。每次修改都会写入审计记录。`,
-    );
+    await expect(status).toHaveText("已读取 1 个兑换码来源。每次修改都会写入审计记录。");
     const item = page
       .locator(".control-row")
       .filter({ hasText: "绝区零直播兑换码" })
@@ -1366,7 +1366,7 @@ test.describe("P3-20 运行开关", () => {
     await expect(item).toContainText(
       "北京时间每天 0、3、6、9、12、15、18、21 点核对官方是否还列出兑换码",
     );
-    await expect(item).toContainText("截止时间：官方未写");
+    await expect(item).toContainText("截止时间：尚未登记或识别");
     const input = item.getByLabel(`「${title}」的兑换码截止时间（北京时间）`);
     await input.fill("2026-10-11T23:59:59");
     const submit = item.getByRole("button", { name: "登记截止时间", exact: true });
@@ -1396,5 +1396,178 @@ test.describe("P3-20 运行开关", () => {
     await expect(item).toContainText("截止时间：2026/10/11 23:59:59（管理员登记");
     await expect(item).toContainText("直播已收尾、有截止时间，不再读取官方");
     await expect(item.getByRole("button", { name: "修改截止时间", exact: true })).toBeVisible();
+  });
+});
+
+test.describe("A-F6-REDEEM 后台分区与选择状态", () => {
+  test("兑换码独立入口、来源错误与空列表如实显示，中文码按文本呈现", async ({ page }, testInfo) => {
+    const state = await setup(page);
+    const checked = Date.parse("2026-10-30T19:37:23+08:00");
+    const tracked = {
+      act_id: "ea202610261626345889",
+      title: "《崩坏：星穹铁道》4.7版本前瞻",
+      first_seen_at: checked,
+      checked_at: checked,
+      closed_at: null,
+      phase: "reading",
+      next_check_at: null,
+      codes: [] as { code: string; revealed_at: number; gone_at: number | null }[],
+      official_expiry: null,
+      manual_expiry: null,
+    };
+    const sourceState = {
+      verification_state: "verified-working",
+      last_success_at: checked,
+      updated_at: checked,
+      job_status: "pending",
+      job_last_error: "source_incomplete" as string | null,
+    };
+    state.controls.push({
+      control: "source_enabled",
+      source: "hsr-live",
+      value: true,
+      updated_at: checked,
+      info: {
+        game: "hsr",
+        adapter: "miyolive",
+        state: sourceState,
+        lives: { hints: [], tracked: [tracked] },
+      },
+    });
+    await page.goto("/admin/settings/");
+    await expect(page.locator("#controls-status")).toHaveText(controlsRead);
+    await expect(page.locator(".control-live")).toHaveCount(0);
+    await expect(page.locator('[data-control="source:hsr-live"]')).toHaveCount(0);
+    await page.getByRole("link", { name: "兑换码", exact: true }).click();
+    await expect(page).toHaveURL(/\/admin\/redeem-codes\/$/);
+    await expect(page.getByRole("link", { name: "兑换码", exact: true })).toHaveAttribute(
+      "aria-current",
+      "page",
+    );
+    await expect(page.locator('meta[name="robots"]')).toHaveAttribute(
+      "content",
+      "noindex, nofollow",
+    );
+    await expect(page.locator("#controls-status")).toHaveText(
+      "已读取 1 个兑换码来源。每次修改都会写入审计记录。",
+    );
+    await expect(page.locator(".redeem-read-error")).toContainText("最近读取失败");
+    await expect(page.locator(".control-live-item")).toContainText("尚未读到兑换码");
+    await expect(page.locator(".control-live-item")).toContainText(
+      "上次成功读取：2026年10月30日 19:37",
+    );
+    await expect(page.locator(".control-live-item")).not.toContainText("还没有发放");
+    await expect(page.locator('[data-control="outbound_enabled"]')).toHaveCount(0);
+    await page.screenshot({ path: testInfo.outputPath("admin-redeem-failed.png"), fullPage: true });
+    sourceState.job_last_error = null;
+    tracked.codes = ["永远不会抛弃你", "永远不会欺骗你", "星神阿哈祝福你"].map((code) => ({
+      code,
+      revealed_at: checked,
+      gone_at: null,
+    }));
+    await page.getByRole("button", { name: "刷新", exact: true }).click();
+    await expect(page.locator(".redeem-read-error")).toHaveCount(0);
+    await expect(page.locator(".redeem-code-list code")).toHaveText([
+      "永远不会抛弃你",
+      "永远不会欺骗你",
+      "星神阿哈祝福你",
+    ]);
+    await expect(page.locator(".control-live-title .badge")).toHaveText("已读到 3 个兑换码");
+    expect(state.writes).toBe(0);
+    await page.screenshot({ path: testInfo.outputPath("admin-redeem-codes.png"), fullPage: true });
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(
+      true,
+    );
+  });
+
+  test("版本节点按已保存时间区分，采用后归入完成、清除后回到待选；写入保留理由与 CAS", async ({
+    page,
+  }, testInfo) => {
+    const state = await setup(page);
+    const start = Date.parse("2026-09-28T06:00:00+08:00");
+    const end = Date.parse("2026-11-11T06:00:00+08:00");
+    const row: VersionRecord = {
+      game: "hsr",
+      version: "4.6",
+      update_start_ms: start,
+      update_start_source: "s46",
+      version_end_ms: null,
+      version_end_source: null,
+      version_end_basis: null,
+      updated_at: 500,
+    };
+    state.versions = {
+      versions: [row],
+      suggestions: [
+        {
+          id: "s46",
+          game: "hsr",
+          version: "4.6",
+          article_version_id: "v46",
+          title: "4.6版本更新说明",
+          official_url: "https://sr.mihoyo.com/news/46",
+          update_start_ms: start,
+          update_start: { block_ref: "blocks/1", quote: "2026/09/28 06:00" },
+          update_duration: null,
+          version_end_ms: end,
+          version_end: { block_ref: "blocks/2", quote: "2026/11/11 06:00" },
+          created_at: 400,
+        },
+      ],
+      pending_references: {},
+    };
+    state.write = async (route, call) => {
+      expect(call.body.expected_updated_at).toBe(row.updated_at);
+      expect(call.body.reason).toBe("已对照版本公告原文核对");
+      expect(call.body.field).toBe("version_end");
+      row.updated_at++;
+      row.version_end_ms = call.path.endsWith("confirm") ? end : null;
+      row.version_end_source = call.path.endsWith("confirm") ? "s46" : null;
+      row.version_end_basis = call.path.endsWith("confirm") ? "stated" : null;
+      return route.fulfill({ json: { version: row } });
+    };
+    await page.goto("/admin/versions/");
+    const game = page.getByRole("region", { name: "崩坏：星穹铁道", exact: true });
+    const card = page.getByRole("article", { name: "崩坏：星穹铁道 4.6 版本" });
+    await expect(game.getByRole("heading", { name: "待选择时间 · 1 个节点" })).toBeVisible();
+    await expect(card.locator('[data-field="update_start"]')).toContainText("已选择时间");
+    await expect(card.locator('[data-field="version_end"]')).toContainText("待选择时间");
+    await expect(card).toContainText("已选 1/2 项");
+    await expect(card.locator('[data-field="update_start"] .version-edit')).not.toHaveAttribute(
+      "open",
+      "",
+    );
+    await page.screenshot({
+      path: testInfo.outputPath("admin-versions-pending.png"),
+      fullPage: true,
+    });
+    await page.getByLabel("常用理由").selectOption({ index: 1 });
+    await card
+      .locator('[data-field="version_end"]')
+      .getByRole("button", { name: "采用", exact: true })
+      .click();
+    await expect(page.locator("#notice")).toContainText("已确认");
+    await expect(game.locator(".version-pending")).toHaveCount(0);
+    await expect(game.locator(".version-completed > summary")).toHaveText("已完成选择 · 1 个版本");
+    await expect(game.locator(".version-completed")).not.toHaveAttribute("open", "");
+    await game.locator(".version-completed > summary").click();
+    await expect(card).toContainText("已完成选择");
+    await expect(card.locator('[data-field="version_end"]')).toContainText("2026-11-11 06:00");
+    await page.screenshot({
+      path: testInfo.outputPath("admin-versions-completed.png"),
+      fullPage: true,
+    });
+    await card.locator('[data-field="version_end"] .version-edit > summary').click();
+    await card
+      .locator('[data-field="version_end"]')
+      .getByRole("button", { name: "清除确认", exact: true })
+      .click();
+    await expect(game.locator(".version-pending")).toBeVisible();
+    await expect(game.locator(".version-completed")).toHaveCount(0);
+    await expect(card.locator('[data-field="version_end"]')).toContainText("待选择时间");
+    expect(state.writes).toBe(2);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(
+      true,
+    );
   });
 });

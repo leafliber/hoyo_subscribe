@@ -6,6 +6,7 @@ import {
   compareVersions,
   nextKnownVersion,
   SUPPORTED_SCOPE_GAMES,
+  versionTimeSelection,
 } from "@hoyo/contracts";
 import { el } from "../../lib/dom";
 import { AdminRequestError, request } from "./api";
@@ -22,6 +23,8 @@ const container = element("versions");
 const reasonInput = element<HTMLInputElement>("reason");
 const reasonPreset = element<HTMLSelectElement>("version-reason-preset");
 let listing: VersionListing | null = null;
+const expandedCompleted = new Set<string>();
+const editingFields = new Set<string>();
 
 const session = startAdminSession({ load, reset, refresh, fields: ["reason"] });
 
@@ -31,6 +34,8 @@ function refresh(): void {
 }
 function reset(): void {
   listing = null;
+  expandedCompleted.clear();
+  editingFields.clear();
   container.replaceChildren();
 }
 async function load(): Promise<void> {
@@ -155,15 +160,15 @@ function fieldRow(
       : suggestions.find((s) => s.id === record?.version_end_source);
   const status =
     value == null
-      ? el("span", { class: "badge badge--warning" }, "未确认")
-      : el("span", { class: "badge badge--success" }, "已确认");
+      ? el("span", { class: "badge badge--warning" }, "待选择时间")
+      : el("span", { class: "badge badge--success" }, "已选择时间");
   const basis =
     field === "version_end" && record?.version_end_basis === "next_update"
       ? "（取下一版本的更新开始）"
       : "";
   const current =
     value == null
-      ? el("p", { class: "field-hint" }, "未确认：依赖它的节点保持未定时刻。")
+      ? el("p", { class: "field-hint" }, "还没有选择时间，依赖它的节点仍为未定时刻。")
       : el(
           "p",
           { class: "version-value" },
@@ -175,10 +180,15 @@ function fieldRow(
               : confirmedSource?.version_end?.quote,
           ),
         );
+  const fieldAttrs = {
+    class: `version-field ${value == null ? "version-field--pending" : "version-field--selected"}`,
+    "data-field": field,
+    "data-selection": value == null ? "pending" : "selected",
+  };
   if (field === "update_start" && value != null && referencedBy !== undefined)
     return el(
       "div",
-      { class: "version-field" },
+      fieldAttrs,
       el("p", { class: "version-field-name" }, label, " ", status),
       current,
       el(
@@ -262,26 +272,50 @@ function fieldRow(
           `下一版本 ${next.version} 的更新开始尚未确认；确认后可以取它作为本版本的结束。`,
         )
       : null;
-  return el(
-    "div",
-    { class: "version-field" },
-    el("p", { class: "version-field-name" }, label, " ", status),
-    current,
+  const choices =
     options.length > 0
       ? el(
           "ul",
           { class: "version-suggestions", "aria-label": `${version} ${label}的候选值` },
           options,
         )
-      : el("p", { class: "field-hint" }, "暂无可采用的摘录：等 AI 草稿处理到该版本的公告。"),
-    nextHint,
-    value == null
-      ? null
-      : actionButton(
-          "清除确认",
-          () => write("clear", { game, version, field, expected_updated_at: expected }),
-          true,
-        ),
+      : el(
+          "p",
+          { class: "field-hint" },
+          value == null
+            ? "暂无可采用的摘录：等 AI 草稿处理到该版本的公告。"
+            : "暂无其他可采用的摘录。",
+        );
+  let actions: HTMLElement;
+  if (value == null) {
+    actions = el("div", { class: "version-selection-options" }, choices, nextHint);
+  } else {
+    const editKey = `${game}:${version}:${field}`;
+    const editor = el(
+      "details",
+      { class: "version-edit" },
+      el("summary", {}, "更改已选时间"),
+      choices,
+      nextHint,
+      actionButton(
+        "清除确认",
+        () => write("clear", { game, version, field, expected_updated_at: expected }),
+        true,
+      ),
+    );
+    editor.open = editingFields.has(editKey);
+    editor.addEventListener("toggle", () => {
+      if (editor.open) editingFields.add(editKey);
+      else editingFields.delete(editKey);
+    });
+    actions = editor;
+  }
+  return el(
+    "div",
+    fieldAttrs,
+    el("p", { class: "version-field-name" }, label, " ", status),
+    current,
+    actions,
   );
 }
 
@@ -299,7 +333,10 @@ function render(): void {
       { class: "card admin-card version-game", "aria-label": gameName(game) },
       el("div", { class: "card-header" }, el("h2", {}, gameName(game))),
     );
-    const body = el("div", { class: "card-body" });
+    const body = el("div", { class: "card-body version-game-body" });
+    const pendingCards: HTMLElement[] = [];
+    const completedCards: HTMLElement[] = [];
+    let missingNodes = 0;
     if (versions.length === 0)
       body.append(el("p", { class: "field-hint" }, "还没有该游戏的版本公告摘录。"));
     for (const version of versions) {
@@ -325,14 +362,29 @@ function render(): void {
               ),
       };
       const refs = listing.pending_references[`${game}:${version}`] ?? 0;
-      body.append(
+      const selection = versionTimeSelection(
+        record
+          ? { updateStartMs: record.update_start_ms, versionEndMs: record.version_end_ms }
+          : undefined,
+      );
+      missingNodes += Number(!selection.updateStart) + Number(!selection.versionEnd);
+      (selection.complete ? completedCards : pendingCards).push(
         el(
           "article",
-          { class: "version-card", "aria-label": `${gameName(game)} ${version} 版本` },
+          {
+            class: "version-card",
+            "aria-label": `${gameName(game)} ${version} 版本`,
+            "data-selection": selection.complete ? "complete" : "pending",
+          },
           el(
             "h3",
             {},
             `${version} 版本`,
+            el(
+              "span",
+              { class: `badge ${selection.complete ? "badge--success" : "badge--warning"}` },
+              selection.complete ? "已完成选择" : `已选 ${selection.selectedCount}/2 项`,
+            ),
             refs > 0
               ? el("span", { class: "badge badge--accent" }, `影响 ${refs} 条待审草稿`)
               : null,
@@ -341,6 +393,31 @@ function render(): void {
           fieldRow("版本结束", "version_end", context),
         ),
       );
+    }
+    if (pendingCards.length)
+      body.append(
+        el(
+          "section",
+          { class: "version-pending", "aria-label": "待选择时间" },
+          el("h3", { class: "version-section-title" }, `待选择时间 · ${missingNodes} 个节点`),
+          ...pendingCards,
+        ),
+      );
+    else if (versions.length)
+      body.append(el("p", { class: "field-hint" }, "当前版本时间均已选择完成。"));
+    if (completedCards.length) {
+      const completed = el(
+        "details",
+        { class: "version-completed" },
+        el("summary", {}, `已完成选择 · ${completedCards.length} 个版本`),
+        ...completedCards,
+      );
+      completed.open = expandedCompleted.has(game);
+      completed.addEventListener("toggle", () => {
+        if (completed.open) expandedCompleted.add(game);
+        else expandedCompleted.delete(game);
+      });
+      body.append(completed);
     }
     section.append(body);
     container.append(section);

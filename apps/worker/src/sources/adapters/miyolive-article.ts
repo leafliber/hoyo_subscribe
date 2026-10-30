@@ -8,12 +8,12 @@
 // 官方改掉，写进去就会在日历上产生一次改期）；曾经发放过的兑换码即使后来从官方列表消失也保留。
 // 管理员照官方说明登记了截止时间时，另写一行"有效期至：…（本站依据官方说明登记）"。
 // 旧版本正文里的"待发放"行照常读回（只是不再写）。
-import { browseTimestamp } from "@hoyo/contracts";
+import { browseTimestamp, RedeemCodeSchema } from "@hoyo/contracts";
 import { type ArticleBodyBlock, decodeHtmlEntities } from "../articles/blocks";
 
 const PENDING = "待发放";
 const CODE_LINE =
-  /^发放时间：(\d{4}\/\d{2}\/\d{2} \d{2}:\d{2}(?::\d{2})?)｜兑换码：([A-Za-z0-9_-]{1,64}|待发放)｜奖励：(.*)$/s;
+  /^发放时间：(\d{4}\/\d{2}\/\d{2} \d{2}:\d{2}(?::\d{2})?)｜兑换码：(.*?)｜奖励：(.*)$/s;
 const TIP_LINE = /^兑换码说明：(.+)$/s;
 const MANUAL_EXPIRY_NOTE = "（本站依据官方说明登记）";
 const EXPIRY_LINE =
@@ -89,7 +89,7 @@ export function readLiveArticle(blocks: readonly ArticleBodyBlock[]): LiveArticl
     // 先去掉本站写的 <p> 标签再解码：转义过的文字里的"<…>"是原文，不能当标签剥掉。
     const text = decodeHtmlEntities(block.html.replace(/<[^>]*>/g, ""));
     const line = CODE_LINE.exec(text);
-    if (line !== null) {
+    if (line !== null && (line[2] === PENDING || RedeemCodeSchema.safeParse(line[2]).success)) {
       codes.push({
         blockIndex,
         revealExpression: line[1],

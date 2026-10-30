@@ -665,3 +665,89 @@
 .version-source-link {
   white-space: nowrap;
 }
+
+/* ADR-0035：兑换码独立管理；状态同时用文字与边框呈现。 */
+.admin-tabs {
+  flex-wrap: wrap;
+}
+.redeem-source .control-main {
+  align-items: flex-start;
+}
+.redeem-source .control-text {
+  min-width: 0;
+}
+.control-live-title {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+}
+.control-live-title code {
+  color: var(--color-text-aux);
+  font-size: var(--font-size-small);
+  overflow-wrap: anywhere;
+}
+.redeem-read-error {
+  display: block;
+}
+.redeem-code-list {
+  display: grid;
+  gap: var(--space-2);
+  padding: 0;
+  list-style: none;
+}
+.redeem-code-list li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+}
+.redeem-code-list code {
+  padding: var(--space-1) var(--space-2);
+  background: var(--color-bg-subtle);
+  border-radius: var(--radius-control);
+  overflow-wrap: anywhere;
+}
+.version-game-body,
+.version-pending {
+  display: grid;
+  gap: var(--space-3);
+}
+.version-section-title {
+  margin: 0;
+  font-size: var(--font-size-body);
+}
+.version-field {
+  padding: var(--space-3);
+  border: var(--border-thin) solid var(--color-border);
+  border-radius: var(--radius-control);
+}
+.version-field--pending {
+  border-color: var(--color-warning-border);
+}
+.version-field--selected {
+  border-color: var(--color-success-border);
+}
+.version-field-name {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+}
+.version-selection-options,
+.version-edit[open] {
+  display: grid;
+  gap: var(--space-2);
+}
+.version-edit > summary,
+.version-completed > summary {
+  cursor: pointer;
+  font-weight: 600;
+  padding: var(--space-2) 0;
+}
+.version-edit > .button {
+  justify-self: start;
+}
+.version-completed > .version-card {
+  margin-top: var(--space-3);
+}

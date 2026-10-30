@@ -1,0 +1,27 @@
+---
+import Icon from "../../components/Icon.astro";
+import AdminLayout from "../../features/admin/AdminLayout.astro";
+---
+<AdminLayout active="redeem-codes" title="兑换码" lead="查看官方直播的兑换码、读取状态与截止时间。来源开启后自动发现直播；官方在别处公布有效期时，可在这里登记。">
+  <section id="workspace" hidden aria-label="兑换码管理">
+    <section id="controls-panel" data-control-view="redeem" class="card admin-card" aria-labelledby="controls-title">
+      <div class="card-header">
+        <h2 id="controls-title">直播兑换码</h2>
+        <button id="controls-refresh" class="button button--ghost button--sm" type="button"><Icon name="refresh" />刷新</button>
+      </div>
+      <div class="card-body">
+        <p class="field-hint">时间均为北京时间。抓取受<a href="/admin/settings/">运行开关</a>中的外发总闸和只读模式约束。</p>
+        <div class="field controls-reason">
+          <label for="controls-reason">修改理由（每次修改都会记录）</label>
+          <select id="controls-reason"></select>
+        </div>
+        <p id="controls-status" class="field-hint" role="status">登录后读取兑换码。</p>
+        <div id="controls-list" class="controls-list"></div>
+      </div>
+    </section>
+  </section>
+  <script>
+    import "../../features/admin/settings-page";
+    import "../../features/admin/controls";
+  </script>
+</AdminLayout>

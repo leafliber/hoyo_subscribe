@@ -1,0 +1,39 @@
+{
+  "schema_version": 1,
+  "synthetic": false,
+  "source_id": "hsr-live",
+  "kind": "code-response",
+  "purpose": "2026-10-30 星穹铁道 4.7 前瞻真实样本：中文兑换码触发旧 ASCII 校验失败。只读公开接口，无凭据、不重试；离线回归使用。",
+  "captured_at_utc": "2026-10-30T15:46:10.609820+00:00",
+  "url": "https://api-takumi-static.mihoyo.com/event/miyolive/refreshCode?version=9747b8&time=1793375120",
+  "request_headers": ["x-rpc-act_id"],
+  "extra": {
+    "act_id": "ea202610261626345889"
+  },
+  "body": {
+    "retcode": 0,
+    "message": "OK",
+    "data": {
+      "code_list": [
+        {
+          "title": "<p style=\"white-space: pre-wrap;\">星琼<span style=\"color:rgba(255,239,209,1)\">×100</span>，信用点<span style=\"color:rgba(255,239,209,1)\">×50000</span></p>",
+          "code": "永远不会抛弃你",
+          "img": "https://act-webstatic.mihoyo.com/event-static/2024/01/26/a4518336f7f9dbb74a3e3a8e112df688_7163767197296343504.png",
+          "to_get_time": "1793359800"
+        },
+        {
+          "title": "<p style=\"white-space: pre-wrap;\">星琼<span style=\"color:rgba(255,239,209,1)\">×100</span>，漫游指南<span style=\"color:rgba(255,239,209,1)\">×5</span></p>",
+          "code": "永远不会欺骗你",
+          "img": "https://act-webstatic.mihoyo.com/event-static/2024/01/26/e7238e4988776bd513bbed6329655bf9_825295329830581455.png",
+          "to_get_time": "1793361600"
+        },
+        {
+          "title": "<p style=\"white-space: pre-wrap;\">星琼<span style=\"color:rgba(255,239,209,1)\">×100</span>，提纯以太<span style=\"color:rgba(255,239,209,1)\">×4</span></p>",
+          "code": "星神阿哈祝福你",
+          "img": "https://act-webstatic.mihoyo.com/event-static/2024/01/26/e22c07f7dc53f13078419f5cc893b45a_1723563236976044006.png",
+          "to_get_time": "1793362200"
+        }
+      ]
+    }
+  }
+}

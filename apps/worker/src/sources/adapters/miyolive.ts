@@ -10,9 +10,9 @@
 //     to_get_time（发放时刻，秒）；
 //   - 活动不存在或已结束：两接口都回 retcode -500012"活动已结束"（2026-10-07 实测信封）。
 // 诚实 UA、不跟随重定向、不重试；遇到鉴权/验证码/访问限制按 restricted 交给调用方停用并标维护（规则 6）。
-// 2026-10-07 没有进行中的直播，活动与兑换码字段的形状来自官方页面脚本，尚无真实样本：
+// 字段先按官方页面脚本核对，现有 2026-10-09 绝区零与 2026-10-30 星穹铁道真实样本：
 // 字段缺失或类型不符时按"格式不符"失败，不猜。
-import { LIVE_ACT_ID_PATTERN, liveActIdFromUrl } from "@hoyo/contracts";
+import { LIVE_ACT_ID_PATTERN, liveActIdFromUrl, RedeemCodeSchema } from "@hoyo/contracts";
 import { parseAnnouncementExactTime } from "../../extraction/time";
 import { decodeHtmlEntities, denoiseTitle, stripHtmlTags } from "../articles/blocks";
 import { classifyRestriction } from "../guarded-fetch";
@@ -22,8 +22,6 @@ import { buildSourceUrl, fetchJsonBody, parseEnvelope } from "./shared";
 
 /** 官方"活动已结束"（不存在的活动也是这个信封）。 */
 export const LIVE_CLOSED_RETCODE = -500012;
-/** 兑换码本身：官方是字母数字；其他形状的不当作兑换码。 */
-const CODE = /^[A-Za-z0-9_-]{1,64}$/;
 /** 首页 JSON 里逐层找链接时的深度与条目上限：只看三个已知字段，防止异常大响应拖慢。 */
 const DISCOVERY_SCAN_LIMIT = { depth: 6, strings: 2_000 } as const;
 /** 文本单位换算，非业务参数。 */
@@ -212,7 +210,7 @@ export function parseCodeList(
     if (item === null || !Number.isSafeInteger(seconds) || seconds <= 0)
       return { failure: { kind: "malformed-body", detail: "code_item" } };
     const code = typeof item.code === "string" ? item.code.trim() : "";
-    if (code !== "" && !CODE.test(code))
+    if (code !== "" && !RedeemCodeSchema.safeParse(code).success)
       return { failure: { kind: "malformed-body", detail: "code_value" } };
     codes.push({
       code: code === "" ? null : code,

@@ -3,6 +3,7 @@ import { REDEEM_CODE_STATUS_CHECK, REDEEM_LIVE_TRACK_DAYS } from "./params/regis
 import {
   parseRedeemExpiryInput,
   REDEEM_STATUS_CHECK_HOURS,
+  RedeemCodeSchema,
   RedeemExpirySetSchema,
   redeemCodeHiddenAt,
   redeemCodeVisible,
@@ -160,5 +161,34 @@ describe("ADR-0034 管理员登记的截止时间", () => {
       false,
     );
     expect(RedeemExpirySetSchema.safeParse({ ...body, extra: 1 }).success).toBe(false);
+  });
+});
+
+describe("A-F6-REDEEM 官方兑换码共用格式", () => {
+  it.each([
+    "永远不会抛弃你",
+    "永远不会欺骗你",
+    "星神阿哈祝福你",
+    "PHOENIX1021",
+    "中Ab_12-文",
+    "码".repeat(64),
+  ])("允许并原样保留 %s", (code) => {
+    expect(RedeemCodeSchema.parse(code)).toBe(code);
+  });
+  it.each([
+    "",
+    "码".repeat(65),
+    "CODE\n",
+    "C\u0000ODE",
+    "C\u202eODE",
+    "永远 不会",
+    "<b>兑换码</b>",
+    "码｜奖励：伪造",
+    "码|A",
+    " A",
+    "A ",
+    "🎁",
+  ])("拒绝空值、超长、控制字符与结构注入：%j", (code) => {
+    expect(RedeemCodeSchema.safeParse(code).success).toBe(false);
   });
 });
