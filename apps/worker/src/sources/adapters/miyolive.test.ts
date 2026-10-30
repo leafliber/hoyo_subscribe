@@ -10,6 +10,7 @@ import indexClosed from "../../../../../fixtures/sources/miyolive/index-closed.j
 import indexEnded from "../../../../../fixtures/sources/miyolive/index-zzz-33-ended.json";
 import indexLive from "../../../../../fixtures/sources/miyolive/index-zzz-33-live.json";
 import codeClosed from "../../../../../fixtures/sources/miyolive/refresh-code-closed.json";
+import hsrCodes from "../../../../../fixtures/sources/miyolive/refresh-code-hsr-47-live.json";
 import codesEnded from "../../../../../fixtures/sources/miyolive/refresh-code-zzz-33-ended.json";
 import codesLive from "../../../../../fixtures/sources/miyolive/refresh-code-zzz-33-live.json";
 import indexActive from "../../../../../fixtures/sources/miyolive/synthetic-index-active.json";
@@ -317,5 +318,25 @@ describe("ADR-0030 正文写法：本站按官方字段逐行写成，读回时�
       tip: null,
       manualExpiry: null,
     });
+  });
+});
+
+describe("A-F6-REDEEM 中文兑换码真实样本", () => {
+  it("A-P3-FETCH 2026-10-30 官方三个中文码完整读入，并可从日历正文读回", () => {
+    expect(hsrCodes.synthetic).toBe(false);
+    const parsed = parseCodeList(JSON.stringify(hsrCodes.body));
+    expect(parsed).toMatchObject({ status: "open" });
+    if (!("codes" in parsed)) throw new Error("official_codes_rejected");
+    const expected = ["永远不会抛弃你", "永远不会欺骗你", "星神阿哈祝福你"];
+    expect(parsed.codes.map((code) => code.code)).toEqual(expected);
+    const html = liveArticleHtml(
+      parsed.codes.map((code) => ({ ...code, code: code.code ?? "" })),
+      null,
+    );
+    const article = readLiveArticle([
+      { kind: "title", text: "星穹铁道 4.7 前瞻" },
+      ...splitBodyBlocks(html),
+    ]);
+    expect(article?.codes.map((code) => code.code)).toEqual(expected);
   });
 });

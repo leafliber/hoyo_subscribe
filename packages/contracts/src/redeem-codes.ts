@@ -17,6 +17,11 @@ const SECOND = 1000;
 const DAY = 86_400_000;
 const UTC8 = 8 * 3_600_000;
 
+/** ADR-0035：官方兑换码的唯一格式定义。汉字及既有 ASCII 字符，保留原来的 1–64 字符上限。
+ * 使用严格结尾断言，避免 $ 在末尾换行之前也匹配；不允许 HTML、控制字符或正文分隔符。
+ */
+export const RedeemCodeSchema = z.string().regex(/^[\p{Script=Han}A-Za-z0-9_-]{1,64}(?![\s\S])/u);
+
 /** 官方直播活动 ID 的形状（实测见到 ea2026…、e2024… 之类）；也是 x-rpc-act_id 请求头放行的取值。 */
 export const LIVE_ACT_ID_PATTERN = /^[A-Za-z0-9_-]{1,64}$/;
 /** 只认米游社官方直播页上的活动 ID（同一主机上的签到、征集等活动页不算）。 */

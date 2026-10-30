@@ -15,6 +15,7 @@ import {
   RegionIdSchema,
 } from "./enums";
 import { ArticleCompletenessSchema } from "./official-article";
+import { RedeemCodeSchema } from "./redeem-codes";
 import { TimeValueSchema } from "./time";
 
 const Timestamp = z.int();
@@ -178,7 +179,7 @@ export const PublicStatusResponseSchema = z.strictObject({
  */
 export const PublicRedeemCodeSchema = z.strictObject({
   game: GameIdSchema,
-  code: z.string().min(1).max(64),
+  code: RedeemCodeSchema,
   /** 奖励说明，官方 HTML 已整理为纯文本。 */
   reward: z.string(),
   liveTitle: z.string(),

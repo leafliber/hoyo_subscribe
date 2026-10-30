@@ -1,8 +1,10 @@
 // ADR-0030 · 直播兑换码来源全链：发现 → 兑换码条数据 → 文章版本 → 规则模板 → 发布兑换码事件。
-// 真实本地 D1；官方接口全部是合成响应（字段按官方直播页前端构造），不访问官方。
+// 真实本地 D1；使用合成响应与已保存的官方真实样本离线回放，不访问官方。
 import { env } from "cloudflare:test";
 import { REDEEM_CODE_REVEAL_GRACE, SOURCE_POLL } from "@hoyo/contracts";
 import { beforeAll, beforeEach, describe, expect, it } from "vitest";
+import hsrIndex from "../../../../../fixtures/sources/miyolive/index-hsr-47-ended.json";
+import hsrCodes from "../../../../../fixtures/sources/miyolive/refresh-code-hsr-47-live.json";
 import indexActive from "../../../../../fixtures/sources/miyolive/synthetic-index-active.json";
 import codesActive from "../../../../../fixtures/sources/miyolive/synthetic-refresh-code.json";
 import { eventIdentity, milestoneIdentity } from "../../extraction/identity";
@@ -667,5 +669,39 @@ describe("ADR-0034 第 7 条 一次性清理 2026-10-09 那条错误的改期", 
     expect(await rows("SELECT id, old_time_exact_ms FROM calendar_patches")).toEqual(patches);
     await runtime().watchdog();
     expect((await detail()).event.changes).toHaveLength(1);
+  });
+});
+
+describe("A-F6-REDEEM 中文兑换码采集发布闭环", () => {
+  it("官方真实响应离线回放：三个中文码入库、生成日历事件并出现在公开读取中", async () => {
+    const act = hsrCodes.extra.act_id;
+    now = Number(hsrIndex.body.data.live.now) * 1000;
+    controls = { ...controls, sources: { "hsr-live": { enabled: true, mode: "normal" } } };
+    homeLives = [{ act_id: act }]; // 发现入口为合成，后面两个响应取自官方真实样本。
+    indexBody.data.live = { ...indexBody.data.live, ...hsrIndex.body.data.live };
+    indexBody.data.template = hsrIndex.body.data.template;
+    codeList = structuredClone(hsrCodes.body.data.code_list);
+    await runtime().watchdog();
+    await drain();
+    const expected = hsrCodes.body.data.code_list.map((code) => code.code);
+    expect(
+      await rows("SELECT code FROM redeem_codes WHERE source_id = 'hsr-live' ORDER BY revealed_at"),
+    ).toEqual(expected.map((code) => ({ code })));
+    const [event] = await rows<{ id: string; summary: string }>(
+      "SELECT id, summary FROM events WHERE event_type = 'redeem_code'",
+    );
+    expect(event?.summary).toBe(`兑换码：${expected.join("、")}`);
+    expect(await rows("SELECT node_type, time_exact_ms FROM milestones")).toEqual([
+      {
+        node_type: "start",
+        time_exact_ms: Number(hsrCodes.body.data.code_list[0].to_get_time) * 1000,
+      },
+    ]);
+    expect(
+      (await redeemCodes()).codes.map((code) => [code.code, code.eventId, code.expiresAt]),
+    ).toEqual(expected.map((code) => [code, event?.id, null]));
+    expect(await rows("SELECT last_error FROM jobs WHERE id = 'pipeline:source:hsr-live'")).toEqual(
+      [{ last_error: null }],
+    );
   });
 });

@@ -103,3 +103,22 @@ export function deriveVersionTime(
     time_basis: "deterministic_derived",
   };
 }
+
+/** ADR-0035：只按已保存的确认值区分选择状态；建议不传入此函数。 */
+export function versionTimeSelection(
+  window: Pick<ConfirmedVersionWindow, "updateStartMs" | "versionEndMs"> | undefined,
+): {
+  updateStart: boolean;
+  versionEnd: boolean;
+  complete: boolean;
+  selectedCount: number;
+} {
+  const updateStart = window?.updateStartMs != null;
+  const versionEnd = window?.versionEndMs != null;
+  return {
+    updateStart,
+    versionEnd,
+    complete: updateStart && versionEnd,
+    selectedCount: Number(updateStart) + Number(versionEnd),
+  };
+}

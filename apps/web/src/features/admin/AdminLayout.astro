@@ -5,7 +5,7 @@ import "./admin.css";
 import Icon from "../../components/Icon.astro";
 
 interface Props {
-  active: "review" | "versions" | "settings";
+  active: "review" | "versions" | "redeem-codes" | "settings";
   title: string;
   lead: string;
 }
@@ -13,6 +13,7 @@ const { active, title, lead } = Astro.props;
 const tabs = [
   { id: "review", href: "/admin/", label: "审核" },
   { id: "versions", href: "/admin/versions/", label: "版本时间表" },
+  { id: "redeem-codes", href: "/admin/redeem-codes/", label: "兑换码" },
   { id: "settings", href: "/admin/settings/", label: "运行开关" },
 ] as const;
 ---
@@ -61,7 +62,7 @@ const tabs = [
         <div class="field">
           <label for="secret">引导秘密</label>
           <input id="secret" type="password" autocomplete="off" autocapitalize="off" spellcheck="false" required />
-          <p class="field-hint">只通过 HTTPS 请求体提交，换取短期管理员会话；登录一次，三个页面通用。</p>
+          <p class="field-hint">只通过 HTTPS 请求体提交，换取短期管理员会话；登录一次，各管理页面通用。</p>
         </div>
         <button class="button button--block" type="submit">登录管理端</button>
       </form>

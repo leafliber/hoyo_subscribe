@@ -1,0 +1,59 @@
+{
+  "schema_version": 1,
+  "synthetic": false,
+  "source_id": "hsr-live",
+  "kind": "index-response",
+  "purpose": "2026-10-30 星穹铁道 4.7 前瞻真实样本：中文兑换码触发旧 ASCII 校验失败。只读公开接口，无凭据、不重试；离线回归使用。",
+  "captured_at_utc": "2026-10-30T15:45:30.790430+00:00",
+  "url": "https://api-takumi.mihoyo.com/event/miyolive/index",
+  "request_headers": ["x-rpc-act_id"],
+  "extra": {
+    "act_id": "ea202610261626345889"
+  },
+  "body": {
+    "retcode": 0,
+    "message": "OK",
+    "data": {
+      "is_login": false,
+      "live": {
+        "act_type": "ActPGC",
+        "title": "《崩坏：星穹铁道》4.7版本前瞻",
+        "live_time": "16530",
+        "start": "2026-10-30 19:10:00",
+        "end": "2026-10-30 20:27:23",
+        "remain": 0,
+        "now": "1793375130",
+        "is_end": true,
+        "code_ver": "9747b8"
+      },
+      "streamer": {
+        "aid": "288909600",
+        "nickname": "崩坏星穹铁道",
+        "avatar": "https://upload-bbs.miyoushe.com/upload/2026/06/01/288909600/432b585c5e4de448b280479847c96902_8546126828074773395.png",
+        "fans": 7588394,
+        "cert_label": "官方认证：崩坏：星穹铁道官方账号",
+        "cert_type": "1",
+        "followed": false
+      },
+      "template": "{\"appType\":\"sr_live\",\"endText\":\"本次直播节目已结束\",\"versionToast\":\"请更新米游社最新版本，使用全屏播放功能\",\"gainTitle\":\"直播抽奖\",\"noJoinTitle\":\"直播抽奖\",\"noWinTitle\":\"中奖名单\",\"resultTitle\":\"中奖名单\",\"notAirTip\":\"敬请期待\",\"taskTitle\":\"直播抽奖\",\"ruleTitle\":\"活动规则\",\"notAirText\":\"10月30日 19点30分 开始\",\"reviewText\":\"观看回放\",\"commentPlaceholder\":\"快来一起聊聊吧\",\"qrDesktop\":\"https://webstatic.mihoyo.com/upload/static-resource/2023/04/19/ed6dcffb2cbac6afd13bf2de668e2a4d_122391112539864018.png\",\"topDesktop\":\"https://webstatic.mihoyo.com/upload/static-resource/2023/04/19/81dbfdb1bd42a5b688f8b09664a47d43_1739024152252642983.png\",\"reviewUrl\":{\"host\":\"mihoyo\",\"type\":\"article\",\"args\":{\"game_id\":6,\"post_id\":\"79216492\"}},\"reviewTitlePic\":\"https://act-webstatic.mihoyo.com/event-static/2026/10/26/408282f26ef2ec1594d2947ea17d4d7a_4663073720825704101.png\",\"liveConfig\":[{\"label\":\"斗鱼\",\"type\":\"douyu\",\"desktop\":\"https://open.douyu.com/tpl/h5/chain2/miyoushe/11474717?version=2.0&bulletComments=1&hcdm=1&rate=0&visitMobile=1&chat=1&recom=0&visitRoom=1&dyIcon=0&clout=1\",\"app\":\"https://open.douyu.com/tpl/h5/chain2/miyoushe/11474717?version=2.0&bulletComments=1&hcdm=1&rate=0&visitMobile=1&chat=1&recom=0&visitRoom=1&dyIcon=0&clout=1\"}],\"users\":[{\"uid\":\"288909600\",\"avatar\":\"https://upload-bbs.miyoushe.com/upload/2026/06/01/288909600/432b585c5e4de448b280479847c96902_8546126828074773395.png\",\"nickname\":\"崩坏星穹铁道\",\"iden_icon\":\"https://webstatic.mihoyo.com/upload/static-resource/2023/04/11/2a6efea7d6da75790754cf1e41500cf2_140770709637752187.png\",\"is_followed\":false,\"desc\":\"官方认证：崩坏：星穹铁道官方账号\"},{\"uid\":\"80823548\",\"avatar\":\"https://bbs-static.miyoushe.com/static/2024/03/19/b609f0146839ea392b9f295a06102aca_2193512808902678558.png\",\"nickname\":\"星穹米游姬\",\"iden_icon\":\"https://webstatic.mihoyo.com/upload/static-resource/2023/04/11/2a6efea7d6da75790754cf1e41500cf2_140770709637752187.png\",\"is_followed\":false,\"desc\":\"官方认证：米游社大BOSS\"},{\"uid\":\"378227966\",\"avatar\":\"https://upload-bbs.miyoushe.com/upload/2026/06/01/378227966/f0c62e596eb8101cb38c58905d0fcdca_7894226211925457546.png\",\"nickname\":\"云星穹铁道\",\"iden_icon\":\"https://webstatic.mihoyo.com/upload/static-resource/2023/04/11/2a6efea7d6da75790754cf1e41500cf2_140770709637752187.png\",\"is_followed\":false,\"desc\":\"官方认证：云·星穹铁道官方账号\"},{\"uid\":\"288909601\",\"avatar\":\"https://upload-bbs.miyoushe.com/upload/2026/05/06/288909601/e9830582eee8aa1539366180a4aabe06_5931476805719624236.jpg\",\"nickname\":\"呜呜是个呜呜伯\",\"iden_icon\":\"https://webstatic.mihoyo.com/upload/static-resource/2023/04/11/2a6efea7d6da75790754cf1e41500cf2_140770709637752187.png\",\"is_followed\":false,\"desc\":\"官方认证：星穹铁道小呜呜\"},{\"uid\":\"288909605\",\"avatar\":\"https://bbs-static.miyoushe.com/communityweb/upload/191f5fa44e2815c538f1036330e4093d.png\",\"nickname\":\"开拓记录员\",\"iden_icon\":\"https://webstatic.mihoyo.com/upload/static-resource/2023/04/11/2a6efea7d6da75790754cf1e41500cf2_140770709637752187.png\",\"is_followed\":false,\"desc\":\"官方认证：开拓者笔记 记录员\"}],\"tools\":[{\"img\":\"https://webstatic.mihoyo.com/upload/op-public/2023/07/03/ef35d73eea870358d29adcb9d4d60c00_4804988988781995002.png\",\"config\":{\"host\":\"mihoyo\",\"type\":\"h5\",\"args\":{\"url\":\"https://bbs.mihoyo.com/sr/wiki/?bbs_presentation_style=no_header&utm_source=H5&utm_medium=mys&utm_campaign=live\"}},\"desc\":\"百科\"},{\"img\":\"https://webstatic.mihoyo.com/upload/op-public/2023/07/03/46b00ea00950105bc9fb0af4b7ef5803_5586877957802637418.png\",\"config\":{\"host\":\"mihoyo\",\"type\":\"h5\",\"args\":{\"url\":\"https://webstatic.mihoyo.com/sr/app/interactive-map/index.html?lang=zh-cn&bbs_presentation_style=no_header&utm_source=H5&utm_medium=mys&utm_campaign=live\"}},\"desc\":\"地图\"},{\"img\":\"https://webstatic.mihoyo.com/upload/op-public/2023/07/03/e8a63ed62b15d16b70ceefea3f7e5004_5944582008842264860.png\",\"config\":{\"host\":\"mihoyo\",\"type\":\"h5\",\"args\":{\"url\":\"https://webstatic.mihoyo.com/bbs/event/signin/hkrpg/index.html?bbs_auth_required=true&act_id=e202304121516551&bbs_auth_required=true&bbs_presentation_style=fullscreen&utm_source=H5&utm_medium=mys&utm_campaign=live\"}},\"desc\":\"签到福利\"},{\"img\":\"https://webstatic.mihoyo.com/upload/op-public/2023/07/03/ade9545750299456a3fcbc8c3b63521d_2641794556669053308.png\",\"config\":{\"host\":\"mihoyo\",\"type\":\"h5\",\"args\":{\"url\":\"https://webstatic.mihoyo.com/app/community-game-records/rpg/index.html?mhy_presentation_style=fullscreen&game_id=6&utm_source=H5&utm_medium=mys&utm_campaign=live\"}},\"desc\":\"战绩\"}],\"articles\":[{\"img\":\"https://upload-bbs.miyoushe.com/upload/2026/10/26/288909600/9ec1953a646b0aee13c9640fc0a11cb5_9088440327463601356.jpg\",\"config\":{\"host\":\"mihoyo\",\"type\":\"article\",\"args\":{\"post_id\":79145722,\"game_id\":6}},\"title\":\"【转发抽奖】4.7「此刻，将群星付之一笑」前瞻特别节目预告\"},{\"img\":\"https://upload-bbs.miyoushe.com/upload/2026/10/23/288909600/d221c7bfef744a9d42e741a0cf85129f_8257191444714521008.png\",\"config\":{\"host\":\"mihoyo\",\"type\":\"article\",\"args\":{\"post_id\":79121531,\"game_id\":6}},\"title\":\"诚邀您参加「货币战争」年度颁奖典礼 | 趣味数据回顾\"},{\"img\":\"https://upload-bbs.miyoushe.com/upload/2026/10/22/288909600/891bc6e625673ed71e42b1df65894383_4108916155850494123.png\",\"config\":{\"host\":\"mihoyo\",\"type\":\"article\",\"args\":{\"post_id\":79077739,\"game_id\":6}},\"title\":\"幻月游戏赛季复盘 | 列车组通关日志\"},{\"img\":\"https://upload-bbs.miyoushe.com/upload/2026/10/26/288909600/5659ead751fa04e1c4a18d0c93b370b8_3300897501777361282.jpg\",\"config\":{\"host\":\"mihoyo\",\"type\":\"article\",\"args\":{\"post_id\":79141082,\"game_id\":6}},\"title\":\"「乐子神智取米哈游」第六话 | 撤离\"}],\"bannerList\":[{\"img\":\"https://act-webstatic.mihoyo.com/event-static/2026/10/26/69fca891e2818c6f1f29948dc67abd41_515432308531823048.jpg\",\"config\":{\"host\":\"mihoyo\",\"type\":\"h5\",\"args\":{\"url\":\"https://www.douyu.com/11474717?dyshid=0-4dcad80633112c67a29d329200011701\"}}}],\"banner2List\":[],\"banner3List\":[{\"img\":\"https://act-webstatic.mihoyo.com/event-static/2026/10/27/3243674ccb590d111b778386d697d79b_7750556734621002807.png\",\"config\":{\"host\":\"mihoyo\",\"type\":\"h5\",\"args\":{\"url\":\"https://autopatchcn.bhsr.com/client/cn/20260402221308_QgCwVxgrIrGZyMhC/mys_PC/StarRail_setup_1.15.2.exe\"}}}],\"banner4List\":[{\"img\":\"https://act-webstatic.mihoyo.com/event-static/2026/10/26/7f674aaad9748800be05ea1d3e7cb346_4667238520244908424.jpg\",\"config\":{\"host\":\"mihoyo\",\"type\":\"h5\",\"args\":{\"url\":\"https://www.douyu.com/11474717?dyshid=0-4dcad80633112c67a29d329200011701\"}}}],\"banner5List\":[],\"actTitle\":\"《崩坏：星穹铁道》4.7版本前瞻特别节目\",\"commentAppId\":\"8\",\"commentPowerAppId\":\"30\",\"commentStart\":\"2026-10-30T11:15:00.000Z\",\"codeTipText\":\"兑换码存在有效期，请及时兑换~\",\"shareDescription\":\"更多崩坏：星穹铁道官方资讯、专属工具、攻略内容尽在米游社\",\"shareTitle\":\"米游社《崩坏：星穹铁道》版本前瞻特别节目\",\"codeEmptyTipText\":\"兑换码尚未发放，请耐心等待\",\"codeVisible\":true,\"shareImage\":\"https://webstatic.mihoyo.com/upload/op-public/2023/07/01/a261219a9266251f80dde227609c6ba0_2677542043229505673.png\",\"var_act_bg_color\":\"#220605\",\"commentEnd\":\"2026-10-30 20:30:00\",\"commentEntityKey\":\"sr20250328\",\"appTitle\":\"《崩坏：星穹铁道》4.7版本前瞻特别节目\",\"appAttach\":\"https://act-webstatic.mihoyo.com/event-static/2026/10/26/e40b5f33940713b7f504de75ffa12d6f_406391403596685907.jpg\",\"kvApp\":\"https://act-webstatic.mihoyo.com/event-static/2026/10/26/bdd79afcd1136f765fa621652c3d2085_5794262266576426132.jpg\",\"var_btn_bg_color\":\"#EC69FF\",\"var_comment_primary_bg_color\":\"#5850AE\",\"moduleTop\":\"https://act-webstatic.mihoyo.com/event-static/2026/10/26/3cb63d60a7927b2df2487d5c169b8ca8_4866289440754988762.png\",\"moduleMiddle\":\"https://act-webstatic.mihoyo.com/event-static/2026/10/26/6dd3be9df77f2cd2d36f779145ae10dc_108256255403347242.png\",\"moduleBottom\":\"https://act-webstatic.mihoyo.com/event-static/2026/10/26/ba847ac78a9a5c7118dd9d60cb77a877_3571850123351110958.png\",\"codeTitleApp\":\"https://act-webstatic.mihoyo.com/event-static/2026/10/26/2f8c310670db9f39e95f70382aa874c0_8524617958357577330.png\",\"codeEmptyApp\":\"https://webstatic.mihoyo.com/upload/op-public/2023/07/03/4f4380e7829bfd1c2ef36665435aaaef_4603002895388314703.png\",\"usersTitleApp\":\"https://act-webstatic.mihoyo.com/event-static/2026/10/26/86f97147a7f8dc93f9654812d94a188b_864072175901072555.png\",\"toolsTitleApp\":\"https://act-webstatic.mihoyo.com/event-static/2026/10/26/9af4fe6d77cbb8944ecac9a8ac7c661f_1596202370021459805.png\",\"articleTitleApp\":\"https://act-webstatic.mihoyo.com/event-static/2026/10/26/bb3247cbbe74973cd2e3c7e6415cf706_4108151642864797031.png\",\"kvDesktop\":\"https://act-webstatic.mihoyo.com/event-static/2026/10/26/4445683f28d6ae0be70a0682f63b699d_9092028181514086901.jpg\",\"codeTitleDesktop\":\"https://act-webstatic.mihoyo.com/event-static/2026/10/26/5af5a3dc8030f578ed6641aedb4dfc2d_2689465260517143077.png\",\"codeEmptyDesktop\":\"https://webstatic.mihoyo.com/upload/op-public/2023/07/03/4f4380e7829bfd1c2ef36665435aaaef_3089856221796015011.png\",\"usersTitleDesktop\":\"https://act-webstatic.mihoyo.com/event-static/2026/10/26/5dff5f46414749eab8045859ba1bf536_1134838057101298229.png\",\"articleTitleDesktop\":\"https://act-webstatic.mihoyo.com/event-static/2026/10/26/719f0b3bd4f111a683d8dcdcbc25c6f7_9086921572121397425.png\",\"moreArticleConfig\":{\"host\":\"mihoyo\",\"type\":\"forum\",\"args\":{\"game_id\":6,\"forum_id\":\"53\"}},\"moreToolConfig\":{\"host\":\"mihoyo\",\"type\":\"article\",\"args\":{\"post_id\":\"38434615\",\"game_id\":6}}}",
+      "game": "hkrpg",
+      "play_list": [],
+      "match": {
+        "title": "",
+        "match_id": "",
+        "template": "",
+        "stage": null,
+        "subscribe_all": false,
+        "type": "ActDefault",
+        "result_type": "MatchResultDefault"
+      },
+      "live_list": {
+        "total": 0,
+        "list": [],
+        "title": "",
+        "page_token": "0",
+        "list_id": ""
+      }
+    }
+  }
+}

@@ -6,6 +6,7 @@ import {
   nextKnownVersion,
   parseVersionAnchor,
   versionDerivationBasis,
+  versionTimeSelection,
 } from "./version-time";
 
 const tz = "UTC+08:00";
@@ -90,5 +91,30 @@ describe("A-P3-VERSION 确定性推导", () => {
     expect(deriveVersionTime("7.1版本更新后", { ...window71, updateStartMs: null }, tz)).toBeNull();
     expect(deriveVersionTime("7.1版本期间", window71, tz)).toBeNull();
     expect(deriveVersionTime("7.1版本更新后", undefined, tz)).toBeNull();
+  });
+});
+
+describe("A-F6-REDEEM 版本时间选择状态", () => {
+  it("没有记录、全部未选、部分已选、全部已选分别按确认值呈现；0 也不当成缺失", () => {
+    expect(versionTimeSelection(undefined)).toEqual({
+      updateStart: false,
+      versionEnd: false,
+      complete: false,
+      selectedCount: 0,
+    });
+    expect(versionTimeSelection({ updateStartMs: null, versionEndMs: null }).selectedCount).toBe(0);
+    expect(versionTimeSelection({ updateStartMs: 0, versionEndMs: null })).toEqual({
+      updateStart: true,
+      versionEnd: false,
+      complete: false,
+      selectedCount: 1,
+    });
+    expect(versionTimeSelection({ updateStartMs: null, versionEndMs: 1 }).complete).toBe(false);
+    expect(versionTimeSelection(window71)).toEqual({
+      updateStart: true,
+      versionEnd: true,
+      complete: true,
+      selectedCount: 2,
+    });
   });
 });

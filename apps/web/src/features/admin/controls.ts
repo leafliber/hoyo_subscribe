@@ -125,6 +125,7 @@ async function put(body: Record<string, unknown>): Promise<unknown> {
 }
 
 const root = document.getElementById("controls-panel");
+const redeemPage = root?.dataset.controlView === "redeem";
 const list = document.getElementById("controls-list");
 const status = document.getElementById("controls-status");
 const reasonSelect = document.getElementById("controls-reason") as HTMLSelectElement | null;
@@ -153,7 +154,8 @@ const CHECK_HOURS = `${REDEEM_STATUS_CHECK_HOURS.join("、")} 点`;
 /** 来源能抓什么：游戏内公告（ADR-0016 起不再有仅列表的来源）与直播兑换码（ADR-0030）。 */
 const SOURCE_DESCRIPTION: Record<string, string> = {
   "announcement-webview": "抓取公告列表（含图文资讯）与完整正文，版本公告、活动、卡池都从这里来。",
-  miyolive: `开启后全自动：每次轮询从米游社首页发现前瞻直播，读取官方直播页的兑换码——兑换码随即出现在首页「有效兑换码」条，取到兑换码时兑换码事件随本开关自动发布到日历，不经「自动发布」。官方直播页没写有效期时，可在下方照官方在别处发布的说明登记截止时间；没有截止时间的，直播收尾后每天 ${CHECK_HOURS}（北京时间）核对一次，官方不再列出即从首页收回。正常情况下不需要手动登记直播。`,
+  miyolive:
+    "开启后全自动：从米游社首页发现直播并读取官方兑换码，随来源开关发布到首页与日历。截止时间可照官方说明登记，手动登记直播仅作备用。",
 };
 
 /** 北京时间"YYYY-MM-DDTHH:MM:SS"，作 datetime-local 输入框的值。 */
@@ -176,7 +178,7 @@ function liveExpiry(live: TrackedLive): string {
   if (live.manual_expiry)
     return `截止时间：${live.manual_expiry.text}（管理员登记，${stamp(live.manual_expiry.updated_at)}）`;
   if (live.official_expiry) return `截止时间：${live.official_expiry.text}（官方兑换码说明）`;
-  return "截止时间：官方未写。可照官方在别处发布的说明登记。";
+  return "截止时间：尚未登记或识别。可照官方在别处发布的说明登记。";
 }
 
 /**
@@ -187,13 +189,27 @@ function trackedLive(row: ControlRow, live: TrackedLive): HTMLElement {
   const source = row.source ?? "";
   const liveKey = `expiry:${source}:${live.act_id}`;
   const codes = live.codes.length
-    ? `兑换码：${live.codes
-        .map(
-          (code) =>
-            `${code.code}（${stamp(code.revealed_at)} 发放${code.gone_at === null ? "" : `；${stamp(code.gone_at)} 起官方不再列出`}）`,
-        )
-        .join("、")}`
-    : "兑换码：还没有发放";
+    ? el(
+        "ul",
+        { class: "redeem-code-list", "aria-label": "已读取的兑换码" },
+        ...live.codes.map((code) =>
+          el(
+            "li",
+            {},
+            el("code", { translate: "no" }, code.code),
+            el(
+              "span",
+              { class: "field-hint" },
+              `${stamp(code.revealed_at)} 发放${code.gone_at === null ? "" : `；${stamp(code.gone_at)} 起官方不再列出`}`,
+            ),
+          ),
+        ),
+      )
+    : el(
+        "p",
+        { class: "control-desc" },
+        "尚未读到兑换码。空列表不能说明官方尚未发放，请结合读取状态核对。",
+      );
   const current = live.manual_expiry?.expires_at ?? live.official_expiry?.expires_at ?? null;
   const input = el("input", {
     type: "datetime-local",
@@ -245,11 +261,21 @@ function trackedLive(row: ControlRow, live: TrackedLive): HTMLElement {
       "p",
       { class: "control-live-title" },
       live.title ?? "（还没读到标题）",
+      el(
+        "span",
+        { class: `badge ${live.codes.length ? "badge--success" : "badge--warning"}` },
+        live.codes.length ? `已读到 ${live.codes.length} 个兑换码` : "尚未读到兑换码",
+      ),
       " ",
       el("code", {}, live.act_id),
     ),
-    el("p", { class: "control-desc" }, `发现于 ${stamp(live.first_seen_at)} · ${livePhase(live)}`),
-    el("p", { class: "control-desc" }, codes),
+    el(
+      "p",
+      { class: "control-desc" },
+      `发现于 ${stamp(live.first_seen_at)} · 上次成功读取：${stamp(live.checked_at)}`,
+    ),
+    el("p", { class: "control-desc" }, `上次记录：${livePhase(live)}`),
+    codes,
     el("p", { class: "control-desc" }, liveExpiry(live)),
     form,
     confirm,
@@ -342,6 +368,13 @@ function sourceState(row: ControlRow): HTMLElement {
       { class: "control-desc" },
       el("span", { class: "badge badge--warning" }, "需维护"),
       " 源站拒绝访问，抓取已暂停；确认对方恢复正常后再解除维护，仍受限时会自动重新进入维护。",
+    );
+  if (redeemPage && state.job_last_error === "source_incomplete")
+    return el(
+      "p",
+      { class: "callout callout--warning redeem-read-error", role: "status" },
+      "最近读取失败。下方保留上次成功读取的信息；尚未读到兑换码不代表官方未发放。",
+      ` 最近成功抓取：${stamp(state.last_success_at)}。`,
     );
   const success =
     state.last_success_at === null
@@ -437,7 +470,7 @@ function controlRow(row: ControlRow): HTMLElement {
       row.info ? (SOURCE_DESCRIPTION[row.info.adapter] ?? "") : meta.desc,
     ),
     row.info ? sourceState(row) : null,
-    liveTracking(row),
+    redeemPage ? liveTracking(row) : null,
     el(
       "p",
       { class: "control-key" },
@@ -461,7 +494,7 @@ function controlRow(row: ControlRow): HTMLElement {
   }
   return el(
     "div",
-    { class: "control-row" },
+    { class: redeemPage ? "control-row redeem-source" : "control-row" },
     el("div", { class: "control-main" }, text, actions),
     confirm,
   );
@@ -470,53 +503,55 @@ function controlRow(row: ControlRow): HTMLElement {
 function render(): void {
   if (!list) return;
   list.replaceChildren();
-  const groups: [string, ControlRow[]][] = [
-    ["安全与总闸", rows.filter((r) => ["read_only", "outbound_enabled"].includes(r.control))],
-    [
-      "用户功能",
-      rows.filter((r) =>
+  const groups: [string, ControlRow[]][] = redeemPage
+    ? [["按游戏管理", rows]]
+    : [
+        ["安全与总闸", rows.filter((r) => ["read_only", "outbound_enabled"].includes(r.control))],
         [
-          "registration_open",
-          "calendar_enabled",
-          "mail_sending_available",
-          "business_mail_enabled",
-          "email_seats_open",
-          "email_routine_enabled",
-        ].includes(r.control),
-      ),
-    ],
-    [
-      "数据管线",
-      rows.filter((r) =>
+          "用户功能",
+          rows.filter((r) =>
+            [
+              "registration_open",
+              "calendar_enabled",
+              "mail_sending_available",
+              "business_mail_enabled",
+              "email_seats_open",
+              "email_routine_enabled",
+            ].includes(r.control),
+          ),
+        ],
         [
-          "automatic_publication_enabled",
-          "model_enabled",
-          "review_skip_enabled",
-          "source_enabled",
-        ].includes(r.control),
-      ),
-    ],
-    [
-      "其他",
-      rows.filter(
-        (r) =>
-          ![
-            "read_only",
-            "outbound_enabled",
-            "registration_open",
-            "calendar_enabled",
-            "mail_sending_available",
-            "business_mail_enabled",
-            "email_seats_open",
-            "email_routine_enabled",
-            "automatic_publication_enabled",
-            "model_enabled",
-            "review_skip_enabled",
-            "source_enabled",
-          ].includes(r.control),
-      ),
-    ],
-  ];
+          "数据管线",
+          rows.filter((r) =>
+            [
+              "automatic_publication_enabled",
+              "model_enabled",
+              "review_skip_enabled",
+              "source_enabled",
+            ].includes(r.control),
+          ),
+        ],
+        [
+          "其他",
+          rows.filter(
+            (r) =>
+              ![
+                "read_only",
+                "outbound_enabled",
+                "registration_open",
+                "calendar_enabled",
+                "mail_sending_available",
+                "business_mail_enabled",
+                "email_seats_open",
+                "email_routine_enabled",
+                "automatic_publication_enabled",
+                "model_enabled",
+                "review_skip_enabled",
+                "source_enabled",
+              ].includes(r.control),
+          ),
+        ],
+      ];
   for (const [title, items] of groups) {
     if (!items.length) continue;
     list.append(el("div", { class: "control-group" }, el("h3", {}, title), items.map(controlRow)));
@@ -527,14 +562,16 @@ async function load(): Promise<void> {
   if (!status) return;
   try {
     const reply = await request<{ controls?: ControlRow[] }>("admin/controls");
-    rows = Array.isArray(reply.controls) ? reply.controls : [];
-    status.textContent = `已读取 ${rows.length} 个开关。每次修改都会写入审计记录。`;
+    rows = (Array.isArray(reply.controls) ? reply.controls : []).filter(
+      (row) => (row.info?.adapter === "miyolive") === redeemPage,
+    );
+    status.textContent = `已读取 ${rows.length} 个${redeemPage ? "兑换码来源" : "开关"}。每次修改都会写入审计记录。`;
   } catch (error) {
     rows = [];
     status.textContent =
       error instanceof AdminRequestError && error.status === 401
         ? "需要登录管理端。"
-        : "无法读取运行开关，请稍后重试。";
+        : `无法读取${redeemPage ? "兑换码" : "运行开关"}，请稍后重试。`;
   }
   render();
 }

@@ -1,4 +1,4 @@
-// 管理端「运行开关」页：登录态由 session.ts 管理；开关面板（controls.ts）在工作区出现后自行读取。
+// 管理端「运行开关」与「兑换码」页共用会话引导：登录态由 session.ts 管理；开关面板（controls.ts）在工作区出现后自行读取。
 import { request } from "./api";
 import { startAdminSession } from "./session";
 

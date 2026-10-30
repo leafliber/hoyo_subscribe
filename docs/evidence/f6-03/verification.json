@@ -1,0 +1,69 @@
+{
+  "date": "2026-10-31",
+  "timezone": "Asia/Shanghai",
+  "base": "d1d2c99",
+  "scope": "F6-03",
+  "production_mutations": false,
+  "install": {
+    "command": "pnpm install --frozen-lockfile --offline",
+    "first_attempt": "EPERM: managed worktree was outside sandbox writable roots",
+    "authorized_retry_exit_code": 0
+  },
+  "red_regression": {
+    "command": "CI=1 WRANGLER_SEND_METRICS=false WRANGLER_HIDE_BANNER=true WRANGLER_LOG_PATH=/private/tmp/f6-03-wrangler.log pnpm --filter @hoyo/worker test src/sources/adapters/miyolive.test.ts src/executors/pipeline/live-pipeline.test.ts -t A-F6-REDEEM",
+    "exit_code": 1,
+    "failed": 2,
+    "skipped_by_name_filter": 29,
+    "reason": "Existing ASCII validation rejects real Chinese codes; rows remain empty"
+  },
+  "targeted_worker": {
+    "passed": 40,
+    "exit_code": 0
+  },
+  "targeted_contracts": {
+    "passed": 65,
+    "exit_code": 0
+  },
+  "lint": {
+    "files": 650,
+    "exit_code": 0
+  },
+  "typecheck": {
+    "exit_code": 0
+  },
+  "params_verify": {
+    "passed": 40,
+    "failed": 0,
+    "exit_code": 0
+  },
+  "migrate_check": {
+    "migrations": 31,
+    "tests_passed": 15,
+    "exit_code": 0
+  },
+  "test": {
+    "contracts_passed": 403,
+    "worker_passed": 1346,
+    "exit_code": 0,
+    "note": "Existing migration-0030 negative test emits a FOREIGN KEY rollback diagnostic; expected assertion passes."
+  },
+  "build": {
+    "static_pages": 12,
+    "worker": "wrangler deploy --dry-run only",
+    "exit_code": 0
+  },
+  "admin_e2e": {
+    "passed": 76,
+    "exit_code": 0,
+    "viewport": ["desktop-chromium", "mobile-chromium"]
+  },
+  "e2e": {
+    "passed": 1071,
+    "skipped": 5,
+    "failed": 0,
+    "exit_code": 0,
+    "duration": "2.2m",
+    "skip_reason": "Existing project-conditional a11y tests: desktop skips 2 mobile-layout cases; mobile skips 3 browser-independent token/color cases."
+  },
+  "evidence_note": "Screenshots use intercepted synthetic admin API responses. Official source fixtures were captured with unauthenticated read-only requests on 2026-10-30 and replayed offline; no new live fetch or live delivery during implementation."
+}
